@@ -1,0 +1,49 @@
+name: Bug report
+description: Create a report to help us improve
+labels: [bug]
+body:
+  - type: textarea
+    id: describe-the-bug
+    attributes:
+      label: Describe the bug
+      description: |
+        A clear and concise description of what the bug is.
+      placeholder: |
+        When I do `A` Profiler/Profiler Agent does `B`. I expect it to do `C`.
+    validations:
+      required: true
+  - type: textarea
+    id: to-reproduce
+    attributes:
+      label: To Reproduce
+      description: |
+        Steps to reproduce the behavior.
+        If reproducing an issue requires some specific configuration file, please paste it here.
+      placeholder: |
+        Steps to reproduce the behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: Version
+      description: |
+        Check the `version.txt` file inside the profiler agent directory.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Check if any warnings or errors were logged by Profiler
+    validations:
+      required: false
+  - type: textarea
+    id: additional-info
+    attributes:
+      label: Additional information
+      placeholder: |
+        Additional information that doesn't fit elsewhere
+    validations:
+      required: false
