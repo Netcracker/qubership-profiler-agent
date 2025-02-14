@@ -49,7 +49,9 @@ HTTP clients:
 * [HTTP](plugins/http)
 * [Java HTTP Client](plugins/java_http_client)
 * [Tomcat <= 9.x](plugins/tomcat_http)
-* [Tomcat >= 10.x](plugins/tomcat_http10)
+* [Tomcat >= 10.x](plugins/tomcat10_http)
+* [Undertow < 2.3](plugins/undertow_http)
+* [Undertow >= 2.3](plugins/undertow23_http)
 
 Java Frameworks:
 
