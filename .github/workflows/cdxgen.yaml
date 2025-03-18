@@ -1,0 +1,36 @@
+---
+
+# The workflow will generate the SBOM file for the repository
+# and vulerability scan report for the SBOM file using CycloneDX
+# The workflow will run on push to main branch and manually triggered workflows
+# The results will be stored in the action artifacts
+
+name: 'CDXGen'
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'main'
+
+jobs:
+  cdxgen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "cdxgen"
+        uses: netcracker/qubership-workflow-hub/actions/cdxgen@main
+  deploy-pages:
+    permissions:
+      id-token: write
+      pages: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: cdxgen
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: "Summary"
+        run: |
+          echo "${{ steps.deployment.outputs.page_url }}cyclondx-report" >> $GITHUB_STEP_SUMMARY
