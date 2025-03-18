@@ -44,3 +44,4 @@ version-resolver:
     labels:
       - patch
   default: patch
+  
