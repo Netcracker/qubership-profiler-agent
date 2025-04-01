@@ -13,9 +13,11 @@ name: Lint Code Base
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - '**'
   pull_request:
-    branches: ["main"]
+    branches:
+      - '**'
   workflow_dispatch:
     inputs:
       full_scan:
@@ -48,5 +50,4 @@ jobs:
         uses: super-linter/super-linter@v7
         env:
           VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
-          DEFAULT_BRANCH: "main"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
