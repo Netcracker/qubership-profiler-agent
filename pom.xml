@@ -69,7 +69,7 @@
 
         <!-- Their dependencies shouldn't increase to the next major versions, to keep compatibility with JDK 1.7 -->
         <jackson.databind.version>2.13.5</jackson.databind.version>
-        <jackson.version>2.13.5</jackson.version>
+        <jackson.version>2.18.3</jackson.version>
         <javax.annotation.version>1.2</javax.annotation.version>
     </properties>
 
