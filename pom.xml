@@ -49,7 +49,7 @@
         <commons.lang.version>2.6</commons.lang.version>
         <commons.lang3.version>3.12.0</commons.lang3.version>
         <commons.collections4.version>4.4</commons.collections4.version>
-        <guava.version>32.0.1-jre</guava.version>
+        <guava.version>33.4.7-jre</guava.version>
         <jmockit.version>1.49</jmockit.version>
         <js.moment-timezone.version>0.5.43</js.moment-timezone.version>
         <log4j.version>1.2.17</log4j.version>
