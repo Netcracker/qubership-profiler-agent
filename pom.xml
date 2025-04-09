@@ -61,7 +61,7 @@
         <shade.plugin.version>3.2.1</shade.plugin.version>
         <slf4j.version>1.7.36</slf4j.version>
         <snakeyaml.version>2.0</snakeyaml.version>
-        <spring.boot.version>2.7.14</spring.boot.version>
+        <spring.boot.version>3.4.4</spring.boot.version>
         <spring.security.boot.version>2.6.8</spring.security.boot.version>
         <springdoc.openapi>1.7.0</springdoc.openapi>
         <tomcat.version>9.0.50</tomcat.version>
