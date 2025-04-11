@@ -16,9 +16,8 @@
         <module>cli</module>
         <module>common</module>
         <module>parsers</module>
+        <module>dist</module>
         <module>dumper</module>
-<!--        <module>extended-access-log</module>-->
-<!--        <module>installer</module>-->
         <module>instrumenter</module>
         <module>plugin</module>
         <module>plugins</module>
