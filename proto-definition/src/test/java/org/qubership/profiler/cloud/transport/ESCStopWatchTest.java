@@ -1,8 +1,10 @@
 package org.qubership.profiler.cloud.transport;
 
-import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
+import org.testng.annotations.Test;
+
+import static org.testng.Assert.assertEquals;
+
 
 public class ESCStopWatchTest {
     long ONE = 1000000L;
@@ -25,7 +27,7 @@ public class ESCStopWatchTest {
         timeMock[0] += ONE;
         pig.stop();
 
-        assertEquals(ONE, pig.getAndReset());
+        assertEquals(pig.getAndReset(), ONE);
 
         pig.start();
         timeMock[0] += ONE;
@@ -35,11 +37,10 @@ public class ESCStopWatchTest {
         timeMock[0] += THREE;
         pig.stop();
 
-        assertEquals(ONE+THREE, pig.getAndReset());
+        assertEquals(pig.getAndReset(), ONE+THREE);
 
         pig.start();
         timeMock[0] += FIVE;
-        assertEquals(FIVE, pig.getAndReset());
-
+        assertEquals(pig.getAndReset(), FIVE);
     }
 }

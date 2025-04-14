@@ -12,6 +12,8 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 
 public class ChangeStructureTest extends InitTransformers {
     ChangeStructurePig pig = new ChangeStructurePig();
@@ -26,10 +28,11 @@ public class ChangeStructureTest extends InitTransformers {
     }
 
     @Test
-    public void staticMethod() {
+    public void staticMethod() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
         final int x = Randomizer.rnd.nextInt();
         final int y = Randomizer.rnd.nextInt();
-        int result = ReflectionTestUtils.invokeMethod(ChangeStructurePig.class, "addedStaticMethod$profiler", x, y);
+        Method add = ChangeStructurePig.class.getMethod("addedStaticMethod$profiler", int.class, int.class);
+        int result = (int) add.invoke(null, x, y);
         Assert.assertEquals(result, x + y);
     }
 

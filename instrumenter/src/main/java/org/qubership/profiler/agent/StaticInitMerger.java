@@ -63,7 +63,7 @@ public class StaticInitMerger extends ClassVisitor {
                 String n = prefix + counter++;
                 mv = cv.visitMethod(a, n, desc, signature, exceptions);
                 log.info("Adding method {} to class {} with code of {}", new Object[]{n, className, name});
-                mergedClinit.visitMethodInsn(Opcodes.INVOKESTATIC, className, n, desc);
+                mergedClinit.visitMethodInsn(Opcodes.INVOKESTATIC, className, n, desc, false);
             }
         }
         return mv;

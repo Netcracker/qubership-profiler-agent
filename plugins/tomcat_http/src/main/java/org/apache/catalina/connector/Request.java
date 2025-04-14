@@ -87,6 +87,7 @@ public class Request implements HttpServletRequest {
     public native boolean isRequestedSessionIdFromURL();
 
     //@Override
+    @SuppressWarnings("deprecation")
     public native boolean isRequestedSessionIdFromUrl();
 
     //@Override
@@ -183,6 +184,7 @@ public class Request implements HttpServletRequest {
     public native RequestDispatcher getRequestDispatcher(String s);
 
     //@Override
+    @SuppressWarnings("deprecation")
     public native String getRealPath(String s);
 
     //@Override

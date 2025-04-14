@@ -76,16 +76,4 @@ public class InstrumentationImplForJava14 implements Instrumentation {
     public void setNativeMethodPrefix(ClassFileTransformer transformer, String prefix) {
         throw new IllegalStateException("Not implemented");
     }
-
-    //compilation errors are actually okay. If you build it with JDK11 and source level 1.7, it builds
-    //and it doesn't build when you build it without these 2 methods
-    @Override
-    public void redefineModule(Module module, Set<Module> extraReads, Map<String, Set<Module>> extraExports, Map<String, Set<Module>> extraOpens, Set<Class<?>> extraUses, Map<Class<?>, List<Class<?>>> extraProvides) {
-
-    }
-
-    @Override
-    public boolean isModifiableModule(Module module) {
-        return false;
-    }
 }

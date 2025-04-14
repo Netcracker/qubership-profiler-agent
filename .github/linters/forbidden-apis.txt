@@ -1,0 +1,5 @@
+@defaultMessage Use String#toLowerCase(Locale) to pass locale explicitly. For instance: .toLowerCase(Locale.ROOT)
+java.lang.String#toLowerCase()
+
+@defaultMessage Use String#toUpperCase(Locale) to pass locale explicitly. For instance: .toUpperCase(Locale.ROOT)
+java.lang.String#toUpperCase()

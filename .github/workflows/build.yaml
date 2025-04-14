@@ -31,23 +31,18 @@ jobs:
           distribution: zulu
           java-version: 17
           server-id: central
-          server-username: CENTRAL_PORTAL_USERNAME
-          server-password: CENTRAL_PORTAL_PASSWORD
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
       - name: Test
-        run: mvn --batch-mode install
+        uses: burrunan/gradle-cache-action@v1
+        with:
+          multi-cache-enabled: false
+          arguments: --scan --no-parallel build
       - name: Publish snapshots
+        uses: burrunan/gradle-cache-action@v1
         if: ${{ env.CENTRAL_PORTAL_USERNAME != '' }}
-        run: mvn --batch-mode deploy
+        with:
+          arguments: publishAllPublicationsToCentralSnapshotsRepository
+          properties: |
+            centralSnapshotsUsername=${{ secrets.MAVEN_USER }}
+            centralSnapshotsPassword=${{ secrets.MAVEN_PASSWORD }}
         env:
-          CENTRAL_PORTAL_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

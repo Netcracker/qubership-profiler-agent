@@ -3,11 +3,11 @@ package org.qubership.profiler.test.instrument;
 import org.qubership.profiler.configuration.Rule;
 import org.qubership.profiler.instrument.ProfileMethodAdapter;
 import org.qubership.profiler.instrument.TypeUtils;
-import org.junit.Test;
 import org.objectweb.asm.*;
 import org.objectweb.asm.util.ASMifier;
 import org.objectweb.asm.util.CheckClassAdapter;
 import org.objectweb.asm.util.TraceClassVisitor;
+import org.testng.annotations.Test;
 
 import java.io.PrintWriter;
 

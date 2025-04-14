@@ -1,0 +1,145 @@
+<?xml version="1.0"?>
+
+<!DOCTYPE module PUBLIC
+    "-//Puppy Crawl//DTD Check Configuration 1.3//EN"
+    "http://checkstyle.sourceforge.net/dtds/configuration_1_3.dtd">
+
+<module name="Checker">
+
+  <property name="cacheFile" value="${config_loc}/${cache_file}"/>
+
+  <property name="localeLanguage" value="en"/>
+  <property name="charset" value="UTF-8"/>
+  <property name="severity" value="error"/>
+  <property name="fileExtensions"
+            value="java, groovy, xml, xsd, dtd, htm, html, txt, properties"/>
+
+  <!-- Miscellaneous -->
+  <module name="FileTabCharacter">
+    <!-- No tabs allowed! -->
+    <property name="fileExtensions" value="java, kt, kts, groovy, xml, xsd, dtd, htm, html, txt, properties"/>
+  </module>
+  <module name="NewlineAtEndOfFile"/>
+  <module name="RegexpSingleline">
+    <property name="message" value="Trailing whitespace"/>
+    <property name="format" value="\s$"/>
+  </module>
+<!--  <module name="RegexpMultiline">-->
+<!--    &lt;!&ndash; No more than 2 blank lines allowed. &ndash;&gt;-->
+<!--    <property name="format" value="\r?\n[\t ]*\r?\n[\t ]*\r?\n[\t ]*\r?\n"/>-->
+<!--    <property name="fileExtensions" value="java, kt, kts, groovy, xml, properties"/>-->
+<!--    <property name="message" value="Unnecessary consecutive lines"/>-->
+<!--  </module>-->
+  <module name="RegexpOnFilename">
+    <property name="folderPattern" value="[\\/]src[\\/]\w+[\\/]java[\\/]"/>
+    <property name="fileNamePattern" value="\.java$"/>
+    <property name="match" value="false"/>
+    <message key="regexp.filepath.mismatch" value="Only java files should be located in the ''src/*/java'' folders."/>
+  </module>
+  <module name="UniqueProperties">
+    <property name="fileExtensions" value="properties"/>
+  </module>
+
+  <!-- Size Violations -->
+  <module name="FileLength">
+    <property name="fileExtensions" value="java, kt, kts, groovy"/>
+  </module>
+
+  <module name="LineLength">
+    <property name="max" value="750"/>
+    <property name="fileExtensions" value="java, kt, kts, groovy"/>
+  </module>
+
+  <module name="TreeWalker">
+    <module name="MissingOverride"/>
+
+    <!-- Block checks -->
+<!--    <module name="AvoidNestedBlocks"/>-->
+<!--    <module name="EmptyBlock"/>-->
+<!--    <module name="EmptyCatchBlock">-->
+<!--      <property name="exceptionVariableName" value="expected|ignore"/>-->
+<!--    </module>-->
+<!--    <module name="NeedBraces"/>-->
+
+<!--    <module name="InterfaceIsType"/>-->
+    <module name="MutableException"/>
+<!--    <module name="OneTopLevelClass"/>-->
+    <module name="ThrowsCount">
+      <property name="max" value="10"/>
+      <property name="ignorePrivateMethods" value="false"/>
+    </module>
+
+    <!-- Coding -->
+    <module name="CovariantEquals"/>
+    <!-- Require hash code override when equals is -->
+<!--    <module name="EqualsHashCode"/>-->
+    <module name="IllegalInstantiation">
+      <property name="classes" value="java.lang.Boolean"/>
+    </module>
+<!--    <module name="IllegalThrows"/>-->
+<!--    <module name="ModifiedControlVariable"/>-->
+<!--    <module name="MultipleVariableDeclarations"/>-->
+    <module name="NestedForDepth">
+      <property name="max" value="3"/>
+    </module>
+    <module name="NestedIfDepth">
+      <!-- TODO: reduce this number -->
+      <property name="max" value="4"/>
+    </module>
+    <module name="NestedTryDepth">
+      <property name="max" value="2"/>
+    </module>
+<!--    <module name="OneStatementPerLine"/>-->
+    <!--<module name="ParameterAssignment"/>-->
+    <module name="ReturnCount">
+      <!-- TODO: reduce these numbers -->
+      <property name="max" value="30" />
+      <property name="maxForVoid" value="30"/>
+    </module>
+<!--    <module name="SimplifyBooleanExpression"/>-->
+    <module name="SimplifyBooleanReturn"/>
+    <module name="StringLiteralEquality"/>
+    <module name="SuperFinalize"/>
+<!--    <module name="UnnecessaryParentheses"/>-->
+
+    <!-- Imports -->
+<!--    <module name="AvoidStarImport">-->
+<!--      <property name="allowClassImports" value="false"/>-->
+<!--      <property name="allowStaticMemberImports" value="false"/>-->
+<!--    </module>-->
+    <module name="RedundantImport"/>
+
+    <!-- Misc -->
+<!--    <module name="ArrayTypeStyle"/>-->
+<!--    <module name="AvoidEscapedUnicodeCharacters"/>-->
+    <module name="OuterTypeFilename"/>
+<!--    <module name="UpperEll"/>-->
+
+    <!-- size -->
+    <module name="AnonInnerLength">
+      <property name="max" value="100"/>
+    </module>
+
+    <!-- whitespace -->
+    <module name="EmptyForInitializerPad"/>
+<!--    <module name="EmptyForIteratorPad"/>-->
+<!--    <module name="MethodParamPad"/>-->
+    <module name="NoLineWrap"/>
+    <module name="TypecastParenPad"/>
+
+    <!--
+    Allow comment to suppress checkstyle for a single line
+    e.g. // CHECKSTYLE IGNORE MagicNumber
+    -->
+    <module name="SuppressWithNearbyCommentFilter">
+      <property name="commentFormat" value="CHECKSTYLE IGNORE (\w+)"/>
+      <property name="checkFormat" value="$1"/>
+    </module>
+  </module>
+
+  <module name="SuppressionFilter">
+    <!-- config_loc is used by Eclipse plugin -->
+    <property name="file" value="${config_loc}/checkstyle-suppressions.xml"/>
+  </module>
+
+</module>

@@ -48,7 +48,7 @@ public class HotspotToJson implements JsonSerializer<Hotspot> {
     protected JsonGenerator createSubSerializer(Writer out) throws IOException {
         if (jsonFactory == null)
             jsonFactory = new JsonFactory();
-        return jsonFactory.createJsonGenerator(out);
+        return jsonFactory.createGenerator(out);
     }
 
     private int walk(Hotspot out, JsonGenerator gen) throws IOException {

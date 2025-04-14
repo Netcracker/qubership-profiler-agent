@@ -4,15 +4,12 @@ import org.qubership.profiler.agent.Configuration_01;
 import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.agent.PropertyFacadeBoot;
 import org.qubership.profiler.util.NaturalComparator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.w3c.dom.Element;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class EnhancerPlugin_ant extends EnhancerPlugin {
-    private static final Logger log = LoggerFactory.getLogger(EnhancerPlugin_ant.class);
     private static final String JAR_MANIFEST_ENTRY_NAME = "org/apache/tools/ant/";
 
     @Override

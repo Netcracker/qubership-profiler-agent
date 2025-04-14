@@ -906,6 +906,8 @@ public class ConfigurationImpl implements ConfigurationSPI {
         return true;
     }
 
+    @Override
+    @SuppressWarnings("deprecation")
     public void setParamType(String eventName, int paramType) {
         ParameterInfo info = getParameterInfo(eventName);
         if (paramType != -1)
@@ -1374,6 +1376,8 @@ public class ConfigurationImpl implements ConfigurationSPI {
         return storeTransformedClassesPath;
     }
 
+    @Override
+    @SuppressWarnings("deprecation")
     public Map<String, Integer> getParamTypes() {
         return Collections.emptyMap();
     }
