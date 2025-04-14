@@ -16,40 +16,25 @@
         <module>apache_felix</module>
         <module>ant</module>
         <module>brave</module>
-        <module>bso</module>
-<!-- TODO: OSS -->
-<!--        <module>cbtui</module>-->
-<!--        <module>connectionmanager</module>-->
         <module>cassandra</module>
         <module>cassandra4</module>
         <module>elasticsearch</module>
-<!--        <module>dataflow</module>-->
-<!--        <module>dataflow_8248</module>-->
         <module>equinox</module>
         <module>jaeger</module>
         <module>hornetq</module>
         <module>http</module>
         <module>jackson</module>
-        <module>kernel_dds</module>
-        <module>kernel_security</module>
         <module>liferay</module>
         <module>log4j_enhancer</module>
-<!--        <module>orchestrator</module>-->
         <module>postgresql</module>
         <module>rabbitmq</module>
-<!--        <module>quotationengine</module>-->
         <module>tracing</module>
         <module>springrest</module>
         <module>spring</module>
-<!--        <module>telecom_business_api</module>-->
-<!--        <module>tbi</module>-->
         <module>test</module>
         <module>quartz</module>
-<!--        <module>workflow</module>-->
         <module>rhino</module>
-<!--        <module>dataflow_8248a</module>-->
         <module>java_http_client</module>
-<!--        <module>ncdo</module>-->
         <module>mysql</module>
         <module>ocelot</module>
         <module>ant_1102</module>

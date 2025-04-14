@@ -164,16 +164,6 @@
         </dependency>
         <dependency>
             <groupId>org.qubership.execution-statistics-collector.plugin</groupId>
-            <artifactId>kernel_dds</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.qubership.execution-statistics-collector.plugin</groupId>
-            <artifactId>kernel_security</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.qubership.execution-statistics-collector.plugin</groupId>
             <artifactId>liferay</artifactId>
             <version>${project.version}</version>
         </dependency>
