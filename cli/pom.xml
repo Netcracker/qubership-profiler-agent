@@ -6,7 +6,7 @@
     <parent>
         <artifactId>profiler-parent</artifactId>
         <groupId>org.qubership.execution-statistics-collector</groupId>
-        <version>9.3.2.70</version>
+        <version>1.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>cli</artifactId>

@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.qubership.execution-statistics-collector</groupId>
         <artifactId>profiler-parent</artifactId>
-        <version>9.3.2.70</version>
+        <version>1.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>profiler</artifactId>
@@ -360,8 +360,8 @@
                         <configuration>
                             <name>version.for.osgi</name>
                             <value>${project.version}</value>
-                            <regex>^[0-9]+\.[0-9]+\.([0-9]+\.[0-9]+)(\.[0-9]+(?:\.[0-9a-zA-Z+-]+)?)?</regex>
-                            <replacement>$1$2</replacement>
+                            <regex>^([0-9]+\.[0-9]+\.[0-9]+)(?:-SNAPSHOT)?</regex>
+                            <replacement>$1</replacement>
                             <failIfNoMatch>true</failIfNoMatch>
                         </configuration>
                     </execution>
