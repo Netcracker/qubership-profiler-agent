@@ -74,6 +74,26 @@
         <javax.annotation.version>1.2</javax.annotation.version>
     </properties>
 
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <name>Netcracker</name>
+            <email>opensourcegroup@netcracker.com</email>
+            <organization>Netcracker Technology</organization>
+            <organizationUrl>https://www.netcracker.com</organizationUrl>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:git://github.com/Netcracker/qubership-profiler-agent.git</connection>
+        <developerConnection>scm:git:ssh://github.com:Netcracker/qubership-profiler-agent.git</developerConnection>
+        <url>https://github.com/Netcracker/qubership-profiler-agent/tree/main</url>
+    </scm>
+
     <profiles>
         <profile>
             <id>withTests</id>
@@ -451,6 +471,15 @@
         </pluginManagement>
 
         <plugins>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
