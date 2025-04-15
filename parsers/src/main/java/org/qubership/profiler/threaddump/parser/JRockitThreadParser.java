@@ -20,7 +20,7 @@ public class JRockitThreadParser implements ThreadFormatParser {
             threadinfo.daemon = s1 != null;
             threadinfo.priority = matcher.group(3);
             threadinfo.threadID = matcher.group(2);
-            threadinfo.state = matcher.group(4);
+            threadinfo.state = matcher.group(4).trim();
         } else {
             log.error("parseThread failed on: '" + s + "' using pattern '" + threadPattern + "'");
         }

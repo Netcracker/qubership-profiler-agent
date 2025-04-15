@@ -16,7 +16,7 @@ public class SunJMXThreadFormatParser implements ThreadFormatParser {
         Matcher matcher = threadPattern.matcher(s);
         if (matcher.lookingAt()) {
             threadinfo.name = matcher.group(1);
-            threadinfo.state = matcher.group(2);
+            threadinfo.state = matcher.group(2).trim();
         } else {
             log.error("parseThread failed on: '" + s + "' using pattern '" + threadPattern + "'");
         }
