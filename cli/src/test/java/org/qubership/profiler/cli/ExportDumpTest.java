@@ -5,17 +5,43 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
 public class ExportDumpTest {
+    static File getDumpRoot() {
+        return uriToFile(ExportDumpTest.class.getResource("/execution-statistics-collector/dump/server1"))
+                .getParentFile().getParentFile();
+    }
+
+    static File uriToFile(URL url) {
+        if (!"file".equals(url.getProtocol())) {
+            return null;
+        }
+        URI uri;
+        try {
+            uri = url.toURI();
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Unable to convert URL " + url + " to URI", e);
+        }
+        if (uri.isOpaque()) {
+            // It is like file:test%20file.c++
+            // getSchemeSpecificPart would return "test file.c++"
+            return new File(uri.getSchemeSpecificPart());
+        }
+        // See https://stackoverflow.com/a/17870390/1261287
+        return Paths.get(uri).toFile();
+    }
 
     @Test
     public void dumpWalk() {
-        File testDirectory = new File("target", "test-classes");
-        Assert.assertTrue(testDirectory.isDirectory(), "test directory could not be found (expected 'target/test-classes')");
-        File dumpDirectory = new File(testDirectory, "execution-statistics-collector");
-        Assert.assertTrue(dumpDirectory.isDirectory(), "test dump directory not found (expected target/test-classes/execution-statistics-collector')");
+        File dumpDirectory = getDumpRoot();
+        File testDirectory = new File("build", "export-dump-test");
+        testDirectory.mkdirs();
         File outputFile = new File(testDirectory, "test_export.zip");
         if (outputFile.isFile()) {
             Assert.assertTrue(outputFile.delete(), "could not delete test export file - " + outputFile.getAbsolutePath());

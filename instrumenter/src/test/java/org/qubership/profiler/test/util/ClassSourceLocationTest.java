@@ -12,14 +12,14 @@ public class ClassSourceLocationTest {
     @Test
     public void classLoadedFromDirectory(){
         String path = TypeUtils.getJarName(getClass().getProtectionDomain());
-        Assert.assertEquals(path, "target/test-classes/");
+        Assert.assertEquals(path, "java/test/"); // build/java/test/
     }
 
     @Test
     public void classLoadedFromJar(){
         String path = TypeUtils.getJarName(THash.class.getProtectionDomain());
         Assert.assertTrue(path != null, "TypeUtils.getJarName(THash.class.getProtectionDomain()) should not be null");
-        Assert.assertTrue(path.matches("trove4j/[^/]+/trove4j.*.jar"), path + " does not match regex trove4j/[^/]+/trove4j.*.jar");
+        Assert.assertTrue(path.matches("[^/]+/[^/]+/trove4j.*.jar"), path + " does not match regex [^/]+/[^/]+/trove4j.*.jar");
     }
 
     @Test

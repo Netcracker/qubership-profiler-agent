@@ -11,10 +11,7 @@ import java.util.Map;
 public class ListServersTest {
     @Test
     public void listServers() {
-        File testDirectory = new File("target", "test-classes");
-        Assert.assertTrue(testDirectory.isDirectory(), "test directory could not be found (expected 'target/test-classes')");
-        File dumpDirectory = new File(testDirectory, "execution-statistics-collector");
-        Assert.assertTrue(dumpDirectory.isDirectory(), "test dump directory not found (expected target/test-classes/execution-statistics-collector')");
+        File dumpDirectory = ExportDumpTest.getDumpRoot();
 
         Map<String, Object> map = new HashMap<>();
         map.put("dump_root", dumpDirectory.getAbsolutePath());
