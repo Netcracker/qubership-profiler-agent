@@ -1,8 +1,6 @@
 package org.qubership.profiler.threaddump.parser;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class ThreaddumpParser {
     static final String SEP = "\\000";

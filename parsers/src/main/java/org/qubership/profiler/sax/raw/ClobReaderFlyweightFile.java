@@ -1,7 +1,6 @@
 package org.qubership.profiler.sax.raw;
 
 import org.qubership.profiler.dump.DataInputStreamEx;
-import org.qubership.profiler.sax.values.ClobValue;
 
 import java.io.File;
 import java.io.IOException;

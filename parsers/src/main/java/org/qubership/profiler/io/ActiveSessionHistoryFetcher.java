@@ -8,10 +8,9 @@ import org.qubership.profiler.dom.TagDictionary;
 import org.qubership.profiler.sax.values.StringValue;
 import org.qubership.profiler.util.ThrowableHelper;
 import org.qubership.profiler.util.TimeHelper;
+
 import org.slf4j.LoggerFactory;
 
-import javax.naming.InitialContext;
-import javax.sql.DataSource;
 import java.io.*;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -22,6 +21,9 @@ import java.sql.*;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
+
+import javax.naming.InitialContext;
+import javax.sql.DataSource;
 
 public class ActiveSessionHistoryFetcher {
     public static final org.slf4j.Logger log = LoggerFactory.getLogger(ActiveSessionHistoryFetcher.class);

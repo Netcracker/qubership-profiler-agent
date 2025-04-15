@@ -1,9 +1,9 @@
 package org.qubership.profiler.agent;
 
+import static org.qubership.profiler.agent.PropertyFacadeBoot.getPropertyOrEnvVariable;
+
 import java.util.Scanner;
 import java.util.logging.Level;
-
-import static org.qubership.profiler.agent.PropertyFacadeBoot.getPropertyOrEnvVariable;
 
 public class ServerNameResolverAgent {
     private static final ESCLogger logger = ESCLogger.getLogger(ServerNameResolverAgent.class.getName());

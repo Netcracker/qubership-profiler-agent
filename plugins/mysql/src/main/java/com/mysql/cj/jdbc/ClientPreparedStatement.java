@@ -1,9 +1,10 @@
 package com.mysql.cj.jdbc;
 
-import com.mysql.cj.PreparedQuery;
-import com.mysql.cj.Query;
 import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.agent.ProfilerData;
+
+import com.mysql.cj.PreparedQuery;
+import com.mysql.cj.Query;
 
 public class ClientPreparedStatement {
 

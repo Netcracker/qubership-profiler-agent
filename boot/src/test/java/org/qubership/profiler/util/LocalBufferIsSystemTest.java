@@ -4,6 +4,7 @@ import org.qubership.profiler.agent.LocalBuffer;
 import org.qubership.profiler.agent.LocalState;
 import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.agent.ProfilerData;
+
 import mockit.Mocked;
 import mockit.Tested;
 import org.testng.annotations.BeforeClass;

@@ -2,6 +2,7 @@ package org.qubership.profiler.test;
 
 import org.qubership.profiler.test.pigs.ExecuteMethodPig;
 import org.qubership.profiler.test.util.Randomizer;
+
 import mockit.FullVerifications;
 import mockit.Mocked;
 import mockit.VerificationsInOrder;

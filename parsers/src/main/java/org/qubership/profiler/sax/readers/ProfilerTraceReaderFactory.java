@@ -1,7 +1,7 @@
 package org.qubership.profiler.sax.readers;
 
 import org.qubership.profiler.sax.raw.RepositoryVisitor;
-import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 

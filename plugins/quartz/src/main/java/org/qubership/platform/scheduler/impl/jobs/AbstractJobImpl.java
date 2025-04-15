@@ -1,8 +1,9 @@
 package org.qubership.platform.scheduler.impl.jobs;
 
-import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.agent.CallInfo;
+import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.agent.StringUtils;
+
 import org.quartz.JobDataMap;
 import org.quartz.JobDetail;
 import org.quartz.JobExecutionContext;

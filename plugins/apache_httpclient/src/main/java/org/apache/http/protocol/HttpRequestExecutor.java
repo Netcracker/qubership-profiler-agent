@@ -1,6 +1,7 @@
 package org.apache.http.protocol;
 
 import org.qubership.profiler.agent.Profiler;
+
 import org.apache.http.HttpRequest;
 import org.apache.http.RequestLine;
 

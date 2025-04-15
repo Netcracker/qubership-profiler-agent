@@ -4,6 +4,7 @@ import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.io.exceptions.ErrorSupervisor;
 import org.qubership.profiler.sax.raw.SuspendLogCollapsingVisitor;
 import org.qubership.profiler.sax.raw.SuspendLogVisitor;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;

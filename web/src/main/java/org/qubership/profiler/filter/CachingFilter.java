@@ -1,9 +1,10 @@
 package org.qubership.profiler.filter;
 
+import java.io.IOException;
+
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
 
 public class CachingFilter implements Filter {
     public void destroy() {

@@ -5,6 +5,7 @@ import org.qubership.profiler.dump.DumpRootResolver;
 import org.qubership.profiler.io.JSHelper;
 import org.qubership.profiler.servlet.util.DumperStatusProvider;
 import org.qubership.profiler.util.ThrowableHelper;
+
 import org.apache.commons.lang.math.NumberUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +14,9 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
+
+import java.io.*;
+import java.net.URLEncoder;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -23,8 +27,6 @@ import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.*;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-import java.io.*;
-import java.net.URLEncoder;
 
 public class ConfigImpl {
     public static final Logger log = LoggerFactory.getLogger(ConfigImpl.class);

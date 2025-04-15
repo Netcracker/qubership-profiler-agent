@@ -2,9 +2,10 @@ package org.qubership.profiler.io;
 
 import org.qubership.profiler.agent.DumperCollectorClient;
 import org.qubership.profiler.agent.DumperRemoteControlledStream;
-import org.qubership.profiler.cloud.transport.ProtocolConst;
 import org.qubership.profiler.cloud.transport.PhraseOutputStream;
+import org.qubership.profiler.cloud.transport.ProtocolConst;
 import org.qubership.profiler.exception.ProfilerAgentIOException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

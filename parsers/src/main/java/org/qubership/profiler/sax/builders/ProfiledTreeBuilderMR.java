@@ -3,9 +3,10 @@ package org.qubership.profiler.sax.builders;
 import org.qubership.profiler.analyzer.DelayTreeTillReady;
 import org.qubership.profiler.analyzer.MergeTrees;
 import org.qubership.profiler.dom.ProfiledTreeStreamVisitor;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.MultiRepositoryVisitor;
 import org.qubership.profiler.sax.raw.RepositoryVisitor;
+import org.qubership.profiler.util.ProfilerConstants;
+
 import org.springframework.context.ApplicationContext;
 
 public class ProfiledTreeBuilderMR extends MultiRepositoryVisitor {

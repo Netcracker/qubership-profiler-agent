@@ -1,5 +1,7 @@
 package org.qubership.profiler.cloud.transport;
 
+import static org.qubership.profiler.cloud.transport.ESCStopWatch.getWatch;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -9,7 +11,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
-import static org.qubership.profiler.cloud.transport.ESCStopWatch.getWatch;
 
 public class FieldIO {
     boolean traceMode = false;

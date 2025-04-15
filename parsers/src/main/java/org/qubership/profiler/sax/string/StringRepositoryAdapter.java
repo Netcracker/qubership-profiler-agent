@@ -1,11 +1,11 @@
 package org.qubership.profiler.sax.string;
 
 import org.qubership.profiler.dom.TagDictionary;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.parsers.DictionaryParser;
 import org.qubership.profiler.sax.raw.DictionaryVisitor;
 import org.qubership.profiler.sax.raw.RepositoryVisitor;
 import org.qubership.profiler.sax.raw.TraceVisitor;
+import org.qubership.profiler.util.ProfilerConstants;
 
 public class StringRepositoryAdapter extends RepositoryVisitor {
     private final TagDictionary dict = new TagDictionary(100);

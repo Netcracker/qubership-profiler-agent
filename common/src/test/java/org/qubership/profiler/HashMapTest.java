@@ -1,11 +1,9 @@
 package org.qubership.profiler;
 
-import org.qubership.profiler.util.MurmurHash;
 
-import java.util.HashSet;
-import java.util.HashMap;
-import java.util.BitSet;
 import java.lang.reflect.Field;
+import java.util.BitSet;
+import java.util.HashMap;
 
 public class HashMapTest {
 

@@ -1,8 +1,9 @@
 package brave;
 
-import brave.propagation.TraceContext;
 import org.qubership.profiler.agent.CallInfo;
 import org.qubership.profiler.agent.Profiler;
+
+import brave.propagation.TraceContext;
 
 public abstract class RealSpan extends Span {
     void logSpanIds$profiler() {

@@ -2,6 +2,7 @@ package org.qubership.profiler.sax.readers;
 
 import org.qubership.profiler.io.SuspendLog;
 import org.qubership.profiler.sax.builders.SuspendLogBuilder;
+
 import org.junit.Assert;
 import org.testng.annotations.Test;
 

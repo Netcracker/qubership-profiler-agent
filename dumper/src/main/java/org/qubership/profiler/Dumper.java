@@ -1,5 +1,7 @@
 package org.qubership.profiler;
 
+import static org.qubership.profiler.agent.PropertyFacadeBoot.getPropertyOrEnvVariable;
+
 import org.qubership.profiler.agent.*;
 import org.qubership.profiler.agent.DumperCollectorClient;
 import org.qubership.profiler.client.CollectorClientFactory;
@@ -23,6 +25,7 @@ import org.qubership.profiler.util.MetricsCollector;
 import org.qubership.profiler.util.MurmurHash;
 import org.qubership.profiler.util.ThrowableHelper;
 import org.qubership.profiler.util.cache.TLimitedLongLongHashMap;
+
 import gnu.trove.*;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
@@ -39,8 +42,6 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
-
-import static org.qubership.profiler.agent.PropertyFacadeBoot.getPropertyOrEnvVariable;
 
 public class Dumper implements IDumper, org.qubership.profiler.agent.DumperConstants {
     private static final Logger log = LoggerFactory.getLogger(Dumper.class);

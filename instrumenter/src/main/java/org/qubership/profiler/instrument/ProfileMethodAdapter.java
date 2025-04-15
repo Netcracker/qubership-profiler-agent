@@ -1,13 +1,15 @@
 package org.qubership.profiler.instrument;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.ProfilerData;
-import org.qubership.profiler.agent.plugins.ProfilerPluginLoggerImpl;
-import org.qubership.profiler.configuration.Rule;
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.qubership.profiler.agent.DumperConstants;
 import org.qubership.profiler.agent.LocalState;
+import org.qubership.profiler.agent.Profiler;
+import org.qubership.profiler.agent.ProfilerData;
 import org.qubership.profiler.agent.StringUtils;
 import org.qubership.profiler.agent.TimerCache;
+import org.qubership.profiler.configuration.Rule;
+
 import org.objectweb.asm.*;
 import org.objectweb.asm.commons.AdviceAdapter;
 import org.objectweb.asm.commons.Method;
@@ -15,8 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 public class ProfileMethodAdapter extends AdviceAdapter {
     private static final Logger log = LoggerFactory.getLogger(ProfileMethodAdapter.class);

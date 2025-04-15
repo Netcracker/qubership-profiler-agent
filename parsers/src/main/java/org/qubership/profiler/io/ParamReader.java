@@ -3,10 +3,9 @@ package org.qubership.profiler.io;
 import org.qubership.profiler.configuration.ParameterInfoDto;
 import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.util.IOHelper;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
 
 import java.io.*;
 import java.util.*;
@@ -81,4 +80,3 @@ public abstract class ParamReader {
         return null;
     }
 }
-

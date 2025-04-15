@@ -1,8 +1,8 @@
 package org.qubership.profiler.sax.string;
 
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.TreeTraceVisitor;
 import org.qubership.profiler.sax.values.ValueHolder;
+import org.qubership.profiler.util.ProfilerConstants;
 
 public class StringTreeTraceAdapter extends TreeTraceVisitor {
     protected final StringRepositoryAdapter ra;

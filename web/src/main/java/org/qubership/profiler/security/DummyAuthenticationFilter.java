@@ -1,10 +1,10 @@
 package org.qubership.profiler.security;
 
+import static org.apache.commons.lang.StringUtils.isNotEmpty;
 import static org.qubership.profiler.security.SecurityConstants.AUTHENTICATED_USER;
 import static org.qubership.profiler.security.SecurityConstants.LAST_USER_URI;
 import static org.qubership.profiler.security.SecurityConstants.USER_NAME_PARAMETER;
 import static org.qubership.profiler.security.SecurityConstants.USER_PASSWORD_PARAMETER;
-import static org.apache.commons.lang.StringUtils.isNotEmpty;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

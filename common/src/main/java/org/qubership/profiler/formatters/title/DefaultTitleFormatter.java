@@ -1,12 +1,10 @@
 package org.qubership.profiler.formatters.title;
 
+import static org.qubership.profiler.formatters.title.TitleCommonTools.addGenericParams;
+
 import org.qubership.profiler.agent.ParameterInfo;
-import gnu.trove.THashSet;
-import gnu.trove.TIntObjectHashMap;
 
 import java.util.*;
-
-import static org.qubership.profiler.formatters.title.TitleCommonTools.addGenericParams;
 
 public class DefaultTitleFormatter extends AbstractTitleFormatter {
 

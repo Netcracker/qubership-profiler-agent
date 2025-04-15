@@ -1,11 +1,7 @@
 package org.qubership.profiler.io.aggregate.model;
 
-import java.text.DecimalFormat;
-import java.text.DecimalFormatSymbols;
-import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 public class AggregateRow {
     private String title;

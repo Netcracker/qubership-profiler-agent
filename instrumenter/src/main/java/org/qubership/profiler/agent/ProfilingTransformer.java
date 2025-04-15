@@ -1,5 +1,7 @@
 package org.qubership.profiler.agent;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.qubership.profiler.agent.plugins.ConfigurationSPI;
 import org.qubership.profiler.configuration.Rule;
 import org.qubership.profiler.instrument.EnhancingClassVisitor;
@@ -9,6 +11,7 @@ import org.qubership.profiler.instrument.TypeUtils;
 import org.qubership.profiler.instrument.custom.util.DefaultMethodAdder;
 import org.qubership.profiler.instrument.enhancement.*;
 import org.qubership.profiler.util.MethodInstrumentationInfo;
+
 import org.objectweb.asm.*;
 import org.objectweb.asm.commons.SerialVersionUIDAdder;
 import org.objectweb.asm.util.CheckClassAdapter;
@@ -26,8 +29,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 public class ProfilingTransformer implements ClassFileTransformer {
     private final static Logger log = LoggerFactory.getLogger(ProfilingTransformer.class);

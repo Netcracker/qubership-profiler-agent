@@ -1,24 +1,25 @@
 package org.qubership.profiler.agent.plugins;
 
-import ch.qos.logback.classic.BasicConfigurator;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.joran.JoranConfigurator;
-import ch.qos.logback.core.joran.spi.JoranException;
 import org.qubership.profiler.agent.*;
 import org.qubership.profiler.configuration.ConfigurationImpl;
 import org.qubership.profiler.configuration.PropertyFacade;
 import org.qubership.profiler.dump.DumpRootResolver;
-import org.slf4j.Logger;
+
+import ch.qos.logback.classic.BasicConfigurator;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.joran.JoranConfigurator;
+import ch.qos.logback.core.joran.spi.JoranException;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
-import javax.xml.parsers.ParserConfigurationException;
 import java.io.File;
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
+
+import javax.xml.parsers.ParserConfigurationException;
 
 public class ProfilerTransformerPluginImpl implements org.qubership.profiler.agent.ProfilerTransformerPlugin_01, TwoPhaseInit {
     private static final ESCLogger logger = ESCLogger.getLogger(ProfilerTransformerPluginImpl.class.getName());

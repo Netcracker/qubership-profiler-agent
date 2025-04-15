@@ -1,17 +1,14 @@
 package org.qubership.profiler.io;
 
-import org.qubership.profiler.dump.DumpRootResolver;
+
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
-import javax.servlet.http.HttpServletRequest;
-import java.io.File;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.*;
+
 
 @Component
 @Profile("filestorage")

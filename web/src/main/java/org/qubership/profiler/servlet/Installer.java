@@ -8,18 +8,20 @@ import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.dump.DumpRootResolver;
 import org.qubership.profiler.util.IOHelper;
 import org.qubership.profiler.util.VersionUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.servlet.ServletContext;
-import javax.servlet.ServletContextEvent;
-import javax.servlet.ServletContextListener;
 import java.io.*;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+
+import javax.servlet.ServletContext;
+import javax.servlet.ServletContextEvent;
+import javax.servlet.ServletContextListener;
 
 public class Installer implements ServletContextListener {
     private static final Logger log = LoggerFactory.getLogger(Installer.class);
@@ -524,4 +526,3 @@ public class Installer implements ServletContextListener {
         return RuntimemxBean.getInputArguments();
     }
 }
-

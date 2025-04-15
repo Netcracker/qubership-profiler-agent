@@ -7,6 +7,7 @@ import org.qubership.profiler.instrument.custom.ClassAcceptorsList;
 import org.qubership.profiler.instrument.custom.MethodAcceptor;
 import org.qubership.profiler.instrument.custom.MethodAcceptorsList;
 import org.qubership.profiler.tools.ListOfRegExps;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

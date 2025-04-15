@@ -3,7 +3,7 @@ package org.qubership.profiler.instrument.custom.util;
 import org.qubership.profiler.agent.Configuration_01;
 import org.qubership.profiler.instrument.ProfileMethodAdapter;
 import org.qubership.profiler.instrument.custom.MethodInstrumenter;
-import org.qubership.profiler.util.XMLHelper;
+
 import org.objectweb.asm.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

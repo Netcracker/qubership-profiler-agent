@@ -1,19 +1,15 @@
 package org.qubership.profiler.dump;
 
 import org.qubership.profiler.ServerNameResolver;
-import org.qubership.profiler.agent.Bootstrap;
-import org.qubership.profiler.agent.ESCLogger;
 import org.qubership.profiler.configuration.PropertyFacade;
-import org.qubership.profiler.util.ThrowableHelper;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.PrintStream;
 import java.net.URL;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
-import java.util.logging.Level;
 
 public class DumpRootResolver {
     public static final boolean VERBOSE = Boolean.getBoolean("execution-statistics-collector.verbose");

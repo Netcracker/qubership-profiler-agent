@@ -3,10 +3,10 @@ package org.qubership.profiler.filter;
 import org.qubership.profiler.timeout.ProfilerTimeoutException;
 import org.qubership.profiler.timeout.ProfilerTimeoutHandler;
 
-import javax.servlet.*;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+
+import javax.servlet.*;
+import javax.servlet.http.HttpServletResponse;
 
 public class ProfilerTimeoutFilter implements Filter {
     public void destroy() {

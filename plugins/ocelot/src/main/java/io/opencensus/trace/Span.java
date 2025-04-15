@@ -1,7 +1,6 @@
 package io.opencensus.trace;
 
 import org.qubership.profiler.agent.CallInfo;
-import org.qubership.profiler.agent.LocalState;
 import org.qubership.profiler.agent.Profiler;
 
 public class Span {

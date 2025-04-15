@@ -1,8 +1,12 @@
 package org.qubership.profiler.io.searchconditions;
 
+import static org.qubership.profiler.io.searchconditions.ComparisonCondition.Comparator.*;
+import static org.qubership.profiler.io.searchconditions.LogicalCondition.Operation.*;
+
+import org.qubership.profiler.io.Call;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.qubership.profiler.io.Call;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,9 +18,6 @@ import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
-
-import static org.qubership.profiler.io.searchconditions.ComparisonCondition.Comparator.*;
-import static org.qubership.profiler.io.searchconditions.LogicalCondition.Operation.*;
 
 @Component
 @Scope("prototype")

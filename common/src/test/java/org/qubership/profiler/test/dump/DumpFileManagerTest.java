@@ -2,6 +2,7 @@ package org.qubership.profiler.test.dump;
 
 import org.qubership.profiler.dump.*;
 import org.qubership.profiler.io.listener.FileRotatedListener;
+
 import mockit.Expectations;
 import mockit.internal.reflection.MethodReflection;
 import org.apache.commons.io.FileUtils;

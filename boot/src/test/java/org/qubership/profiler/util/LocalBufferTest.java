@@ -1,8 +1,9 @@
 package org.qubership.profiler.util;
 
-import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.agent.LocalBuffer;
 import org.qubership.profiler.agent.LocalState;
+import org.qubership.profiler.agent.Profiler;
+
 import mockit.Mocked;
 import mockit.Verifications;
 import org.testng.Assert;

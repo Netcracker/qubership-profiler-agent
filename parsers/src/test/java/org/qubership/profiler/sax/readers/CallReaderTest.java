@@ -1,22 +1,22 @@
 package org.qubership.profiler.sax.readers;
 
-import java.io.File;
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.List;
-
-import org.junit.Assert;
-import org.junit.Test;
-import org.springframework.util.ResourceUtils;
-
 import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.io.Call;
 import org.qubership.profiler.io.CallFilterer;
 import org.qubership.profiler.io.CallListener;
 import org.qubership.profiler.io.CallReader;
 import org.qubership.profiler.io.SuspendLog;
+
+import org.junit.Assert;
+import org.junit.Test;
+import org.springframework.util.ResourceUtils;
+
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.List;
 
 class MockCallReader extends CallReader {
     public MockCallReader(CallListener callback, CallFilterer cf) {

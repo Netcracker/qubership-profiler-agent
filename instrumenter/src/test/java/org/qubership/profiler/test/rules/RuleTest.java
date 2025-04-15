@@ -1,7 +1,7 @@
 package org.qubership.profiler.test.rules;
 
-import ch.qos.logback.core.joran.spi.RuleStore;
 import org.qubership.profiler.configuration.Rule;
+
 import org.testng.Assert;
 import org.testng.annotations.Test;
 

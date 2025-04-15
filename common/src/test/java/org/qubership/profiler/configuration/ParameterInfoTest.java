@@ -2,15 +2,17 @@ package org.qubership.profiler.configuration;
 
 import org.qubership.profiler.agent.ParamTypes;
 import org.qubership.profiler.agent.ParameterInfo;
+
 import org.testng.Assert;
 import org.testng.annotations.Test;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.xml.sax.InputSource;
 
+import java.io.StringReader;
+
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import java.io.StringReader;
 
 public class ParameterInfoTest {
     @Test

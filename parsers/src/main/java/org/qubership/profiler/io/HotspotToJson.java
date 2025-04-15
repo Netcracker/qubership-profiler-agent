@@ -1,11 +1,12 @@
 package org.qubership.profiler.io;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonGenerator;
 import org.qubership.profiler.analyzer.comparators.TotalSelfCount;
 import org.qubership.profiler.io.serializers.JsonSerializer;
 import org.qubership.profiler.sax.values.ClobValue;
 import org.qubership.profiler.sax.values.StringValue;
+
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 
 import java.io.IOException;
 import java.io.StringWriter;

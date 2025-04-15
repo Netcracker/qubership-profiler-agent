@@ -1,13 +1,12 @@
 package org.qubership.profiler.formatters.title;
 
+import static org.qubership.profiler.formatters.title.TitleCommonTools.*;
+
 import org.qubership.profiler.agent.ParameterInfo;
-import gnu.trove.THashSet;
-import gnu.trove.TIntObjectHashMap;
+
 import org.apache.commons.lang.StringUtils;
 
 import java.util.*;
-
-import static org.qubership.profiler.formatters.title.TitleCommonTools.*;
 
 public class QuartzJobTitleFormatter extends AbstractTitleFormatter {
 

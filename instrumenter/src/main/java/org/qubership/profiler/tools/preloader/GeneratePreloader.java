@@ -1,6 +1,7 @@
 package org.qubership.profiler.tools.preloader;
 
 import org.qubership.profiler.util.IOHelper;
+
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.commons.ClassRemapper;
 

@@ -1,15 +1,16 @@
 package org.qubership.profiler.formatters.title;
 
+import static org.qubership.profiler.formatters.title.TitleCommonTools.getParameterValues;
+
+import org.qubership.profiler.agent.ParameterInfo;
+
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
-import org.qubership.profiler.agent.ParameterInfo;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-
-import static org.qubership.profiler.formatters.title.TitleCommonTools.getParameterValues;
 
 public class DataFlowTitleFormatter extends AbstractTitleFormatter {
     @Override

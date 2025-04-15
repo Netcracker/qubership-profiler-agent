@@ -2,9 +2,10 @@ package org.qubership.profiler.agent;
 
 import org.xml.sax.SAXException;
 
-import javax.xml.parsers.ParserConfigurationException;
 import java.io.IOException;
 import java.util.Set;
+
+import javax.xml.parsers.ParserConfigurationException;
 
 public interface ProfilerTransformerPlugin_01 extends ProfilerTransformerPlugin {
     /**

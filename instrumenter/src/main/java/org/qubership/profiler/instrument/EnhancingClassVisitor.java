@@ -1,14 +1,15 @@
 package org.qubership.profiler.instrument;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.qubership.profiler.instrument.enhancement.ClassInfo;
 import org.qubership.profiler.instrument.enhancement.FilteredEnhancer;
+
 import org.objectweb.asm.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 /**
  * This visitor is used to enhance classes right after class was started.

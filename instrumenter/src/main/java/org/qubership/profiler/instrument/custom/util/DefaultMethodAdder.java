@@ -1,6 +1,9 @@
 package org.qubership.profiler.instrument.custom.util;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.qubership.profiler.instrument.TypeUtils;
+
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -8,8 +11,6 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.GeneratorAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 public class DefaultMethodAdder extends ClassVisitor {
     private final static Logger log = LoggerFactory.getLogger(DefaultMethodAdder.class);

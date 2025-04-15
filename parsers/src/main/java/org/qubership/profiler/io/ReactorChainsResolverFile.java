@@ -1,6 +1,9 @@
 package org.qubership.profiler.io;
 
+import static org.qubership.profiler.util.ProfilerConstants.REACTOR_CALLS_STREAM;
+
 import org.qubership.profiler.dump.DataInputStreamEx;
+
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -10,8 +13,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedList;
-
-import static org.qubership.profiler.util.ProfilerConstants.REACTOR_CALLS_STREAM;
 
 @Component
 @Profile("filestorage")

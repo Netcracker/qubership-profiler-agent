@@ -1,12 +1,12 @@
 package org.qubership.profiler.metrics;
 
+import static org.qubership.profiler.agent.FilterOperator.CALL_INFO_PARAM;
+
 import org.qubership.profiler.agent.CallInfo;
 import org.qubership.profiler.agent.MetricType;
 
 import java.util.HashSet;
 import java.util.Map;
-
-import static org.qubership.profiler.agent.FilterOperator.CALL_INFO_PARAM;
 
 public class QueueWaitTimeMetric extends AbstractHistogramMetric {
 

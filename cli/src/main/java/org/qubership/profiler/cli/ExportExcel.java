@@ -1,27 +1,18 @@
 package org.qubership.profiler.cli;
 
-import org.qubership.profiler.chart.UnaryFunction;
-import org.qubership.profiler.dump.DataInputStreamEx;
+
 import org.qubership.profiler.dump.DumpRootResolver;
 import org.qubership.profiler.io.DurationParser;
 import org.qubership.profiler.io.TemporalRequestParams;
-import org.qubership.profiler.io.TemporalUtils;
-import org.qubership.profiler.sax.readers.ProfilerTraceReaderFile;
-import org.qubership.profiler.sax.values.ClobValue;
 import org.qubership.profiler.servlet.SpringBootInitializer;
-import org.qubership.profiler.util.IOHelper;
+
 import net.sourceforge.argparse4j.inf.Namespace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
-import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
-
-import static org.qubership.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
 
 /**
  * Exports subset of collected data.

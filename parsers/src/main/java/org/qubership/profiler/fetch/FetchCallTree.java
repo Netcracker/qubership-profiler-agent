@@ -6,6 +6,7 @@ import org.qubership.profiler.io.CallRowid;
 import org.qubership.profiler.sax.builders.ProfiledTreeBuilderMR;
 import org.qubership.profiler.sax.raw.MultiRepositoryVisitor;
 import org.qubership.profiler.sax.readers.ProfilerTraceReaderMR;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Scope;

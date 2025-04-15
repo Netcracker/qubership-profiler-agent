@@ -1,9 +1,10 @@
 package org.qubership.profiler.agent;
 
-import javax.transaction.xa.Xid;
 import java.lang.ref.WeakReference;
 import java.sql.Connection;
 import java.util.regex.Pattern;
+
+import javax.transaction.xa.Xid;
 
 public class CallInfo {
     public boolean corrupted;

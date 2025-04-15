@@ -1,6 +1,5 @@
 package org.qubership.profiler.io;
 
-import com.fasterxml.jackson.core.JsonGenerator;
 
 import java.io.IOException;
 import java.io.Writer;

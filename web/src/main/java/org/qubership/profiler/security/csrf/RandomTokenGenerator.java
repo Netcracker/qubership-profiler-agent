@@ -1,8 +1,8 @@
 package org.qubership.profiler.security.csrf;
 
+import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.SecureRandom;
-import java.security.NoSuchAlgorithmException;
 
 public final class RandomTokenGenerator {
 

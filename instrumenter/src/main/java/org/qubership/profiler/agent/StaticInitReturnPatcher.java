@@ -1,9 +1,9 @@
 package org.qubership.profiler.agent;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 /**
  * Inserts calls of specific method to predefined method.

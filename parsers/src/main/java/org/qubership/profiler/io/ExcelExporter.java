@@ -1,9 +1,12 @@
 package org.qubership.profiler.io;
 
+import static org.qubership.profiler.formatters.title.HttpTitleFormatter.*;
+
 import org.qubership.profiler.formatters.title.UrlPatternReplacer;
 import org.qubership.profiler.io.xlsx.AggregateCallsToXLSXListener;
 import org.qubership.profiler.io.xlsx.CallsToXLSXListener;
 import org.qubership.profiler.io.xlsx.ICallsToXLSXListener;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,8 +17,6 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.*;
-
-import static org.qubership.profiler.formatters.title.HttpTitleFormatter.*;
 
 @Component
 public class ExcelExporter {

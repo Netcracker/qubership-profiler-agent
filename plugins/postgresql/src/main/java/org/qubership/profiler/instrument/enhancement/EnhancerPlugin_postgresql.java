@@ -1,8 +1,7 @@
 package org.qubership.profiler.instrument.enhancement;
 
 import org.qubership.profiler.agent.Configuration_01;
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.PropertyFacadeBoot;
+
 import org.w3c.dom.Element;
 
 import java.util.regex.Matcher;

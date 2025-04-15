@@ -1,6 +1,7 @@
 package org.qubership.profiler.util;
 
 import org.qubership.profiler.agent.StringUtils;
+
 import org.testng.Assert;
 import org.testng.annotations.Test;
 

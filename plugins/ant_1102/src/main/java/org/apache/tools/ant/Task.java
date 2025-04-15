@@ -1,6 +1,7 @@
 package org.apache.tools.ant;
 
 import org.qubership.profiler.agent.Profiler;
+
 import org.apache.tools.ant.taskdefs.Ant;
 
 public class Task {

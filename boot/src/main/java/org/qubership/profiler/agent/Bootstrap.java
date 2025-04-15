@@ -7,14 +7,12 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
-import java.text.MessageFormat;
 import java.util.*;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
-import java.util.logging.Formatter;
 
 public class Bootstrap {
     public static final List<String> BOOT_PACKAGES = Arrays.asList("org.qubership.profiler.agent", "org.qubership.profiler.agent.http");

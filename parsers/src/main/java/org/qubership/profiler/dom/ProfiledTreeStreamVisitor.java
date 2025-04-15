@@ -1,6 +1,5 @@
 package org.qubership.profiler.dom;
 
-import org.qubership.profiler.timeout.ProfilerTimeoutException;
 import org.qubership.profiler.util.ProfilerConstants;
 
 public class ProfiledTreeStreamVisitor {

@@ -1,17 +1,19 @@
 package org.qubership.profiler.io;
 
+import static org.qubership.profiler.io.searchconditions.BaseSearchConditions.putMultimap;
+
 import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.io.call.CallDataReaderFactory;
 import org.qubership.profiler.io.call.ReactorCallReader;
+
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.StringUtils;
 
-import javax.servlet.http.HttpServletRequest;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.*;
 
-import static org.qubership.profiler.io.searchconditions.BaseSearchConditions.putMultimap;
+import javax.servlet.http.HttpServletRequest;
 
 public abstract class ReactorChainsResolver {
     public List<String>[] splitChainIDs(String[] treeIDs) {

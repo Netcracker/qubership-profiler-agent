@@ -1,7 +1,8 @@
 package org.qubership.profiler.metrics;
 
-import java.util.HashSet;
 import org.qubership.profiler.agent.*;
+
+import java.util.HashSet;
 
 public class MetricsKey {
 

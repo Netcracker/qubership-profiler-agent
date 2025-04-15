@@ -1,19 +1,20 @@
 package org.qubership.profiler.client;
 
+import static java.util.zip.Deflater.BEST_SPEED;
+import static org.qubership.profiler.cloud.transport.ProtocolConst.*;
+
 import org.qubership.profiler.agent.DumperCollectorClient;
 import org.qubership.profiler.agent.DumperRemoteControlledStream;
 import org.qubership.profiler.cloud.transport.EndlessSocketInputStream;
 import org.qubership.profiler.cloud.transport.FieldIO;
 import org.qubership.profiler.cloud.transport.ProfilerProtocolBlacklistedException;
 import org.qubership.profiler.cloud.transport.ProfilerProtocolException;
+
 import org.apache.commons.lang.StringUtils;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -25,8 +26,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.zip.GZIPOutputStream;
 
-import static org.qubership.profiler.cloud.transport.ProtocolConst.*;
-import static java.util.zip.Deflater.BEST_SPEED;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 
 public class DefaultCollectorClient implements DumperCollectorClient {
     private static final Logger log = LoggerFactory.getLogger(DefaultCollectorClient.class);

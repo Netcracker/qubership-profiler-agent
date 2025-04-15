@@ -1,6 +1,7 @@
 package org.qubership.profiler.test.dump;
 
 import org.qubership.profiler.dump.FlushableGZIPOutputStream;
+
 import org.testng.Assert;
 import org.testng.annotations.Test;
 

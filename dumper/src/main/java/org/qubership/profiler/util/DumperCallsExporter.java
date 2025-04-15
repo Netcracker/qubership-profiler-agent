@@ -1,11 +1,14 @@
 package org.qubership.profiler.util;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonGenerator;
+import static org.qubership.profiler.agent.FilterOperator.*;
+
 import org.qubership.profiler.ServerNameResolver;
 import org.qubership.profiler.agent.*;
 import org.qubership.profiler.dump.ThreadState;
 import org.qubership.profiler.formatters.title.ProfilerTitle;
+
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 import gnu.trove.THashSet;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TIntObjectProcedure;
@@ -16,8 +19,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
-
-import static org.qubership.profiler.agent.FilterOperator.*;
 
 public class DumperCallsExporter {
     private static final Logger log = LoggerFactory.getLogger(DumperCallsExporter.class);

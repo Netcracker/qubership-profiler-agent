@@ -6,9 +6,9 @@ import org.qubership.profiler.dom.ProfiledTreeStreamVisitor;
 import org.qubership.profiler.dom.TagDictionary;
 import org.qubership.profiler.io.Hotspot;
 import org.qubership.profiler.io.SuspendLog;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.TraceVisitor;
 import org.qubership.profiler.sax.raw.TreeRowid;
+import org.qubership.profiler.util.ProfilerConstants;
 
 public class MakeTreesFromTrace extends TraceVisitor {
     private final ProfiledTreeStreamVisitor sv;

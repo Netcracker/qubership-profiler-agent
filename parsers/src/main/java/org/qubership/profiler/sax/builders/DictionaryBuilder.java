@@ -3,8 +3,8 @@ package org.qubership.profiler.sax.builders;
 import org.qubership.profiler.chart.Provider;
 import org.qubership.profiler.configuration.ParameterInfoDto;
 import org.qubership.profiler.dom.TagDictionary;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.DictionaryVisitor;
+import org.qubership.profiler.util.ProfilerConstants;
 
 public class DictionaryBuilder extends DictionaryVisitor implements Provider<TagDictionary> {
     private final TagDictionary dict;

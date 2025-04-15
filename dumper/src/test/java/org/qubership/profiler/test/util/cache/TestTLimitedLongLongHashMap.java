@@ -1,9 +1,10 @@
 package org.qubership.profiler.test.util.cache;
 
-import org.qubership.profiler.util.cache.TLimitedLongLongHashMap;
-import org.testng.annotations.Test;
-
 import static org.testng.Assert.assertEquals;
+
+import org.qubership.profiler.util.cache.TLimitedLongLongHashMap;
+
+import org.testng.annotations.Test;
 
 @Test(dataProviderClass = TestHashMapDataProvider.class)
 public class TestTLimitedLongLongHashMap {

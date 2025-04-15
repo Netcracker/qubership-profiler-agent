@@ -1,6 +1,5 @@
 package org.qubership.profiler.io;
 
-import com.fasterxml.jackson.core.JsonGenerator;
 import org.qubership.profiler.configuration.ParameterInfoDto;
 import org.qubership.profiler.dom.ClobValues;
 import org.qubership.profiler.dom.ProfiledTree;
@@ -9,6 +8,8 @@ import org.qubership.profiler.io.serializers.JsonSerializer;
 import org.qubership.profiler.sax.values.ClobValue;
 import org.qubership.profiler.sax.values.StringValue;
 import org.qubership.profiler.util.ThrowableHelper;
+
+import com.fasterxml.jackson.core.JsonGenerator;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

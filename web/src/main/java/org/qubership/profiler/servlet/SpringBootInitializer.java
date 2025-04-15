@@ -4,6 +4,7 @@ import org.qubership.profiler.dump.DumpRootResolver;
 import org.qubership.profiler.fetch.FetchCallTreeFactory;
 import org.qubership.profiler.io.*;
 import org.qubership.profiler.io.searchconditions.BaseSearchConditions;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,16 +15,16 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.io.DefaultResourceLoader;
-import org.springframework.stereotype.Component;
 
-import javax.servlet.ServletContextEvent;
-import javax.servlet.ServletContextListener;
 import java.io.File;
 import java.io.PrintWriter;
 import java.lang.reflect.Constructor;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+
+import javax.servlet.ServletContextEvent;
+import javax.servlet.ServletContextListener;
 
 @SpringBootApplication(scanBasePackages = {
         "org.qubership.profiler.io",

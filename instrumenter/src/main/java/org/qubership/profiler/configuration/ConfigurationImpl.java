@@ -19,12 +19,21 @@ import org.qubership.profiler.instrument.enhancement.EnhancerPlugin;
 import org.qubership.profiler.io.DurationParser;
 import org.qubership.profiler.io.SizeParser;
 import org.qubership.profiler.util.XMLHelper;
+
 import org.apache.commons.lang.StringUtils;
 import org.objectweb.asm.Opcodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.*;
 import org.xml.sax.SAXException;
+
+import java.io.File;
+import java.io.FileFilter;
+import java.io.IOException;
+import java.io.StringWriter;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -34,13 +43,6 @@ import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-import java.io.File;
-import java.io.FileFilter;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class ConfigurationImpl implements ConfigurationSPI {
     private final static Logger log = LoggerFactory.getLogger(ConfigurationImpl.class);

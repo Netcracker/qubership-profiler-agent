@@ -1,20 +1,21 @@
 package org.qubership.profiler.servlet;
 
+import org.qubership.profiler.audit.SessionAuditListener;
+import org.qubership.profiler.configuration.PropertyFacade;
+import org.qubership.profiler.dump.DumpRootResolver;
+
 import ch.qos.logback.classic.BasicConfigurator;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.joran.JoranConfigurator;
 import ch.qos.logback.core.joran.spi.JoranException;
-import org.qubership.profiler.ServerNameResolver;
-import org.qubership.profiler.audit.SessionAuditListener;
-import org.qubership.profiler.configuration.PropertyFacade;
-import org.qubership.profiler.dump.DumpRootResolver;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
 
 import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
-import java.io.File;
 
 public class LogbackInitializer implements ServletContextListener {
     private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(LogbackInitializer.class.getName());

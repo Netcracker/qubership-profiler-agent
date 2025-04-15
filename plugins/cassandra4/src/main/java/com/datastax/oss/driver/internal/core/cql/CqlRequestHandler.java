@@ -1,11 +1,12 @@
 package com.datastax.oss.driver.internal.core.cql;
 
+import org.qubership.profiler.agent.Profiler;
+import org.qubership.profiler.agent.StringUtils;
+
 import com.datastax.oss.driver.api.core.CqlIdentifier;
 import com.datastax.oss.driver.api.core.cql.ColumnDefinition;
 import com.datastax.oss.driver.api.core.cql.ColumnDefinitions;
 import com.datastax.oss.driver.api.core.type.DataType;
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.StringUtils;
 
 @SuppressWarnings("unused")
 public class CqlRequestHandler {

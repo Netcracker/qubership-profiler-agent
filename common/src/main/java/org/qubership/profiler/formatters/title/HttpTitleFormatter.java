@@ -1,12 +1,13 @@
 package org.qubership.profiler.formatters.title;
 
+import static org.qubership.profiler.formatters.title.TitleCommonTools.*;
+
 import org.qubership.profiler.agent.ParameterInfo;
+
 import org.apache.commons.lang.StringUtils;
 
 import java.util.*;
 import java.util.regex.Pattern;
-
-import static org.qubership.profiler.formatters.title.TitleCommonTools.*;
 
 public class HttpTitleFormatter extends AbstractTitleFormatter {
 

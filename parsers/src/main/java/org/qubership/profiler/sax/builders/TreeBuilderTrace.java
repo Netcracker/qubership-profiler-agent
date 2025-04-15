@@ -3,9 +3,9 @@ package org.qubership.profiler.sax.builders;
 import org.qubership.profiler.chart.Provider;
 import org.qubership.profiler.io.Hotspot;
 import org.qubership.profiler.io.SuspendLog;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.TreeTraceVisitor;
 import org.qubership.profiler.sax.values.ValueHolder;
+import org.qubership.profiler.util.ProfilerConstants;
 
 import java.util.HashSet;
 

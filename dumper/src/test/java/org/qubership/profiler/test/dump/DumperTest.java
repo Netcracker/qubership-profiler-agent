@@ -6,12 +6,12 @@ import org.qubership.profiler.configuration.NetworkExportParamsImpl;
 import org.qubership.profiler.dump.DumperThread;
 import org.qubership.profiler.metrics.MetricsPluginImpl;
 import org.qubership.profiler.transfer.DataSender;
+
 import mockit.Mocked;
 import org.testng.Assert;
 import org.testng.annotations.*;
 import org.xml.sax.SAXException;
 
-import javax.xml.parsers.ParserConfigurationException;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -20,6 +20,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+
+import javax.xml.parsers.ParserConfigurationException;
 
 public class DumperTest {
     @Mocked()

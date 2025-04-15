@@ -3,10 +3,10 @@ package org.qubership.profiler.sax.builders;
 import org.qubership.profiler.chart.Provider;
 import org.qubership.profiler.dom.ClobValues;
 import org.qubership.profiler.io.exceptions.ErrorSupervisor;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.ClobValueVisitor;
 import org.qubership.profiler.sax.raw.StrReader;
 import org.qubership.profiler.sax.values.ClobValue;
+import org.qubership.profiler.util.ProfilerConstants;
 
 import java.io.IOException;
 

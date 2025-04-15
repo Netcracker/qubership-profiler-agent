@@ -1,13 +1,14 @@
 package org.apache.tools.ant.taskdefs;
 
+import static org.apache.tools.ant.taskdefs.ExecTask.cleanCmdLine$profiler;
+
 import org.qubership.profiler.agent.DumpRootResolverAgent;
 import org.qubership.profiler.agent.Profiler;
+
 import org.apache.tools.ant.Task;
 import org.apache.tools.ant.types.CommandlineJava;
 
 import java.io.File;
-
-import static org.apache.tools.ant.taskdefs.ExecTask.cleanCmdLine$profiler;
 
 public class Java extends Task {
     private boolean fork;

@@ -19,8 +19,8 @@ public class WebappMountListener implements LifecycleListener {
             "/js"
     );
 
-	@Override
-	public void lifecycleEvent(LifecycleEvent event) {
+    @Override
+    public void lifecycleEvent(LifecycleEvent event) {
         if (event.getType().equals(Lifecycle.BEFORE_START_EVENT)) {
             Context context = (Context) event.getLifecycle();
             WebResourceRoot resources = context.getResources();
@@ -34,6 +34,6 @@ public class WebappMountListener implements LifecycleListener {
                 resources.addJarResources(jrs);
             }
         }
-	}
+    }
 
 }

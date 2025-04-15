@@ -2,7 +2,6 @@ package org.qubership.profiler.io;
 
 import org.qubership.profiler.configuration.ParameterInfoDto;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;

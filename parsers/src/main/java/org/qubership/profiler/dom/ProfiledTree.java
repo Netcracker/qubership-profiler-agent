@@ -1,12 +1,9 @@
 package org.qubership.profiler.dom;
 
 import org.qubership.profiler.io.Hotspot;
-import org.qubership.profiler.io.HotspotTag;
-import org.qubership.profiler.sax.values.ClobValue;
 import org.qubership.profiler.sax.raw.TreeRowid;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 

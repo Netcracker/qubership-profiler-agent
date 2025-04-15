@@ -1,6 +1,7 @@
 package org.qubership.profiler.dump;
 
 import org.qubership.profiler.io.listener.FileRotatedListener;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

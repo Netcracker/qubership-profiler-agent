@@ -4,15 +4,13 @@ import org.qubership.profiler.configuration.ParameterInfoDto;
 import org.qubership.profiler.formatters.title.TitleFormatterFacade;
 import org.qubership.profiler.io.Call;
 import org.qubership.profiler.io.CallFilterer;
-import org.qubership.profiler.io.CallListener;
 import org.qubership.profiler.io.aggregate.Aggregator;
 import org.qubership.profiler.io.aggregate.model.AggregateRow;
-import org.springframework.context.annotation.Profile;
+
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
 import java.io.OutputStream;
-import java.net.URLEncoder;
 import java.util.*;
 
 @Component

@@ -1,13 +1,11 @@
 package org.qubership.profiler.formatters.title;
 
+import static org.qubership.profiler.formatters.title.TitleCommonTools.addParameter;
+
 import org.qubership.profiler.agent.ParameterInfo;
-import gnu.trove.THashSet;
-import gnu.trove.TIntObjectHashMap;
 
 import java.util.List;
 import java.util.Map;
-
-import static org.qubership.profiler.formatters.title.TitleCommonTools.addParameter;
 
 public class BrockerTitleFormatter extends AbstractTitleFormatter {
 

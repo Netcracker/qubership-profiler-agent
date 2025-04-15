@@ -1,11 +1,10 @@
 package org.qubership.profiler.io;
 
-import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 
 public interface CallReaderFactory {
     List<ICallReader> collectCallReaders(Map<String, String[]> params, TemporalRequestParams temporal, CallListener listener, CallFilterer filterer) throws IOException;

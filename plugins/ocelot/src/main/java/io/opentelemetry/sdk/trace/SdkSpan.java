@@ -1,7 +1,6 @@
 package io.opentelemetry.sdk.trace;
 
 import org.qubership.profiler.agent.CallInfo;
-import org.qubership.profiler.agent.LocalState;
 import org.qubership.profiler.agent.Profiler;
 
 import io.opentelemetry.api.trace.SpanContext;

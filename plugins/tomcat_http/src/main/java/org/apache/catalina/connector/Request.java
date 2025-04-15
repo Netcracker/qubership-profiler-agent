@@ -1,7 +1,5 @@
 package org.apache.catalina.connector;
 
-import javax.servlet.*;
-import javax.servlet.http.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -10,6 +8,9 @@ import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Locale;
 import java.util.Map;
+
+import javax.servlet.*;
+import javax.servlet.http.*;
 
 public class Request implements HttpServletRequest {
     public native String getAuthType();

@@ -1,12 +1,12 @@
 package org.qubership.profiler.tools;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.objectweb.asm.*;
 import org.objectweb.asm.util.ASMifier;
 import org.objectweb.asm.util.TraceClassVisitor;
 
 import java.io.*;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 public class GenerateInjector {
     private final File root;

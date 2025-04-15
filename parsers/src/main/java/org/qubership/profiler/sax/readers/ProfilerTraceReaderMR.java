@@ -6,6 +6,7 @@ import org.qubership.profiler.sax.raw.MultiRepositoryVisitor;
 import org.qubership.profiler.sax.raw.RepositoryVisitor;
 import org.qubership.profiler.sax.raw.TreeRowid;
 import org.qubership.profiler.timeout.ProfilerTimeoutException;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;

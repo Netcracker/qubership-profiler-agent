@@ -1,7 +1,5 @@
 package org.qubership.profiler.configuration;
 
-import org.qubership.profiler.agent.StringUtils;
-import org.qubership.profiler.instrument.TypeUtils;
 
 import java.util.*;
 

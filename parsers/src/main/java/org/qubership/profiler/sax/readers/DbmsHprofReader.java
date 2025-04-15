@@ -8,6 +8,7 @@ import org.qubership.profiler.sax.raw.TreeRowid;
 import org.qubership.profiler.sax.string.StringRepositoryAdapter;
 import org.qubership.profiler.sax.string.StringTraceAdapter;
 import org.qubership.profiler.sax.string.StringTreeTraceAdapter;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

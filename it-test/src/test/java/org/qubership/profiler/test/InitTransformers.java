@@ -4,19 +4,21 @@ import org.qubership.profiler.agent.*;
 import org.qubership.profiler.agent.plugins.EnhancerRegistryPluginImpl;
 import org.qubership.profiler.configuration.ConfigurationImpl;
 import org.qubership.profiler.instrument.enhancement.EnhancerPlugin_test;
+
 import mockit.internal.startup.Startup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.xml.sax.SAXException;
 
-import javax.xml.parsers.ParserConfigurationException;
 import java.io.File;
 import java.io.IOException;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
 import java.lang.reflect.InvocationTargetException;
 import java.security.ProtectionDomain;
+
+import javax.xml.parsers.ParserConfigurationException;
 
 /**
  * Prepares given class for testing (loads it through profiling transformer)

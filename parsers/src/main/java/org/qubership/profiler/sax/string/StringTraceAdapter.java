@@ -1,9 +1,9 @@
 package org.qubership.profiler.sax.string;
 
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.TraceVisitor;
 import org.qubership.profiler.sax.raw.TreeRowid;
 import org.qubership.profiler.sax.raw.TreeTraceVisitor;
+import org.qubership.profiler.util.ProfilerConstants;
 
 public class StringTraceAdapter extends TraceVisitor {
     private final StringRepositoryAdapter ra;

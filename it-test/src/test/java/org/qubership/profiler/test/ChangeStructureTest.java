@@ -4,11 +4,11 @@ import org.qubership.profiler.test.pigs.ChangeStructurePig;
 import org.qubership.profiler.test.pigs.ChildChangeStructurePig;
 import org.qubership.profiler.test.pigs.TransactionPig;
 import org.qubership.profiler.test.util.Randomizer;
+
 import org.springframework.test.util.ReflectionTestUtils;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Field;

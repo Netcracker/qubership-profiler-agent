@@ -1,6 +1,7 @@
 package org.mozilla.javascript.regexp;
 
 import org.qubership.profiler.agent.Profiler;
+
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
 

@@ -2,6 +2,7 @@ package org.qubership.profiler.fetch;
 
 import org.qubership.profiler.io.CallRowid;
 import org.qubership.profiler.output.CallTreeMediator;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;

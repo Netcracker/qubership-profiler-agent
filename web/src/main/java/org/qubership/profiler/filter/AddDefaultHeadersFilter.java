@@ -1,9 +1,9 @@
 package org.qubership.profiler.filter;
 
-import javax.servlet.*;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+
+import javax.servlet.*;
+import javax.servlet.http.HttpServletResponse;
 
 public class AddDefaultHeadersFilter implements Filter {
     public void destroy() {

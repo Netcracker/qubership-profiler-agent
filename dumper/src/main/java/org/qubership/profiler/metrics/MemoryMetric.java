@@ -1,14 +1,14 @@
 package org.qubership.profiler.metrics;
 
+import static org.qubership.profiler.agent.FilterOperator.CALL_INFO_PARAM;
+import static org.qubership.profiler.agent.FilterOperator.THREAD_STATE_PARAM;
+
 import org.qubership.profiler.agent.CallInfo;
 import org.qubership.profiler.agent.MetricType;
 import org.qubership.profiler.dump.ThreadState;
 
 import java.util.HashSet;
 import java.util.Map;
-
-import static org.qubership.profiler.agent.FilterOperator.CALL_INFO_PARAM;
-import static org.qubership.profiler.agent.FilterOperator.THREAD_STATE_PARAM;
 
 public class MemoryMetric extends AbstractHistogramMetric {
 

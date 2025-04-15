@@ -1,6 +1,7 @@
 package org.postgresql.core.v3;
 
 import org.qubership.profiler.agent.Profiler;
+
 import org.postgresql.core.ParameterList;
 import org.postgresql.core.Query;
 import org.postgresql.core.ResultHandler;

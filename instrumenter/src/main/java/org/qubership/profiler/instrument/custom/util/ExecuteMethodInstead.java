@@ -1,6 +1,7 @@
 package org.qubership.profiler.instrument.custom.util;
 
 import org.qubership.profiler.instrument.ProfileMethodAdapter;
+
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.slf4j.Logger;

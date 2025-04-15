@@ -1,7 +1,10 @@
 package org.qubership.profiler.instrument;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.qubership.profiler.configuration.Rule;
 import org.qubership.profiler.util.MethodInstrumentationInfo;
+
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -14,8 +17,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 public class GatherRulesForMethodVisitor extends ClassVisitor {
     private final static Logger log = LoggerFactory.getLogger(GatherRulesForMethodVisitor.class);

@@ -1,6 +1,7 @@
 package org.qubership.profiler.test.util;
 
 import org.qubership.profiler.instrument.TypeUtils;
+
 import gnu.trove.THash;
 import org.testng.Assert;
 import org.testng.annotations.Test;

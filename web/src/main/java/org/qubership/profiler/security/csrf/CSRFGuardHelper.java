@@ -3,10 +3,11 @@ package org.qubership.profiler.security.csrf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.servlet.http.HttpSession;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.SecureRandom;
+
+import javax.servlet.http.HttpSession;
 
 public class CSRFGuardHelper {
 

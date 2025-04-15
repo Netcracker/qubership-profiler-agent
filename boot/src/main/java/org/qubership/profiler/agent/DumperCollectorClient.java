@@ -1,7 +1,6 @@
 package org.qubership.profiler.agent;
 
 import java.io.IOException;
-import java.util.UUID;
 
 public interface DumperCollectorClient extends AutoCloseable{
     DumperRemoteControlledStream createRollingChunk(final String streamName, int requestedRollingSequenceId, boolean resetRequired) throws IOException;

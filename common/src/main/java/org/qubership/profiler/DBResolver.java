@@ -1,11 +1,10 @@
 package org.qubership.profiler;
 
-import org.qubership.profiler.dump.DumpRootResolver;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 
-import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 

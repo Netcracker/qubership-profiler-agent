@@ -6,7 +6,6 @@ import org.apache.catalina.LifecycleException;
 import org.apache.catalina.startup.Tomcat;
 import org.apache.tomcat.util.descriptor.web.SecurityConstraint;
 
-import javax.annotation.PostConstruct;
 import java.awt.*;
 import java.io.*;
 import java.lang.reflect.InvocationTargetException;
@@ -14,11 +13,13 @@ import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
+
+import javax.annotation.PostConstruct;
 
 public class WARLauncher {
     //something unique

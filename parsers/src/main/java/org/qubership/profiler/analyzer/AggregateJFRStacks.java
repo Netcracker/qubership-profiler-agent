@@ -5,11 +5,11 @@ import org.qubership.profiler.dom.ProfiledTree;
 import org.qubership.profiler.dom.ProfiledTreeStreamVisitor;
 import org.qubership.profiler.dom.TagDictionary;
 import org.qubership.profiler.io.Hotspot;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.stack.DumpVisitor;
 import org.qubership.profiler.sax.stack.DumpsVisitor;
 import org.qubership.profiler.threaddump.parser.ThreadInfo;
 import org.qubership.profiler.threaddump.parser.ThreaddumpParser;
+import org.qubership.profiler.util.ProfilerConstants;
 
 import java.util.ArrayList;
 

@@ -2,10 +2,11 @@ package org.qubership.profiler.servlet;
 
 import org.qubership.profiler.output.layout.FileAppender;
 
-import javax.servlet.ServletContext;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+
+import javax.servlet.ServletContext;
 
 /**
  * Appends the required files retrieved from {@link javax.servlet.ServletContext}.

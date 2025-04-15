@@ -3,13 +3,15 @@ package org.springframework.web.servlet.mvc.method.annotation;
 import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.agent.http.HttpServletLogUtils;
 import org.qubership.profiler.agent.http.ServletRequestAdapter;
+
 import org.apache.catalina.connector.Request;
 import org.apache.catalina.connector.Response;
 import org.apache.catalina.connector.ResponseFacade;
 import org.springframework.http.server.ServletServerHttpResponse;
 
-import javax.servlet.http.HttpServletResponse;
 import java.lang.reflect.Field;
+
+import javax.servlet.http.HttpServletResponse;
 
 public class ReactiveTypeHandler {
 

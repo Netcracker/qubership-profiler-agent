@@ -2,9 +2,10 @@ package com.liferay.portlet.layoutconfiguration.util;
 
 import org.qubership.profiler.agent.Profiler;
 
+import java.security.Principal;
+
 import javax.portlet.RenderRequest;
 import javax.servlet.http.HttpServletRequest;
-import java.security.Principal;
 
 public class RuntimePortletUtil {
     private static void savePortletId$profiler(HttpServletRequest request, RenderRequest renderRequest, String portletId) {

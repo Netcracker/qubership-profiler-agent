@@ -1,8 +1,8 @@
 package org.qubership.profiler.agent;
 
-import java.lang.invoke.*;
-
 import static java.lang.invoke.MethodType.methodType;
+
+import java.lang.invoke.*;
 
 public class ProfilerMetafactory {
     private static final MethodHandle PROFILER_PLUGIN_EXCEPTION_MH;

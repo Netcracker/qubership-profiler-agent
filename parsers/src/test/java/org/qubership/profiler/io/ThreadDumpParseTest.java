@@ -1,12 +1,13 @@
 package org.qubership.profiler.io;
 
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.readers.ThreadDumpReader;
 import org.qubership.profiler.sax.stack.DumpVisitor;
 import org.qubership.profiler.sax.stack.DumpsVisitor;
 import org.qubership.profiler.threaddump.parser.SunThreadFormatParser;
 import org.qubership.profiler.threaddump.parser.ThreadInfo;
 import org.qubership.profiler.util.IOHelper;
+import org.qubership.profiler.util.ProfilerConstants;
+
 import org.junit.Assert;
 import org.testng.annotations.Test;
 

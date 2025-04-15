@@ -1,19 +1,20 @@
 package org.qubership.profiler.util;
 
+import static org.qubership.profiler.agent.FilterOperator.*;
+import static org.qubership.profiler.agent.FilterOperator.ADDITIONAL_INPUT_PARAMS;
+
 import org.qubership.profiler.ServerNameResolver;
 import org.qubership.profiler.agent.*;
 import org.qubership.profiler.configuration.MetricsConfigurationImpl;
 import org.qubership.profiler.dump.ThreadState;
 import org.qubership.profiler.metrics.AggregationParameter;
 import org.qubership.profiler.metrics.MetricsPluginImpl;
+
 import gnu.trove.THashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-
-import static org.qubership.profiler.agent.FilterOperator.*;
-import static org.qubership.profiler.agent.FilterOperator.ADDITIONAL_INPUT_PARAMS;
 
 public class MetricsCollector {
     private final static Logger LOG = LoggerFactory.getLogger(MetricsCollector.class);

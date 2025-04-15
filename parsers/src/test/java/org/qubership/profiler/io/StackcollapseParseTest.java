@@ -3,6 +3,7 @@ package org.qubership.profiler.io;
 import org.qubership.profiler.fetch.StackcollapseParser;
 import org.qubership.profiler.threaddump.parser.ThreadInfo;
 import org.qubership.profiler.threaddump.parser.ThreaddumpParser;
+
 import org.junit.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;

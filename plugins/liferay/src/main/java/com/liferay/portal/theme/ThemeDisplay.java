@@ -1,8 +1,9 @@
 package com.liferay.portal.theme;
 
-import com.liferay.portal.model.User;
 import org.qubership.profiler.agent.CallInfo;
 import org.qubership.profiler.agent.Profiler;
+
+import com.liferay.portal.model.User;
 
 public class ThemeDisplay {
     private void logUser$profiler(User user) {

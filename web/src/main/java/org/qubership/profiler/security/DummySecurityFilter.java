@@ -1,5 +1,8 @@
 package org.qubership.profiler.security;
 
+import static org.qubership.profiler.security.SecurityConstants.AUTHENTICATED_USER;
+import static org.qubership.profiler.security.SecurityConstants.LAST_USER_URI;
+
 import java.io.IOException;
 
 import javax.servlet.FilterChain;
@@ -8,9 +11,6 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
-
-import static org.qubership.profiler.security.SecurityConstants.AUTHENTICATED_USER;
-import static org.qubership.profiler.security.SecurityConstants.LAST_USER_URI;
 
 public class DummySecurityFilter extends AbstractSecurityFilter {
     @Override

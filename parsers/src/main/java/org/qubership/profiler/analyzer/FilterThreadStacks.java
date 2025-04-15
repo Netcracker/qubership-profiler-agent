@@ -1,10 +1,10 @@
 package org.qubership.profiler.analyzer;
 
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.stack.DumpVisitor;
 import org.qubership.profiler.threaddump.parser.LockThreadLineInfo;
 import org.qubership.profiler.threaddump.parser.ThreadInfo;
 import org.qubership.profiler.threaddump.parser.ThreaddumpParser;
+import org.qubership.profiler.util.ProfilerConstants;
 
 import java.util.ArrayList;
 

@@ -2,6 +2,7 @@ package org.qubership.profiler.instrument.custom.impl;
 
 import org.qubership.profiler.instrument.ProfileMethodAdapter;
 import org.qubership.profiler.instrument.custom.MethodInstrumenter;
+
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.Method;

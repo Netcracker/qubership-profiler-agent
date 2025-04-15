@@ -2,6 +2,7 @@ package org.qubership.profiler.instrument.custom;
 
 import org.qubership.profiler.agent.Configuration_01;
 import org.qubership.profiler.instrument.ProfileMethodAdapter;
+
 import org.w3c.dom.Element;
 
 public abstract class MethodInstrumenter implements MethodAcceptor {

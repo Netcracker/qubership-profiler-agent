@@ -1,17 +1,21 @@
 package org.qubership.profiler.agent.plugins;
 
+import static org.qubership.profiler.Dumper.PROFILER_TITLE;
+import static org.qubership.profiler.agent.ProfilerData.DISABLE_CALL_EXPORT;
+
 import org.qubership.profiler.Dumper;
-import org.qubership.profiler.client.CollectorClientFactory;
-import org.qubership.profiler.metrics.MetricsPluginImpl;
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.ProfilerData;
 import org.qubership.profiler.agent.*;
 import org.qubership.profiler.agent.DumperPlugin;
+import org.qubership.profiler.agent.Profiler;
+import org.qubership.profiler.agent.ProfilerData;
 import org.qubership.profiler.agent.ProfilerTransformerPlugin;
+import org.qubership.profiler.client.CollectorClientFactory;
 import org.qubership.profiler.dump.DumpRootResolver;
 import org.qubership.profiler.dump.DumperThread;
 import org.qubership.profiler.dump.ThreadState;
+import org.qubership.profiler.metrics.MetricsPluginImpl;
 import org.qubership.profiler.transfer.DataSender;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,9 +25,6 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
-
-import static org.qubership.profiler.Dumper.PROFILER_TITLE;
-import static org.qubership.profiler.agent.ProfilerData.DISABLE_CALL_EXPORT;
 
 public class DumperPluginImpl implements DumperPlugin_10 {
     private final static Logger log = LoggerFactory.getLogger(DumperPluginImpl.class);

@@ -1,5 +1,7 @@
 package org.qubership.profiler.io;
 
+import static org.qubership.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
+
 import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.io.call.CallDataReader;
 import org.qubership.profiler.io.call.CallDataReaderFactory;
@@ -12,8 +14,6 @@ import java.io.FileFilter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
-
-import static org.qubership.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
 
 public abstract class CallReader implements ICallReader {
     protected final CallFilterer cf;

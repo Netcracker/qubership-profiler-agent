@@ -5,11 +5,11 @@ import org.qubership.profiler.agent.plugins.ConfigurationSPI;
 import org.qubership.profiler.configuration.ConfigurationImpl;
 import org.qubership.profiler.util.IOHelper;
 import org.qubership.profiler.util.ZipUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
-import javax.xml.parsers.ParserConfigurationException;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -19,6 +19,8 @@ import java.util.Enumeration;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+
+import javax.xml.parsers.ParserConfigurationException;
 
 public class Instrumenter {
     private final static Logger log = LoggerFactory.getLogger(Instrumenter.class);

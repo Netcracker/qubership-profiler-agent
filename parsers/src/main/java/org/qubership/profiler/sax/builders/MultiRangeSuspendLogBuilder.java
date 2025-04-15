@@ -4,6 +4,7 @@ import org.qubership.profiler.chart.Provider;
 import org.qubership.profiler.io.SuspendLog;
 import org.qubership.profiler.sax.raw.SuspendLogVisitor;
 import org.qubership.profiler.util.ProfilerConstants;
+
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.context.annotation.Scope;

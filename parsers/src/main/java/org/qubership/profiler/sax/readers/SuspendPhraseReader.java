@@ -3,6 +3,7 @@ package org.qubership.profiler.sax.readers;
 import org.qubership.profiler.dump.IDataInputStreamEx;
 import org.qubership.profiler.io.IPhraseInputStreamParser;
 import org.qubership.profiler.sax.raw.ISuspendLogVisitor;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

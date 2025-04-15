@@ -1,7 +1,7 @@
 package org.qubership.profiler.io;
 
-import org.qubership.profiler.agent.ProfilerData;
 import org.qubership.profiler.agent.*;
+import org.qubership.profiler.agent.ProfilerData;
 import org.qubership.profiler.configuration.ParameterInfoDto;
 
 import java.io.File;

@@ -1,6 +1,5 @@
 package org.qubership.profiler.agent;
 
-import java.util.UUID;
 
 public interface DumperCollectorClientFactory {
     DumperCollectorClient newClient(String host,

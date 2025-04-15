@@ -1,13 +1,13 @@
 package org.qubership.profiler.agent;
 
+import static java.util.logging.Level.*;
+
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.text.MessageFormat;
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
-
-import static java.util.logging.Level.*;
 
 public class ESCLogger {
     private static final String MESSAGE_FORMAT_STRING_DEFAULT = "{3,date,YYYY-MM-dd HH:mm:ss,SSS}  {1} [thread={2}] [class={0}]- {4}{5}";

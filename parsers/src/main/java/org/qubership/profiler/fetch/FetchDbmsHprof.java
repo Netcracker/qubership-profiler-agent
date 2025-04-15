@@ -1,12 +1,13 @@
 package org.qubership.profiler.fetch;
 
 import org.qubership.profiler.dom.ProfiledTreeStreamVisitor;
+import org.qubership.profiler.io.FileWalker;
+import org.qubership.profiler.io.InputStreamProcessor;
 import org.qubership.profiler.io.exceptions.ErrorSupervisor;
 import org.qubership.profiler.sax.builders.ProfiledTreeBuilderMR;
 import org.qubership.profiler.sax.raw.RepositoryVisitor;
 import org.qubership.profiler.sax.readers.DbmsHprofReader;
-import org.qubership.profiler.io.FileWalker;
-import org.qubership.profiler.io.InputStreamProcessor;
+
 import org.springframework.context.ApplicationContext;
 
 import java.io.*;

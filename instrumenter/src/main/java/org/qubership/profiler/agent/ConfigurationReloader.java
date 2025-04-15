@@ -4,7 +4,6 @@ import org.qubership.profiler.agent.plugins.ConfigurationSPI;
 import org.qubership.profiler.configuration.Rule;
 import org.qubership.profiler.instrument.TypeUtils;
 import org.qubership.profiler.util.IOHelper;
-import org.apache.commons.lang.ArrayUtils;
 
 import java.io.*;
 import java.lang.instrument.ClassDefinition;

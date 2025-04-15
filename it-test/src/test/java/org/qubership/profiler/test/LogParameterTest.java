@@ -3,10 +3,9 @@ package org.qubership.profiler.test;
 import org.qubership.profiler.agent.*;
 import org.qubership.profiler.test.pigs.LogParameterPig;
 import org.qubership.profiler.test.util.Randomizer;
+
 import mockit.Capturing;
-import mockit.Delegate;
 import mockit.Expectations;
-import mockit.Mocked;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 

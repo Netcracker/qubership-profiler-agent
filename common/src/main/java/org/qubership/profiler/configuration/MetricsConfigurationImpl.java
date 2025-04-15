@@ -1,9 +1,9 @@
 package org.qubership.profiler.configuration;
 
 import org.qubership.profiler.agent.AggregationParameterDescriptor;
+import org.qubership.profiler.agent.FilterOperator;
 import org.qubership.profiler.agent.MetricsConfiguration;
 import org.qubership.profiler.agent.MetricsDescription;
-import org.qubership.profiler.agent.FilterOperator;
 import org.qubership.profiler.configuration.callfilters.FilterOperatorAnd;
 
 import java.util.LinkedList;

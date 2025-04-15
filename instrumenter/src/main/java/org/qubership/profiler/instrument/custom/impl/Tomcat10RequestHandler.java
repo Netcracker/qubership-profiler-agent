@@ -4,6 +4,7 @@ import org.qubership.profiler.agent.Configuration_01;
 import org.qubership.profiler.agent.EnhancementRegistry;
 import org.qubership.profiler.instrument.ProfileMethodAdapter;
 import org.qubership.profiler.instrument.custom.MethodInstrumenter;
+
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.Method;

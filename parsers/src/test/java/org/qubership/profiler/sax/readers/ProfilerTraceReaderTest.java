@@ -1,18 +1,5 @@
 package org.qubership.profiler.sax.readers;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Set;
-
-import org.junit.Assert;
-import org.junit.Test;
-import org.springframework.util.ResourceUtils;
-import org.mockito.Mockito;
-
 import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.sax.raw.ClobReaderFlyweight;
 import org.qubership.profiler.sax.raw.ClobReaderFlyweightFile;
@@ -24,6 +11,19 @@ import org.qubership.profiler.sax.readers.ProfilerTraceReader.ClobReadMode;
 import org.qubership.profiler.sax.readers.ProfilerTraceReader.ClobReadTypes;
 import org.qubership.profiler.sax.values.ClobValue;
 import org.qubership.profiler.sax.values.ValueHolder;
+
+import org.junit.Assert;
+import org.junit.Test;
+import org.mockito.Mockito;
+import org.springframework.util.ResourceUtils;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Set;
 
 
 class MockTreeTraceVisitor extends TreeTraceVisitor {

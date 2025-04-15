@@ -5,6 +5,7 @@ import org.qubership.profiler.agent.Configuration_01;
 import org.qubership.profiler.agent.EnhancementRegistry;
 import org.qubership.profiler.agent.EnhancerRegistryPlugin;
 import org.qubership.profiler.configuration.ConfigStackElement;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Element;

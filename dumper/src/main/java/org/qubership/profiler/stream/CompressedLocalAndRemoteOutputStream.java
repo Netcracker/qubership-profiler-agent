@@ -1,5 +1,7 @@
 package org.qubership.profiler.stream;
 
+import static org.qubership.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
+
 import org.qubership.profiler.agent.DumperCollectorClient;
 import org.qubership.profiler.cloud.transport.ProfilerProtocolException;
 import org.qubership.profiler.cloud.transport.ProtocolConst;
@@ -24,8 +26,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
-
-import static org.qubership.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
 
 /**
  * this one orchestrates rotation of remote streams and local files

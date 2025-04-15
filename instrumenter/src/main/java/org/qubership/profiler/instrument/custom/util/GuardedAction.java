@@ -5,6 +5,7 @@ import org.qubership.profiler.instrument.ProfileMethodAdapter;
 import org.qubership.profiler.instrument.TypeUtils;
 import org.qubership.profiler.instrument.custom.MethodAcceptor;
 import org.qubership.profiler.instrument.custom.MethodInstrumenter;
+
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;

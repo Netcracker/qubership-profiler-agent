@@ -2,6 +2,7 @@ package org.qubership.profiler.cli;
 
 import org.qubership.profiler.dump.DumpRootResolver;
 import org.qubership.profiler.servlet.SpringBootInitializer;
+
 import net.sourceforge.argparse4j.inf.Namespace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

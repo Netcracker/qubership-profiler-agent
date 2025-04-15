@@ -4,7 +4,7 @@ import org.qubership.profiler.dump.DataInputStreamEx;
 import org.qubership.profiler.io.ParamReader;
 import org.qubership.profiler.io.ParamReaderFactory;
 import org.qubership.profiler.sax.raw.*;
-import org.qubership.profiler.sax.values.ClobValue;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
@@ -14,7 +14,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Set;
 
 @Component
 @Scope("prototype")

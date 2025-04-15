@@ -1,15 +1,15 @@
 package org.qubership.profiler.instrument;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.qubership.profiler.util.MethodInstrumentationInfo;
+
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Opcodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 public class ProfileClassAdapter extends ClassVisitor {
     private final static Logger log = LoggerFactory.getLogger(ProfileClassAdapter.class);

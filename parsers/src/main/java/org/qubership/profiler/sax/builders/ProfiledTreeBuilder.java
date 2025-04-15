@@ -2,8 +2,9 @@ package org.qubership.profiler.sax.builders;
 
 import org.qubership.profiler.dom.ProfiledTreeStreamVisitor;
 import org.qubership.profiler.io.SuspendLog;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.raw.*;
+import org.qubership.profiler.util.ProfilerConstants;
+
 import org.springframework.context.ApplicationContext;
 
 public class ProfiledTreeBuilder extends RepositoryVisitor {

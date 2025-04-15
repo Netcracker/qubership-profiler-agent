@@ -1,6 +1,5 @@
 package org.qubership.profiler.io.aggregate;
 
-import org.qubership.profiler.agent.Profiler;
 import org.qubership.profiler.io.Call;
 import org.qubership.profiler.io.aggregate.model.AggregateRow;
 

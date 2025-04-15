@@ -2,9 +2,9 @@ package org.qubership.profiler.sax.factory;
 
 import org.qubership.profiler.io.SuspendLog;
 import org.qubership.profiler.sax.builders.MultiRangeSuspendLogBuilder;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.builders.SuspendLogBuilder;
 import org.qubership.profiler.sax.readers.SuspendLogReader;
+
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 

@@ -1,22 +1,24 @@
 package org.qubership.profiler.servlet;
 
 
-import org.qubership.profiler.io.DurationFiltererImpl;
 import org.qubership.profiler.io.*;
+import org.qubership.profiler.io.DurationFiltererImpl;
 import org.qubership.profiler.servlet.util.DumperStatusProvider;
 import org.qubership.profiler.util.TimeHelper;
+
 import org.apache.commons.lang.BooleanUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.URLEncoder;
 import java.util.*;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 public class CallFetcher extends javax.servlet.http.HttpServlet {
     private static final Logger log = LoggerFactory.getLogger(CallFetcher.class);

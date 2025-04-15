@@ -3,7 +3,6 @@ package org.qubership.profiler.audit;
 import org.slf4j.Logger;
 import org.slf4j.MDC;
 
-import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 public class AuditLog {

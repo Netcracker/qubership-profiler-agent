@@ -1,7 +1,7 @@
 package org.qubership.profiler.io.exceptions;
 
+
 import com.fasterxml.jackson.core.JsonGenerator;
-import org.qubership.profiler.util.ThrowableHelper;
 
 import java.io.IOException;
 

@@ -2,10 +2,11 @@ package org.qubership.profiler.servlet.layout;
 
 import org.qubership.profiler.output.layout.Layout;
 
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.OutputStream;
+
+import javax.servlet.ServletOutputStream;
+import javax.servlet.http.HttpServletResponse;
 
 public class ServletLayout extends Layout {
     protected HttpServletResponse resp;

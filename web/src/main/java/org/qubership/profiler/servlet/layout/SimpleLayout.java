@@ -2,9 +2,10 @@ package org.qubership.profiler.servlet.layout;
 
 import org.qubership.profiler.output.layout.Layout;
 
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.OutputStream;
+
+import javax.servlet.http.HttpServletResponse;
 
 public class SimpleLayout extends Layout {
     private final HttpServletResponse resp;

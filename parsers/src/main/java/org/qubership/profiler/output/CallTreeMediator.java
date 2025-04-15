@@ -1,8 +1,5 @@
 package org.qubership.profiler.output;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.util.ByteArrayBuilder;
 import org.qubership.profiler.dom.ClobValues;
 import org.qubership.profiler.dom.GanttInfo;
 import org.qubership.profiler.dom.ProfiledTree;
@@ -17,6 +14,10 @@ import org.qubership.profiler.output.layout.Layout;
 import org.qubership.profiler.output.layout.SinglePageLayout;
 import org.qubership.profiler.sax.values.ClobValue;
 import org.qubership.profiler.util.ProfilerConstants;
+
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.util.ByteArrayBuilder;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -3,10 +3,10 @@ package org.qubership.profiler.configuration.callfilters.params;
 import org.qubership.profiler.agent.FilterOperator;
 import org.qubership.profiler.agent.ProfilerData;
 import org.qubership.profiler.dump.ThreadState;
+
 import gnu.trove.THashSet;
 import gnu.trove.TIntObjectHashMap;
 
-import java.util.Comparator;
 import java.util.Map;
 
 public abstract class FilterOperatorMatching implements FilterOperator {

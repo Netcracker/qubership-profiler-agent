@@ -4,12 +4,13 @@ import org.qubership.profiler.analyzer.AggregateJFRStacks;
 import org.qubership.profiler.analyzer.MergeTrees;
 import org.qubership.profiler.dom.ProfiledTreeStreamVisitor;
 import org.qubership.profiler.io.exceptions.ErrorSupervisor;
-import org.qubership.profiler.util.ProfilerConstants;
 import org.qubership.profiler.sax.stack.DumpVisitor;
 import org.qubership.profiler.sax.stack.DumpsVisitor;
 import org.qubership.profiler.threaddump.parser.MethodThreadLineInfo;
 import org.qubership.profiler.threaddump.parser.ThreadInfo;
 import org.qubership.profiler.threaddump.parser.ThreaddumpParser;
+import org.qubership.profiler.util.ProfilerConstants;
+
 import org.openjdk.jmc.common.IMCFrame;
 import org.openjdk.jmc.common.IMCMethod;
 import org.openjdk.jmc.common.IMCStackTrace;

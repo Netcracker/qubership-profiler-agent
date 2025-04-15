@@ -1,8 +1,11 @@
 package org.qubership.profiler.test.instrument;
 
+import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
+
 import org.qubership.profiler.configuration.Rule;
 import org.qubership.profiler.instrument.ProfileMethodAdapter;
 import org.qubership.profiler.instrument.TypeUtils;
+
 import org.objectweb.asm.*;
 import org.objectweb.asm.util.ASMifier;
 import org.objectweb.asm.util.CheckClassAdapter;
@@ -10,8 +13,6 @@ import org.objectweb.asm.util.TraceClassVisitor;
 import org.testng.annotations.Test;
 
 import java.io.PrintWriter;
-
-import static org.qubership.profiler.instrument.enhancement.EnhancerConstants.OPCODES_VERSION;
 
 public class ProfileMethodAdapterTest implements Opcodes {
     public ClassVisitor createVerifier(ClassVisitor out) {
