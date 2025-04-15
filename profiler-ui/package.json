@@ -1,0 +1,35 @@
+{
+  "name": "profiler-webapp",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "bootstrap-datepicker": "^1.10.0",
+    "dygraphs": "^2.2.1",
+    "jquery": "^3.5.1",
+    "jquery-ui": "^1.13.2",
+    "jquery.rule": "^1.1.2",
+    "jquery.cookie": "^1.4.1",
+    "jquery-bbq": "^1.0.0",
+    "jquery-notify": "git+https://github.com/ehynds/jquery-notify.git#1.5",
+    "jquery.event.drag": "^2.2.2",
+    "url-search-params-polyfill": "^8.2.5",
+    "datepair.js": "^0.4.17",
+    "timepicker": "^1.14.1",
+    "moment": "^2.30.1",
+    "moment-timezone": "^0.5.48",
+    "chap-timeline": "^2.9.2",
+    "sortablejs": "^1.15.6",
+    "jstz": "^2.1.1",
+    "slickgrid": "^5.15.2",
+    "code-prettify": "^0.1.0",
+    "vkbeautify": "^0.99.3"
+  },
+  "devDependencies": {
+    "vite": "^6.2.6",
+    "vite-plugin-singlefile": "^2.2.0"
+  }
+}

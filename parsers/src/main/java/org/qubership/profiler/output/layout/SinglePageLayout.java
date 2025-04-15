@@ -4,12 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.nio.charset.Charset;
 
 public class SinglePageLayout extends LayoutDelegate {
     public static final String JAVASCRIPT = "single-page-javascript";
     public static final String HTML = "single-page-html";
-
-    public static final String CSS_START = "<link type=\"text/css\" href=\"";
 
     private final Template template;
 
@@ -17,12 +16,8 @@ public class SinglePageLayout extends LayoutDelegate {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SinglePageLayout.class);
 
-
-    public static Template getTemplate(FileAppender resources, String path, String charsetName) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        resources.append(path, baos);
-        String html = baos.toString(charsetName);
-        return new Template(html, resources, charsetName);
+    public static Template getTemplate(String html, Charset charset) throws IOException {
+        return new Template(html, charset);
     }
 
     public SinglePageLayout(Layout parent, Template template) {
@@ -60,62 +55,20 @@ public class SinglePageLayout extends LayoutDelegate {
         super.close();
     }
 
-    /**
-     * Created by vladimirsitnikov on 11.07.14.
-     */
     public static class Template {
-        private final static byte[] OPEN_CSS = "<style type='text/css'>".getBytes();
-        private final static byte[] CLOSE_CSS = "</style>".getBytes();
-
-        public final byte[] headOpenCss;
-        public final byte[] closeCssOpenJs;
+        public final byte[] openJs;
         public final byte[] closeJs;
-        private final FileAppender resources;
 
-        private final String cssFile;
-        private final String jsFile;
+        public Template(String html, Charset charset) {
+            // The beginning of the file includes all the CSS/JS dependencies, so we search backwards
+            int jsEnd = html.lastIndexOf("</script>");
 
-        public Template(String html, FileAppender resources, String charsetName) {
-            this.resources = resources;
-
-            int cssStart = html.indexOf(CSS_START);
-            int startIndex = cssStart + CSS_START.length();
-            int endIndex = html.indexOf('"', cssStart + CSS_START.length());
-            cssFile = "/" + html.substring(startIndex, endIndex);
-            int cssEnd = html.indexOf("/>", cssStart + CSS_START.length()) + 2;
-
-            int jsStart = html.indexOf("(function(){");
-            int jsFileStart = html.indexOf("src=\"js/", jsStart) + 5;
-            final int jsFileEnd = html.indexOf('"', jsFileStart);
-            jsFile = "/" + html.substring(jsFileStart, jsFileEnd);
-
-            try {
-                headOpenCss = html.substring(0, cssStart).getBytes(charsetName);
-            } catch (UnsupportedEncodingException e) {
-                throw new IllegalArgumentException("Unsupported charset " + charsetName, e);
-            }
-
-            try {
-                closeCssOpenJs = html.substring(cssEnd, jsStart).getBytes(charsetName);
-            } catch (UnsupportedEncodingException e) {
-                throw new IllegalArgumentException("Unsupported charset " + charsetName, e);
-            }
-
-            try {
-                closeJs = html.substring(jsFileEnd + 2).getBytes(charsetName);
-            } catch (UnsupportedEncodingException e) {
-                throw new IllegalArgumentException("Unsupported charset " + charsetName, e);
-            }
+            openJs = html.substring(0, jsEnd).getBytes(charset);
+            closeJs = html.substring(jsEnd).getBytes(charset);
         }
 
         public void appendStart(OutputStream out) throws IOException {
-            out.write(headOpenCss);
-            out.write(OPEN_CSS);
-            resources.append(cssFile, out);
-            out.write(CLOSE_CSS);
-            out.write(closeCssOpenJs);
-            resources.append(jsFile, out);
-
+            out.write(openJs);
         }
 
         public void appendEnd(OutputStream out) throws IOException {

@@ -302,7 +302,7 @@ public class TreeToJson implements JsonSerializer<ProfiledTree> {
 
     private Map<String, Integer> renderClobs(ClobValues clobs, JsonGenerator gen) throws IOException {
         Map<String, Integer> folder2id = new HashMap<String, Integer>();
-        gen.writeRaw("s={}; x={}; var tc;\n");
+        gen.writeRaw("var s={}; var x={}; var tc;\n");
         for (ClobValue clob : clobs.getClobs()) {
             Integer folderId = folder2id.get(clob.dataFolderPath);
             if (folderId == null) {

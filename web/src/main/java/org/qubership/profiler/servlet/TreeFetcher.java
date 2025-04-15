@@ -14,8 +14,11 @@ import org.qubership.profiler.output.layout.ZipLayout;
 import org.qubership.profiler.servlet.layout.*;
 import org.qubership.profiler.timeout.ProfilerTimeoutException;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.util.*;
 
@@ -49,7 +52,10 @@ public class TreeFetcher extends HttpServletBase<CallTreeMediator, TreeFetcher.R
         FileAppender appender = new ServletResourceAppender(context);
         reactorChainsResolver = SpringBootInitializer.reactorChainsResolver();
         try {
-            template = SinglePageLayout.getTemplate(appender, "/tree.html", "UTF-8");
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            appender.append("/single-page/tree.html", baos);
+            Charset charset = StandardCharsets.UTF_8;
+            template = SinglePageLayout.getTemplate(baos.toString(charset.name()), charset);
         } catch (IOException e) {
             throw new ServletException("Unable to read /tree.html template", e);
         }

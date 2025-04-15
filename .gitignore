@@ -16,6 +16,7 @@ nbproject
 *.local.properties
 *-dist.zip
 *.po.~*~
+node_modules/
 target/
 /build/
 /*/build/

@@ -5,6 +5,7 @@ pluginManagement {
         id("com.github.vlsi.gradle-extensions") version "1.90"
         id("com.github.vlsi.ide") version "1.90"
         id("com.gradleup.shadow") version "8.3.6"
+        id("com.github.node-gradle.node") version "7.1.0"
     }
 }
 
@@ -37,6 +38,7 @@ include("it-test")
 include("parsers")
 include("plugin-generator")
 include("profiler")
+include("profiler-ui")
 include("proto-definition")
 include("runtime")
 include("war-lib")

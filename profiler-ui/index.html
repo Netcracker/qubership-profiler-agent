@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7; IE=EmulateIE9; IE=EmulateIE10; chrome=1">
+    <!--[if IE]><![endif]-->
+    <title>NC Profiler Results Page</title>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <meta http-equiv="Cache-Control" content="no-cache">
+    <style type="text/css">
+        html, body {
+            overflow: hidden;
+        }
+    </style>
+    <script type="text/javascript">
+        window.app = {name: 'CallList', inited: false};
+    </script>
+    <script type="module" src="src/callList.mjs"></script>
+</head>
+<body>
+<div id="loading" class="ui-state-highlight ui-widget">Loading...</div>
+<div id="calls-list-configuration" class="ui-widget" style="display: none;">
+    <div id="calls-list-configuration-padding">
+        <div class="ui-widget">
+            <a id="cmd-ana-thr" href="#" class="vl"><span class="ui-icon ui-icon-folder-open inline-block"
+                                                          style="vertical-align:middle;"></span>Analyze file</a>
+            <a id="cmd-config" href="#" class="vl"><span class="ui-icon ui-icon-gear inline-block"
+                                                         style="vertical-align:middle;"></span>Configure profiler</a>
+            <input id="cmd-show-filter" type="checkbox" checked="checked"><label
+                for="cmd-show-filter" title="Show timerange and duration selectors">Show filters</label>
+            <input id="cmd-hide-proxy-requests" type="checkbox" checked="checked"><label
+                for="cmd-hide-proxy-requests" title="Hide proxy requests and well-known idle threads (recovery, scheduler, etc)">Hide proxy/system requests</label>
+            <input id="cmd-hide-timeline" type="checkbox" checked="checked"><label
+                for="cmd-hide-timeline" title="Hide timeline">Hide timeline</label>
+            <input id="cmd-show-cloud-features" type="checkbox"><label
+                for="cmd-show-cloud-features" title="Show namespace and serviceName columns and Pod Filter, download dump and download as xlsx">Show Cloud UI features</label>
+            <span style="margin-left: 10px;" id="callPodFilterSpan"><span>POD Filter:</span>
+                <input type="search" class="callPodFilter" pattern="pod_name=.*" id="callPodFilter" name="callPodFilter" title="Please specify filtering criteria" placeholder="Specify mandatory  search conditions. Example: 'service_name like my_service%'" style="color: gray;margin-top: 3px; width:650px"/>
+                <input type="button" class="showActivePODsbutton" id="showActivePODsbutton" value="Show Active PODs"/>
+                <input type="button" class="downloadDumpbutton" id="downloadDumpButton" value="Download dump"/>
+                <div id="suggestionsBox" style="display:none;position:absolute" class="suggestionBox">&nbsp;</div>
+            </span>
+            <input style="margin-left: 10px;" type="button" class="downloadExcelbutton" id="downloadExcelbutton" value="Download as xlsx"/>
+        </div>
+        <div id="cl-cfg-flt">
+            <div style="overflow: hidden; padding-top: 0.5em; padding-bottom: 0.25em;">
+                <div style="float: left;">
+                    <label class="text-label inline-block" title="Use 'r' shortcut to refresh the page displaying the latest 15 minutes">Time<span style="text-decoration: underline;">r</span>ange:</label>
+                    <div id="timerange-buttons" class="inline-block">
+                        <input type="radio" id="tr_15min" value="15" checked="checked" name="timerange"/><label
+                            for="tr_15min" title="Show latest 15 minutes of activity. Use 'r' hotkey for quick access">last
+                        15min</label>
+                        <input type="radio" id="tr_1hour" value="60" checked="checked" name="timerange"/><label
+                            for="tr_1hour">last
+                        hour</label>
+                        <input type="radio" id="tr_2hours" value="120" name="timerange"/><label for="tr_2hours">last
+                        2h</label>
+                        <input type="radio" id="tr_4hours" value="240" name="timerange"/><label for="tr_4hours">last
+                        4h</label>
+                        <input type="radio" id="tr_custom" name="timerange"/><label for="tr_custom">custom</label>
+                    </div>
+                </div>
+                <div id="tr_selector" class="selector_container">
+                    <input type="text" class="date start"/>
+                    <input type="text" class="time start"/> to <input type="text" class="time end"/>
+                    <input type="text" class="date end"/>
+                    <input type="text" id="tr_timezone" title="As you change timezone, time fields whould be adjusted to keep timerange intact. If you want to keep time fields and change timezone, hold CTRL or CMD key while selecting timezone, or prefix timezone with ! as you type (e.g. !Moscow)">
+                </div>
+            </div>
+            <div style="overflow: hidden; padding-top: 0.25em; padding-bottom: 0.4em;">
+                <div style="float: left;">
+                    <label class="text-label inline-block">Duration:</label>
+                    <div id="duration-buttons" class="inline-block">
+                        <input type="radio" id="dr_0" value=">= 0ms" name="duration"/><label for="dr_0">all</label>
+                        <input type="radio" id="dr_10" value=">= 10ms" name="duration"/><label for="dr_10">&ge; 10ms</label>
+                        <input type="radio" id="dr_100" value=">= 100ms" name="duration"/><label for="dr_100">&ge; 100ms</label>
+                        <input type="radio" id="dr_500" value=">= 500ms" name="duration"/><label for="dr_500">&ge; 500ms</label>
+                        <input type="radio" id="dr_1000" value=">= 1000ms" name="duration"/><label for="dr_1000">&ge; 1sec</label>
+                        <input type="radio" id="dr_5000" value=">= 5000ms" name="duration"/><label for="dr_5000">&ge; 5sec</label>
+                        <input type="radio" id="dr_30000" value=">= 30s" name="duration"/><label for="dr_30000">&ge; 30sec</label>
+                    </div>
+                </div>
+                <div class="selector_container">
+                    <input type="text" id="dr_selector" name="dr_selector"
+                           placeholder="use >=500ms, 100ms..500ms, or <=500ms"
+                           title="The following formats are supported: >=500ms, 100ms..500ms, and <=500ms"
+                            >
+                </div>
+                <input type="button" id="apply_filters" value="Apply filters" style="display: none;">
+            </div>
+            <div style="overflow: hidden; padding-top: 0.25em; padding-bottom: 0.4em;">
+                <div style="float: left;">
+                    <label class="text-label inline-block">Search:</label>
+                    <input type="search" id="qry" name="qry" value="" placeholder="use + for mandatory, - to exclude, or &quot;exact phrase&quot; filtering" title="Search tips: <<+clust1 sysadm administrator>> lists all (sysadm OR administrator requests) made to clust1 node.
+<<&quot;test page&quot; -cust2>> lists request matching phrase 'test page' except the requests to clust2.
+<<+clust1 -jsp sysadm administrator>> lists (sysadm or administrator) requests that match clust2 except jsp calls.
+<<+$node.name=clust1 -$web.url=jsp $nc.user=sysadm $nc.user=administrator>> the same as above search, but explicitly sets parameters for searching.
+" style="width: 961px;">
+                </div>
+            </div>
+        </div>
+
+        <form id="open_tree" class="inline-block" action="tree.jsp" method="get" target="_blank">
+            <label class="inline-block" id="filter-status"></label>
+            <input type="submit" readonly="readonly" id="group" disabled="disabled" style="display:none" value="Group selected rows">
+        </form>
+    </div>
+</div>
+<div id="config-dialog" style="display:none;padding:0;margin:0;">
+    <div id="tabs">
+        <ul>
+            <li><a href="#tabs-config">Profiled classes</a></li>
+            <li><a href="#tabs-dumper">Dumper</a></li>
+        </ul>
+        <div id="tabs-config">
+            Profiled classes preset:<br>
+            <div id="cfg-rl-opts" style="margin-left:2em;">
+                <input type="radio" id="cfg-rl-def" value="default" checked="checked" name="cfg-rl-opt" class="ui-widget" style="vertical-align:bottom;"/><label for="cfg-rl-def"><span class="vl">default</span>
+                &mdash; profiles <abbr title="Servlet, JSP, JMS, JDBC and JTA">J2EE</abbr>, <abbr title="Class and ClassLoader">Java</abbr> and <abbr title="org.qubership.**">Qubership</abbr> classes</label><br>
+                <input type="radio" id="cfg-rl-min" value="minimal" name="cfg-rl-opt" class="ui-widget" style="vertical-align:bottom;"/><label for="cfg-rl-min"><span class="vl">minimal</span>
+                &mdash; profiles only <abbr title="Servlet, JSP, JMS, JDBC and JTA">J2EE</abbr></label><br>
+                <input type="radio" id="cfg-rl-production" value="production" name="cfg-rl-opt" style="vertical-align:bottom;"/><label for="cfg-rl-production"><span class="vl">production</span>
+                &mdash; does not profile any classes, just keeps stability fixes (prevents OutOfMemory in RemoteExceptions)</label><br>
+                <input type="radio" id="cfg-rl-empty" value="empty" name="cfg-rl-opt" style="vertical-align:bottom;"/><label for="cfg-rl-empty"><span class="vl">empty</span>
+                &mdash; does not profile any classes (standby mode)</label><br>
+                <input type="radio" id="cfg-rl-cust" value="" name="cfg-rl-opt" style="vertical-align:bottom;"/><label for="cfg-rl-cust"><span class="vl">custom</span>
+                &mdash; uses custom config</label><br>
+                <input id="cfg-rl-path" value="" size=60 style="margin-left:3em;"><input type="button" id="conf-file-save" value="Reload on restart"><input type="button" id="conf-reload" value="Reload now"><br><br>
+            </div>
+            Status:<span id="cfg-rl-msg"></span>
+            <div id="cfg-rl-pbar"></div>
+            <pre id="cfg-rl-detail"></pre>
+        </div>
+        <div id="tabs-dumper">
+            <table>
+                <tr><td>Dumper status:</td><td><span id="cfg-dum-stat">n/a</span> <button id="cfg-dum-switch">Stop</button></td></tr>
+                <tr class="odd"><td>Number of restarts:</td><td id="cfg-dum-restarts">n/a</td></tr>
+                <tr><td>Busy %:</td><td id="cfg-dum-pct">n/a</td></tr>
+                <tr class="odd"><td>Bytes written (read):</td><td id="cfg-dum-bytes">n/a (n/a)</td></tr>
+                <tr><td>Records written:</td><td id="cfg-dum-rows">n/a</td></tr>
+                <tr class="odd"><td>Log write duration:</td><td id="cfg-dum-time">n/a</td></tr>
+                <tr><td>Dumper cpu time:</td><td id="cfg-dum-cpu-time">n/a</td></tr>
+                <tr class="odd"><td>Dumper memory allocated:</td><td id="cfg-dum-mem-used">n/a</td></tr>
+                <tr><td>Dumper active time:</td><td id="cfg-dum-act-time">n/a</td></tr>
+                <tr class="odd"><td>Dump root:</td><td id="cfg-dum-root">n/a</td></tr>
+                <tr><td>Dumper total size:</td><td><span id="cfg-dum-arch-sz">n/a</span> <button id="cfg-dum-frc-scn">Rescan</button></td></tr>
+
+            </table>
+            <pre id="cfg-dum-exc"></pre>
+        </div>
+    </div>
+</div>
+<div id="thr-dmp" class="ui-dialog-content" style="display:none;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td style="width:6em;text-align:right;"><label for="thr-dmp-file">File name:</label></td>
+            <td style="padding-left:0.2em"><input type="text" id="thr-dmp-file" size="20" style="width:100%;"></td>
+        </tr>
+    </table>
+    <label class="inline-block text-label">File size:</label><span id="thr-dmp-st" style="padding-left: 0.2em"></span>
+    <a href="#" id="thr-dmp-fs"><span class="ui-icon ui-icon-refresh inline-block"
+                                      style="vertical-align:text-bottom;"></span></a><br>
+    <label class="inline-block text-label">File format:</label>
+    <input type="radio" name="thr-dmp-format" id="thr-dmp-auto" checked="checked" value="auto"><label for="thr-dmp-auto">auto</label>
+    <input type="radio" name="thr-dmp-format" id="thr-dmp-tdump" value="thread_dump"><label for="thr-dmp-tdump" title="Java thread dumps">thread dump</label>
+    <input type="radio" name="thr-dmp-format" id="thr-dmp-jfr-allocation" value="jfr_allocation"><label for="thr-dmp-jfr-allocation" title="Allocation profiling from Java Flight Recorder">jfr allocation (*.jfr)</label>
+    <input type="radio" name="thr-dmp-format" id="thr-dmp-jfr-cpu" value="jfr_cpu"><label for="thr-dmp-jfr-cpu" title="Cpu sample profiling from Java Flight Recorder">jfr CPU (*.jfr)</label>
+    <input type="radio" name="thr-dmp-format" id="thr-dmp-hprof" value="dbms_hprof"><label for="thr-dmp-hprof" title="Oracle dbms_hprof profiling result">dbms_hprof (*.trc)</label>
+    <input type="radio" name="thr-dmp-format" id="thr-dmp-stackcollapse" value="stackcollapse"><label for="thr-dmp-stackcollapse" title="Collapsed (semicolon delimited) thread dumps">stackcollapse dumps (*collapsed.log)</label><br>
+    <div id="thr-dmp-part-controls" style="display: none;"><label class="inline-block text-label">Analyze:</label>
+    <input type="radio" name="thr-dmp-part" id="thr-dmp-full" checked="checked"><label for="thr-dmp-full">full
+    file</label>
+    <input type="radio" name="thr-dmp-part" id="thr-dmp-sub"><label for="thr-dmp-sub">only bytes from</label>
+    <input type="text" placeholder="first byte" id="thr-dmp-fb" size="10"> to <input type="text" placeholder="last byte"
+                                                                                     id="thr-dmp-lb" size="10"></div>
+</div>
+<div id="export-to-excel-dialog" class="ui-dialog-content" style="display:none;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td style="width:12em"><label>Type:</label></td>
+            <td>
+                <input type="radio" name="export-to-excel-type" id="export-to-excel-all" checked="checked" value="all calls"><label for="export-to-excel-all" title="List all calls">all calls</label>
+                <input type="radio" name="export-to-excel-type" id="export-to-excel-aggregate" value="aggregate"><label for="export-to-excel-aggregate" title="Generates aggregated statistic for calls">aggregate</label>
+            </td>
+        </tr>
+        <tr>
+            <td><label for="export-to-excel-duration-min">Min duration(ms):</label></td>
+            <td><input type="number" id="export-to-excel-duration-min"></td>
+        </tr>
+        <tr>
+            <td><label for="export-to-excel-nodes">Nodes:</label></td>
+            <td><input type="text" id="export-to-excel-nodes" placeholder="Ex: clust1 clust2" title="Exports calls only for specified nodes."></td>
+        </tr>
+        <tr class="export-to-excel-aggregate-params">
+            <td><label for="export-to-excel-min-digits-in-id">Min digits in id:</label></td>
+            <td><input type="number" id="export-to-excel-min-digits-in-id" value="4" title="Minimum digits in a part of URL (not necessarily sequintial) to consider it as Id and replace to $id$. Set it to -1 to disable it."></td>
+        </tr>
+        <tr class="export-to-excel-aggregate-params">
+            <td><label for="export-to-excel-url-replace-patterns">URL replace patterns:</label></td>
+            <td><input type="text" id="export-to-excel-url-replace-patterns" placeholder="Ex: **/wfm/appointment/$id$/* /api/cbm/ba/$id$" title="Custom url replace patterns, used for replacement of IDs.
+*	 : matches everything except /
+**	 : matches everything
+$id$ : the same as *, but matched symbols will be replaced to $id$ in result. It should be used for replacing of ids."></td>
+        </tr>
+        <tr class="export-to-excel-aggregate-params">
+            <td><label for="export-to-excel-disable-default-replace-patterns">Disable default url replace patterns:</label></td>
+            <td><input type="checkbox" name="export-to-excel-disable-default-replace-patterns" id="export-to-excel-disable-default-replace-patterns"></td>
+        </tr>
+    </table><br>
+</div>
+<div id="timeline" class="ui-widget"></div>
+<div id="calls-list-raw"></div>
+<div id="vrs" class="widget-content" style="display:none;">%VITE_PROJECT_VERSION%</div>
+<div id="jqn-container" style="display:none;z-index:200;">
+    <div id="jqn-notice" class="ui-widget ui-state-highlight ui-notify-message">
+        <a class="ui-notify-close" href="#" style="float:right"><span class="ui-icon ui-icon-close"></span></a>
+        <span style="float:left; margin:0 5px 0 0;" class="ui-icon ui-icon-alert"></span>
+        <b>#{title}</b>
+
+        <p>#{text}</p>
+    </div>
+
+    <div id="jqn-error" class="ui-widget ui-state-error ui-notify-message ui-corner-all">
+        <a class="ui-notify-close" href="#" style="float:right"><span class="ui-icon ui-icon-close"></span></a>
+        <span style="float:left; margin:0 5px 0 0;" class="ui-icon ui-icon-alert"></span>
+        <b>#{title}</b>
+
+        <p>#{text}</p>
+    </div>
+</div>
+<script type="module" src="src/callList.mjs"></script>
+<script language="JavaScript" type="text/javascript" src="js/CSRFGuard.js"></script>
+</body>
+</html>
