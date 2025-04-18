@@ -10,4 +10,4 @@ Applicable for:
 
 > **Note:**
 >
-> Plugin to instrument Tomcat >= 10.x you can find in module [tomcat_http10](../tomcat_http10).
+> Plugin to instrument Tomcat >= 10.x you can find in module [tomcat_http10](../tomcat10_http).
