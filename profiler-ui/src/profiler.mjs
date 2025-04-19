@@ -47,6 +47,28 @@ jQuery.fn.firstParents = function(n) {
     return this.pushStack(matched, 'firstParents(' + n + ')', '');
 };
 
+var csrf;
+
+if (window.location.protocol !== 'file:') {
+    jQuery.get('api/csrf-token')
+        .then(data => {
+            csrf = data;
+
+            function csrfSafeMethod(method) {
+                // these HTTP methods do not require CSRF protection
+                return (/^(GET|HEAD|OPTIONS)$/.test(method));
+            }
+
+            jQuery.ajaxSetup({
+                beforeSend: function (xhr, settings) {
+                    if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+                        xhr.setRequestHeader(data.header, data.token);
+                    }
+                }
+            })
+        });
+}
+
 (function ($) {
     $.extend({
         doGet:function (url, params) {
@@ -61,7 +83,7 @@ jQuery.fn.firstParents = function(n) {
                     .attr('value', value)
                     .appendTo($form);
             }
-            addHiddenField(CSRF_TOKEN_NAME, CSRF_TOKEN_VALUE);
+            addHiddenField(csrf.header, csrf.token);
 
             $.each(params, function (name, value) {
                 if (value instanceof Array) {
@@ -1114,7 +1136,7 @@ window.isDump = isDump;
                         var $form = $('<form action="tree" method=POST target="_blank">');
                         $form.attr('action', 'tree/' + Date__format(new Date()) + '_group_' + selectedRowIds.length + 'calls.zip');
                         $('<input>').attr({type: 'hidden', name: 'callback', value: 'treedata'}).appendTo($form);
-                        $('<input>').attr({type: 'hidden', name: CSRF_TOKEN_NAME, value: CSRF_TOKEN_VALUE}).appendTo($form);
+                        $('<input>').attr({type: 'hidden', name: csrf.header, value: csrf.token}).appendTo($form);
                         for (i = 0; i < selectedRowIds.length; i++) {
                             idx = dataView.getRowById(selectedRowIds[i]);
                             if (idx === undefined) continue;

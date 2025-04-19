@@ -12,7 +12,6 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
 public class CSRFGuardFilter implements Filter {
-
     private static final Logger log = LoggerFactory.getLogger(CSRFGuardFilter.class);
 
     @Override
@@ -20,42 +19,41 @@ public class CSRFGuardFilter implements Filter {
         final HttpServletRequest request = (HttpServletRequest) servletRequest;
         final HttpServletResponse response = (HttpServletResponse) servletResponse;
 
-        final String uri = request.getRequestURI().toString();
+        final String uri = request.getRequestURI();
 
-        boolean redirected = false;
+        boolean redirected;
         final HttpSession session = request.getSession();
         redirected = checkCSRF(uri, request, response, session);
         if (!redirected) {
             filterChain.doFilter(request, response);
         }
     }
+
     private boolean checkCSRF(final String uri, final HttpServletRequest request, final HttpServletResponse response,
                               HttpSession session) throws IOException {
-        String tokenValue_p = null;
-
-        if (!request.getMethod().equalsIgnoreCase("GET")) {
-            String tokenFromRequest = request.getParameter(CSRFGuardHelper.CSRF_TOKEN_P);
-            if (tokenFromRequest == null) {
-                tokenFromRequest = request.getHeader(CSRFGuardHelper.CSRF_TOKEN_P);
-            }
-            if (StringUtils.isNotEmpty(tokenFromRequest)) {
-                Object csrfTokenObj = session.getAttribute(CSRFGuardHelper.CSRF_TOKEN_P);
-                if(csrfTokenObj == null) {
-                    log.error("CSRF: token from http session doesn't exist " + uri);
-                    redirect(response);
-                    return true;
-                }
-                tokenValue_p = csrfTokenObj.toString();
-                if (!tokenFromRequest.equals(tokenValue_p)) {
-                    log.error("CSRF: token from POST request is invalid " + uri);
-                    redirect(response);
-                    return true;
-                }
-            } else {
-                log.error("CSRF: token from POST request is empty " + uri);
-                redirect(response);
-                return true;
-            }
+        if (request.getMethod().equalsIgnoreCase("GET")) {
+            return false;
+        }
+        String tokenFromRequest = request.getParameter(CSRFGuardHelper.CSRF_TOKEN_P);
+        if (tokenFromRequest == null) {
+            tokenFromRequest = request.getHeader(CSRFGuardHelper.CSRF_TOKEN_P);
+        }
+        if (StringUtils.isEmpty(tokenFromRequest)) {
+            log.error("CSRF token is empty for {} at {}", request.getMethod(), uri);
+            redirect(response);
+            return true;
+        }
+        Object csrfTokenObj = session.getAttribute(CSRFGuardHelper.CSRF_TOKEN_P);
+        if (csrfTokenObj == null) {
+            log.error("The session does not contain CSRF token while client sent some for {} at {}", request.getMethod(), uri);
+            redirect(response);
+            return true;
+        }
+        String tokenValue_p = csrfTokenObj.toString();
+        if (!tokenFromRequest.equals(tokenValue_p)) {
+            log.error("CSRF token in request does not match the token stored in session, {} at {}", request.getMethod(), uri);
+            redirect(response);
+            return true;
         }
         return false;
     }

@@ -174,8 +174,8 @@
         <servlet-class>org.qubership.profiler.servlet.Metrics</servlet-class>
     </servlet>
     <servlet>
-        <servlet-name>CSRFGuardScriptServlet</servlet-name>
-        <servlet-class>org.qubership.profiler.security.csrf.CSRFGuardScriptServlet</servlet-class>
+        <servlet-name>CsrfToken</servlet-name>
+        <servlet-class>org.qubership.profiler.security.csrf.CsrfTokenServlet</servlet-class>
     </servlet>
 
     <servlet-mapping>
@@ -229,10 +229,9 @@
         <servlet-name>ExcelExporter</servlet-name>
         <url-pattern>/exportExcel</url-pattern>
     </servlet-mapping>
-
     <servlet-mapping>
-        <servlet-name>CSRFGuardScriptServlet</servlet-name>
-        <url-pattern>/js/CSRFGuard.js</url-pattern>
+        <servlet-name>CsrfToken</servlet-name>
+        <url-pattern>/api/csrf-token</url-pattern>
     </servlet-mapping>
 
     <welcome-file-list>
