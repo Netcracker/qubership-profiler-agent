@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiler-configuration>
+    <!-- Uncomment to store transformed class files:
+           <store-transformed-classes/>
+      -->
+    <!-- Uncomment to verify transformed class files:
+           <verify-classes/>
+      -->
+    <log-retention max-age="8 days" max-size="2 Gb"/>
+    <parameters>
+      <parameter name="jmeter.step" index="true" list="true" order="50"/>
+      <parameter name="call.red" index="true" list="false" order="500"/>
+      <parameter name="call.idle" index="true" list="false" order="700"/>
+    </parameters>
+    <ruleset>
+        <rule>
+            <class>org.qubership.profiler.**</class>
+            <do-not-profile/>
+        </rule>
+    </ruleset>
+</profiler-configuration>
