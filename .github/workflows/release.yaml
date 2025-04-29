@@ -34,15 +34,17 @@ jobs:
 
               // Check if tag exists
               try {
-                await github.rest.git.getRef({
+                const { data: ref } = await github.rest.git.getRef({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   ref: `tags/${tagName}`
                 });
-                core.setFailed(`Tag ${tagName} already exists`);
+                core.setFailed(`Tag ${tagName} already exists, and it points to ${ref.object.sha}, ${ref.object.url}`);
                 return;
               } catch (e) {
-                if (e.status !== 404) throw e;
+                if (e.status !== 404) {
+                    core.setFailed(`Can't get information for tag ${tagName}: ${e.message}`);
+                }
               }
 
               // Get the latest commit SHA from the branch
@@ -60,7 +62,7 @@ jobs:
                 sha: ref.object.sha
               });
 
-              console.log(`Created tag ${tagName} on branch ${branchName} at ${ref.object.sha}`);
+              console.log(`Created tag ${tagName} on branch ${branchName} at ${ref.object.sha}, ${ref.object.url}`);
             } catch (error) {
               core.setFailed(`Failed to create tag: ${error.message}`);
             }
