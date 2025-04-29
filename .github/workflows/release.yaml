@@ -11,6 +11,11 @@ on:
         default: ''
         type: string
         description: new version number, without leading v
+      branch_name:
+        required: true
+        default: 'main'
+        description: branch name that should be released
+
 jobs:
   release-to-central:
     runs-on: ubuntu-latest
@@ -18,10 +23,52 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # TODO: create and push git tag
+      - name: Create git tag
+        uses: actions/github-script@v7
+        with:
+          # language=javascript
+          script: |
+            try {
+              const tagName = 'v1.0.0'; //`v${context.payload.inputs.version}`;
+              const branchName = 'main'; // context.payload.inputs.branch_name;
+
+              // Check if tag exists
+              try {
+                await github.rest.git.getRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${tagName}`
+                });
+                core.setFailed(`Tag ${tagName} already exists`);
+                return;
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+
+              // Get the latest commit SHA from the branch
+              const { data: ref } = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${branchName}`
+              });
+
+              // Create tag
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${tagName}`,
+                sha: ref.object.sha
+              });
+
+              console.log(`Created tag ${tagName} on branch ${branchName} at ${ref.object.sha}`);
+            } catch (error) {
+              core.setFailed(`Failed to create tag: ${error.message}`);
+            }
+
       # TODO: publish GitHub release (automatic? manual?)
 
       - name: Publish to Central Portal
+        if: false
         uses: burrunan/gradle-cache-action@v1
         with:
           arguments: publishAggregationToCentralPortal
