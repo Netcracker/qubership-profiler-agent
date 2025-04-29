@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        default: ''
+        type: string
+        description: new version number, without leading v
+jobs:
+  release-to-central:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # TODO: create and push git tag
+      # TODO: publish GitHub release (automatic? manual?)
+
+      - name: Publish to Central Portal
+        uses: burrunan/gradle-cache-action@v1
+        with:
+          arguments: publishAggregationToCentralPortal
+          properties: |
+            release=true
+            centralPortalPublishingType=USER_MANAGED
+        env:
+          CENTRAL_PORTAL_USERNAME: ${{ secrets.MAVEN_USER }}
+          CENTRAL_PORTAL_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+          SIGNING_PGP_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          SIGNING_PGP_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}

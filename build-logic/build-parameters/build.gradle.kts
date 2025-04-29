@@ -12,6 +12,11 @@ buildParameters {
         defaultValue.set(false)
         description.set("Configures if the version should be release of snapshot")
     }
+    enumeration("centralPortalPublishingType") {
+        values.addAll("AUTOMATIC", "USER_MANAGED")
+        defaultValue.set("AUTOMATIC")
+        description.set("Configures if the deployment to Central Portal should be automatically published or if the user should manually publish it")
+    }
     bool("useInMemoryPgpKeys") {
         defaultValue.set(true)
         description.set("Configures PGP signing to use in-memory keys for signing (configure with SIGNING_PGP_PRIVATE_KEY, and SIGNING_PGP_PASSPHRASE environment variables)")
