@@ -13,9 +13,9 @@ dependencies {
     api(platform("org.springframework.boot:spring-boot-dependencies:1.5.22.RELEASE"))
     constraints {
         api("backport-util-concurrent:backport-util-concurrent:3.1")
-        api("ch.qos.logback:logback-access:1.2.9")
-        api("ch.qos.logback:logback-classic:1.2.9")
-        api("ch.qos.logback:logback-core:1.2.9")
+        api("ch.qos.logback:logback-access:1.2.13")
+        api("ch.qos.logback:logback-classic:1.2.13")
+        api("ch.qos.logback:logback-core:1.2.13")
         api("com.github.ziplet:ziplet:2.1.2")
         api("commons-io:commons-io:2.19.0")
         api("commons-lang:commons-lang:2.6")
