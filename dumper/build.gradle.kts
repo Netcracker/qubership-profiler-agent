@@ -10,7 +10,7 @@ dependencies {
     implementation(projects.parsers)
     implementation(projects.protoDefinition)
     implementation("com.fasterxml.jackson.core:jackson-core")
-    implementation("commons-lang:commons-lang:2")
+    implementation("commons-lang:commons-lang:2.6")
     implementation("net.sf.trove4j:trove4j")
     implementation("org.apache.httpcomponents:httpcore")
     implementation("org.hdrhistogram:HdrHistogram")
