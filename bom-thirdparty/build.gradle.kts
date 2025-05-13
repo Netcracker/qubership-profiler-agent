@@ -10,7 +10,7 @@ javaPlatform {
 
 dependencies {
     api(platform("org.ow2.asm:asm-bom:9.5"))
-    api(platform("org.springframework.boot:spring-boot-dependencies:1.5.1.RELEASE"))
+    api(platform("org.springframework.boot:spring-boot-dependencies:1.5.22.RELEASE"))
     constraints {
         api("backport-util-concurrent:backport-util-concurrent:3.1")
         api("ch.qos.logback:logback-access:1.2.9")
