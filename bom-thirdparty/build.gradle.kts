@@ -17,7 +17,7 @@ dependencies {
         api("ch.qos.logback:logback-classic:1.2.9")
         api("ch.qos.logback:logback-core:1.2.9")
         api("com.github.ziplet:ziplet:2.1.2")
-        api("commons-io:commons-io:2.11.0")
+        api("commons-io:commons-io:2.19.0")
         api("commons-lang:commons-lang:2.6")
         api("javax:javaee-api:6.0")
         api("net.sf.trove4j:trove4j:2.1.0")
