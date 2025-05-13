@@ -95,7 +95,7 @@ jobs:
       # Publish to Central before generating a tag, so we don't need to drop the tag if
       # Central deployment fails.
       - name: Publish to Central Portal
-        uses: burrunan/gradle-cache-action@3bf23b8dd95e7d2bacf2470132454fe893a178a1 # v1
+        uses: burrunan/gradle-cache-action@663fbad34e03c8f12b27f4999ac46e3d90f87eca # v3
         with:
           arguments: publishAggregationToCentralPortal
           # language=properties
