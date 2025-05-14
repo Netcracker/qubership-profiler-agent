@@ -7,7 +7,7 @@ plugins {
 }
 
 dependencies {
-    testImplementation("org.testng:testng:7.7.1")
+    testImplementation("org.testng:testng:7.11.0")
 }
 
 tasks.configureEach<Test> {
