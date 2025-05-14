@@ -14,6 +14,6 @@ dependencies {
         api("junit:junit:4.13.2")
         api("org.jmockit:jmockit-coverage:1.23")
         api("org.jmockit:jmockit:1.49")
-        api("org.mockito:mockito-core:3.12.4")
+        api("org.mockito:mockito-core:5.17.0")
     }
 }
