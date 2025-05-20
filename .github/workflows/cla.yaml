@@ -13,7 +13,20 @@ permissions:
   statuses: write
 
 jobs:
-  cla_assistant:
-    uses: Netcracker/qubership-workflow-hub/.github/workflows/cla.yaml@main
-    secrets:
-      personal_access_token: ${{ secrets.CLA_ACCESS_TOKEN }}
+  CLAAssistant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "CLA Assistant"
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ACCESS_TOKEN }}
+        with:
+          path-to-signatures: 'signatures/version1/cla.json'
+          path-to-document: 'https://github.com/Netcracker/qubership-github-workflows/blob/main/CLA/cla.md'
+          # branch should not be protected
+          branch: 'main'
+          allowlist: NetcrackerCLPLCI,web-flow,bot*
+          remote-repository-name: cla-storage
+          remote-organization-name: Netcracker

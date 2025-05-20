@@ -14,14 +14,16 @@ permissions:
   pull-requests: write
 
 jobs:
-  call-apply-filter:
-    if: ${{ github.event_name == 'issue_comment' || github.event_name == 'issues' || (github.event_name == 'pull_request' && github.event.pull_request.base.repo.id == github.event.pull_request.head.repo.id) }}
-    uses: Netcracker/qubership-workflow-hub/.github/workflows/profanityFilter.yaml@main
-  warning:
+  apply-filter:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.id != github.event.pull_request.head.repo.id }}
     steps:
-      - name: "Warning"
-        run: |
-          echo "⚠️ Pull request from fork! ⚠️" >> $GITHUB_STEP_SUMMARY
-          echo "The action cannot be run over PRs from fork." >> $GITHUB_STEP_SUMMARY
+    - name: Scan issue or pull request for profanity
+      # Conditionally run the step if the actor isn't a bot
+      if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]' }}
+      uses: IEvangelist/profanity-filter@9.07
+      id: profanity-filter
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        # See https://bit.ly/potty-mouth-replacement-strategies
+        replacement-strategy: middle-asterisk # See Replacement strategy
+        custom-profane-words-url: https://github.com/Hesham-Elbadawi/list-of-banned-words/raw/refs/heads/master/ru
