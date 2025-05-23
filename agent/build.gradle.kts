@@ -12,6 +12,6 @@ tasks.jar {
         attributes["Agent-Class"] = "org.qubership.profiler.javaagent.Agent"
         attributes["Can-Redefine-Classes"] = "true"
         attributes["Can-Retransform-Classes"] = "true"
-        attributes["Boot-Class-Path"] = "boot.jar"
+        attributes["Boot-Class-Path"] = "qubership-profiler-boot.jar"
     }
 }
