@@ -20,7 +20,7 @@
     "datepair.js": "^0.4.17",
     "timepicker": "^1.14.1",
     "moment": "^2.30.1",
-    "moment-timezone": "^0.5.48",
+    "moment-timezone": "^0.6.0",
     "chap-timeline": "^2.9.2",
     "sortablejs": "^1.15.6",
     "jstz": "^2.1.1",
