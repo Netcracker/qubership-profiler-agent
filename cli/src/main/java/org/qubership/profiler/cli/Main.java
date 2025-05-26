@@ -8,6 +8,7 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.ConsoleAppender;
+import net.sourceforge.argparse4j.ArgumentParserBuilder;
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.impl.Arguments;
 import net.sourceforge.argparse4j.inf.*;
@@ -29,11 +30,12 @@ public class Main {
             "";
 
     public static void main(String[] args) {
+        ArgumentParserBuilder parserBuilder = ArgumentParsers.newFor("esc-cmd.sh");
         if (System.getProperty("java.specification.version").startsWith("1.5")) {
             // Does not work due to usage of File.canExecute
-            ArgumentParsers.setTerminalWidthDetection(false);
+            parserBuilder.terminalWidthDetection(false);
         }
-        ArgumentParser parser = ArgumentParsers.newArgumentParser("esc-cmd.sh");
+        ArgumentParser parser = parserBuilder.build();
         parser.addArgument("-v", "--verbose").action(Arguments.count())
                 .help("verbose output, use -v -v for more verbose output");
 
