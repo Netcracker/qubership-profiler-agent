@@ -27,7 +27,7 @@ dependencies {
         api("org.apache.tomcat.embed:tomcat-embed-core:8.5.100")
         api("org.apache.tomcat.embed:tomcat-embed-logging-juli:8.5.2")
         api("org.hdrhistogram:HdrHistogram:2.2.2")
-        api("org.openjdk.jmc:common:8.0.1")
+        api("org.openjdk.jmc:common:8.3.1")
         api("org.openjdk.jmc:flightrecorder:8.0.1")
         api("org.slf4j:slf4j-api:1.7.36")
         api("stax:stax-api:1.0.1")
