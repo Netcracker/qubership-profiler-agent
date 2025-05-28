@@ -191,6 +191,8 @@ public class WARLauncher {
             tomcat.setBaseDir(tomcatBaseDir);
 
             tomcat.setPort(port);
+            // In fact, getConnector **creates** a connector, so we need this call
+            tomcat.getConnector();
             tomcat.setHostname(hostName);
 
             Host host = tomcat.getHost();

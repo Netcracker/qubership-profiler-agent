@@ -34,6 +34,11 @@ public class WebappMountListener implements LifecycleListener {
                 resources.addJarResources(jrs);
             }
             resources.addJarResources(new JarResourceSet(resources, "/assets", WARLauncher.PATH_TO_WAR_FILE, "/assets"));
+            // Tomcat registers JSP handler by default; however, we do not use JSPs
+            Container jsp = context.findChild("jsp");
+            if (jsp != null) {
+                context.removeChild(jsp);
+            }
         }
     }
 
