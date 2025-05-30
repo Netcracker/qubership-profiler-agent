@@ -1,6 +1,6 @@
 package org.qubership.profiler.test;
 
-import gnu.trove.TIntIntHashMap;
+import gnu.trove.map.hash.TIntIntHashMap;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 

@@ -9,9 +9,9 @@ import org.qubership.profiler.formatters.title.ProfilerTitle;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
-import gnu.trove.THashSet;
-import gnu.trove.TIntObjectHashMap;
-import gnu.trove.TIntObjectProcedure;
+import gnu.trove.map.hash.TIntObjectHashMap;
+import gnu.trove.procedure.TIntObjectProcedure;
+import gnu.trove.set.hash.THashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

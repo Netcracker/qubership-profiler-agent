@@ -2,8 +2,8 @@ package org.qubership.profiler.dump;
 
 import org.qubership.profiler.agent.CallInfo;
 
-import gnu.trove.THashSet;
-import gnu.trove.TIntObjectHashMap;
+import gnu.trove.map.hash.TIntObjectHashMap;
+import gnu.trove.set.hash.THashSet;
 
 public class ThreadState {
     public CallInfo callInfo;

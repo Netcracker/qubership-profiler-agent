@@ -2,7 +2,7 @@ package org.qubership.profiler.metrics;
 
 import org.qubership.profiler.agent.*;
 
-import gnu.trove.THashSet;
+import gnu.trove.set.hash.THashSet;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

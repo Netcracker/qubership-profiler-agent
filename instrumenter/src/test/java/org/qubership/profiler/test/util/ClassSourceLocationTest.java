@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.qubership.profiler.instrument.TypeUtils;
 
-import gnu.trove.THash;
+import gnu.trove.impl.hash.THash;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;

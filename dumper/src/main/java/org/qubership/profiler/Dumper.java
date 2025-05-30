@@ -26,7 +26,10 @@ import org.qubership.profiler.util.MurmurHash;
 import org.qubership.profiler.util.ThrowableHelper;
 import org.qubership.profiler.util.cache.TLimitedLongLongHashMap;
 
-import gnu.trove.*;
+import gnu.trove.iterator.TIntObjectIterator;
+import gnu.trove.map.hash.TIntIntHashMap;
+import gnu.trove.procedure.TIntObjectProcedure;
+import gnu.trove.set.hash.THashSet;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

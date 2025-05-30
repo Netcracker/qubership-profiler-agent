@@ -1,6 +1,6 @@
 package org.qubership.profiler.util.cache;
 
-import gnu.trove.TIntObjectHashMap;
+import gnu.trove.map.hash.TIntObjectHashMap;
 
 import java.util.BitSet;
 

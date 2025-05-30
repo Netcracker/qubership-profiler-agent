@@ -1,6 +1,6 @@
 package org.qubership.profiler.util.cache;
 
-import gnu.trove.TLongLongHashMap;
+import gnu.trove.map.hash.TLongLongHashMap;
 
 public class TLimitedLongLongHashMap extends TLongLongHashMap {
     final int maxSize;

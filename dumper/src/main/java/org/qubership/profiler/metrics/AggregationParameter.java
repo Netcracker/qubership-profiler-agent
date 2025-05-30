@@ -1,6 +1,6 @@
 package org.qubership.profiler.metrics;
 
-import gnu.trove.THashSet;
+import gnu.trove.set.hash.THashSet;
 import org.apache.commons.lang.StringUtils;
 
 public class AggregationParameter {

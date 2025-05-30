@@ -10,7 +10,7 @@ import org.qubership.profiler.dump.ThreadState;
 import org.qubership.profiler.metrics.AggregationParameter;
 import org.qubership.profiler.metrics.MetricsPluginImpl;
 
-import gnu.trove.THashSet;
+import gnu.trove.set.hash.THashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -118,7 +118,7 @@ public class MetricsCollector {
         if(parameterValues == null){
             return new THashSet<>();
         }else {
-            return (THashSet<String>) parameterValues.clone();
+            return new THashSet<>(parameterValues);
         }
     }
 

@@ -3,8 +3,8 @@ package org.qubership.profiler.formatters.title;
 import org.qubership.profiler.agent.ParameterInfo;
 import org.qubership.profiler.agent.ProfilerData;
 
-import gnu.trove.THashSet;
-import gnu.trove.TIntObjectHashMap;
+import gnu.trove.map.hash.TIntObjectHashMap;
+import gnu.trove.set.hash.THashSet;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.*;

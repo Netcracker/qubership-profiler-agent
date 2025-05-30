@@ -4,8 +4,8 @@ import org.qubership.profiler.agent.FilterOperator;
 import org.qubership.profiler.agent.ProfilerData;
 import org.qubership.profiler.dump.ThreadState;
 
-import gnu.trove.THashSet;
-import gnu.trove.TIntObjectHashMap;
+import gnu.trove.map.hash.TIntObjectHashMap;
+import gnu.trove.set.hash.THashSet;
 
 import java.util.Map;
 
