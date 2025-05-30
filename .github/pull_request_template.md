@@ -7,4 +7,4 @@ Be as specific as possible to help others understand the purpose and impact of y
 
 The following checks are **mandatory**:
 
-* [ ] My change adheres [Qubership contributing guidelines](/CONTRIBUTING.md).
+* [ ] My change adheres [Qubership contributing guidelines](../CONTRIBUTING.md).
