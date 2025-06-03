@@ -446,9 +446,9 @@ rollup@^4.34.9:
     fsevents "~2.3.2"
 
 slickgrid@^5.15.2:
-  version "5.15.3"
-  resolved "https://registry.yarnpkg.com/slickgrid/-/slickgrid-5.15.3.tgz#aaa12ca8a1ffd281975cd74f4b00a5808de9de9c"
-  integrity sha512-8roLHtNhrcJl6OynMCI0kBlPbdQck1PmXtTh/iiZ4HBZwyRXhY7yL32iT0Q7ypBmy3oFWhoMQC+d3EvYgYfVrA==
+  version "5.15.4"
+  resolved "https://registry.yarnpkg.com/slickgrid/-/slickgrid-5.15.4.tgz#09da4325f5f6750225c69f83533e2509fb87349d"
+  integrity sha512-JTvRPsBLIc1vyNPAKuK3aRvzUw6g1jPJEKOk1l1dukJ3bz5iNXKLTAzcpHAcaX2PvhvYZeW3qlmNRH7NzrBr8w==
   dependencies:
     sortablejs "^1.15.6"
 
