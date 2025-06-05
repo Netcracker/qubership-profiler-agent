@@ -1,10 +1,16 @@
 package org.qubership.profiler.agent;
 
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
 public class LocalBuffer {
     public final static int SIZE = Integer.getInteger(LocalBuffer.class.getName() + ".SIZE", 4096);
     volatile public LocalState state;
+
+    public volatile long largeEventsVolume;
+    private static final AtomicLongFieldUpdater<LocalBuffer> LARGE_EVENTS_VOLUME_UPDATER =
+            AtomicLongFieldUpdater.newUpdater(LocalBuffer.class, "largeEventsVolume");
+
     public LocalBuffer prevBuffer;
 
     public final long[] data = new long[SIZE];
@@ -22,6 +28,7 @@ public class LocalBuffer {
         startTime = TimerCache.now;
         count = 0;
         first = 0;
+        largeEventsVolume = 0;
         this.prevBuffer = prevBuffer;
     }
 
@@ -31,6 +38,9 @@ public class LocalBuffer {
         long[] data = this.data;
         if (r >= 0 && r < data.length) {
             data[r] = tagId | TimerCache.timerSHL32;
+            if (contents instanceof CharSequence) {
+                contents = truncateCharSequence(contents);
+            }
             value[r] = contents;
             count = r + 1;
         } else {
@@ -38,6 +48,19 @@ public class LocalBuffer {
             Profiler.exchangeBuffer(this);
             state.buffer.event(contents, tagId);
         }
+    }
+
+    private Object truncateCharSequence(Object contents) {
+        CharSequence s = (CharSequence) contents;
+        int length = s.length();
+        if (length > 4096) {
+            long total = LARGE_EVENTS_VOLUME_UPDATER.getAndAdd(this, length);
+            if (total > 100_000_000) {
+                LARGE_EVENTS_VOLUME_UPDATER.getAndAdd(this, -length);
+                contents = s.subSequence(0, 4049);
+            }
+        }
+        return contents;
     }
 
 //    public LocalState getLocalState(){

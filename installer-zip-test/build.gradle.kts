@@ -1,5 +1,6 @@
 plugins {
     id("build-logic.java-library")
+    id("build-logic.kotlin")
     id("build-logic.test-junit5")
     id("build-logic.test-jmockit")
 }

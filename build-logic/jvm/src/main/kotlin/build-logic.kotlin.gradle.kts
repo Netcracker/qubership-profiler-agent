@@ -16,8 +16,6 @@ java {
     withSourcesJar()
 }
 
-val String.v: String get() = rootProject.extra["$this.version"] as String
-
 autostyle {
     kotlin {
         file("$rootDir/config/licenseHeaderRaw").takeIf { it.exists() }?.let {
@@ -31,7 +29,7 @@ autostyle {
 tasks.configureEach<KotlinJvmCompile> {
     compilerOptions {
         if (!name.startsWith("compileTest")) {
-            apiVersion = KotlinVersion.fromVersion("kotlin.api".v)
+            apiVersion = KotlinVersion.fromVersion(buildParameters.targetKotlinVersion)
         }
         freeCompilerArgs.add("-Xjvm-default=all")
         val jdkRelease = buildParameters.targetJavaVersion.let {
