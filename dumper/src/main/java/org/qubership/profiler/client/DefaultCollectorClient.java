@@ -33,9 +33,9 @@ import javax.net.ssl.SSLSocketFactory;
 public class DefaultCollectorClient implements DumperCollectorClient {
     private static final Logger log = LoggerFactory.getLogger(DefaultCollectorClient.class);
     public static final long BLOCKING_WRITE_TIMEOUT = 10L;
-    public static final String ENV_NC_DIAGNOSTIC_FOLDER = "NC_DIAGNOSTIC_FOLDER";
-    public static final String ENV_KEYSTORE_FILE_PATH = "NC_DIAGNOSTIC_KEYSTORE";
-    public static final String  ENV_KEYSTORE_PASSWORD = "NC_DIAGNOSTIC_KEYSTORE_PASSWD";
+    public static final String ENV_QS_DIAGNOSTIC_FOLDER = "QS_DIAGNOSTIC_FOLDER";
+    public static final String ENV_KEYSTORE_FILE_PATH = "QS_DIAGNOSTIC_KEYSTORE";
+    public static final String  ENV_KEYSTORE_PASSWORD = "QS_DIAGNOSTIC_KEYSTORE_PASSWD";
     public static final String  TLS_KEYSTORE_PATH = "TLS_KEYSTORE_PATH";
     public static final String  TLS_KEYSTORE_PASSWORD = "TLS_KEYSTORE_PWD";
 
@@ -88,7 +88,7 @@ public class DefaultCollectorClient implements DumperCollectorClient {
     protected void reportPodName() {
         try {
             //this env is set by the bootstrap scripts within pods
-            String diagnosticFolder = System.getenv(ENV_NC_DIAGNOSTIC_FOLDER);
+            String diagnosticFolder = System.getenv(ENV_QS_DIAGNOSTIC_FOLDER);
             if (StringUtils.isBlank(diagnosticFolder)) {
                 return;
             }
@@ -356,9 +356,9 @@ public class DefaultCollectorClient implements DumperCollectorClient {
         log.info("Executing command {}: {}", id, command);
         try {
             String execCommand = null;
-            String diagnosticFolder = System.getenv(ENV_NC_DIAGNOSTIC_FOLDER);
+            String diagnosticFolder = System.getenv(ENV_QS_DIAGNOSTIC_FOLDER);
             if (StringUtils.isBlank(diagnosticFolder)) {
-                log.warn("Command {} requires presence of ENV variable NC_DIAGNOSTIC_FOLDER", command);
+                log.warn("Command {} requires presence of ENV variable QS_DIAGNOSTIC_FOLDER", command);
                 return false;
             }
 

@@ -478,9 +478,9 @@ public class ActiveSessionHistoryFetcher {
                         final BigDecimal cardinality = plan.getBigDecimal(6);
 
                         if (operation != null && (operation.indexOf("FULL") != -1 || operation.indexOf("SKIP") != -1) ||
-                                ("XIF26NC_PARAMS".equals(objectName) && searchColumns <= 1) ||
-                                "XIF01NC_REFERENCES".equals(objectName) ||
-                                "XIF10NC_OBJECTS".equals(objectName) ||
+                                ("XIF26QS_PARAMS".equals(objectName) && searchColumns <= 1) ||
+                                "XIF01QS_REFERENCES".equals(objectName) ||
+                                "XIF10QS_OBJECTS".equals(objectName) ||
                                 (cardinality != null && cardinality.compareTo(THOUSAND) >= 0) ||
                                 (operation != null && operation.indexOf("COLLECTION") != -1 && BigDecimal.ZERO.equals(cardinality))
                                 )

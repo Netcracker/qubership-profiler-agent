@@ -1,0 +1,16 @@
+.idea
+*.iml
+.vscode
+.vscode/
+.project
+.classpath
+.settings
+
+target/
+/logs
+*.log
+*.pprof
+*.hprof
+*.hprof.zip
+output/
+/bin
