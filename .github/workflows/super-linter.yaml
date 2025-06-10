@@ -29,25 +29,66 @@ permissions:
   contents: read
 
 jobs:
-  run-lint:
+  prepare-configs:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          # Full git history is needed to get a proper list of changed files within `super-linter`
-          fetch-depth: 0
+    - name: "Get the common linters configuration"
+      uses: actions/checkout@v4
+      with:
+        ref: main # fix/superlinter-config
+        repository: netcracker/.github
+        sparse-checkout: |
+          config/linters
+    - name: "Upload the common linters configsuration"
+      uses: actions/upload-artifact@v4
+      with:
+        name: linter-config
+        path: "${{ github.workspace }}/config"
+        include-hidden-files: true
+  run-lint:
+    needs: [prepare-configs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      # To report GitHub Actions status checks
+      statuses: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Full git history is needed to get a proper list of changed files within `super-linter`
+        fetch-depth: 0
+    - name: "Get the common linters configuration"
+      uses: actions/download-artifact@v4
+      id: download
+      with:
+        name: linter-config
+        path: /tmp/linter-config
+    - name: "Apply the common linters configuration"
+      if: ${{ steps.download.outputs.download-path != '' }}
+      run: |
+        mkdir -p ./.github/linters
+        cp --update=none -vR /tmp/linter-config/linters/* ./.github/linters
 
-      - name: "Load super-linter environment file"
-        run: |
-          # shellcheck disable=2086
-          if [ -f "./.github/super-linter.env" ]; then
-            grep "\S" ./.github/super-linter.env | grep -v "^#"
-            grep "\S" ./.github/super-linter.env | grep -v "^#" >> $GITHUB_ENV
-          fi
+    - name: "Load super-linter environment file"
+      shell: bash
+      run: |
+        # shellcheck disable=2086
+        if [ -f "${GITHUB_WORKSPACE}/.github/super-linter.env" ]; then
+          echo "Applying local linter environment:"
+          grep "\S" ${GITHUB_WORKSPACE}/.github/super-linter.env | grep -v "^#"
+          grep "\S" ${GITHUB_WORKSPACE}/.github/super-linter.env | grep -v "^#" >> $GITHUB_ENV
+        elif [ -f "/tmp/linter-config/linters/super-linter.env" ]; then
+          echo "::warning:: Local linter environment file .github/super-linter.env is not found"
+          echo "Applying common linter environment:"
+          grep "\S" /tmp/linter-config/linters/super-linter.env | grep -v "^#"
+          grep "\S" /tmp/linter-config/linters/super-linter.env | grep -v "^#" >> $GITHUB_ENV
+        fi
 
-      - name: Lint Code Base
-        uses: super-linter/super-linter@v7
-        env:
-          VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Lint Code Base
+      uses: super-linter/super-linter/slim@v7.3.0
+      env:
+        VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
+        # To report GitHub Actions status checks
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -5,7 +5,8 @@ on:
   push: null
   repository_dispatch: null
   workflow_dispatch: null
-
+permissions:
+  contents: read
 jobs:
   linkChecker:
     runs-on: ubuntu-latest
