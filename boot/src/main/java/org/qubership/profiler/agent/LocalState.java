@@ -9,6 +9,9 @@ public class LocalState {
     public final Thread thread = Thread.currentThread();
     public final int dumperIncarnation = ProfilerData.dumperIncarnation;
     public LocalBuffer buffer;
+    // Contains a thread-local amount of heap consumed by the current thread to reduce global contention on
+    // ProfilerData.reserveLargeEventVolume
+    private long largeEventsVolume;
     public int sp;
     public CallInfo callInfo = new CallInfo(this);
     public final String shortThreadName = getShortThreadName(thread.getName());
@@ -91,6 +94,32 @@ public class LocalState {
             logEventImmediately(value, id);
         else
             logEventLazy(value, id);
+    }
+
+    /**
+     * Attempts to reserve a specified volume for large event data collection.
+     * If the total thread-local volume exceeds a predefined limit, it tries to
+     * borrow from a global counter to accommodate the requested volume.
+     *
+     * @param volume the amount of volume to reserve for large event data
+     * @return true if the reservation succeeds (either using thread-local space
+     *         or borrowing from the global counter), false otherwise
+     */
+    public boolean reserveLargeEventVolume(long volume) {
+        long largeEventsVolume = this.largeEventsVolume + volume;
+        if (largeEventsVolume < ProfilerData.LARGE_EVENT_TLAB_BYTES) {
+            // We allow a certain amount of heap used by each thread to reduce contention on the global counter
+            this.largeEventsVolume = largeEventsVolume;
+            return true;
+        }
+        // Thread-local counter exceeded its limit, try to borrow from the global one
+        if (ProfilerData.reserveLargeEventVolume(largeEventsVolume)) {
+            // Borrow succeeds, we can continue collecting more data in the current thread
+            this.largeEventsVolume = 0;
+            return true;
+        }
+        // Borrow fails, so we collected too much data. Subtract and try again later
+        return false;
     }
 
     /*

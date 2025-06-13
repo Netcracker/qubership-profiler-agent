@@ -4,12 +4,47 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class ProfilerData {
     private static final ESCLogger logger = ESCLogger.getLogger(ProfilerData.class.getName());
 
     public static final int INITIAL_BUFFERS = Integer.getInteger(Profiler.class.getName() + ".INITIAL_BUFFERS", 200);
     public static final int MIN_BUFFERS = Integer.getInteger(Profiler.class.getName() + ".MIN_BUFFERS", INITIAL_BUFFERS / 2);
+
+    /**
+     * Defines the threshold (in bytes) for the total amount of heap used by the active events to prevent {@link OutOfMemoryError}.
+     * Once the active events exceed this threshold, the new ones will be truncated.
+     * Defaults to {@code min(2G, maxMemory()/4)}
+     */
+    public static final long EVENT_HEAP_THRESHOLD_BYTES =
+            Long.getLong(Profiler.class.getName() + ".EVENT_HEAP_THRESHOLD_BYTES",
+                    Math.min(2L * 1024 * 1024 * 1024, Runtime.getRuntime().maxMemory() / 4));
+
+    /**
+     * Defines the length of a event that is considered large enough to account with {@link #LARGE_EVENT_TLAB_BYTES} and
+     * {@link #EVENT_HEAP_THRESHOLD_BYTES}.
+     * Small events will process faster as they won't require counter-bumps, however, the drawback is they would consume
+     * heap without being accounted for.
+     * Defaults to 8KiB.
+     */
+    public static final int LARGE_EVENT_THRESHOLD = Integer.getInteger(LocalBuffer.class.getName() + ".LARGE_EVENT_THRESHOLD", 8192);
+
+    /**
+     * Defines the size of a thread-local buffer for accounting the large event volume.
+     * Per-thread buffers reduce contention on the global counter as each thread tracks its own allocations,
+     * and it consults the global counter only if the thread-local counter reaches a threshold.
+     * Increasing the value might decrease contention {@link #EVENT_HEAP_THRESHOLD_BYTES} at a cost of increasing
+     * per-thread heap consumption.
+     * Defaults to 256KiB.
+     */
+    public static final int LARGE_EVENT_TLAB_BYTES = Integer.getInteger(LocalBuffer.class.getName() + ".LARGE_EVENT_TLAB_BYTES", 256_000);
+
+    /**
+     * Defines the number of characters kept from large events if {@link #EVENT_HEAP_THRESHOLD_BYTES} is reached.
+     * Defaults to 4000
+     */
+    public static final int TRUNCATED_EVENTS_THRESHOLD = Integer.getInteger(LocalBuffer.class.getName() + ".TRUNCATED_EVENTS_THRESHOLD", 4000);
     public static final int MAX_SCALE_ATTEMPTS = Integer.getInteger(Profiler.class.getName() + ".MAX_SCALE_ATTEMPTS", MIN_BUFFERS * 4);
     public static final int DATA_SENDER_QUEUE_SIZE = Integer.getInteger(Profiler.class.getName() + ".DATA_SENDER.queue_size", 1000);
     public static final int METRICS_OUTPUT_VERSION = Integer.getInteger(Profiler.class.getName() + ".METRICS_OUTPUT_VERSION", 2);
@@ -60,6 +95,9 @@ public class ProfilerData {
     };
 
     public final static ConcurrentMap<Thread, LocalState> activeThreads = new ConcurrentHashMap<Thread, LocalState>();
+    // This sums the total length of all the LocalBuffers in the dirtyBuffers queue plus the ones
+    // stored in localState thread locals
+    public final static AtomicLong largeEventsVolume = new AtomicLong();
     public final static BlockingQueue<LocalBuffer> dirtyBuffers = new ArrayBlockingQueue<LocalBuffer>(MAX_BUFFERS);
     public final static BlockingQueue<LocalBuffer> emptyBuffers = new ArrayBlockingQueue<LocalBuffer>(MAX_BUFFERS);
     final static MethodDictionary dictionary = new MethodDictionary(10000);
@@ -98,6 +136,28 @@ public class ProfilerData {
 
     public static List<String> getTags() {
         return Collections.unmodifiableList(dictionary.getTags());
+    }
+
+    /**
+     * Reserves a given number of bytes from the global counter.
+     *
+     * @param volume the number of bytes to reserve from a global pool
+     * @return true if the reserve succeeds, false otherwise
+     */
+    public static boolean reserveLargeEventVolume(long volume) {
+        long prev, next;
+        do {
+            prev = largeEventsVolume.get();
+            // new LocalState() does not reserve volume; however, it allows "free" use of 256K,
+            // So it might be the returned volume exceeds the borrowed one, so we need to prevent the usage to go subzero
+            next = Math.max(0, prev + volume);
+            // We should allow the counter to go down even it exceeds the threshold, so we check the threshold
+            // only in the case the volume increases
+            if (volume > 0 && next > EVENT_HEAP_THRESHOLD_BYTES) {
+                return false;
+            }
+        } while (!largeEventsVolume.compareAndSet(prev, next));
+        return true;
     }
 
     public static boolean addDirtyBuffer(LocalBuffer buffer, boolean force) {

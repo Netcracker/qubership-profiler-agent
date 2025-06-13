@@ -13,6 +13,8 @@ public class LocalBuffer {
     public int count;
     public int first;
     public boolean corrupted;
+    // Contains the total amount of heap consumed by the large events stored in the buffer
+    private long largeEventsVolume;
 
     public LocalBuffer() {
         init(null);
@@ -22,6 +24,7 @@ public class LocalBuffer {
         startTime = TimerCache.now;
         count = 0;
         first = 0;
+        resetLargeEventsVolume();
         this.prevBuffer = prevBuffer;
     }
 
@@ -31,6 +34,9 @@ public class LocalBuffer {
         long[] data = this.data;
         if (r >= 0 && r < data.length) {
             data[r] = tagId | TimerCache.timerSHL32;
+            if (contents instanceof CharSequence) {
+                contents = truncateCharSequence(contents);
+            }
             value[r] = contents;
             count = r + 1;
         } else {
@@ -38,6 +44,23 @@ public class LocalBuffer {
             Profiler.exchangeBuffer(this);
             state.buffer.event(contents, tagId);
         }
+    }
+
+    private Object truncateCharSequence(Object contents) {
+        CharSequence s = (CharSequence) contents;
+        int length = s.length();
+        if (length < ProfilerData.LARGE_EVENT_THRESHOLD) {
+            return contents;
+        }
+        LocalState state = this.state;
+        if (state.reserveLargeEventVolume(length)) {
+            largeEventsVolume += length;
+            return contents;
+        }
+
+        // We exceed the total amount of heap used by the events, truncate the value
+        contents = s.subSequence(0, ProfilerData.TRUNCATED_EVENTS_THRESHOLD) + "... truncated from " + length + " chars";
+        return contents;
     }
 
 //    public LocalState getLocalState(){
@@ -93,6 +116,17 @@ public class LocalBuffer {
         this.count = 0;
         this.prevBuffer = this; // Ensure Dumper will not think this is the first buffer in thread
         this.corrupted = false;
+        resetLargeEventsVolume();
+    }
+
+    private void resetLargeEventsVolume() {
+        long volume = largeEventsVolume;
+        if (volume <= 0) {
+            return;
+        }
+        // Release the memory to the global pool so other threads can borrow it
+        largeEventsVolume = 0;
+        ProfilerData.reserveLargeEventVolume(-volume);
     }
 
     @Override

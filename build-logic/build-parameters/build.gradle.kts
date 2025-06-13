@@ -38,6 +38,11 @@ buildParameters {
         mandatory.set(true)
         description.set("Java version for source and target compatibility")
     }
+    string("targetKotlinVersion") {
+        defaultValue.set("1.8")
+        mandatory.set(true)
+        description.set("Kotlin version for target compatibility")
+    }
     val projectName = "profiler"
     integer("jdkBuildVersion") {
         defaultValue.set(17)
