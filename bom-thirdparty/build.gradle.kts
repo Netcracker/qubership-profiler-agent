@@ -11,7 +11,7 @@ javaPlatform {
 dependencies {
     api(platform("com.fasterxml.jackson:jackson-bom:2.19.1"))
     api(platform("org.ow2.asm:asm-bom:9.8"))
-    api(platform("org.springframework.boot:spring-boot-dependencies:1.5.22.RELEASE"))
+    api(platform("org.springframework.boot:spring-boot-dependencies:2.7.18"))
     constraints {
         api("backport-util-concurrent:backport-util-concurrent:3.1")
         api("ch.qos.logback:logback-classic:1.2.13")
