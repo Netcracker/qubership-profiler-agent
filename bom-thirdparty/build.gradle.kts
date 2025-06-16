@@ -9,7 +9,7 @@ javaPlatform {
 }
 
 dependencies {
-    api(platform("com.fasterxml.jackson:jackson-bom:2.19.0"))
+    api(platform("com.fasterxml.jackson:jackson-bom:2.19.1"))
     api(platform("org.ow2.asm:asm-bom:9.8"))
     api(platform("org.springframework.boot:spring-boot-dependencies:1.5.22.RELEASE"))
     constraints {
