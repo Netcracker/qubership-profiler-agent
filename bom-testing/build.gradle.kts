@@ -14,7 +14,7 @@ dependencies {
         api("com.beust:jcommander:1.82")
         api("io.mockk:mockk:1.14.4")
         api("org.jmockit:jmockit-coverage:1.23")
-        api("org.jmockit:jmockit:1.49")
+        api("org.jmockit:jmockit:1.50")
         api("org.mockito:mockito-core:5.18.0")
         api("org.testcontainers:junit-jupiter:1.21.3")
     }
