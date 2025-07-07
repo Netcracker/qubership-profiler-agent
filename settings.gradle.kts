@@ -4,7 +4,7 @@ pluginManagement {
         id("com.github.vlsi.gettext") version "2.0.0"
         id("com.github.vlsi.gradle-extensions") version "2.0.0"
         id("com.github.vlsi.ide") version "2.0.0"
-        id("com.gradleup.shadow") version "8.3.6"
+        id("com.gradleup.shadow") version "8.3.8"
         id("com.github.node-gradle.node") version "7.1.0"
     }
 }
