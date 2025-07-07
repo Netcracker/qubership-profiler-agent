@@ -10,8 +10,6 @@ nmcpAggregation {
         username = providers.environmentVariable("CENTRAL_PORTAL_USERNAME")
         password = providers.environmentVariable("CENTRAL_PORTAL_PASSWORD")
         publishingType = buildParameters.centralPortalPublishingType.name
-        // WA for https://github.com/GradleUp/nmcp/issues/52
-        publicationName = provider { "${project.name}-${project.version}.zip" }
-        verificationTimeout = Duration.ofMinutes(buildParameters.centralPortalPublishingTimeout.toLong())
+        validationTimeout = Duration.ofMinutes(buildParameters.centralPortalValidationTimeout.toLong())
     }
 }

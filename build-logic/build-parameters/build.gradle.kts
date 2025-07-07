@@ -17,9 +17,9 @@ buildParameters {
         defaultValue.set("AUTOMATIC")
         description.set("Configures if the deployment to Central Portal should be automatically published or if the user should manually publish it")
     }
-    integer("centralPortalPublishingTimeout") {
+    integer("centralPortalValidationTimeout") {
         defaultValue.set(60)
-        description.set("Configures the timeout (in minutes) for the automatic deployment to publish at the Central Portal")
+        description.set("Configures the timeout (in minutes) for the Central Portal to validate the deployment")
     }
     bool("useInMemoryPgpKeys") {
         defaultValue.set(true)
