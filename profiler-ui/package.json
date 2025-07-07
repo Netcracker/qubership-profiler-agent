@@ -29,7 +29,7 @@
     "vkbeautify": "^0.99.3"
   },
   "devDependencies": {
-    "vite": "6.3.5",
+    "vite": "7.0.2",
     "vite-plugin-singlefile": "2.3.0"
   }
 }
