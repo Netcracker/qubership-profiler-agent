@@ -12,7 +12,7 @@ dependencies {
     api(platform("org.junit:junit-bom:5.13.1"))
     constraints {
         api("com.beust:jcommander:1.82")
-        api("io.mockk:mockk:1.14.2")
+        api("io.mockk:mockk:1.14.4")
         api("org.jmockit:jmockit-coverage:1.23")
         api("org.jmockit:jmockit:1.49")
         api("org.mockito:mockito-core:5.18.0")
