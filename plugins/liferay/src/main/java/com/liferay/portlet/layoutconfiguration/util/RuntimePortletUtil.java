@@ -16,7 +16,7 @@ public class RuntimePortletUtil {
         Principal principal = renderRequest.getUserPrincipal();
         if (principal != null) {
             Profiler.event("pu:" + principal.getName(), "portlet.user.id");
-            request.setAttribute("nc.execution-statistics-collector.user.saved", Boolean.TRUE);
+            request.setAttribute("nc.execution-statistics-collector.user.saved", true);
         }
     }
 }

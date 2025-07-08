@@ -155,12 +155,12 @@ public class Rule implements MethodAcceptor {
 
     public void addClass(String className) {
         if (!Boolean.FALSE.equals(classNameHashable)  && className.indexOf('.') > -1 && className.indexOf('*') == -1) {
-            classNameHashable = Boolean.TRUE;
+            classNameHashable = true;
             if (classNamesRaw == null)
                 classNamesRaw = new ArrayList<String>();
             classNamesRaw.add(className);
         } else {
-            classNameHashable = Boolean.FALSE;
+            classNameHashable = false;
             classNamesRaw = null;
         }
         classNames = append(classNames, className);

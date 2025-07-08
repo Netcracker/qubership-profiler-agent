@@ -31,25 +31,25 @@ public class ProfilerMetafactory {
         return new ConstantCallSite(handleExceptionMH);
     }
 
-    private static Object getDefaultReturnValue(Class returnType) {
-        if(!returnType.isPrimitive()) {
+    private static Object getDefaultReturnValue(Class<?> returnType) {
+        if (!returnType.isPrimitive()) {
             return null;
-        } else if(returnType.equals(byte.class)) {
-            return Byte.MIN_VALUE;
-        } else if(returnType.equals(char.class)) {
-            return Character.MIN_VALUE;
-        } else if(returnType.equals(double.class)) {
-            return Double.MIN_VALUE;
-        } else if(returnType.equals(float.class)) {
-            return Float.MIN_VALUE;
-        } else if(returnType.equals(int.class)) {
-            return Integer.MIN_VALUE;
-        } else if(returnType.equals(long.class)) {
-            return Long.MIN_VALUE;
-        } else if(returnType.equals(short.class)) {
-            return Short.MIN_VALUE;
-        } else if(returnType.equals(boolean.class)) {
-            return Boolean.FALSE;
+        } else if (returnType.equals(byte.class)) {
+            return 0;
+        } else if (returnType.equals(char.class)) {
+            return 0;
+        } else if (returnType.equals(double.class)) {
+            return 0;
+        } else if (returnType.equals(float.class)) {
+            return 0;
+        } else if (returnType.equals(int.class)) {
+            return 0;
+        } else if (returnType.equals(long.class)) {
+            return 0;
+        } else if (returnType.equals(short.class)) {
+            return 0;
+        } else if (returnType.equals(boolean.class)) {
+            return false;
         } else {
             throw new IllegalArgumentException("Invalid return type");
         }

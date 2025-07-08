@@ -41,7 +41,7 @@ public class HashMapTest {
                 collisions++;
             else
                 bits.set(idx);
-            hs.put(s, Boolean.TRUE);
+            hs.put(s, true);
             int newSize = ((Object[])field.get(hs)).length;
             if (newSize==oldSize) continue;
             resizes++;
