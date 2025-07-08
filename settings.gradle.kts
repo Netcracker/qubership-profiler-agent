@@ -6,6 +6,7 @@ pluginManagement {
         id("com.github.vlsi.ide") version "2.0.0"
         id("com.gradleup.shadow") version "8.3.8"
         id("com.github.node-gradle.node") version "7.1.0"
+        id("me.champeau.jmh") version "0.7.3"
     }
 }
 
@@ -26,6 +27,7 @@ includeBuild("build-logic")
 
 // Renovate treats names as dependency coordinates when vararg include(...) is used, so we have separate include calls here
 include("agent")
+include("benchmarks")
 include("bom-testing")
 include("bom-thirdparty")
 include("boot")
