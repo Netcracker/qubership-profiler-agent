@@ -178,12 +178,10 @@ public class Profiler {
         LocalBuffer newBuffer = state.buffer;
         long[] data = newBuffer.data;
 
-        if (newBuffer.count > 0) {
-            System.arraycopy(data, 0, data, 1, newBuffer.count);
-        }
-        data[0] = methodAndTime;
+        int count = newBuffer.count;
+        data[count] = methodAndTime;
 
-        newBuffer.count++;
+        newBuffer.count = count + 1;
     }
 
     public static MetricsConfiguration getMetricConfigByName(String callType) {

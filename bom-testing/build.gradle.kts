@@ -16,6 +16,7 @@ dependencies {
         api("org.jmockit:jmockit-coverage:1.23")
         api("org.jmockit:jmockit:1.50")
         api("org.mockito:mockito-core:5.18.0")
+        api("org.openjdk.jcstress:jcstress-core:0.16")
         api("org.testcontainers:junit-jupiter:1.21.3")
     }
 }
