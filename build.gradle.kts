@@ -6,6 +6,7 @@ plugins {
     id("com.github.vlsi.ide")
     id("com.github.vlsi.gradle-extensions")
     id("jacoco")
+    kotlin("jvm") apply false
 }
 
 ide {

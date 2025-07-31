@@ -800,7 +800,7 @@ public class Dumper implements IDumper, org.qubership.profiler.agent.DumperConst
                     long startOffset = data[last - 1] >>> 32;
                     startOffset -= data[buffer.first] >>> 32;
                     buffer.first = i;
-                    buffer.startTime += startOffset;
+                    buffer.increaseStartTime(startOffset);
                     return 0;
                 }
                 // We found callInfo record and start dumping from the next record
@@ -954,7 +954,7 @@ public class Dumper implements IDumper, org.qubership.profiler.agent.DumperConst
         traceOs.write(EVENT_FINISH_RECORD);
         long startOffset = data[last - 1] >>> 32;
         startOffset -= data[buffer.first] >>> 32;
-        buffer.startTime += startOffset;
+        buffer.increaseStartTime(startOffset);
         buffer.first = last;
         return count;
     }
