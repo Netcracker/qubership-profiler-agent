@@ -3,15 +3,18 @@ package org.qubership.profiler.agent;
 import java.util.Arrays;
 
 public class LocalBuffer {
-    public final static int SIZE = Integer.getInteger(LocalBuffer.class.getName() + ".SIZE", 4096);
+    public final static int SIZE = Integer.getInteger(LocalBuffer.class.getName() + ".SIZE", 16);
     volatile public LocalState state;
     public LocalBuffer prevBuffer;
 
     public final long[] data = new long[SIZE];
     public final Object[] value = new Object[SIZE];
-    public long startTime;
-    public int count;
-    public int first;
+    // volatile since we want atomic values as it can be updated by both Dumper and mutator threads
+    public volatile long startTime;
+    // volatile as it is updated by mutator (log...) and read by Dumper thread
+    public volatile int count;
+    // volatile as it might be updated by both Dumper (stealData) and mutator (buffer.reset()) threads
+    public volatile int first;
     public boolean corrupted;
     // Contains the total amount of heap consumed by the large events stored in the buffer
     private long largeEventsVolume;
