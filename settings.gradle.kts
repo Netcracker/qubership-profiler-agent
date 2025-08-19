@@ -7,7 +7,7 @@ pluginManagement {
         id("com.gradleup.shadow") version "8.3.9"
         id("com.github.node-gradle.node") version "7.1.0"
         kotlin("jvm") version "2.2.10"
-        kotlin("kapt") version "2.2.0"
+        kotlin("kapt") version "2.2.10"
     }
 }
 
