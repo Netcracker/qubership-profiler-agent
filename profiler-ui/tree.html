@@ -26,7 +26,6 @@
         <li href="#tabs-call-tree"><a href="#tabs-call-tree">Call Tree</a></li>
         <li href="#tabs-hotspots"><a href="#tabs-hotspots">Hotspots</a><div id="hsBar"></div></li>
         <li href="#tabs-db"><a href="#tabs-db">Database</a></li>
-        <li href="#tabs-gantt"><a href="#tabs-gantt">Gantt</a></li>
         <li href="#tabs-params"><a href="#tabs-params">Parameters</a></li>
     </ul>
     <div id="tabs-call-tree">
@@ -52,9 +51,6 @@
             <div id="padding_for_charts" style="height: 680px"></div>
         </div>
         <div id="db-queries"></div>
-    </div>
-    <div id="tabs-gantt">
-        <div id="gantt-timeline"></div>
     </div>
     <div id="tabs-params">
         <div id="params"></div>
@@ -266,34 +262,6 @@
 </div>
 <div id="h2" class="ca ui-widget ui-corner-all ui-widget-content ui-state-highlight" style="display:none">
     There <span id="h2-1"></span> that consumed <span id="h2-2"></span>
-</div>
-
-<div id="h4" class="ca ui-widget ui-corner-all ui-widget-content ui-state-highlight" style="display:none">
-    <div id="h4-m" style="max-width:30em;display:inline-block"></div><br><br>
-    <table width="100%" border="0" cellpadding="2" cellspacing="0" style="position:relative">
-        <tr>
-            <th>&nbsp;</th><td>From</td><td>To</td>
-        </tr>
-        <tr class="odd">
-            <th><a href="#" class="cb">Between reactor points</a></th><td id="h4-start"></td><td id="h4-end"></td>
-        </tr>
-        <tr class="odd" id="h4-seh" style="display:none">
-            <td colspan="3" style="text-align:left">Blocking Time Range between reactor end points.</td>
-        </tr>
-        <tr>
-            <th><a href="#" class="cb">Reactor block time</a></th><td id="h4-d" colspan="2"></td>
-        </tr>
-        <tr class="odd" id="h4-dh" style="display:none">
-            <td colspan="3" style="text-align:left">Reactor delay time.<br></td>
-        </tr>
-        <tr class="odd">
-            <th><a href="#" class="cb">Reactor block method</a></th><td id="h4-t" colspan="2"></td>
-        </tr>
-        <tr class="odd" id="h4-th" style="display:none">
-            <td colspan="3" style="text-align:left">Reactor type which create delay.<br></td>
-        </tr>
-    </table>
-
 </div>
 
 <div id="h5" class="ca ui-widget ui-corner-all ui-widget-content ui-state-highlight" style="display:none">
