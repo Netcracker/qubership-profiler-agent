@@ -4,7 +4,6 @@ import com.netcracker.profiler.config.AnalyzerWhiteList;
 import com.netcracker.profiler.fetch.*;
 import com.netcracker.profiler.io.CallRowid;
 import com.netcracker.profiler.io.FileNameUtils;
-import com.netcracker.profiler.io.ReactorChainsResolver;
 import com.netcracker.profiler.output.CallTreeMediator;
 import com.netcracker.profiler.output.CallTreeParams;
 import com.netcracker.profiler.output.layout.FileAppender;
@@ -32,7 +31,6 @@ import javax.servlet.http.HttpServletResponse;
 
 public class TreeFetcher extends HttpServletBase<CallTreeMediator, TreeFetcher.RequestContext> {
     private static SinglePageLayout.Template template;
-    private ReactorChainsResolver reactorChainsResolver;
 
     public static final String CHAIN_ID_KEY = "chain";
 
@@ -51,7 +49,6 @@ public class TreeFetcher extends HttpServletBase<CallTreeMediator, TreeFetcher.R
     public void init(ServletConfig config) throws ServletException {
         ServletContext context = config.getServletContext();
         FileAppender appender = new ServletResourceAppender(context);
-        reactorChainsResolver = SpringBootInitializer.reactorChainsResolver();
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             appender.append("/single-page/tree.html", baos);
@@ -98,8 +95,7 @@ public class TreeFetcher extends HttpServletBase<CallTreeMediator, TreeFetcher.R
                 callbackId,
                 params,
                 context.paramTrimSizeForUI,
-                context.isZip,
-                reactorChainsResolver.folderIDMapping(req)
+                context.isZip
         );
     }
 
@@ -163,17 +159,11 @@ public class TreeFetcher extends HttpServletBase<CallTreeMediator, TreeFetcher.R
 
             mediator.mergeArgs(args);
 
-            List<String>[] split = reactorChainsResolver.splitChainIDs(treeIds);
-            int numRegularCalls = split[0].size();
-            List<CallRowid> reactorCallIDs = reactorChainsResolver.resolveReactorChains(req, split[1]);
-            CallRowid[] callIds = new CallRowid[numRegularCalls + reactorCallIDs.size()];
+            CallRowid[] callIds = new CallRowid[treeIds.length];
             Map<String, String[]> params = req.getParameterMap();
 
-            for (int i = 0; i < numRegularCalls; i++)
-                callIds[i] = new CallRowid(split[0].get(i), params);
-            for( int j=0; j < reactorCallIDs.size(); j ++ ){
-                callIds[j + numRegularCalls] = reactorCallIDs.get(j);
-            }
+            for (int i = 0; i < treeIds.length; i++)
+                callIds[i] = new CallRowid(treeIds[i], params);
 
             String[] beginParams = params.get("s");
             String[] endParams = params.get("e");

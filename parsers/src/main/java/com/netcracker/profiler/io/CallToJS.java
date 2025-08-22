@@ -2,7 +2,6 @@ package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.configuration.ParameterInfoDto;
 
-import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,7 +14,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 @Scope("prototype")
@@ -29,24 +27,6 @@ public class CallToJS implements CallListener {
     @Value("${com.netcracker.profiler.DUMP_ROOT_LOCATION:#{null}}")
     private File rootFile;
     private CallFilterer cf;
-
-    private static class DeferredCalls{
-        List<Call> calls;
-        List<String> tags;
-        Map<String, ParameterInfoDto> paramInfo;
-        BitSet requredIds;
-
-        private DeferredCalls(List<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
-            this.calls = calls;
-            this.tags = tags;
-            this.paramInfo = paramInfo;
-            this.requredIds = requredIds;
-        }
-    }
-
-    //rootReference (pod_name) -> list of deferred calls
-    //different root references may be processed in different threads
-    private Map<String, DeferredCalls> deferredCalls = new ConcurrentHashMap<>();
 
     private CallToJS() {
         throw new RuntimeException("No-args not supported");
@@ -89,48 +69,8 @@ public class CallToJS implements CallListener {
         out.print("\"");
     }
 
-    private void deferCalls(String rootReference, List<Call> toDefer, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds){
-        if(toDefer == null || toDefer.size() <= 0){
-            return;
-        }
-
-        if(!deferredCalls.containsKey(rootReference)) {
-            deferredCalls.put(rootReference, new DeferredCalls(toDefer, tags, paramInfo, requredIds));
-            return;
-        }
-
-        DeferredCalls dc = deferredCalls.get(rootReference);
-        dc.calls.addAll(toDefer);
-
-        if(dc.tags.size() < tags.size()){
-            dc.tags = tags;
-        }
-
-        dc.paramInfo.putAll(paramInfo);
-        dc.requredIds.or(requredIds);
-    }
-
     public void processCalls(String rootReference, ArrayList<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
-        List<Call> toDefer = new ArrayList<>(calls.size());
-        List<Call> toPrint = new ArrayList<>(calls.size());
-        for(Call call: calls){
-            if(call.reactorChainId != null){
-                toDefer.add(call);
-            } else {
-                toPrint.add(call);
-            }
-        }
-        deferCalls(rootReference, toDefer, tags, paramInfo, requredIds);
-        printCalls(rootReference, toPrint, tags, paramInfo, requredIds);
-    }
-
-    @Override
-    public void postProcess(String rootReference) {
-        DeferredCalls dc = deferredCalls.get(rootReference);
-        if(dc != null) {
-            List<Call> combinedCalls = combineReactorCalls(dc.calls);
-            printCalls(rootReference, combinedCalls, dc.tags, dc.paramInfo, dc.requredIds);
-        }
+        printCalls(rootReference, calls, tags, paramInfo, requredIds);
     }
 
     private boolean acceptCall(Call call) {
@@ -138,84 +78,6 @@ public class CallToJS implements CallListener {
             return true;
         }
         return cf.filter(call);
-    }
-
-    private List<Call> combineReactorCalls(List<Call> toGroup){
-        //process the calls that have been read in any case
-        Map<String, List<Call>> collect = new HashMap<>();
-        for(Call call: toGroup) {
-            if(call.reactorChainId == null) {
-                continue;
-            }
-            List<Call> byChainId = collect.get(call.reactorChainId);
-            if(byChainId == null) {
-                byChainId = new ArrayList<>();
-                collect.put(call.reactorChainId, byChainId);
-            }
-            byChainId.add(call);
-        }
-
-        List<Call> result = new ArrayList<>(toGroup.size());
-
-        for (Map.Entry<String, List<Call>> entry : collect.entrySet()) {
-            Call newCall = new Call();
-            newCall.params = new HashMap<>();
-            newCall.time = Long.MAX_VALUE;
-            newCall.reactorChainId = entry.getKey();
-            long latestFinish = Long.MIN_VALUE;
-            Set<String> affectedThreads = new HashSet<>();
-            Set<String> callsStreamIndexes = new HashSet<>();
-            for (Call call : entry.getValue()) {
-                latestFinish = Math.max(latestFinish, call.time + call.duration);
-
-                affectedThreads.add((call.threadName));
-                if(!StringUtils.isBlank(call.callsStreamIndex)) {
-                    callsStreamIndexes.add(call.callsStreamIndex);
-                }
-                newCall.time = Math.min(call.time, newCall.time);
-                newCall.memoryUsed += call.memoryUsed;
-                newCall.waitTime += call.waitTime;
-                newCall.cpuTime += call.cpuTime;
-                newCall.nonBlocking += call.nonBlocking;
-                newCall.calls += call.calls;
-                newCall.method = call.method;
-                newCall.transactions += call.transactions;
-                newCall.traceFileIndex = call.traceFileIndex;
-                newCall.bufferOffset = call.bufferOffset;
-                newCall.recordIndex = call.recordIndex;
-                newCall.suspendDuration += call.suspendDuration;
-                newCall.netRead += call.netRead;
-                newCall.netWritten += call.netWritten;
-
-                combineParams(call, newCall);
-            }
-            newCall.threadName = StringUtils.join(affectedThreads, "_");
-            newCall.callsStreamIndex = StringUtils.join(callsStreamIndexes, "_");
-            newCall.duration = (int) (latestFinish - newCall.time);
-            result.add(newCall);
-        }
-
-        return result;
-    }
-
-    private void combineParams(Call call, Call newCall){
-        if (call.params == null) {
-            return;
-        }
-        for (Map.Entry<Integer, List<String>> integerListEntry : call.params.entrySet()) {
-            Integer key = integerListEntry.getKey();
-            List<String> srcList = integerListEntry.getValue();
-            if(srcList == null || srcList.size() == 0){
-                return;
-            }
-
-            List<String> theList = newCall.params.get(key);
-            if(theList == null) {
-                theList = new ArrayList<>();
-                newCall.params.put(key, theList);
-            }
-            theList.addAll(srcList);
-        }
     }
 
     public void printCalls(String rootReference, List<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
@@ -318,8 +180,6 @@ public class CallToJS implements CallListener {
         out.print(',');
         out.print(call.duration + call.queueWaitDuration);
         out.print(',');
-        out.print(call.nonBlocking);
-        out.print(',');
         out.print(call.cpuTime);
         out.print(',');
         out.print(call.queueWaitDuration);
@@ -329,16 +189,9 @@ public class CallToJS implements CallListener {
         out.print(call.calls);
         out.print(",q,");
 
-        String rowId;
-        if (call.reactorChainId == null) {
-            rowId = "q+'_" + call.traceFileIndex +
+        String rowId = "q+'_" + call.traceFileIndex +
                     "_" + call.bufferOffset +
-                    "_" + call.recordIndex +
-                    "_" + call.reactorFileIndex +
-                    "_" + call.reactorBufferOffset + "'";
-        } else {
-            rowId = "'chain_'+q+'_" + call.reactorChainId + "_" + call.callsStreamIndex + "'";
-        }
+                    "_" + call.recordIndex + "'";
         out.print(rowId);
 
         out.print(",");

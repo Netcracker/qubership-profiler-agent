@@ -36,34 +36,18 @@ class MockTreeTraceVisitor extends TreeTraceVisitor {
         super(api, tv);
     }
 
-    public void visitEnter(int methodId,
-                           long lastAssemblyId,
-                           long lastParentAssemblyId,
-                           byte isReactorEndPoint,
-                           byte isReactorFrame,
-                           long reactStartTime,
-                           int  reactDuration,
-                           int blockingOperator,
-                           int prevOperation,
-                           int currentOperation,
-                           int emit){
+    @Override
+    public void visitEnter(int methodId){
         visit.put("methodId", Integer.toString(methodId));
-        visit.put("isReactorEndPoint", Integer.toString(isReactorEndPoint));
-        visit.put("isReactorFrame", Integer.toString(isReactorFrame));
-        visit.put("reactStartTime", Long.toString(reactStartTime));
-        visit.put("reactDuration", Integer.toString(reactDuration));
-        visit.put("blockingOperator", Integer.toString(blockingOperator));
-        visit.put("prevOperation", Integer.toString(prevOperation));
-        visit.put("currentOperation", Integer.toString(currentOperation));
-        visit.put("emit", Integer.toString(emit));
         visitList.add(visit);
-
     }
 
+    @Override
     public void visitExit() {
         visitExitVisited = true;
     }
 
+    @Override
     public void visitLabel(int labelId, ValueHolder value) {
         visitLabelVisited = true;
     }
@@ -153,7 +137,7 @@ public class ProfilerTraceReaderTest {
     @Test
     public void testReadTracesOne() throws IOException {
         List<TreeRowid> treeRowids = new ArrayList<TreeRowid>();
-        treeRowids.add(new TreeRowid(2, "1_1", 1, 997, 0, 0, 0));
+        treeRowids.add(new TreeRowid(2, "1_1", 1, 997, 0));
         TraceVisitor tv = Mockito.spy(new TraceVisitor(0));
         RepositoryVisitor rv  = Mockito.spy(new RepositoryVisitor(0));
 
@@ -164,7 +148,7 @@ public class ProfilerTraceReaderTest {
         Mockito.when(tv.visitTree(treeRowids.get(0))).thenReturn(result);
 
         reader.read(treeRowids);
-        String expected = "[{isReactorFrame=0, currentOperation=0, prevOperation=0, reactStartTime=0, methodId=174, isReactorEndPoint=0, emit=0, reactDuration=0, blockingOperator=0}, {isReactorFrame=0, currentOperation=0, prevOperation=0, reactStartTime=0, methodId=174, isReactorEndPoint=0, emit=0, reactDuration=0, blockingOperator=0}, {isReactorFrame=0, currentOperation=0, prevOperation=0, reactStartTime=0, methodId=174, isReactorEndPoint=0, emit=0, reactDuration=0, blockingOperator=0}]";
+        String expected = "[{methodId=174}, {methodId=174}, {methodId=174}]";
         assertEquals(expected, MockTreeTraceVisitor.visitList.toString());
         assertTrue(result.visitExitVisited);
         assertFalse(result.visitLabelVisited);
@@ -173,7 +157,7 @@ public class ProfilerTraceReaderTest {
     @Test
     public void testReadTracesTwo() throws IOException {
         List<TreeRowid> treeRowids = new ArrayList<TreeRowid>();
-        treeRowids.add(new TreeRowid(3, "3_3", 1, 1815, 0, 0, 0));
+        treeRowids.add(new TreeRowid(3, "3_3", 1, 1815, 0));
         TraceVisitor tv = Mockito.spy(new TraceVisitor(0));
         RepositoryVisitor rv  = Mockito.spy(new RepositoryVisitor(0));
 
@@ -184,7 +168,7 @@ public class ProfilerTraceReaderTest {
         Mockito.when(tv.visitTree(treeRowids.get(0))).thenReturn(result);
 
         reader.read(treeRowids);
-        String expected = "[{isReactorFrame=0, currentOperation=0, prevOperation=0, reactStartTime=0, methodId=173, isReactorEndPoint=0, emit=0, reactDuration=0, blockingOperator=0}, {isReactorFrame=0, currentOperation=0, prevOperation=0, reactStartTime=0, methodId=173, isReactorEndPoint=0, emit=0, reactDuration=0, blockingOperator=0}]";
+        String expected = "[{methodId=173}, {methodId=173}]";
         assertEquals(expected, MockTreeTraceVisitor.visitList.toString());
         assertTrue(result.visitExitVisited);
         assertFalse(result.visitLabelVisited);
@@ -193,7 +177,7 @@ public class ProfilerTraceReaderTest {
     @Test
     public void testReadTracesThree() throws IOException {
         List<TreeRowid> treeRowids = new ArrayList<TreeRowid>();
-        treeRowids.add(new TreeRowid(4, "4_1", 1, 3172, 0, 0, 0));
+        treeRowids.add(new TreeRowid(4, "4_1", 1, 3172, 0));
         TraceVisitor tv = Mockito.spy(new TraceVisitor(0));
         RepositoryVisitor rv  = Mockito.spy(new RepositoryVisitor(0));
 
@@ -204,7 +188,7 @@ public class ProfilerTraceReaderTest {
         Mockito.when(tv.visitTree(treeRowids.get(0))).thenReturn(result);
 
         reader.read(treeRowids);
-        String expected = "[{isReactorFrame=0, currentOperation=0, prevOperation=0, reactStartTime=0, methodId=593, isReactorEndPoint=0, emit=0, reactDuration=0, blockingOperator=0}]";
+        String expected = "[{methodId=593}]";
         assertEquals(expected, MockTreeTraceVisitor.visitList.toString());
         assertTrue(result.visitExitVisited);
         assertFalse(result.visitLabelVisited);

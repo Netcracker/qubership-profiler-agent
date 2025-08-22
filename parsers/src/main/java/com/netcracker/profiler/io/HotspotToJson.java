@@ -69,13 +69,6 @@ public class HotspotToJson implements JsonSerializer<Hotspot> {
             gen.writeNumber(out.startTime - rootNode.startTime);
             gen.writeNumber(out.endTime - rootNode.startTime);
         }
-        gen.writeNumber(out.isReactorFrame);
-        gen.writeNumber(out.reactorDuration);
-        gen.writeNumber(out.blockingOperator);
-        gen.writeNumber(out.reactorStartTime);
-        gen.writeNumber(out.reactorLeastTime);
-        gen.writeNumber(out.prevOperation);
-        gen.writeNumber(out.currentOperation);
 
         final ArrayList<Hotspot> child = out.children;
         if (child != null) {
@@ -135,17 +128,6 @@ public class HotspotToJson implements JsonSerializer<Hotspot> {
                 gen.writeStartArray();
                 gen.writeNumber(tag.id);
                 gen.writeNumber(tag.totalTime);
-                gen.writeNumber(tag.assemblyId);
-                gen.writeNumber(tag.isParallel);
-                gen.writeStartArray();
-                for (Pair<Integer, Integer> parallel : tag.parallels) {
-                    gen.writeStartArray();
-                    gen.writeNumber(parallel.getKey());
-                    gen.writeNumber(parallel.getValue());
-                    gen.writeEndArray();
-                }
-                gen.writeEndArray();
-                gen.writeNumber(tag.reactorStartDate);
                 gen.writeNumber(tag.count);
                 final Object val = tag.value;
                 if (val instanceof String) {

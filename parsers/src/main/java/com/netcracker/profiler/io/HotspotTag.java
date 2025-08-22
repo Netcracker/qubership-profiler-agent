@@ -1,8 +1,5 @@
 package com.netcracker.profiler.io;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class HotspotTag {
     public static java.util.Comparator<HotspotTag> COMPARATOR = new Comparator();
 
@@ -10,13 +7,8 @@ public class HotspotTag {
 
     public int id;
     public int count = 1;
-    public long assemblyId;
     public long totalTime;
     public Object value;
-
-    public long reactorStartDate;
-    public byte isParallel;
-    public List<Pair<Integer, Integer>> parallels = new ArrayList<>();
 
     public static class Comparator implements java.util.Comparator<HotspotTag> {
         public int compare(HotspotTag a, HotspotTag b) {
@@ -33,12 +25,6 @@ public class HotspotTag {
     public HotspotTag(int id, Object value) {
         this.id = id;
         this.value = value;
-    }
-
-    public HotspotTag(int id, Object value, long assemblyId) {
-        this.id = id;
-        this.value = value;
-        this.assemblyId = assemblyId;
     }
 
     public HotspotTag dup() {

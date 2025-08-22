@@ -5,7 +5,6 @@ import static com.netcracker.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
 import com.netcracker.profiler.dump.DataInputStreamEx;
 import com.netcracker.profiler.io.call.CallDataReader;
 import com.netcracker.profiler.io.call.CallDataReaderFactory;
-import com.netcracker.profiler.io.call.ReactorCallReader;
 import com.netcracker.profiler.timeout.ReadInterruptedException;
 
 import java.io.EOFException;
@@ -38,7 +37,6 @@ public abstract class CallReader implements ICallReader {
     }
 
     protected CallDataReader callDataReader;
-    protected ReactorCallReader reactorCallReader;
 
     public CallReader(CallListener callback, CallFilterer cf) {
         this.callback = callback;
@@ -65,16 +63,14 @@ public abstract class CallReader implements ICallReader {
     }
 
     protected boolean findCallsInStream(DataInputStreamEx is,
-                                        DataInputStreamEx reactorCalls,
                                         String callsStreamIndex,
                                         SuspendLog suspendLog,
                                         ArrayList<Call> result,
                                         final BitSet requiredIds) {
-        return findCallsInStream(is, reactorCalls, callsStreamIndex, suspendLog, result, requiredIds, Long.MAX_VALUE);
+        return findCallsInStream(is, callsStreamIndex, suspendLog, result, requiredIds, Long.MAX_VALUE);
     }
 
     protected boolean findCallsInStream(DataInputStreamEx is,
-                                     DataInputStreamEx reactorCalls,
                                      String callsStreamIndex,
                                      SuspendLog suspendLog,
                                      ArrayList<Call> result,
@@ -82,19 +78,14 @@ public abstract class CallReader implements ICallReader {
                                      long endScan) {
         try {
             final DataInputStreamEx calls = is;
-            final DataInputStreamEx rCalls = reactorCalls;
             CallsFileHeader cfh = readStartTime(is);
             int fileFormat = cfh.getFileFormat();
             long time = cfh.getStartTime();
             callBeginTime = time;
             minCallBeginTime = Math.min(minCallBeginTime, time);
-            boolean reactorCallsAvailable = rCalls != null;
 
             CallDataReader reader = CallDataReaderFactory.createReader(fileFormat);
             callDataReader = reader;
-            if (reactorCallsAvailable) {
-                reactorCallReader = CallDataReaderFactory.createReactorReader(rCalls.readVarInt());
-            }
 
             Call call = new Call();
             final long begin = this.begin;
@@ -105,9 +96,6 @@ public abstract class CallReader implements ICallReader {
                 }
 
                 reader.read(call, calls, requiredIds);
-                if (reactorCallsAvailable) {
-                    reactorCallReader.read(call, rCalls);
-                }
 
                 time += call.time;
                 call.time = time;

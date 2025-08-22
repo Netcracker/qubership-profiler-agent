@@ -7,14 +7,11 @@ import com.netcracker.profiler.sax.raw.TreeTraceVisitor;
 import com.netcracker.profiler.sax.values.ValueHolder;
 import com.netcracker.profiler.util.ProfilerConstants;
 
-import java.util.HashSet;
-
 public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotspot> {
     private final Hotspot root;
     protected Hotspot[] callTree = new Hotspot[1000];
     protected Hotspot[] stack = new Hotspot[1000];
 
-    public boolean started;
     private final SuspendLog suspendLog;
     private final SuspendLog.SuspendLogCursor suspendCursor;
 
@@ -40,17 +37,7 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
     }
 
     @Override
-    public void visitEnter(int methodId,
-                           long lastAssemblyId,
-                           long lastParentAssemblyId,
-                           byte isReactorEndPoint,
-                           byte isReactorFrame,
-                           long reactorStartTime,
-                           int  reactorDuration,
-                           int blockingOperator,
-                           int prevOperation,
-                           int currentOperation,
-                           int emit) {
+    public void visitEnter(int methodId) {
         long time = getTime();
         int sp = getSp();
 
@@ -61,75 +48,16 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
             suspendCursor.skipTo(time);
             callTree[0].startTime = Math.min(callTree[0].startTime, time);
         }
-        super.visitEnter(methodId, lastAssemblyId, lastParentAssemblyId,
-                isReactorEndPoint, isReactorFrame,
-                reactorStartTime, reactorDuration,
-                blockingOperator, prevOperation, currentOperation,
-                emit);
+        super.visitEnter(methodId);
         sp++;
         ensureStorage(sp);
-        Hotspot orCreateChild = callTreeParent.getOrCreateChild(methodId, lastParentAssemblyId);
-        propagateReactorParams(lastAssemblyId, lastParentAssemblyId, isReactorEndPoint,
-                isReactorFrame, blockingOperator, prevOperation, currentOperation,
-                emit, orCreateChild);
+        Hotspot orCreateChild = callTreeParent.getOrCreateChild(methodId);
 
         callTree[sp] = orCreateChild;
         Hotspot hs = stack[sp] = new Hotspot(methodId);
         hs.startTime = time;
         hs.endTime = time;
         hs.totalTime = (int) -time;
-        if (reactorDuration != 0 && blockingOperator != 0) {
-            orCreateChild.reactorDuration = reactorDuration;
-            orCreateChild.reactorStartTime = reactorStartTime;
-            hs.reactorDuration = reactorDuration;
-            hs.reactorStartTime = reactorStartTime;
-        }
-    }
-
-    private void propagateReactorParams(long lastAssemblyId,
-                                        long lastParentAssemblyId,
-                                        byte isReactorEndPoint,
-                                        byte isReactorFrame,
-                                        int blockingOperator,
-                                        int prevOperation,
-                                        int currentOperation,
-                                        int emit,
-                                        Hotspot orCreateChild) {
-        orCreateChild.isReactorEndPoint = isReactorEndPoint;
-        orCreateChild.isReactorFrame = isReactorFrame;
-        if (lastAssemblyId != 0) {
-            if (orCreateChild.lastAssemblyId == null) {
-                orCreateChild.lastAssemblyId = new HashSet<>();
-            }
-            orCreateChild.lastAssemblyId.add(lastAssemblyId);
-        }
-
-        if (lastParentAssemblyId != 0) {
-            orCreateChild.lastParentAssemblyId = lastParentAssemblyId;
-        }
-
-        if (blockingOperator != 0) {
-            orCreateChild.blockingOperator = blockingOperator;
-        }
-
-        if (prevOperation != 0) {
-            orCreateChild.prevOperation = prevOperation;
-        }
-
-        if (currentOperation != 0) {
-            orCreateChild.currentOperation = currentOperation;
-        }
-
-        if (emit != 0) {
-            orCreateChild.emit = emit;
-        }
-    }
-
-    @Override
-    public void visitEnter(int methodId) {
-        visitEnter(methodId, 0, 0, (byte) 0, (byte) 0,
-                0, 0, 0, 0,
-                0, 0);
     }
 
     @Override
@@ -149,15 +77,9 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
         callTree[0].count++;
     }
 
-
-    @Override
-    public void visitLabel(int labelId, ValueHolder value, long assemblyId) {
-        stack[getSp()].tag(0, labelId, 0, value, assemblyId);
-    }
-
     @Override
     public void visitLabel(int labelId, ValueHolder value) {
-        visitLabel(labelId, value, 0);
+        stack[getSp()].tag(labelId, value);
     }
 
     @Override

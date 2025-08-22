@@ -4,21 +4,17 @@ import java.util.List;
 import java.util.Map;
 
 public class Call {
-    public String reactorChainId;
     public long time;
     public long cpuTime;
     public long waitTime;
     public long memoryUsed;
     public int method;
     public int duration;
-    public long nonBlocking;
     public int queueWaitDuration;
     public int suspendDuration;
     public int calls;
     public int traceFileIndex;
     public int bufferOffset;
-    public int reactorFileIndex;
-    public int reactorBufferOffset;
     public int recordIndex;
     public long transactions;
     public int logsGenerated, logsWritten;

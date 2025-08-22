@@ -86,7 +86,7 @@ public class CallsToXLSXListener implements ICallsToXLSXListener {
             formatter.nextRow();
             formatter.addHyperlink(serverAddress + "/tree.html#params-trim-size=15000&f%5B_0%5D=" + encodeURL(rootReference.replace('\\', '/')) +
                                    "&i=" + "0_" + call.traceFileIndex + "_" + call.bufferOffset + "_" +
-                                   call.recordIndex + "_" + call.reactorFileIndex + "_" + call.reactorBufferOffset
+                                   call.recordIndex
             );
 
             formatter.addDate(new Date(call.time - call.queueWaitDuration));
@@ -156,11 +156,6 @@ public class CallsToXLSXListener implements ICallsToXLSXListener {
         }
         sb.append(text);
         return sb;
-    }
-
-    @Override
-    public void postProcess(String rootReference) {
-
     }
 
     public void postProcess() {

@@ -1,7 +1,6 @@
 package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.configuration.PropertyFacade;
-import com.netcracker.profiler.dom.GanttInfo;
 
 import java.util.*;
 
@@ -12,19 +11,6 @@ public class Hotspot {
     public ArrayList<Hotspot> children;
     public Map<HotspotTag, HotspotTag> tags;
     public PriorityQueue<HotspotTag> mostImportantTags;
-    public int reactorCallId;
-    public Set<Long> lastAssemblyId;
-    public long lastParentAssemblyId;
-    public byte isReactorEndPoint;
-    public byte isReactorFrame;
-    public int reactorDuration;
-    public long reactorStartTime;
-    public long reactorLeastTime;
-    public int emit;
-
-    public int blockingOperator;
-    public int prevOperation;
-    public int currentOperation;
 
     public String fullRowId;
     public int folderId;
@@ -40,25 +26,11 @@ public class Hotspot {
         this.id = id;
     }
 
-    public void tag(long time, int tagId, int valueId, Object value, long assemblyId) {
+    public void tag(int tagId, Object value) {
         if (tags == null)
             tags = new HashMap<HotspotTag, HotspotTag>();
-        final HotspotTag hs = new HotspotTag(tagId, value, assemblyId);
+        final HotspotTag hs = new HotspotTag(tagId, value);
         tags.put(hs, hs);
-    }
-
-    public Hotspot getOrCreateChild(int tagId, long lastParentAssemblyId) {
-        ArrayList<Hotspot> children = this.children;
-        if (children == null)
-            children = this.children = new ArrayList<Hotspot>();
-        else
-            for (final Hotspot child : children)
-                if (child.id == tagId)
-                    return child;
-
-        Hotspot hs = new Hotspot(tagId);
-        children.add(hs);
-        return hs;
     }
 
     public Hotspot getOrCreateChild(int tagId) {
@@ -97,8 +69,7 @@ public class Hotspot {
             final HotspotTag tag = tags.get(hsTag);
             if (tag == null) {
                 final HotspotTag newTag = hsTag.dup();
-                newTag.totalTime = hsTime + hs.reactorDuration;
-                newTag.assemblyId = hsTag.assemblyId;
+                newTag.totalTime = hsTime;
                 addTag(tags, newTag);
                 continue;
             }
@@ -143,31 +114,13 @@ public class Hotspot {
         }
     }
 
-    public void mergeWithChildren(Hotspot hs, List<GanttInfo> infos) {
+    public void mergeWithChildren(Hotspot hs) {
         childTime += hs.childTime;
         totalTime += hs.totalTime;
         childCount += hs.childCount;
         count += hs.count;
         suspensionTime += hs.suspensionTime;
         childSuspensionTime += hs.childSuspensionTime;
-
-        if (hs.lastAssemblyId != null) {
-            if (lastAssemblyId == null) {
-                lastAssemblyId = new HashSet<>();
-            }
-            lastAssemblyId.addAll(hs.lastAssemblyId);
-        }
-
-        if (reactorStartTime != 0 && hs.reactorStartTime != 0) {
-            reactorStartTime = Math.min(hs.reactorStartTime, reactorStartTime);
-        } else if (hs.reactorStartTime != 0) {
-            reactorStartTime = hs.reactorStartTime;
-        }
-
-        if (hs.reactorStartTime != 0) {
-            reactorLeastTime = Math.max(reactorLeastTime, hs.reactorStartTime + hs.reactorDuration);
-            reactorDuration = (int) (reactorLeastTime - reactorStartTime);
-        }
 
         if (startTime > hs.startTime) startTime = hs.startTime;
         if (endTime < hs.endTime) endTime = hs.endTime;
@@ -178,21 +131,9 @@ public class Hotspot {
             else {
                 final int childrenSize = children.size();
                 for (Hotspot srcChild : hs.children) {
-                    if (hs.fullRowId != null && infos != null) {
-                        infos.add(
-                                new GanttInfo(
-                                        srcChild.id,
-                                        srcChild.emit,
-                                        srcChild.isReactorFrame == 0 ? srcChild.startTime : srcChild.reactorStartTime,
-                                        srcChild.isReactorFrame == 0 ? srcChild.totalTime : srcChild.reactorDuration,
-                                        hs.fullRowId,
-                                        hs.folderId
-                                        )
-                        );
-                    }
                     for (int i = 0; i < childrenSize; i++) {
                         Hotspot child = children.get(i);
-                        if (child.id == srcChild.id && child.isReactorFrame == 0) {
+                        if (child.id == srcChild.id) {
                             child.mergeWithChildren(srcChild);
                             srcChild = null;
                             break;
@@ -225,10 +166,6 @@ public class Hotspot {
             tag.totalTime += hsTag.totalTime;
             tag.count += hsTag.count;
         }
-    }
-
-    public void mergeWithChildren(Hotspot hs) {
-        mergeWithChildren(hs, null);
     }
 
     public void calculateTotalExecutions() {

@@ -53,9 +53,6 @@ public class SpringBootInitializer implements ServletContextListener {
     protected ApplicationContext context;
 
     @Autowired
-    protected ReactorChainsResolver reactorChainsResolver;
-
-    @Autowired
     protected IDumpExporter dumpExporter;
 
     @Autowired
@@ -75,10 +72,6 @@ public class SpringBootInitializer implements ServletContextListener {
 
     public static FetchCallTreeFactory fetchCallTreeFactory(){
         return MOROZOFF.fetchCallTreeFactory;
-    }
-
-    public static ReactorChainsResolver reactorChainsResolver(){
-        return MOROZOFF.reactorChainsResolver;
     }
 
     public static ApplicationContext getApplicationContext(){
