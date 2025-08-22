@@ -26,7 +26,6 @@ public class CallInfo {
     public transient volatile CallInfo next;
     public final boolean isFirstInThread;
     private transient MediationCallInfo mediationInfo;
-    public int reactorDuration;
     public byte isPersist;
     public int additionalReportedTime = 0; //number of milliseconds to add to call duration in the report to account for reactive requests such as reactive database queries
 

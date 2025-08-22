@@ -180,7 +180,7 @@ public abstract class ProfilerTraceReader {
                     String fullRowId = treeRowid.fullRowId;
                     int folderId = treeRowid.folderId;
                     callPos++;
-                    TreeRowid rowid = new TreeRowid(folderId, fullRowId, traceFileIndex, tracePos, startIndex, 0, 0);
+                    TreeRowid rowid = new TreeRowid(folderId, fullRowId, traceFileIndex, tracePos, startIndex);
                     threads.put(currentThreadId, ttv = tv.visitTree(rowid)); // TODO: pass suspendLog
                 }
                 long realTime = trace.readLong(); // start time
@@ -201,17 +201,6 @@ public abstract class ProfilerTraceReader {
                     eventTime += time;
 
                     int tagId = 0;
-                    long lastAssemblyId = 0;
-                    long lastParentAssemblyId = 0;
-                    int reactorDuration = 0;
-                    long reactorStartTime = 0;
-                    int blockingOperator = 0;
-                    int prevOperation = 0;
-                    int currentOperation = 0;
-
-                    byte isReactorEndPoint = 0;
-                    byte isReactorFrame = 0;
-                    int emit = 0;
 
                     ValueHolder value = null;
                     if (typ != DumperConstants.EVENT_EXIT_RECORD) {
@@ -261,17 +250,7 @@ public abstract class ProfilerTraceReader {
                     ids.set(tagId);
                     switch (typ) {
                         case DumperConstants.EVENT_ENTER_RECORD:
-                            ttv.visitEnter(tagId,
-                                    lastAssemblyId,
-                                    lastParentAssemblyId,
-                                    isReactorEndPoint,
-                                    isReactorFrame,
-                                    reactorStartTime,
-                                    reactorDuration,
-                                    blockingOperator,
-                                    prevOperation,
-                                    currentOperation,
-                                    emit);
+                            ttv.visitEnter(tagId);
                             if (isTraceEnabled)
                                 log.trace("> idx: " + idx + ", eventTime: " + eventTime + ", eventRealTime: " + eventRealTime + ", tag: " + tagId + ", " + ttv.getSp());
                             break;
@@ -288,7 +267,7 @@ public abstract class ProfilerTraceReader {
                                     String fullRowId = treeRowid.fullRowId;
                                     int folderId = treeRowid.folderId;
                                     callPos++;
-                                    TreeRowid rowid = new TreeRowid(folderId, fullRowId, traceFileIndex, tracePos, startIndex, 0, 0);
+                                    TreeRowid rowid = new TreeRowid(folderId, fullRowId, traceFileIndex, tracePos, startIndex);
                                     threads.put(currentThreadId, ttv = tv.visitTree(rowid)); // TODO: pass suspendLog
                                 } else {
 //                                    System.out.println("-------end-------");
@@ -306,7 +285,7 @@ public abstract class ProfilerTraceReader {
                             break;
                         default:
                             if (value != null && !(tagId == 0 && value instanceof StringValue && ((StringValue) value).value.length() == 0)) {
-                                ttv.visitLabel(tagId, value, lastAssemblyId);
+                                ttv.visitLabel(tagId, value);
                                 if (isTraceEnabled)
                                     log.trace("! idx: " + idx + ", eventTime: " + eventTime + ", eventRealTime: " + eventRealTime + ", tag: " + tagId + ", value: " + value); //TODO +", sp: " + ttc.sp);
                             }
@@ -347,7 +326,7 @@ public abstract class ProfilerTraceReader {
         DataInputStreamEx trace = null;
         String dataFolderPath = file.getParentFile().getParent();
 
-        Set<ClobValue> uniqueClobIds = new HashSet<ClobValue>();
+        Set<ClobValue> uniqueClobIds = new LinkedHashSet<>();
         ClobValue lastClobId = null;
         boolean hasReadFirstValue = false;
         try {
