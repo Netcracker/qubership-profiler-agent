@@ -26,11 +26,11 @@ public class Hotspot {
         this.id = id;
     }
 
-    public void tag(int tagId, Object value) {
-        if (tags == null)
-            tags = new HashMap<HotspotTag, HotspotTag>();
-        final HotspotTag hs = new HotspotTag(tagId, value);
-        tags.put(hs, hs);
+    public void addTag(HotspotTag tag) {
+        if (tags == null) {
+            tags = new HashMap<>();
+        }
+        addTag(tags, tag);
     }
 
     public Hotspot getOrCreateChild(int tagId) {
@@ -78,7 +78,7 @@ public class Hotspot {
         }
     }
 
-    public void addTag(Map<HotspotTag, HotspotTag> tags, HotspotTag newTag) {
+    private void addTag(Map<HotspotTag, HotspotTag> tags, HotspotTag newTag) {
         if (tags.size() < MAX_PARAMS) {
             tags.put(newTag, newTag);
             return;

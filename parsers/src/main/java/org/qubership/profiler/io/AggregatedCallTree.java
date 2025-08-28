@@ -150,16 +150,35 @@ public class AggregatedCallTree {
         final Map<HotspotTag, HotspotTag> tags = node.tags;
         if (tags == null || tags.isEmpty()) return;
 
+        // We might modify tags' ids, so we need to create a new map
         Map<HotspotTag, HotspotTag> newTags = new HashMap<HotspotTag, HotspotTag>();
 
         for (HotspotTag tag : tags.values()) {
             newId = id2id.get(tag.id);
             if (newId != null)
                 tag.id = newId;
-            final Object value = tag.value;
-            if (value instanceof BigDedupParamKey || value instanceof BigParamKey)
-                tag.value = big2big.get(value);
-            newTags.put(tag, tag);
+            boolean needRemapKeys = false;
+            for (Object value : tag.values) {
+                if (value instanceof BigDedupParamKey || value instanceof BigParamKey) {
+                    needRemapKeys = true;
+                    break;
+                }
+            }
+            if (!needRemapKeys) {
+                newTags.put(tag, tag);
+                continue;
+            }
+            HotspotTag remappedTag = new HotspotTag(tag.id);
+            for (Object value : tag.values) {
+                Object remappedValue;
+                if (value instanceof BigDedupParamKey || value instanceof BigParamKey) {
+                    remappedValue = big2big.get(value);
+                } else {
+                    remappedValue = value;
+                }
+                remappedTag.addValue(remappedValue);
+            }
+            newTags.put(remappedTag, remappedTag);
         }
 
         node.tags = newTags;
