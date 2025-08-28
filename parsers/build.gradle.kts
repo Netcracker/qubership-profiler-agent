@@ -1,6 +1,7 @@
 plugins {
     id("build-logic.java-published-library")
     id("build-logic.test-junit5")
+    id("build-logic.kotlin")
 }
 
 dependencies {

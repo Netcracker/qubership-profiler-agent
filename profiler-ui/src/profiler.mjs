@@ -3058,7 +3058,7 @@ window.isDump = isDump;
             /** @const */
             var P_EXECUTIONS = 2;
             /** @const */
-            var P_VALUE = 3;
+            var P_VALUE = 3; // Array of values
             /** @const */
             var P_CHILDREN = 4;
             /** @const */
