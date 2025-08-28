@@ -2,15 +2,19 @@ package com.netcracker.profiler.sax.builders;
 
 import com.netcracker.profiler.chart.Provider;
 import com.netcracker.profiler.io.Hotspot;
+import com.netcracker.profiler.io.HotspotTag;
 import com.netcracker.profiler.io.SuspendLog;
 import com.netcracker.profiler.sax.raw.TreeTraceVisitor;
 import com.netcracker.profiler.sax.values.ValueHolder;
 import com.netcracker.profiler.util.ProfilerConstants;
 
+import java.util.Arrays;
+
 public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotspot> {
     private final Hotspot root;
     protected Hotspot[] callTree = new Hotspot[1000];
     protected Hotspot[] stack = new Hotspot[1000];
+    protected HotspotTag.Builder[] tagStack = new HotspotTag.Builder[1000];
 
     private final SuspendLog suspendLog;
     private final SuspendLog.SuspendLogCursor suspendCursor;
@@ -25,15 +29,12 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
     }
 
     protected void ensureStorage(int size) {
-        if (size < callTree.length)
+        if (size < callTree.length) {
             return;
-        Hotspot[] tmp = new Hotspot[callTree.length * 2];
-        System.arraycopy(callTree, 0, tmp, 0, callTree.length);
-        callTree = tmp;
-
-        tmp = new Hotspot[stack.length * 2];
-        System.arraycopy(stack, 0, tmp, 0, stack.length);
-        stack = tmp;
+        }
+        callTree = Arrays.copyOf(callTree, callTree.length * 2);
+        stack = Arrays.copyOf(stack, stack.length * 2);
+        tagStack = Arrays.copyOf(tagStack, tagStack.length * 2);
     }
 
     @Override
@@ -68,6 +69,15 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
         hs.suspensionTime += suspendCursor.moveTo(time);
         hs.totalTime += (int) time;
         hs.count++;
+        HotspotTag.Builder tagBuilder = tagStack[sp];
+        if (tagBuilder != null) {
+            tagBuilder.forEachTag((tag) -> {
+                tag.count = 1;
+                tag.totalTime = hs.totalTime;
+                hs.addTag(tag);
+            });
+            tagBuilder.clear();
+        }
         callTree[sp].merge(hs);
         super.visitExit();
         sp--;
@@ -79,7 +89,12 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
 
     @Override
     public void visitLabel(int labelId, ValueHolder value) {
-        stack[getSp()].tag(labelId, value);
+        HotspotTag.Builder tagBuilder = tagStack[getSp()];
+        if (tagBuilder == null) {
+            tagBuilder = new HotspotTag.Builder();
+            tagStack[getSp()] = tagBuilder;
+        }
+        tagBuilder.addValue(labelId, value);
     }
 
     @Override

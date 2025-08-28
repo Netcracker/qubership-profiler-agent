@@ -129,25 +129,29 @@ public class HotspotToJson implements JsonSerializer<Hotspot> {
                 gen.writeNumber(tag.id);
                 gen.writeNumber(tag.totalTime);
                 gen.writeNumber(tag.count);
-                final Object val = tag.value;
-                if (val instanceof String) {
-                    gen.writeString((String)val);
-                } else if (val instanceof StringValue) {
-                    gen.writeString(((StringValue)val).value);
-                } else if (val instanceof ClobValue) {
-                    ClobValue clob = (ClobValue) val;
-                    gen.writeRaw(",");
-                    gen.writeRaw(clob.folder.charAt(0));
-                    gen.writeRaw("[\"");
-                    gen.writeRaw(Integer.toString(clob.offset));
-                    gen.writeRaw('/');
-                    gen.writeRaw(Integer.toString(clob.fileIndex));
-                    gen.writeRaw('/');
-                    gen.writeRaw(String.valueOf(folder2id.get(clob.dataFolderPath)));
-                    gen.writeRaw("\"]");
-                } else {
-                    gen.writeString("(unknown value type) " + String.valueOf(val));
+                gen.writeStartArray();
+                for (Object val : tag.values) {
+                    if (val instanceof String) {
+                        gen.writeString((String)val);
+                    } else if (val instanceof StringValue) {
+                        gen.writeString(((StringValue)val).value);
+                    } else if (val instanceof ClobValue) {
+                        ClobValue clob = (ClobValue) val;
+                        // This writes reference to a clob value like s["..."] which is hard to get with Jackson
+                        // So we use write raw
+                        gen.writeRawValue(String.valueOf(clob.folder.charAt(0)));
+                        gen.writeRaw("[\"");
+                        gen.writeRaw(Integer.toString(clob.offset));
+                        gen.writeRaw('/');
+                        gen.writeRaw(Integer.toString(clob.fileIndex));
+                        gen.writeRaw('/');
+                        gen.writeRaw(String.valueOf(folder2id.get(clob.dataFolderPath)));
+                        gen.writeRaw("\"]");
+                    } else {
+                        gen.writeString("(unknown value type) " + String.valueOf(val));
+                    }
                 }
+                gen.writeEndArray();
                 gen.writeEndArray();
             }
             gen.writeEndArray();

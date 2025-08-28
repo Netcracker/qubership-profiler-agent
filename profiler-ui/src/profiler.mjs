@@ -28,6 +28,7 @@ import 'dygraphs/dist/dygraph.css';
 import { default as Dygraph } from 'dygraphs';
 import { Activator } from './activate_ide.mjs';
 import './jquery-browser.mjs';
+import { default as FNV1a128 } from './fnv1a128.mjs';
 import '../styles/prof.css';
 
 jQuery.fn.firstParents = function(n) {
@@ -3059,7 +3060,7 @@ window.isDump = isDump;
             /** @const */
             var P_EXECUTIONS = 2;
             /** @const */
-            var P_VALUE = 3;
+            var P_VALUE = 3; // Array of values
             /** @const */
             var P_CHILDREN = 4;
             /** @const */
@@ -3491,8 +3492,14 @@ window.isDump = isDump;
             function getTagSignature(tag) {
                 var tagId = tag[P_ID];
                 var info = tags.y[tagId];
-                if (info && (info = info[T_TYPE_SIGNATURE]) && (info = signatures[info]))
-                    return info(tag[P_VALUE]);
+                if (info && (info = info[T_TYPE_SIGNATURE]) && (info = signatures[info])) {
+                    const hash = new FNV1a128();
+                    for (const subvalue of tag[P_VALUE]) {
+                        const subvalueSignature = info(subvalue);
+                        hash.update(subvalueSignature);
+                    }
+                    return hash.finalize();
+                }
                 return '';
             }
 
@@ -3963,7 +3970,7 @@ window.isDump = isDump;
             function renderSimpleTag(html, tag, scale, expand, nocolor, transparent) {
                 var tagName = tags.t[tag[P_ID]][0];
                 var items = tag[P_CHILDREN];
-                var value = tag[P_VALUE];
+                const values = tag[P_VALUE];
                 if (items && items.length) {
                     html[html.length] = '<span class="ui-buttonset';
                     if (transparent)
@@ -3986,183 +3993,188 @@ window.isDump = isDump;
                 html[html.length] = '<b>';
                 html[html.length] = tagName;
                 html[html.length] = '</b>';
-                if (value !== null) {
+                if (values !== null) {
                     html[html.length] = ': ';
-                    if (items && items.length > 1)
-                        html[html.length] = 'most time consuming is ';
-                    if (value.length == app.args['params-trim-size']) {
-                        html[html.length] = '<a href="';
-                        if (app.args && app.args.ro) {
-                            html[html.length] = value._2;
-                            html[html.length] = '/';
-                            html[html.length] = value._0;
-                            html[html.length] = '_';
-                            html[html.length] = value._1;
-                            html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
-                        } else {
-                            html[html.length] = 'get_clob/';
-                            html[html.length] = app.dn.replace(/.zip$/, '-' + value._0 + '-' + value._1 + '.' + tagName + '.zip');
-                            html[html.length] = '?dir=';
-                            for(var arg in app.args) {
-                                // TODO: support proper folder detection in aggregated tree case
-                                if (!/^f\[_/.test(arg))
-                                    continue;
-                                html[html.length] = app.args[arg];
-                                break;
+                    html[html.length] = '<div style="display:inline-block; vertical-align: text-top;">';
+                    if (items && items.length > 1) {
+                    } else {
+                        for (const value of values) {
+                            if (value.length == app.args['params-trim-size']) {
+                                html[html.length] = '<a href="';
+                                if (app.args && app.args.ro) {
+                                    html[html.length] = value._2;
+                                    html[html.length] = '/';
+                                    html[html.length] = value._0;
+                                    html[html.length] = '_';
+                                    html[html.length] = value._1;
+                                    html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
+                                } else {
+                                    html[html.length] = 'get_clob/';
+                                    html[html.length] = app.dn.replace(/.zip$/, '-' + value._0 + '-' + value._1 + '.' + tagName + '.zip');
+                                    html[html.length] = '?dir=';
+                                    for (var arg in app.args) {
+                                        // TODO: support proper folder detection in aggregated tree case
+                                        if (!/^f\[_/.test(arg))
+                                            continue;
+                                        html[html.length] = app.args[arg];
+                                        break;
+                                    }
+                                    html[html.length] = '&file=';
+                                    html[html.length] = value._0;
+                                    html[html.length] = '&offs=';
+                                    html[html.length] = value._1;
+                                    html[html.length] = '&type=';
+                                    html[html.length] = value._2;
+                                }
+                                html[html.length] = '" target=_blank><span class="ui-icon ui-icon-disk inline-block" style="vertical-align:text-bottom;"></span>';
+                                if (!(app.args && app.args.ro)) {
+                                    html[html.length] = 'Save as *.zip';
+                                } else {
+                                    html[html.length] = 'Open ';
+                                    html[html.length] = value._2;
+                                    html[html.length] = '/';
+                                    html[html.length] = value._0;
+                                    html[html.length] = '_';
+                                    html[html.length] = value._1;
+                                    html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
+                                }
+                                html[html.length] = '</a>';
                             }
-                            html[html.length] = '&file=';
-                            html[html.length] = value._0;
-                            html[html.length] = '&offs=';
-                            html[html.length] = value._1;
-                            html[html.length] = '&type=';
-                            html[html.length] = value._2;
-                        }
-                        html[html.length] = '" target=_blank><span class="ui-icon ui-icon-disk inline-block" style="vertical-align:text-bottom;"></span>';
-                        if (!(app.args && app.args.ro)) {
-                            html[html.length] = 'Save as *.zip';
-                        } else {
-                            html[html.length] = 'Open ';
-                            html[html.length] = value._2;
-                            html[html.length] = '/';
-                            html[html.length] = value._0;
-                            html[html.length] = '_';
-                            html[html.length] = value._1;
-                            html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
-                        }
-                        html[html.length] = '</a>';
-                    }
-                    var val;
-                    var stealthMode;
-                    if (tagName == 'sql' || tagName == 'sql.monitor' || tagName == 'binds' || tagName == 'mdx' || tagName == 'cassandra.query') {
-                        printReformatted(html, value, tagName == 'binds' ? 'ignore_formatting' : 'sql', nocolor);
-                    } else if (tagName.indexOf('xml') != -1 || value && value[0] == '<') {
-                        printReformatted(html, value, 'xml', nocolor);
-                    } else if (tagName == 'common.started' || tagName == 'jms.timestamp') {
-                        html[html.length] = Date__formatWithMillis(new Date(Number(tag[P_VALUE])));
-                        html[html.length] = ' (' + tag[P_VALUE] + ')';
-                    } else if (tagName == 'log.written' || tagName == 'log.generated' || tagName == 'memory.allocated' ||
-                            tagName.substr(0, 3) == 'io.')
-                        html[html.length] = Bytes__format(tag[P_VALUE]);
-                    else if (tagName == 'time.wait' || tagName == 'time.cpu' || tagName == 'time.queue.wait') {
-                        var millis = Number(tag[P_VALUE]);
-                        renderDurationBar(html, millis, scale);
-                        html[html.length] = Duration__formatTime(millis);
-                    } else if (tagName == 'exception' || /\.pre$/.test(tagName)) {
-                        html[html.length] = '<pre>';
-                        html[html.length] = escapeHTML(tag[P_VALUE]);
-                        html[html.length] = '</pre>';
-                    } else if (tagName == 'wf.process') {
-                        html[html.length] = '<a target=_blank href="/tools/wf/wf_info.jsp?run=Run&id=';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = '">';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = ' (open /tools/wf/wf_info.jsp)</a>';
-                    } else if (tagName == 'po.process' || tagName == 'job.id') {
-                        html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = '">';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = ' (open /ncobject.jsp)</a>';
-                    } else if (tagName.indexOf('json') != -1) {
-                        printReformatted(html, value, 'json', nocolor);
-                    } else if (tagName == 'web.query') {
-                        html[html.length] = '<pre class=prettyprint>';
-                        html[html.length] = '<a href=# onclick="$(this).nextAll(\'span\').toggle(); $(this).text($(this).text()==\'view source\'?\'view decoded\':\'view source\'); return false;">view source</a>';
-                        html[html.length] = '<br><span style="display:none;">';
-                        html[html.length] = escapeHTML(value);
-                        html[html.length] = '</span><span>';
-                        var qs = new URLSearchParams(value);
-                        var keys = new Set(qs.keys()).keys().toArray();
-                        keys.sort();
-                        for (var key_idx = 0; key_idx < keys.length; key_idx++) {
-                            html[html.length] = '<b>' + escapeHTML(keys[key_idx]) + '</b>';
-                            html[html.length] = GRAY_START + '=' + GRAY_END;
-                            var values = qs.getAll(keys[key_idx]);
-                            for (var v_idx = 0; v_idx < values.length; v_idx++) {
-                                var value_item = jsonBeautify(values[v_idx]);
-                                value_item = escapeHTML(value_item);
-                                if (value_item.length > 15 && !nocolor)
-                                    value_item = prettyPrintOne(value_item);
-                                values[v_idx] = value_item;
-                            }
-                            html[html.length] = values.join(GRAY_START + ';&nbsp;' + GRAY_END);
-                            html[html.length] = '<br>';
-                        }
-                        html[html.length] = '</span></pre>';
-                    } else if (tagName == 'web.session.id') {
-                        val = tag[P_VALUE];
-                        html[html.length] = escapeHTML(val);
-                        var m = val.match(/.*!(\d+)$/);
-                        if (m && m[1]) {
-                            var sessionCreated = Number(m[1]);
-                            if (Math.abs(sessionCreated - new Date()) < 1000 * 3600 * 24 * 365 * 50 /* 50 years */) {
-                                html[html.length] = ' (created ' + Duration__formatTime(new Date() - sessionCreated) + ' ago, at ';
-                                html[html.length] = new Date(sessionCreated);
-                                html[html.length] = ')';
-                            }
-                        }
-                    } else if ((tagName == 'dataflow.stack' || tagName == 'dataflow.session') && tag[P_VALUE] != '::other') {
-                        val = JSON.parse('{' + tag[P_VALUE] + '}');
-                        stealthMode = !(val.i && val.i.length == 19);
-                        if (!stealthMode || val.c) {
-                            html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
-                            html[html.length] = stealthMode ? val.c : val.i;
-                            html[html.length] = '">';
-                        }
-                        html[html.length] = val.n ? escapeHTML(val.n) : (val.i + ":" + val.c);
-                        if (!stealthMode || val.c) {
-                            html[html.length] = ' (';
-                            html[html.length] = stealthMode ? 'configuration' : 'instance';
-                            html[html.length] = ')</a>';
-                        }
-                        if (!stealthMode && val.c) {
-                            html[html.length] = ', <a target=_blank href="/ncobject.jsp?id=';
-                            html[html.length] = val.c;
-                            html[html.length] = '">open configuration</a>';
-                        }
-                    } else if (tagName == 'profiler.title') {
-                        html[html.length] = tag[P_VALUE];
-                    } else
-                        html[html.length] = escapeHTML(tag[P_VALUE]);
+                            var val;
+                            var stealthMode;
+                            if (tagName == 'sql' || tagName == 'sql.monitor' || tagName == 'binds' || tagName == 'mdx' || tagName == 'cassandra.query') {
+                                printReformatted(html, value, tagName == 'binds' ? 'ignore_formatting' : 'sql', nocolor);
+                            } else if (tagName.indexOf('xml') != -1 || value && value[0] == '<') {
+                                printReformatted(html, value, 'xml', nocolor);
+                            } else if (tagName == 'common.started' || tagName == 'jms.timestamp') {
+                                html[html.length] = Date__formatWithMillis(new Date(Number(tag[P_VALUE])));
+                                html[html.length] = ' (' + tag[P_VALUE] + ')';
+                            } else if (tagName == 'log.written' || tagName == 'log.generated' || tagName == 'memory.allocated' ||
+                                tagName.substr(0, 3) == 'io.')
+                                html[html.length] = Bytes__format(tag[P_VALUE]);
+                            else if (tagName == 'time.wait' || tagName == 'time.cpu' || tagName == 'time.queue.wait') {
+                                var millis = Number(tag[P_VALUE]);
+                                renderDurationBar(html, millis, scale);
+                                html[html.length] = Duration__formatTime(millis);
+                            } else if (tagName == 'exception' || /\.pre$/.test(tagName)) {
+                                html[html.length] = '<pre>';
+                                html[html.length] = escapeHTML(tag[P_VALUE]);
+                                html[html.length] = '</pre>';
+                            } else if (tagName == 'wf.process') {
+                                html[html.length] = '<a target=_blank href="/tools/wf/wf_info.jsp?run=Run&id=';
+                                html[html.length] = tag[P_VALUE];
+                                html[html.length] = '">';
+                                html[html.length] = tag[P_VALUE];
+                                html[html.length] = ' (open /tools/wf/wf_info.jsp)</a>';
+                            } else if (tagName == 'po.process' || tagName == 'job.id') {
+                                html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
+                                html[html.length] = tag[P_VALUE];
+                                html[html.length] = '">';
+                                html[html.length] = tag[P_VALUE];
+                                html[html.length] = ' (open /ncobject.jsp)</a>';
+                            } else if (tagName.indexOf('json') != -1) {
+                                printReformatted(html, value, 'json', nocolor);
+                            } else if (tagName == 'web.query') {
+                                html[html.length] = '<pre class=prettyprint>';
+                                html[html.length] = '<a href=# onclick="$(this).nextAll(\'span\').toggle(); $(this).text($(this).text()==\'view source\'?\'view decoded\':\'view source\'); return false;">view source</a>';
+                                html[html.length] = '<br><span style="display:none;">';
+                                html[html.length] = escapeHTML(value);
+                                html[html.length] = '</span><span>';
+                                var qs = new URLSearchParams(value);
+                                var keys = new Set(qs.keys()).keys().toArray();
+                                keys.sort();
+                                for (var key_idx = 0; key_idx < keys.length; key_idx++) {
+                                    html[html.length] = '<b>' + escapeHTML(keys[key_idx]) + '</b>';
+                                    html[html.length] = GRAY_START + '=' + GRAY_END;
+                                    const paramValues = qs.getAll(keys[key_idx]);
+                                    for (var v_idx = 0; v_idx < paramValues.length; v_idx++) {
+                                        var value_item = jsonBeautify(paramValues[v_idx]);
+                                        value_item = escapeHTML(value_item);
+                                        if (value_item.length > 15 && !nocolor)
+                                            value_item = prettyPrintOne(value_item);
+                                        paramValues[v_idx] = value_item;
+                                    }
+                                    html[html.length] = paramValues.join(GRAY_START + ';&nbsp;' + GRAY_END);
+                                    html[html.length] = '<br>';
+                                }
+                                html[html.length] = '</span></pre>';
+                            } else if (tagName == 'web.session.id') {
+                                val = tag[P_VALUE];
+                                html[html.length] = escapeHTML(val);
+                                var m = val.match(/.*!(\d+)$/);
+                                if (m && m[1]) {
+                                    var sessionCreated = Number(m[1]);
+                                    if (Math.abs(sessionCreated - new Date()) < 1000 * 3600 * 24 * 365 * 50 /* 50 years */) {
+                                        html[html.length] = ' (created ' + Duration__formatTime(new Date() - sessionCreated) + ' ago, at ';
+                                        html[html.length] = new Date(sessionCreated);
+                                        html[html.length] = ')';
+                                    }
+                                }
+                            } else if ((tagName == 'dataflow.stack' || tagName == 'dataflow.session') && tag[P_VALUE] != '::other') {
+                                val = JSON.parse('{' + tag[P_VALUE] + '}');
+                                stealthMode = !(val.i && val.i.length == 19);
+                                if (!stealthMode || val.c) {
+                                    html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
+                                    html[html.length] = stealthMode ? val.c : val.i;
+                                    html[html.length] = '">';
+                                }
+                                html[html.length] = val.n ? escapeHTML(val.n) : (val.i + ":" + val.c);
+                                if (!stealthMode || val.c) {
+                                    html[html.length] = ' (';
+                                    html[html.length] = stealthMode ? 'configuration' : 'instance';
+                                    html[html.length] = ')</a>';
+                                }
+                                if (!stealthMode && val.c) {
+                                    html[html.length] = ', <a target=_blank href="/ncobject.jsp?id=';
+                                    html[html.length] = val.c;
+                                    html[html.length] = '">open configuration</a>';
+                                }
+                            } else if (tagName == 'profiler.title') {
+                                html[html.length] = tag[P_VALUE];
+                            } else
+                                html[html.length] = escapeHTML(tag[P_VALUE]);
 
-                    if (tagName == 'wf.process'
-                        || tagName == 'wf.activity.wmo'
-                        || tagName == 'po.process'
-                        || tagName == 'job.id'
-                        || tagName == 'web.session.id'
-                        || tagName == 'common.started'
-                        || tagName == 'jms.timestamp'
-                        || tagName == 'dataflow.session'
-                        ) {
-                        var dateDiff = trees[0].fw[M_DURATION];
-                        var dateTime;
-                        var filterString = '';
-
-                        if (tagName == 'common.started'
-                            || tagName == 'jms.timestamp'
-                            )
-                            dateTime = Number(tag[P_VALUE]);
-                        else
-                            dateTime = trees[0].fw[M_START_TIME];
-
-                        if (tagName == 'wf.process'
-                            || tagName == 'wf.activity.wmo'
-                            || tagName == 'po.process'
-                            || tagName == 'job.id'
-                            || tagName == 'web.session.id'
-                            )
-                            filterString = encodeURIComponent(tag[P_VALUE]);
-                        if (tagName == 'dataflow.session' && val
+                            if (tagName == 'wf.process'
+                                || tagName == 'wf.activity.wmo'
+                                || tagName == 'po.process'
+                                || tagName == 'job.id'
+                                || tagName == 'web.session.id'
+                                || tagName == 'common.started'
+                                || tagName == 'jms.timestamp'
+                                || tagName == 'dataflow.session'
                             ) {
-                            filterString = encodeURIComponent(val.i);
-                        }
+                                var dateDiff = trees[0].fw[M_DURATION];
+                                var dateTime;
+                                var filterString = '';
 
-                        html[html.length] = ' <a target=_blank href="index.html#timerange%5Bmin%5D=' + Math.round(dateTime - dateDiff * 1.2) + '&timerange%5Bmax%5D=' + Math.round(dateTime + dateDiff * 2.2) + '&duration%5Bmin%5D=' +
-                            Math.round(trees[0].fw[M_DURATION] / 4) +
-                            '&q=' + filterString +
-                            '">';
-                        html[html.length] = 'Open list of profiller calls for relevant timeframe</a>';
+                                if (tagName == 'common.started'
+                                    || tagName == 'jms.timestamp'
+                                )
+                                    dateTime = Number(tag[P_VALUE]);
+                                else
+                                    dateTime = trees[0].fw[M_START_TIME];
+
+                                if (tagName == 'wf.process'
+                                    || tagName == 'wf.activity.wmo'
+                                    || tagName == 'po.process'
+                                    || tagName == 'job.id'
+                                    || tagName == 'web.session.id'
+                                )
+                                    filterString = encodeURIComponent(tag[P_VALUE]);
+                                if (tagName == 'dataflow.session' && val
+                                ) {
+                                    filterString = encodeURIComponent(val.i);
+                                }
+
+                                html[html.length] = ' <a target=_blank href="index.html#timerange%5Bmin%5D=' + Math.round(dateTime - dateDiff * 1.2) + '&timerange%5Bmax%5D=' + Math.round(dateTime + dateDiff * 2.2) + '&duration%5Bmin%5D=' +
+                                    Math.round(trees[0].fw[M_DURATION] / 4) +
+                                    '&q=' + filterString +
+                                    '">';
+                                html[html.length] = 'Open list of profiller calls for relevant timeframe</a>';
+                            }
+                        }
                     }
+                    html[html.length] = '</div>';
                 }
 
                 if (!items) return;
@@ -4175,7 +4187,7 @@ window.isDump = isDump;
                     var item = items[i];
                     html[html.length] = TREE_ITEM_TAG;
                     html[html.length] = '>';
-                    renderSimpleTag(html, item, scale, false, value && i > 4, transparent);
+                    renderSimpleTag(html, item, scale, false, values && i > 4, transparent);
                     html[html.length] = TREE_ITEM_TAG_CLOSE;
                 }
                 html[html.length] = TREE_GROUP_TAG_CLOSE;
@@ -4221,18 +4233,18 @@ window.isDump = isDump;
                                     groupDur += items_j[P_DURATION];
                                     groupExec += items_j[P_EXECUTIONS];
                                 }
-                                if (items.length == 1)
+                                if (items.length === 1) {
                                     group2itemsArray[group2itemsArray.length] = items[0];
-                                else {
+                                } else {
                                     items.sort(orderTagsByDuration);
                                     group2itemsArray[group2itemsArray.length] = [tid, groupDur, groupExec, items[0][P_VALUE], items];
                                 }
                                 dur += groupDur;
                                 execs += groupExec;
                             }
-                            if (group2itemsArray.length == 1)
+                            if (group2itemsArray.length === 1) {
                                 tag2groupArray[tag2groupArray.length] = group2itemsArray[0];
-                            else {
+                            } else {
                                 group2itemsArray.sort(orderTagsByDuration);
                                 tag2groupArray[tag2groupArray.length] = [tid, dur, execs, null, group2itemsArray];
                             }

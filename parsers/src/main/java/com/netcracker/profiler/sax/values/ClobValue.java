@@ -53,6 +53,6 @@ public class ClobValue extends ValueHolder implements Comparable<ClobValue> {
             return folder.compareTo(o.folder);
         if (fileIndex != o.fileIndex) return fileIndex - o.fileIndex;
         if (offset != o.offset) return offset - o.offset;
-        return dataFolderPath.compareTo(dataFolderPath);
+        return dataFolderPath.compareTo(o.dataFolderPath);
     }
 }

@@ -5,22 +5,24 @@ import com.netcracker.profiler.output.layout.Layout;
 import java.io.IOException;
 import java.io.OutputStream;
 
-import javax.servlet.http.HttpServletResponse;
-
 public class SimpleLayout extends Layout {
-    private final HttpServletResponse resp;
+    private final OutputStream out;
 
-    public SimpleLayout(HttpServletResponse resp) {
-        this.resp = resp;
+    public SimpleLayout(OutputStream out) {
+        this.out = out;
     }
 
     @Override
     public OutputStream getOutputStream() throws IOException {
-        return resp.getOutputStream();
+        return out;
     }
 
     @Override
     public void putNextEntry(String id, String name, String type) throws IOException {
-        System.out.println("name = " + name + ", " + type);
+    }
+
+    @Override
+    public void close() throws IOException {
+        out.close();
     }
 }

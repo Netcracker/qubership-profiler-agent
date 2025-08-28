@@ -26,17 +26,17 @@ public class Hotspot {
         this.id = id;
     }
 
-    public void tag(int tagId, Object value) {
-        if (tags == null)
-            tags = new HashMap<HotspotTag, HotspotTag>();
-        final HotspotTag hs = new HotspotTag(tagId, value);
-        tags.put(hs, hs);
+    public void addTag(HotspotTag tag) {
+        if (tags == null) {
+            tags = new LinkedHashMap<>();
+        }
+        addTag(tags, tag);
     }
 
     public Hotspot getOrCreateChild(int tagId) {
         ArrayList<Hotspot> children = this.children;
         if (children == null)
-            children = this.children = new ArrayList<Hotspot>();
+            children = this.children = new ArrayList<>();
         else
             for (final Hotspot child : children)
                 if (child.id == tagId)
@@ -62,7 +62,7 @@ public class Hotspot {
 
         Map<HotspotTag, HotspotTag> tags = this.tags;
         if (tags == null) {
-            tags = this.tags = new HashMap<HotspotTag, HotspotTag>();
+            tags = this.tags = new LinkedHashMap<>();
         }
 
         for (HotspotTag hsTag : hsTags.values()) {
@@ -78,7 +78,7 @@ public class Hotspot {
         }
     }
 
-    public void addTag(Map<HotspotTag, HotspotTag> tags, HotspotTag newTag) {
+    private void addTag(Map<HotspotTag, HotspotTag> tags, HotspotTag newTag) {
         if (tags.size() < MAX_PARAMS) {
             tags.put(newTag, newTag);
             return;
@@ -104,7 +104,9 @@ public class Hotspot {
             mostImportantTags.add(newTag);
             tags.put(newTag, newTag);
         }
-        HotspotTag other = new HotspotTag(evicted.id);
+        HotspotTag other = HotspotTag.ofOther(evicted.id);
+        other.totalTime = evicted.totalTime;
+        other.count = evicted.count;
         HotspotTag existingOther = tags.get(other);
         if (existingOther == null) {
             tags.put(other, other);
@@ -206,7 +208,7 @@ public class Hotspot {
         final Map<HotspotTag, HotspotTag> tags = this.tags;
         if (tags == null || tags.isEmpty()) return;
 
-        Map<HotspotTag, HotspotTag> newTags = new HashMap<HotspotTag, HotspotTag>((int) (tags.size() / 0.75f), 0.75f);
+        Map<HotspotTag, HotspotTag> newTags = new LinkedHashMap<>((int) (tags.size() / 0.75f), 0.75f);
 
         for (HotspotTag tag : tags.values()) {
             newId = id2id.get(tag.id);

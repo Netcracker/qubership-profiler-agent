@@ -22,7 +22,7 @@ val jsResources = configurations.resolvable("jsResources") {
     extendsFrom(jsResourcesElements.get())
     attributes {
         attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, LibraryElements.RESOURCES)
-        attribute(Attribute.of("com.netcracker.profler.js.optimization", String::class.java), "prod")
+        attribute(Attribute.of("com.netcracker.profiler.js.optimization", String::class.java), "prod")
     }
 }
 
@@ -30,7 +30,7 @@ val jsSinglePageResources = configurations.resolvable("jsSinglePageResources") {
     extendsFrom(jsResourcesElements.get())
     attributes {
         attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, LibraryElements.RESOURCES)
-        attribute(Attribute.of("com.netcracker.profler.js.optimization", String::class.java), "single-page")
+        attribute(Attribute.of("com.netcracker.profiler.js.optimization", String::class.java), "single-page")
     }
 }
 
