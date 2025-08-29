@@ -170,16 +170,16 @@ public class ActivePODReport {
         String typeName;
         String uri;
 
-        public DownloadOptions(String typeName, String uri) {
+        private DownloadOptions(String typeName, String uri) {
             this.typeName = typeName;
             this.uri = uri;
         }
 
-        public String getTypeName() {
+        private String getTypeName() {
             return typeName;
         }
 
-        public String getUri() {
+        private String getUri() {
             return uri;
         }
     }

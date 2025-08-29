@@ -36,7 +36,7 @@ public class CallToJS implements CallListener {
         Map<String, ParameterInfoDto> paramInfo;
         BitSet requredIds;
 
-        public DeferredCalls(List<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
+        private DeferredCalls(List<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
             this.calls = calls;
             this.tags = tags;
             this.paramInfo = paramInfo;

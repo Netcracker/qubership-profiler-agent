@@ -49,7 +49,7 @@ public abstract class ReactorChainsResolver {
         String chainId;
         String[] callsStreamIndexes;
 
-        public Chain(String chainId, String[] callsStreamIndexes) {
+        private Chain(String chainId, String[] callsStreamIndexes) {
             this.chainId = chainId;
             this.callsStreamIndexes = callsStreamIndexes;
         }

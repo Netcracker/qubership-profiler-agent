@@ -29,6 +29,7 @@ public class ReactiveTypeHandler {
      */
     @SuppressWarnings("UnusedNestedClass")
     private static abstract class AbstractEmitterSubscriber {
+        @SuppressWarnings("EffectivelyPrivate")
         public void run$profiler(Throwable t) throws NoSuchFieldException, IllegalAccessException, ClassNotFoundException {
             Field emitterField = emitterField$profiler;
             if (emitterField == null) {

@@ -1288,9 +1288,9 @@ public class Dumper implements IDumper, org.qubership.profiler.agent.DumperConst
         return dumperCallsExporter;
     }
 
-    private class CallsCompressedLocalAndRemoteOutputStream extends CompressedLocalAndRemoteOutputStream {
+    private static class CallsCompressedLocalAndRemoteOutputStream extends CompressedLocalAndRemoteOutputStream {
 
-        public CallsCompressedLocalAndRemoteOutputStream(String name, int rotateThreshold, int version) {
+        private CallsCompressedLocalAndRemoteOutputStream(String name, int rotateThreshold, int version) {
             super(name, rotateThreshold, version, new CallsState());
         }
 

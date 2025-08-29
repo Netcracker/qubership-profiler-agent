@@ -25,10 +25,10 @@ public class FetchThreadDump implements Runnable {
     private final long firstByte;
     private final long lastByte;
 
-    private class FindThreadDumpsProcessor implements InputStreamProcessor {
+    private static class FindThreadDumpsProcessor implements InputStreamProcessor {
         private final ThreadDumpReader reader;
 
-        public FindThreadDumpsProcessor(ThreadDumpReader reader) {
+        private FindThreadDumpsProcessor(ThreadDumpReader reader) {
             this.reader = reader;
         }
 
