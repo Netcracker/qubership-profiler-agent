@@ -5,6 +5,10 @@ on:
   push: null
   repository_dispatch: null
   workflow_dispatch: null
+  pull_request:
+    branches: [main]
+    types:
+      [opened, reopened, synchronize]
 permissions:
   contents: read
 jobs:
@@ -12,6 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore lychee cache
+        uses: actions/cache@v4
+        id: restore-cache
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
 
       - name: Link Checker
         id: lychee
@@ -22,10 +34,14 @@ jobs:
             --verbose
             --no-progress
             --user-agent 'Mozilla/5.0 (X11; Linux x86_64) Chrome/134.0.0.0'
-            --retry-wait-time 30
-            --max-retries 5
+            --retry-wait-time 60
+            --max-retries 8
             --accept 100..=103,200..=299,429
             --cookie-jar cookies.json
             --exclude-all-private
+            --max-concurrency 4
+            --cache
+            --cache-exclude-status '429, 500..502'
+            --max-cache-age 1d
           format: markdown
           fail: true
