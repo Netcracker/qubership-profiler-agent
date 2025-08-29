@@ -3,7 +3,7 @@ plugins {
 }
 
 dependencies {
-    implementation("com.liferay.portal:portal-service:6.0.6")
-    implementation("javax.portlet:portlet-api:2.0")
-    implementation("javax:javaee-api")
+    injectorImplementation("com.liferay.portal:portal-service:6.0.6")
+    injectorImplementation("javax.portlet:portlet-api:2.0")
+    injectorImplementation("javax:javaee-api")
 }

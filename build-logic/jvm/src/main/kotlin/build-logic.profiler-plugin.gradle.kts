@@ -10,17 +10,20 @@ tasks.jar {
     }
 }
 
+val injector by sourceSets.creating
+
+tasks.checkstyleMain {
+    // Exclude generated classes from the style check
+    exclude("**/*Enhancers.java")
+}
+
 // https://github.com/gradle/gradle/pull/16627
 inline fun <reified T: Named> AttributeContainer.attribute(attr: Attribute<T>, value: String) =
     attribute(attr, objects.named<T>(value))
 
-val generateInjectorClasspath by configurations.creating {
-    isCanBeResolved = true
-    isCanBeConsumed = false
-    extendsFrom(configurations.api.get())
-}
+val injectorImplementation by configurations.existing
 
-val injectorCompileClasspath by configurations.creating {
+val generateInjectorClasspath by configurations.creating {
     isCanBeResolved = true
     isCanBeConsumed = false
     attributes {
@@ -33,50 +36,72 @@ val injectorCompileClasspath by configurations.creating {
 }
 
 dependencies {
-    findProject(":plugin-generator")?.let {
-        implementation(project(":plugin-generator"))
-        generateInjectorClasspath(project(":plugin-generator"))
-        injectorCompileClasspath(project(":plugin-generator"))
-    }
     findProject(":boot")?.let {
-        implementation(project(":boot"))
+        api(it)
+        injectorImplementation(it)
     }
     findProject(":bom-thirdparty")?.let {
-        injectorCompileClasspath(platform(project(":bom-thirdparty")))
+        injectorImplementation(platform(it))
     }
-    implementation("org.slf4j:slf4j-api")
+    findProject(":plugin-runtime")?.let {
+        api(it)
+    }
+    findProject(":plugin-generator")?.let {
+        generateInjectorClasspath(it)
+    }
     findProject(":test-config")?.let {
         generateInjectorClasspath(it)
     }
-    injectorCompileClasspath("org.ow2.asm:asm-commons")
-    injectorCompileClasspath("org.ow2.asm:asm-util")
+    implementation("org.slf4j:slf4j-api")
+    implementation("org.ow2.asm:asm-commons")
+    implementation("org.ow2.asm:asm-util")
 }
 
-val generateInjectorDir = layout.buildDirectory.dir("generated-injector")
+val generateInjectorDir = layout.buildDirectory.dir("generated/injector")
 
 val generateInjector by tasks.registering(JavaExec::class) {
-    dependsOn(tasks.classes)
+    dependsOn(injector.classesTaskName)
     outputs.dir(generateInjectorDir)
     buildParameters.buildJdk?.let {
         javaLauncher.convention(javaToolchains.launcherFor(it))
     }
     classpath(generateInjectorClasspath)
-    mainClass = "org.qubership.profiler.tools.GenerateInjector"
-    // root
-    args(sourceSets.main.get().output.classesDirs)
-    // destination
-    args(layout.buildDirectory.file("generated-injector/org/qubership/profiler/instrument/enhancement/EnhancerPlugin_${project.name}Enhancers.java").get())
+    mainClass = "org.qubership.profiler.tools.GenerateInjectorCommand"
+    jvmArgs(
+        "-Dorg.qubership.profiler.log.root_level=${
+            when {
+                logger.isTraceEnabled -> "trace"
+                logger.isDebugEnabled -> "debug"
+                logger.isInfoEnabled -> "info"
+                logger.isWarnEnabled -> "warn"
+                logger.isErrorEnabled -> "error"
+                else -> "info"
+            }
+        }"
+    )
+    argumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf(
+                "--output-file",
+                generateInjectorDir.get()
+                    .file("org/qubership/profiler/instrument/enhancement/EnhancerPlugin_${project.name}Enhancers.java")
+                    .asFile.absolutePath
+            )
+        }
+    )
+    argumentProviders.add(
+        CommandLineArgumentProvider {
+            injector.output.classesDirs.flatMap { dir ->
+                listOf("--input-class-directory", dir.absolutePath)
+            }
+        }
+    )
 }
 
-val generateInjectorClassesDir = layout.buildDirectory.dir("generated-injector-classes")
-
-val compileInjector by tasks.registering(JavaCompile::class) {
-    dependsOn(generateInjector)
-    source(generateInjectorDir)
-    classpath = injectorCompileClasspath
-    destinationDirectory.set(generateInjectorClassesDir)
-}
-
-tasks.jar {
-    from(compileInjector)
+sourceSets.main {
+    java.srcDir(
+        files(generateInjectorDir) {
+            builtBy(generateInjector)
+        }
+    )
 }

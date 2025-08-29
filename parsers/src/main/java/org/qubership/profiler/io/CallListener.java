@@ -8,8 +8,5 @@ import java.util.List;
 import java.util.Map;
 
 public interface CallListener {
-    public void processCalls(String rootReference, ArrayList<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds);
-
-    //
-    void postProcess(String rootReference);
+    void processCalls(String rootReference, ArrayList<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds);
 }

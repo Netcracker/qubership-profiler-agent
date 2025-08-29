@@ -9,26 +9,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
 
 public class GenerateInjector {
     private static final Logger log = LoggerFactory.getLogger(GenerateInjector.class);
 
-    private final File root;
-    private final File dst;
+    private final List<Path> inputClassDirectories;
+    private final Path outputFile;
     private PrintWriter pw;
 
     int methodId;
     String className;
-    long lastModified;
-
-    private static long getLastModifiedTime(File file) {
-        long fileLastModified = file.lastModified();
-
-        if (fileLastModified == 0L) {
-            fileLastModified = System.currentTimeMillis();
-        }
-        return fileLastModified;
-    }
 
     static class FilterProfiledEntities extends ClassVisitor {
 
@@ -97,25 +91,18 @@ public class GenerateInjector {
         }
     }
 
-    public GenerateInjector(File root, File dst) {
-        this.root = root;
-        this.dst = dst;
+    public GenerateInjector(List<Path> inputClassDirectories, Path outputFile) {
+        this.inputClassDirectories = inputClassDirectories;
+        this.outputFile = outputFile;
     }
 
-    public static void main(String[] args) {
-        GenerateInjector task = new GenerateInjector(new File(args[0]), new File(args[1]));
-        try {
-            task.run();
-        } catch (FileNotFoundException e) {
-            throw new IllegalStateException("Unable to process " + args[0] + ", " + args[1], e);
+    public void run() throws IOException {
+        final Path parent = outputFile.getParent();
+        if (Files.isRegularFile(parent)) {
+            throw new IllegalArgumentException("Can't create class " + outputFile.toAbsolutePath() + " since " + parent.isAbsolute() + " is a regular file");
         }
-    }
-
-    private void run() throws FileNotFoundException {
-        long lastRun = getLastModifiedTime(dst);
-        final File parent = dst.getParentFile();
-        if (!parent.exists()) {
-            parent.mkdirs();
+        if (!Files.exists(parent)) {
+            Files.createDirectories(parent);
         }
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -125,53 +112,49 @@ public class GenerateInjector {
         pw.print("import org.objectweb.asm.*;\n");
         pw.print("import static org.objectweb.asm.Opcodes.*;\n");
         pw.print("import org.qubership.profiler.instrument.enhancement.ClassEnhancer;\n\n");
-        String className = dst.getName();
-        className = className.substring(0, className.indexOf('.'));
+        String className = outputFile.getFileName().toString();
+        className = className.substring(0, className.lastIndexOf(".java"));
         this.className = className;
         pw.print("public class " + className + " extends HashMap<String, ClassEnhancer> {\n\n");
-        walk(root);
+        for (Path directory : inputClassDirectories) {
+            if (!Files.exists(directory)) {
+                continue;
+            }
+            log.info("Processing directory {}", directory.toAbsolutePath());
+            try (Stream<Path> files = Files.walk(directory)
+                    .filter(Files::isRegularFile)
+                    .filter(f -> {
+                        String fileName = f.getFileName().toString();
+                        return fileName.endsWith(".class") && !fileName.startsWith("EnhancerPlugin_");
+                    })) {
+                files.forEachOrdered(f -> {
+                    try {
+                        processClassFile(f);
+                    } catch (IOException e) {
+                        throw new IllegalStateException("Unable to process file " + f.toAbsolutePath(), e);
+                    }
+                });
+            }
+        }
         pw.print("}\n");
         pw.close();
-        if (dst.exists() && lastRun > lastModified) {
-            log.debug("Skipped processing {} -> {} since source files are not modified", root, dst);
-            return;
-        }
         OutputStream out;
         try {
-            out = new FileOutputStream(dst);
+            out = Files.newOutputStream(outputFile);
             out.write(baos.toByteArray());
             out.close();
         } catch (IOException e) {
-            throw new IllegalStateException("Unable to write " + dst, e);
+            throw new IllegalStateException("Unable to write " + outputFile, e);
         }
     }
 
-    private void walk(File root) {
-        if (root.isDirectory()) {
-            for (File file : root.listFiles()) {
-                walk(file);
-            }
-            return;
+    private void processClassFile(Path root) throws IOException {
+        log.debug("Processing file {}", root.toAbsolutePath());
+        ClassReader cr;
+        try (InputStream is = Files.newInputStream(root);) {
+            cr = new ClassReader(is);
         }
 
-        if (!root.getName().endsWith(".class")) return;
-        if (root.getName().startsWith("EnhancerPlugin_"))
-            return;
-        try {
-            processClassFile(root);
-        } catch (IOException e) {
-            throw new IllegalStateException("Unable to process file " + root.getAbsolutePath(), e);
-        }
-    }
-
-    private void processClassFile(File root) throws IOException {
-        log.debug("Processing file {}", root.getAbsolutePath());
-        lastModified = Math.max(lastModified, getLastModifiedTime(root));
-        FileInputStream is = new FileInputStream(root);
-        ClassReader cr = new ClassReader(is);
-        is.close();
-
-        StringWriter sw = new StringWriter();
         ASMifier asmifier = new ASMifier();
         TraceClassVisitor printer = new TraceClassVisitor(null, asmifier, null);
         FilterProfiledEntities cv = new FilterProfiledEntities(printer);

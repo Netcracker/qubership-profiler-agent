@@ -136,7 +136,7 @@ public class CallReaderFile extends CallReader {
         DataInputStreamEx callsStream = null;
         try {
             DataInputStreamEx calls = callsStream = DataInputStreamEx.openDataInputStream(root);
-            return findCallsInStream(calls, null, null, suspendLog, result, requiredIds, endScan);
+            return findCallsInStream(calls, null, suspendLog, result, requiredIds, endScan);
         } catch (FileNotFoundException e) {
             exceptions.add(e);
         } catch (IOException e) {
@@ -232,8 +232,6 @@ public class CallReaderFile extends CallReader {
                     maxDuration = minDuration - 1;
                 }
             }
-
-            callback.postProcess(getJSReference(root));
             return;
         }
         if (root.isDirectory()) {

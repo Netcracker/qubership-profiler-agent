@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    implementation("jakarta.servlet:jakarta.servlet-api:6.0.0")
+    injectorImplementation("jakarta.servlet:jakarta.servlet-api:6.0.0")
 }

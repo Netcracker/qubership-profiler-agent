@@ -33,8 +33,6 @@ public class Rule implements MethodAcceptor {
     private int minimumMethodLines = 0;
     private int minimumMethodBackJumps = 0;
     private boolean doNotProfile = false;
-    private boolean isStartEndPoint = false;
-    private boolean isReactorPoint = false;
     private ConfigStackElement stack;
 
     public void doNotProfile() {
@@ -119,14 +117,6 @@ public class Rule implements MethodAcceptor {
     public void onMethodEnter(ProfileMethodAdapter ma) {
         if (editors == null) return;
         editors.onMethodEnter(ma);
-    }
-
-    public void turnStartEndPoint() {
-        isStartEndPoint = true;
-    }
-
-    public void turnReactorPoint() {
-        isReactorPoint = true;
     }
 
     public void onMethodExit(ProfileMethodAdapter ma) {
@@ -396,14 +386,6 @@ public class Rule implements MethodAcceptor {
 
     public ConfigStackElement getStackTraceAtCreate() {
         return stack;
-    }
-
-    public boolean isStartEndpoint() {
-        return isStartEndPoint;
-    }
-
-    public boolean isReactorPoint() {
-        return isReactorPoint;
     }
 
     @Override

@@ -1,25 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <profiler-configuration>
-    <enhancer>quartz</enhancer>
     <ruleset>
-        <rule>
-            <class>org.qubership.platform.scheduler.impl.jobs.AbstractJobImpl</class>
-            <method>execute(JobExecutionContext)</method>
-            <execute-before>dumpContext$profiler(p1)</execute-before>
-        </rule>
         <rule>
             <class>org.quartz.core.JobRunShell</class>
             <method>run</method>
-        </rule>
-        <rule>
-            <class>org.qubership.platform.scheduler.impl.monitoring.WatchdogThreadPool$WorkerThread</class>
-            <method>run</method>
-            <do-not-profile/>
-        </rule>
-        <rule>
-            <class>org.qubership.platform.scheduler.impl.ncjobstore.NCJobStore</class>
-            <method>triggerFired</method>
-            <method>clusterRecover</method>
         </rule>
     </ruleset>
 </profiler-configuration>

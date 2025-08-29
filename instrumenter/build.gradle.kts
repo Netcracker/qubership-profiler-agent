@@ -7,7 +7,7 @@ plugins {
 dependencies {
     implementation(projects.boot)
     implementation(projects.common)
-    implementation(projects.pluginGenerator)
+    implementation(projects.pluginRuntime)
     implementation("ch.qos.logback:logback-classic")
     implementation("ch.qos.logback:logback-core")
     implementation("commons-lang:commons-lang")

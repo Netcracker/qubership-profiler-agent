@@ -12,7 +12,7 @@ plugins {
     id("build-logic.build-params")
     id("build-logic.style")
     id("build-logic.toolchains")
-    id("com.github.vlsi.jandex")
+    // id("com.github.vlsi.jandex")
 }
 
 java {
@@ -50,9 +50,9 @@ dependencies {
     }
 }
 
-project.configure<com.github.vlsi.jandex.JandexExtension> {
-    skipIndexFileGeneration()
-}
+//project.configure<com.github.vlsi.jandex.JandexExtension> {
+//    skipIndexFileGeneration()
+//}
 
 if (!buildParameters.enableGradleMetadata) {
     tasks.configureEach<GenerateModuleMetadata> {

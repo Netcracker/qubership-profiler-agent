@@ -1,22 +1,20 @@
 package org.qubership.profiler.io;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.function.Consumer;
 
 public class HotspotTag {
     public static java.util.Comparator<HotspotTag> COMPARATOR = new Comparator();
 
-    public static final String OTHER = "::other";
+    public static final Set<Object> OTHER = Collections.singleton("::other");
 
     public int id;
     public int count = 1;
-    public long assemblyId;
     public long totalTime;
-    public Object value;
-
-    public long reactorStartDate;
-    public byte isParallel;
-    public List<Pair<Integer, Integer>> parallels = new ArrayList<>();
+    public Set<Object> values;
+    // Hash codes for order-insensitive comparison
+    private int sumHash;
+    private int xorHash;
 
     public static class Comparator implements java.util.Comparator<HotspotTag> {
         public int compare(HotspotTag a, HotspotTag b) {
@@ -26,23 +24,44 @@ public class HotspotTag {
         }
     }
 
+    public static class Builder {
+        private final Map<Integer, HotspotTag> values = new HashMap<>();
+
+        public void clear() {
+            values.clear();
+        }
+
+        public void addValue(int id, Object value) {
+            values.computeIfAbsent(id, HotspotTag::new).addValue(value);
+        }
+
+        public void forEachTag(Consumer<HotspotTag> tagConsumer) {
+            values.values().forEach(tagConsumer);
+        }
+    }
+
     public HotspotTag(int id) {
-        this(id, OTHER);
+        this(id, new HashSet<>());
     }
 
-    public HotspotTag(int id, Object value) {
+    private HotspotTag(int id, Set<Object> values) {
         this.id = id;
-        this.value = value;
+        this.values = values;
     }
 
-    public HotspotTag(int id, Object value, long assemblyId) {
-        this.id = id;
-        this.value = value;
-        this.assemblyId = assemblyId;
+    public HotspotTag ofOther(int id) {
+        return new HotspotTag(id, OTHER);
+    }
+
+    public void addValue(Object value) {
+        values.add(value);
+        int hashCode = value.hashCode();
+        sumHash += hashCode;
+        xorHash ^= hashCode;
     }
 
     public HotspotTag dup() {
-        final HotspotTag tag = new HotspotTag(id, value);
+        HotspotTag tag = new HotspotTag(id, values);
         tag.count = count;
         tag.totalTime = totalTime;
         return tag;
@@ -56,13 +75,16 @@ public class HotspotTag {
         HotspotTag that = (HotspotTag) o;
 
         if (id != that.id) return false;
-        return value.equals(that.value);
+        if (sumHash != that.sumHash) return false;
+        if (xorHash != that.xorHash) return false;
+        return values.equals(that.values);
     }
 
     @Override
     public int hashCode() {
         int result = id;
-        result = 31 * result + value.hashCode();
+        result = 31 * result + sumHash;
+        result = 31 * result + xorHash;
         return result;
     }
 }

@@ -125,7 +125,6 @@ dependencies {
     installerZipElements(projects.plugins.springrest)
     installerZipElements(projects.plugins.tomcatHttp)
     installerZipElements(projects.plugins.tomcat10Http)
-    installerZipElements(projects.plugins.tracing)
     installerZipElements(projects.plugins.undertowHttp)
     installerZipElements(projects.plugins.undertow23Http)
     installerZipElements(projects.plugins.vertx)

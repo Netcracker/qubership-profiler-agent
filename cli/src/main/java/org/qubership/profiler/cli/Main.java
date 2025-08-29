@@ -130,7 +130,7 @@ public class Main {
 
         Logger root = lc.getLogger(Logger.ROOT_LOGGER_NAME);
         int verbose = ns.getInt("verbose");
-        root.setLevel(verbose == 0 ? Level.INFO : (verbose == 1 ? Level.DEBUG : Level.ALL));
+        root.setLevel(verbose == 0 ? Level.INFO : (verbose == 1 ? Level.DEBUG : Level.TRACE));
         root.detachAndStopAllAppenders();
 
         ConsoleAppender<ILoggingEvent> ca = new ConsoleAppender<ILoggingEvent>();

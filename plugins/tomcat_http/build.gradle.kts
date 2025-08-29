@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    implementation("javax:javaee-api")
+    injectorImplementation("javax:javaee-api")
 }

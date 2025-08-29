@@ -69,11 +69,6 @@ public class AggregateCallsToXLSXListener implements ICallsToXLSXListener {
         return tagToIdMap;
     }
 
-    @Override
-    public void postProcess(String rootReference) {
-
-    }
-
     public void postProcess() {
         if(!errorHappened) {
             Collection<AggregateRow> aggregateRows = aggregator.finish();
