@@ -9,6 +9,4 @@ public class ParamTypes {
     public final static int PARAM_INDEX = INDEX;
     public final static int PARAM_BIG = IS_BIG;
     public final static int PARAM_BIG_DEDUP = IS_BIG|DEDUPLICATE;
-
-    public final static int PARAM_REACTOR = 6;
 }
