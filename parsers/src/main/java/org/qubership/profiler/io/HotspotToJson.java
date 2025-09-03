@@ -137,11 +137,16 @@ public class HotspotToJson implements JsonSerializer<Hotspot> {
                         gen.writeString(((StringValue)val).value);
                     } else if (val instanceof ClobValue) {
                         ClobValue clob = (ClobValue) val;
-                        gen.writeStartArray();
-                        gen.writeRaw(",");
-                        gen.writeString(clob.offset + "/" + clob.fileIndex + "/" + folder2id.get(clob.dataFolderPath));
+                        // This writes reference to a clob value like s["..."] which is hard to get with Jackson
+                        // So we use write raw
+                        gen.writeRawValue(String.valueOf(clob.folder.charAt(0)));
+                        gen.writeRaw("[\"");
+                        gen.writeRaw(Integer.toString(clob.offset));
+                        gen.writeRaw('/');
+                        gen.writeRaw(Integer.toString(clob.fileIndex));
+                        gen.writeRaw('/');
+                        gen.writeRaw(String.valueOf(folder2id.get(clob.dataFolderPath)));
                         gen.writeRaw("\"]");
-                        gen.writeEndArray();
                     } else {
                         gen.writeString("(unknown value type) " + String.valueOf(val));
                     }

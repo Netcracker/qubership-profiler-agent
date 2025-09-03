@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test:playground": "vite --config vite.config.playground.mjs"
   },
   "dependencies": {
     "bootstrap-datepicker": "^1.10.0",
@@ -32,6 +33,12 @@
   },
   "devDependencies": {
     "vite": "7.1.5",
+    "msw": "^2.0.0",
     "vite-plugin-singlefile": "2.3.0"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }
