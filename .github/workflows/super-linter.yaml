@@ -33,14 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: "Get the common linters configuration"
-      uses: actions/checkout@v4
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
         ref: main # fix/superlinter-config
         repository: netcracker/.github
+        persist-credentials: false
         sparse-checkout: |
           config/linters
-    - name: "Upload the common linters configsuration"
-      uses: actions/upload-artifact@v4
+    - name: "Upload the common linters configuration"
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: linter-config
         path: "${{ github.workspace }}/config"
@@ -55,12 +56,13 @@ jobs:
       statuses: write
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
         # Full git history is needed to get a proper list of changed files within `super-linter`
         fetch-depth: 0
+        persist-credentials: false
     - name: "Get the common linters configuration"
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
       id: download
       with:
         name: linter-config
@@ -69,7 +71,7 @@ jobs:
       if: ${{ steps.download.outputs.download-path != '' }}
       run: |
         mkdir -p ./.github/linters
-        cp --update=none -vR /tmp/linter-config/linters/* ./.github/linters
+        cp --update=none -vRT /tmp/linter-config/linters ./.github/linters
 
     - name: "Load super-linter environment file"
       shell: bash
@@ -87,8 +89,10 @@ jobs:
         fi
 
     - name: Lint Code Base
-      uses: super-linter/super-linter/slim@v7.3.0
+      uses: super-linter/super-linter/slim@ffde3b2b33b745cb612d787f669ef9442b1339a6 # v8.1.0
       env:
         VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
         # To report GitHub Actions status checks
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DEFAULT_BRANCH: ${{ github.event.pull_request.base.ref || github.event.push.ref }}
+
