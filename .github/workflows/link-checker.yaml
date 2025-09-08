@@ -15,10 +15,10 @@ jobs:
   linkChecker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
 
       - name: Restore lychee cache
-        uses: actions/cache@v4
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
         id: restore-cache
         with:
           path: .lycheecache
@@ -27,7 +27,7 @@ jobs:
 
       - name: Link Checker
         id: lychee
-        uses: lycheeverse/lychee-action@v2
+        uses: lycheeverse/lychee-action@885c65f3dc543b57c898c8099f4e08c8afd178a2 # v2
         with:
           args: >-
             './**/*.md'
