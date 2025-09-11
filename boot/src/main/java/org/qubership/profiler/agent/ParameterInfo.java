@@ -129,11 +129,6 @@ public class ParameterInfo {
                 deduplicate = false;
                 index = true;
                 break;
-            case ParamTypes.PARAM_REACTOR:
-                big = false;
-                deduplicate = false;
-                index = false;
-                break;
         }
         combined = type;
         return this;

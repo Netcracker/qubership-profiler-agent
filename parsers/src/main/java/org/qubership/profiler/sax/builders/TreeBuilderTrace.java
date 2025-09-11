@@ -2,19 +2,20 @@ package org.qubership.profiler.sax.builders;
 
 import org.qubership.profiler.chart.Provider;
 import org.qubership.profiler.io.Hotspot;
+import org.qubership.profiler.io.HotspotTag;
 import org.qubership.profiler.io.SuspendLog;
 import org.qubership.profiler.sax.raw.TreeTraceVisitor;
 import org.qubership.profiler.sax.values.ValueHolder;
 import org.qubership.profiler.util.ProfilerConstants;
 
-import java.util.HashSet;
+import java.util.Arrays;
 
 public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotspot> {
     private final Hotspot root;
     protected Hotspot[] callTree = new Hotspot[1000];
     protected Hotspot[] stack = new Hotspot[1000];
+    protected HotspotTag.Builder[] tagStack = new HotspotTag.Builder[1000];
 
-    public boolean started;
     private final SuspendLog suspendLog;
     private final SuspendLog.SuspendLogCursor suspendCursor;
 
@@ -28,29 +29,16 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
     }
 
     protected void ensureStorage(int size) {
-        if (size < callTree.length)
+        if (size < callTree.length) {
             return;
-        Hotspot[] tmp = new Hotspot[callTree.length * 2];
-        System.arraycopy(callTree, 0, tmp, 0, callTree.length);
-        callTree = tmp;
-
-        tmp = new Hotspot[stack.length * 2];
-        System.arraycopy(stack, 0, tmp, 0, stack.length);
-        stack = tmp;
+        }
+        callTree = Arrays.copyOf(callTree, callTree.length * 2);
+        stack = Arrays.copyOf(stack, stack.length * 2);
+        tagStack = Arrays.copyOf(tagStack, tagStack.length * 2);
     }
 
     @Override
-    public void visitEnter(int methodId,
-                           long lastAssemblyId,
-                           long lastParentAssemblyId,
-                           byte isReactorEndPoint,
-                           byte isReactorFrame,
-                           long reactorStartTime,
-                           int  reactorDuration,
-                           int blockingOperator,
-                           int prevOperation,
-                           int currentOperation,
-                           int emit) {
+    public void visitEnter(int methodId) {
         long time = getTime();
         int sp = getSp();
 
@@ -61,75 +49,16 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
             suspendCursor.skipTo(time);
             callTree[0].startTime = Math.min(callTree[0].startTime, time);
         }
-        super.visitEnter(methodId, lastAssemblyId, lastParentAssemblyId,
-                isReactorEndPoint, isReactorFrame,
-                reactorStartTime, reactorDuration,
-                blockingOperator, prevOperation, currentOperation,
-                emit);
+        super.visitEnter(methodId);
         sp++;
         ensureStorage(sp);
-        Hotspot orCreateChild = callTreeParent.getOrCreateChild(methodId, lastParentAssemblyId);
-        propagateReactorParams(lastAssemblyId, lastParentAssemblyId, isReactorEndPoint,
-                isReactorFrame, blockingOperator, prevOperation, currentOperation,
-                emit, orCreateChild);
+        Hotspot orCreateChild = callTreeParent.getOrCreateChild(methodId);
 
         callTree[sp] = orCreateChild;
         Hotspot hs = stack[sp] = new Hotspot(methodId);
         hs.startTime = time;
         hs.endTime = time;
         hs.totalTime = (int) -time;
-        if (reactorDuration != 0 && blockingOperator != 0) {
-            orCreateChild.reactorDuration = reactorDuration;
-            orCreateChild.reactorStartTime = reactorStartTime;
-            hs.reactorDuration = reactorDuration;
-            hs.reactorStartTime = reactorStartTime;
-        }
-    }
-
-    private void propagateReactorParams(long lastAssemblyId,
-                                        long lastParentAssemblyId,
-                                        byte isReactorEndPoint,
-                                        byte isReactorFrame,
-                                        int blockingOperator,
-                                        int prevOperation,
-                                        int currentOperation,
-                                        int emit,
-                                        Hotspot orCreateChild) {
-        orCreateChild.isReactorEndPoint = isReactorEndPoint;
-        orCreateChild.isReactorFrame = isReactorFrame;
-        if (lastAssemblyId != 0) {
-            if (orCreateChild.lastAssemblyId == null) {
-                orCreateChild.lastAssemblyId = new HashSet<>();
-            }
-            orCreateChild.lastAssemblyId.add(lastAssemblyId);
-        }
-
-        if (lastParentAssemblyId != 0) {
-            orCreateChild.lastParentAssemblyId = lastParentAssemblyId;
-        }
-
-        if (blockingOperator != 0) {
-            orCreateChild.blockingOperator = blockingOperator;
-        }
-
-        if (prevOperation != 0) {
-            orCreateChild.prevOperation = prevOperation;
-        }
-
-        if (currentOperation != 0) {
-            orCreateChild.currentOperation = currentOperation;
-        }
-
-        if (emit != 0) {
-            orCreateChild.emit = emit;
-        }
-    }
-
-    @Override
-    public void visitEnter(int methodId) {
-        visitEnter(methodId, 0, 0, (byte) 0, (byte) 0,
-                0, 0, 0, 0,
-                0, 0);
     }
 
     @Override
@@ -140,6 +69,15 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
         hs.suspensionTime += suspendCursor.moveTo(time);
         hs.totalTime += (int) time;
         hs.count++;
+        HotspotTag.Builder tagBuilder = tagStack[sp];
+        if (tagBuilder != null) {
+            tagBuilder.forEachTag((tag) -> {
+                tag.count = 1;
+                tag.totalTime = hs.totalTime;
+                hs.addTag(tag);
+            });
+            tagBuilder.clear();
+        }
         callTree[sp].merge(hs);
         super.visitExit();
         sp--;
@@ -149,15 +87,14 @@ public class TreeBuilderTrace extends TreeTraceVisitor implements Provider<Hotsp
         callTree[0].count++;
     }
 
-
-    @Override
-    public void visitLabel(int labelId, ValueHolder value, long assemblyId) {
-        stack[getSp()].tag(0, labelId, 0, value, assemblyId);
-    }
-
     @Override
     public void visitLabel(int labelId, ValueHolder value) {
-        visitLabel(labelId, value, 0);
+        HotspotTag.Builder tagBuilder = tagStack[getSp()];
+        if (tagBuilder == null) {
+            tagBuilder = new HotspotTag.Builder();
+            tagStack[getSp()] = tagBuilder;
+        }
+        tagBuilder.addValue(labelId, value);
     }
 
     @Override

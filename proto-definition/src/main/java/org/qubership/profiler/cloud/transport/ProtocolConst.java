@@ -44,7 +44,5 @@ public interface ProtocolConst {
     int MAX_STRINGS_IN_LIST = 100;
     boolean ZIPPING_ENABLED = false;
 
-    String REACTOR_CALLS_STREAM = "reactor_calls";
-
     long BLACK_LISTED_RESP = 88888888;
 }

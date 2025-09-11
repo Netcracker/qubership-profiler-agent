@@ -13,15 +13,6 @@ public class CallDataReader_04 extends CallDataReader_03 {
         super.read(dst, calls, requiredIds);
         dst.transactions = calls.readVarInt();
         dst.queueWaitDuration = calls.readVarInt();
-//        boolean isReactor = calls.read() == 1;
-//        dst.isReactor = isReactor;
-//        if (isReactor) {
-//            if (calls.read() == 1) {
-//                dst.reactorParentId = calls.readLong();
-//            }
-//        }
-//        dst.reactorFileIndex = calls.readVarInt();
-//        dst.reactorBufferOffset = calls.readVarInt();
     }
 
     @Override

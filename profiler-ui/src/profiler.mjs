@@ -27,6 +27,7 @@ import { default as vkbeautify } from 'vkbeautify';
 import 'dygraphs/dist/dygraph.css';
 import { default as Dygraph } from 'dygraphs';
 import { Activator } from './activate_ide.mjs';
+import { default as FNV1a128 } from './fnv1a128.mjs';
 import '../styles/prof.css';
 
 jQuery.fn.firstParents = function(n) {
@@ -135,8 +136,6 @@ window.isDump = isDump;
     var T_TYPE_INDEX  = ESCConstants.T_TYPE_INDEX ;
     /** @const */
     var T_TYPE_SIGNATURE  = ESCConstants.T_TYPE_SIGNATURE ;
-    /** @const */
-    var T_TYPE_REACTOR  = ESCConstants.T_TYPE_REACTOR ;
 
     /** @const */
     var getState = $.bbq.getState;
@@ -335,10 +334,10 @@ window.isDump = isDump;
          * @param {Number} list
          * @param {Number} order
          */
-        T.prototype.b = function(name, list, order, index, signature, reactor) {
+        T.prototype.b = function(name, list, order, index, signature) {
             var id = this.r[name];
             if (id)
-                this.y[id] = [list, order || 100, index, signature, reactor];
+                this.y[id] = [list, order || 100, index, signature];
         };
 
         /**
@@ -3033,27 +3032,13 @@ window.isDump = isDump;
             /** @const */
             var M_END_TIME = 8;
             /** @const */
-            var M_REACTOR_FRAME = 9;
+            var M_CHILDREN = 9;
             /** @const */
-            var M_REACTOR_THREAD_TIME = 10;
+            var M_COLLAPSE_LEVELS = 10;
             /** @const */
-            var M_BLOCKING_OPERATOR = 11;
+            var M_TAGS = 11;
             /** @const */
-            var M_REACTOR_START_DATE = 12;
-            /** @const */
-            var M_REACTOR_END_DATE = 13;
-            /** @const */
-            var M_PREV_BLOCKING_OPERATION = 14;
-            /** @const */
-            var M_CURRENT_BLOCKING_OPERATION = 15;
-            /** @const */
-            var M_CHILDREN = 16;
-            /** @const */
-            var M_COLLAPSE_LEVELS = 17;
-            /** @const */
-            var M_TAGS = 18;
-            /** @const */
-            var M_CATEGORY = 19;
+            var M_CATEGORY = 12;
             /** @const */
             var M_SIGNATURE = -2;
             /** @const */
@@ -3061,34 +3046,26 @@ window.isDump = isDump;
             /** @const */
             var M_COMPUTATOR = -4;
             /** @const */
-            var M_PREV_SELF_DURATION = 22;
+            var M_PREV_SELF_DURATION = 13;
             /** @const */
-            var M_PREV_SELF_SUSPENSION = 23;
+            var M_PREV_SELF_SUSPENSION = 14;
             /** @const */
-            var M_PREV_EXECUTIONS = 24;
+            var M_PREV_EXECUTIONS = 15;
 
             /** @const */
             var P_ID = 0;
             /** @const */
             var P_DURATION = 1;
             /** @const */
-            var P_ASSEMBLY_ID = 2;
+            var P_EXECUTIONS = 2;
             /** @const */
-            var P_PARALLEL = 3;
+            var P_VALUE = 3; // Array of values
             /** @const */
-            var P_PARALLELS = 4;
-            /** @const */
-            var P_REACTOR_START_TIME = 5;
-            /** @const */
-            var P_EXECUTIONS = 6;
-            /** @const */
-            var P_VALUE = 7;
-            /** @const */
-            var P_CHILDREN = 8;
+            var P_CHILDREN = 4;
             /** @const */
             var P_ID2ITEM_MAP = -1;
             /** @const */
-            var P_PREV_DURATION = 9;
+            var P_PREV_DURATION = 5;
 
             /** @const */
             var ATTR_BUTTON_ID = 'aa';
@@ -3100,8 +3077,6 @@ window.isDump = isDump;
             var ATTR_NODE_ID = 'ad';
             /** @const */
             var ATTR_NODE_IDX = 'ae';
-            /** @const */
-            var ATTR_TAG_ID_REACTOR = 'tgr';
             /** @const */
             var ATTR_NODE_COLLAPSE_EXPANDED = 'af';
             /** @const */
@@ -3147,8 +3122,6 @@ window.isDump = isDump;
             var TREE_GROUP_TAG_CLOSE = '</div>';
             var TREE_ITEM_TAG_CLOSE = '</div></var>';
             var PBAR_START = '<span class=pbar><img src="data:image/gif;base64,R0lGODlhAQABAID/AMDAwAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" height=1 width=';
-            var REACTORT_BAR_START = '<span class=reactbar><img src="data:image/gif;base64,R0lGODlhAQABAID/AMDAwAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" height=1 width=';
-            var REACTORT_IMG_START = '<img src="data:image/gif;base64,R0lGODlhEgASAPIAAAAAAGyzP22yPm2zP220P26zQAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQFCgAAACwAAAAAEgASAAACN4SPqTDtv8aBRib7Wr1O0W15zCSFF1OipFaV2Bpib8uOav1pri3i/Gn6wE4oimmDjEUywoXzUAAAOw==" height=16 width=16> ';
 
             if ($.browser.msie || $.browser.mozilla) { // otherwise copy&paste to Word does not work
                 TREE_GROUP_TAG = '<div style="margin:0 0 0 20px" class="q">';
@@ -3176,8 +3149,6 @@ window.isDump = isDump;
             var CallTree_TYPE_IN_CALLS = 1;
             /** @const */
             var CallTree_TYPE_FIND_USAGES = 2;
-            /** @const */
-            var CallTree_REACTOR_DURATION = 4;
 
             /** @constructor */
             function CallTree(id, fw, type, reversed) {
@@ -3520,8 +3491,14 @@ window.isDump = isDump;
             function getTagSignature(tag) {
                 var tagId = tag[P_ID];
                 var info = tags.y[tagId];
-                if (info && (info = info[T_TYPE_SIGNATURE]) && (info = signatures[info]))
-                    return info(tag[P_VALUE]);
+                if (info && (info = info[T_TYPE_SIGNATURE]) && (info = signatures[info])) {
+                    const hash = new FNV1a128();
+                    for (const subvalue of tag[P_VALUE]) {
+                        const subvalueSignature = info(subvalue);
+                        hash.update(subvalueSignature);
+                    }
+                    return hash.finalize();
+                }
                 return '';
             }
 
@@ -3992,7 +3969,7 @@ window.isDump = isDump;
             function renderSimpleTag(html, tag, scale, expand, nocolor, transparent) {
                 var tagName = tags.t[tag[P_ID]][0];
                 var items = tag[P_CHILDREN];
-                var value = tag[P_VALUE];
+                const values = tag[P_VALUE];
                 if (items && items.length) {
                     html[html.length] = '<span class="ui-buttonset';
                     if (transparent)
@@ -4015,190 +3992,187 @@ window.isDump = isDump;
                 html[html.length] = '<b>';
                 html[html.length] = tagName;
                 html[html.length] = '</b>';
-                if (value !== null) {
+                if (values !== null) {
                     html[html.length] = ': ';
+                    html[html.length] = '<div style="display:inline-block; vertical-align: text-top;">';
                     if (items && items.length > 1)
                         html[html.length] = 'most time consuming is ';
-                    if (value.length == app.args['params-trim-size']) {
-                        html[html.length] = '<a href="';
-                        if (app.args && app.args.ro) {
-                            html[html.length] = value._2;
-                            html[html.length] = '/';
-                            html[html.length] = value._0;
-                            html[html.length] = '_';
-                            html[html.length] = value._1;
-                            html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
-                        } else {
-                            html[html.length] = 'get_clob/';
-                            html[html.length] = app.dn.replace(/.zip$/, '-' + value._0 + '-' + value._1 + '.' + tagName + '.zip');
-                            html[html.length] = '?dir=';
-                            for(var arg in app.args) {
-                                // TODO: support proper folder detection in aggregated tree case
-                                if (!/^f\[_/.test(arg))
-                                    continue;
-                                html[html.length] = app.args[arg];
-                                break;
+                    for (const value of values) {
+                        if (value.length == app.args['params-trim-size']) {
+                            html[html.length] = '<a href="';
+                            if (app.args && app.args.ro) {
+                                html[html.length] = value._2;
+                                html[html.length] = '/';
+                                html[html.length] = value._0;
+                                html[html.length] = '_';
+                                html[html.length] = value._1;
+                                html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
+                            } else {
+                                html[html.length] = 'get_clob/';
+                                html[html.length] = app.dn.replace(/.zip$/, '-' + value._0 + '-' + value._1 + '.' + tagName + '.zip');
+                                html[html.length] = '?dir=';
+                                for (var arg in app.args) {
+                                    // TODO: support proper folder detection in aggregated tree case
+                                    if (!/^f\[_/.test(arg))
+                                        continue;
+                                    html[html.length] = app.args[arg];
+                                    break;
+                                }
+                                html[html.length] = '&file=';
+                                html[html.length] = value._0;
+                                html[html.length] = '&offs=';
+                                html[html.length] = value._1;
+                                html[html.length] = '&type=';
+                                html[html.length] = value._2;
                             }
-                            html[html.length] = '&file=';
-                            html[html.length] = value._0;
-                            html[html.length] = '&offs=';
-                            html[html.length] = value._1;
-                            html[html.length] = '&type=';
-                            html[html.length] = value._2;
+                            html[html.length] = '" target=_blank><span class="ui-icon ui-icon-disk inline-block" style="vertical-align:text-bottom;"></span>';
+                            if (!(app.args && app.args.ro)) {
+                                html[html.length] = 'Save as *.zip';
+                            } else {
+                                html[html.length] = 'Open ';
+                                html[html.length] = value._2;
+                                html[html.length] = '/';
+                                html[html.length] = value._0;
+                                html[html.length] = '_';
+                                html[html.length] = value._1;
+                                html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
+                            }
+                            html[html.length] = '</a>';
                         }
-                        html[html.length] = '" target=_blank><span class="ui-icon ui-icon-disk inline-block" style="vertical-align:text-bottom;"></span>';
-                        if (!(app.args && app.args.ro)) {
-                            html[html.length] = 'Save as *.zip';
-                        } else {
-                            html[html.length] = 'Open ';
-                            html[html.length] = value._2;
-                            html[html.length] = '/';
-                            html[html.length] = value._0;
-                            html[html.length] = '_';
-                            html[html.length] = value._1;
-                            html[html.length] = value._2 == 'sql' ? '.sql' : '.txt';
-                        }
-                        html[html.length] = '</a>';
-                    }
-                    var val;
-                    var stealthMode;
-                    if (tagName == 'sql' || tagName == 'sql.monitor' || tagName == 'binds' || tagName == 'mdx' || tagName == 'cassandra.query') {
-                        printReformatted(html, value, tagName == 'binds' ? 'ignore_formatting' : 'sql', nocolor);
-                    } else if (tagName.indexOf('xml') != -1 || value && value[0] == '<') {
-                        printReformatted(html, value, 'xml', nocolor);
-                    } else if (tagName == 'common.started' || tagName == 'jms.timestamp') {
-                        html[html.length] = Date__formatWithMillis(new Date(Number(tag[P_VALUE])));
-                        html[html.length] = ' (' + tag[P_VALUE] + ')';
-                    } else if (tagName == 'log.written' || tagName == 'log.generated' || tagName == 'memory.allocated' ||
+                        var val;
+                        var stealthMode;
+                        if (tagName == 'sql' || tagName == 'sql.monitor' || tagName == 'binds' || tagName == 'mdx' || tagName == 'cassandra.query') {
+                            printReformatted(html, value, tagName == 'binds' ? 'ignore_formatting' : 'sql', nocolor);
+                        } else if (tagName.indexOf('xml') != -1 || value && value[0] == '<') {
+                            printReformatted(html, value, 'xml', nocolor);
+                        } else if (tagName == 'common.started' || tagName == 'jms.timestamp') {
+                            html[html.length] = Date__formatWithMillis(new Date(Number(tag[P_VALUE])));
+                            html[html.length] = ' (' + tag[P_VALUE] + ')';
+                        } else if (tagName == 'log.written' || tagName == 'log.generated' || tagName == 'memory.allocated' ||
                             tagName.substr(0, 3) == 'io.')
-                        html[html.length] = Bytes__format(tag[P_VALUE]);
-                    else if (tagName == 'time.wait' || tagName == 'time.cpu' || tagName == 'time.queue.wait') {
-                        var millis = Number(tag[P_VALUE]);
-                        renderDurationBar(html, millis, scale);
-                        html[html.length] = Duration__formatTime(millis);
-                    } else if (tagName == 'reactor.total.time.idle' || tagName == 'reactor.thread.time.idle') {
-                        var millis = Number(tag[P_VALUE]);
-                        renderReactorDurationBar(html, millis, scale);
-                        html[html.length] = Duration__formatTime(millis);
-                        if (tag[P_PARALLEL] > 0 && (!items || items.length == 1)) {
-                            html[html.length] = '<span ' + ATTR_TAG_ID_REACTOR + '=' + millis + '  class=' + DOM_PARALLEL_CLASS_TREE_NUMBERS + '><b> (run parallel) </b></span>'
-                        }
-                    } else if (tagName == 'exception' || /\.pre$/.test(tagName)) {
-                        html[html.length] = '<pre>';
-                        html[html.length] = escapeHTML(tag[P_VALUE]);
-                        html[html.length] = '</pre>';
-                    } else if (tagName == 'wf.process') {
-                        html[html.length] = '<a target=_blank href="/tools/wf/wf_info.jsp?run=Run&id=';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = '">';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = ' (open /tools/wf/wf_info.jsp)</a>';
-                    } else if (tagName == 'po.process' || tagName == 'job.id') {
-                        html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = '">';
-                        html[html.length] = tag[P_VALUE];
-                        html[html.length] = ' (open /ncobject.jsp)</a>';
-                    } else if (tagName.indexOf('json') != -1) {
-                        printReformatted(html, value, 'json', nocolor);
-                    } else if (tagName == 'web.query') {
-                        html[html.length] = '<pre class=prettyprint>';
-                        html[html.length] = '<a href=# onclick="$(this).nextAll(\'span\').toggle(); $(this).text($(this).text()==\'view source\'?\'view decoded\':\'view source\'); return false;">view source</a>';
-                        html[html.length] = '<br><span style="display:none;">';
-                        html[html.length] = escapeHTML(value);
-                        html[html.length] = '</span><span>';
-                        var qs = new URLSearchParams(value);
-                        var keys = new Set(qs.keys()).keys().toArray();
-                        keys.sort();
-                        for (var key_idx = 0; key_idx < keys.length; key_idx++) {
-                            html[html.length] = '<b>' + escapeHTML(keys[key_idx]) + '</b>';
-                            html[html.length] = GRAY_START + '=' + GRAY_END;
-                            var values = qs.getAll(keys[key_idx]);
-                            for (var v_idx = 0; v_idx < values.length; v_idx++) {
-                                var value_item = jsonBeautify(values[v_idx]);
-                                value_item = escapeHTML(value_item);
-                                if (value_item.length > 15 && !nocolor)
-                                    value_item = prettyPrintOne(value_item);
-                                values[v_idx] = value_item;
-                            }
-                            html[html.length] = values.join(GRAY_START + ';&nbsp;' + GRAY_END);
-                            html[html.length] = '<br>';
-                        }
-                        html[html.length] = '</span></pre>';
-                    } else if (tagName == 'web.session.id') {
-                        val = tag[P_VALUE];
-                        html[html.length] = escapeHTML(val);
-                        var m = val.match(/.*!(\d+)$/);
-                        if (m && m[1]) {
-                            var sessionCreated = Number(m[1]);
-                            if (Math.abs(sessionCreated - new Date()) < 1000 * 3600 * 24 * 365 * 50 /* 50 years */) {
-                                html[html.length] = ' (created ' + Duration__formatTime(new Date() - sessionCreated) + ' ago, at ';
-                                html[html.length] = new Date(sessionCreated);
-                                html[html.length] = ')';
-                            }
-                        }
-                    } else if ((tagName == 'dataflow.stack' || tagName == 'dataflow.session') && tag[P_VALUE] != '::other') {
-                        val = JSON.parse('{' + tag[P_VALUE] + '}');
-                        stealthMode = !(val.i && val.i.length == 19);
-                        if (!stealthMode || val.c) {
-                            html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
-                            html[html.length] = stealthMode ? val.c : val.i;
+                            html[html.length] = Bytes__format(tag[P_VALUE]);
+                        else if (tagName == 'time.wait' || tagName == 'time.cpu' || tagName == 'time.queue.wait') {
+                            var millis = Number(tag[P_VALUE]);
+                            renderDurationBar(html, millis, scale);
+                            html[html.length] = Duration__formatTime(millis);
+                        } else if (tagName == 'exception' || /\.pre$/.test(tagName)) {
+                            html[html.length] = '<pre>';
+                            html[html.length] = escapeHTML(tag[P_VALUE]);
+                            html[html.length] = '</pre>';
+                        } else if (tagName == 'wf.process') {
+                            html[html.length] = '<a target=_blank href="/tools/wf/wf_info.jsp?run=Run&id=';
+                            html[html.length] = tag[P_VALUE];
                             html[html.length] = '">';
-                        }
-                        html[html.length] = val.n ? escapeHTML(val.n) : (val.i + ":" + val.c);
-                        if (!stealthMode || val.c) {
-                            html[html.length] = ' (';
-                            html[html.length] = stealthMode ? 'configuration' : 'instance';
-                            html[html.length] = ')</a>';
-                        }
-                        if (!stealthMode && val.c) {
-                            html[html.length] = ', <a target=_blank href="/ncobject.jsp?id=';
-                            html[html.length] = val.c;
-                            html[html.length] = '">open configuration</a>';
-                        }
-                    } else if (tagName == 'profiler.title') {
-                        html[html.length] = tag[P_VALUE];
-                    } else
-                        html[html.length] = escapeHTML(tag[P_VALUE]);
-
-                    if (tagName == 'wf.process'
-                        || tagName == 'wf.activity.wmo'
-                        || tagName == 'po.process'
-                        || tagName == 'job.id'
-                        || tagName == 'web.session.id'
-                        || tagName == 'common.started'
-                        || tagName == 'jms.timestamp'
-                        || tagName == 'dataflow.session'
-                        ) {
-                        var dateDiff = trees[0].fw[M_DURATION];
-                        var dateTime;
-                        var filterString = '';
-
-                        if (tagName == 'common.started'
-                            || tagName == 'jms.timestamp'
-                            )
-                            dateTime = Number(tag[P_VALUE]);
-                        else
-                            dateTime = trees[0].fw[M_START_TIME];
+                            html[html.length] = tag[P_VALUE];
+                            html[html.length] = ' (open /tools/wf/wf_info.jsp)</a>';
+                        } else if (tagName == 'po.process' || tagName == 'job.id') {
+                            html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
+                            html[html.length] = tag[P_VALUE];
+                            html[html.length] = '">';
+                            html[html.length] = tag[P_VALUE];
+                            html[html.length] = ' (open /ncobject.jsp)</a>';
+                        } else if (tagName.indexOf('json') != -1) {
+                            printReformatted(html, value, 'json', nocolor);
+                        } else if (tagName == 'web.query') {
+                            html[html.length] = '<pre class=prettyprint>';
+                            html[html.length] = '<a href=# onclick="$(this).nextAll(\'span\').toggle(); $(this).text($(this).text()==\'view source\'?\'view decoded\':\'view source\'); return false;">view source</a>';
+                            html[html.length] = '<br><span style="display:none;">';
+                            html[html.length] = escapeHTML(value);
+                            html[html.length] = '</span><span>';
+                            var qs = new URLSearchParams(value);
+                            var keys = new Set(qs.keys()).keys().toArray();
+                            keys.sort();
+                            for (var key_idx = 0; key_idx < keys.length; key_idx++) {
+                                html[html.length] = '<b>' + escapeHTML(keys[key_idx]) + '</b>';
+                                html[html.length] = GRAY_START + '=' + GRAY_END;
+                                const paramValues = qs.getAll(keys[key_idx]);
+                                for (var v_idx = 0; v_idx < paramValues.length; v_idx++) {
+                                    var value_item = jsonBeautify(paramValues[v_idx]);
+                                    value_item = escapeHTML(value_item);
+                                    if (value_item.length > 15 && !nocolor)
+                                        value_item = prettyPrintOne(value_item);
+                                    paramValues[v_idx] = value_item;
+                                }
+                                html[html.length] = paramValues.join(GRAY_START + ';&nbsp;' + GRAY_END);
+                                html[html.length] = '<br>';
+                            }
+                            html[html.length] = '</span></pre>';
+                        } else if (tagName == 'web.session.id') {
+                            val = tag[P_VALUE];
+                            html[html.length] = escapeHTML(val);
+                            var m = val.match(/.*!(\d+)$/);
+                            if (m && m[1]) {
+                                var sessionCreated = Number(m[1]);
+                                if (Math.abs(sessionCreated - new Date()) < 1000 * 3600 * 24 * 365 * 50 /* 50 years */) {
+                                    html[html.length] = ' (created ' + Duration__formatTime(new Date() - sessionCreated) + ' ago, at ';
+                                    html[html.length] = new Date(sessionCreated);
+                                    html[html.length] = ')';
+                                }
+                            }
+                        } else if ((tagName == 'dataflow.stack' || tagName == 'dataflow.session') && tag[P_VALUE] != '::other') {
+                            val = JSON.parse('{' + tag[P_VALUE] + '}');
+                            stealthMode = !(val.i && val.i.length == 19);
+                            if (!stealthMode || val.c) {
+                                html[html.length] = '<a target=_blank href="/ncobject.jsp?id=';
+                                html[html.length] = stealthMode ? val.c : val.i;
+                                html[html.length] = '">';
+                            }
+                            html[html.length] = val.n ? escapeHTML(val.n) : (val.i + ":" + val.c);
+                            if (!stealthMode || val.c) {
+                                html[html.length] = ' (';
+                                html[html.length] = stealthMode ? 'configuration' : 'instance';
+                                html[html.length] = ')</a>';
+                            }
+                            if (!stealthMode && val.c) {
+                                html[html.length] = ', <a target=_blank href="/ncobject.jsp?id=';
+                                html[html.length] = val.c;
+                                html[html.length] = '">open configuration</a>';
+                            }
+                        } else if (tagName == 'profiler.title') {
+                            html[html.length] = tag[P_VALUE];
+                        } else
+                            html[html.length] = escapeHTML(tag[P_VALUE]);
 
                         if (tagName == 'wf.process'
                             || tagName == 'wf.activity.wmo'
                             || tagName == 'po.process'
                             || tagName == 'job.id'
                             || tagName == 'web.session.id'
-                            )
-                            filterString = encodeURIComponent(tag[P_VALUE]);
-                        if (tagName == 'dataflow.session' && val
-                            ) {
-                            filterString = encodeURIComponent(val.i);
-                        }
+                            || tagName == 'common.started'
+                            || tagName == 'jms.timestamp'
+                            || tagName == 'dataflow.session'
+                        ) {
+                            var dateDiff = trees[0].fw[M_DURATION];
+                            var dateTime;
+                            var filterString = '';
 
-                        html[html.length] = ' <a target=_blank href="index.html#timerange%5Bmin%5D=' + Math.round(dateTime - dateDiff * 1.2) + '&timerange%5Bmax%5D=' + Math.round(dateTime + dateDiff * 2.2) + '&duration%5Bmin%5D=' +
-                            Math.round(trees[0].fw[M_DURATION] / 4) +
-                            '&q=' + filterString +
-                            '">';
-                        html[html.length] = 'Open list of profiller calls for relevant timeframe</a>';
+                            if (tagName == 'common.started'
+                                || tagName == 'jms.timestamp'
+                            )
+                                dateTime = Number(tag[P_VALUE]);
+                            else
+                                dateTime = trees[0].fw[M_START_TIME];
+
+                            if (tagName == 'wf.process'
+                                || tagName == 'wf.activity.wmo'
+                                || tagName == 'po.process'
+                                || tagName == 'job.id'
+                                || tagName == 'web.session.id'
+                            )
+                                filterString = encodeURIComponent(tag[P_VALUE]);
+                            if (tagName == 'dataflow.session' && val
+                            ) {
+                                filterString = encodeURIComponent(val.i);
+                            }
+
+                            html[html.length] = ' <a target=_blank href="index.html#timerange%5Bmin%5D=' + Math.round(dateTime - dateDiff * 1.2) + '&timerange%5Bmax%5D=' + Math.round(dateTime + dateDiff * 2.2) + '&duration%5Bmin%5D=' +
+                                Math.round(trees[0].fw[M_DURATION] / 4) +
+                                '&q=' + filterString +
+                                '">';
+                            html[html.length] = 'Open list of profiller calls for relevant timeframe</a>';
+                        }
                     }
+                    html[html.length] = '</div>';
                 }
 
                 if (!items) return;
@@ -4211,7 +4185,7 @@ window.isDump = isDump;
                     var item = items[i];
                     html[html.length] = TREE_ITEM_TAG;
                     html[html.length] = '>';
-                    renderSimpleTag(html, item, scale, false, value && i > 4, transparent);
+                    renderSimpleTag(html, item, scale, false, values && i > 4, transparent);
                     html[html.length] = TREE_ITEM_TAG_CLOSE;
                 }
                 html[html.length] = TREE_GROUP_TAG_CLOSE;
@@ -4248,51 +4222,29 @@ window.isDump = isDump;
                             var tid = Number(t_id);
                             group2items = tag2group[tid];
                             var group2itemsArray = [];
-                            var dur = 0, execs = 0, assembly = 0, parallel = 0, parallels = 0, reactorStartTime = 0;
+                            var dur = 0, execs = 0;
                             for (var gid in group2items) {
                                 items = group2items[gid];
-                                var groupDur = 0, groupExec = 0, groupAssembly = 0, groupParallel = 0, groupParallels = 0, groupReactorStartTime = 0;
+                                var groupDur = 0, groupExec = 0;
                                 for (j = 0; j < items.length; j++) {
                                     var items_j = items[j];
-                                    groupAssembly = items_j[P_ASSEMBLY_ID];
-                                    if (groupParallel != null) {
-                                        groupParallel = items_j[P_PARALLEL];
-                                    }
-                                    if (groupParallels != null) {
-                                        groupParallels = items_j[P_PARALLELS];
-                                    }
-                                    if (reactorStartTime != null) {
-                                        groupReactorStartTime = items_j[P_REACTOR_START_TIME];
-                                    }
-                                    if (groupAssembly != 0) {
-                                        groupDur = Math.max(groupDur, items_j[P_DURATION]);
-                                    } else if (x[M_REACTOR_FRAME] > 0) {
-                                        groupDur = x[M_REACTOR_THREAD_TIME];
-                                    } else {
-                                        groupDur += items_j[P_DURATION];
-                                    }
+                                    groupDur += items_j[P_DURATION];
                                     groupExec += items_j[P_EXECUTIONS];
                                 }
-                                if (items.length == 1)
+                                if (items.length === 1) {
                                     group2itemsArray[group2itemsArray.length] = items[0];
-                                else {
+                                } else {
                                     items.sort(orderTagsByDuration);
-                                    group2itemsArray[group2itemsArray.length] = [tid, groupDur, groupAssembly, groupParallel, groupParallels, groupReactorStartTime, groupExec, items[0][P_VALUE], items];
+                                    group2itemsArray[group2itemsArray.length] = [tid, groupDur, groupExec, items[0][P_VALUE], items];
                                 }
                                 dur += groupDur;
                                 execs += groupExec;
-                                parallel = groupParallel;
-                                parallels = groupParallels;
-                                reactorStartTime = groupReactorStartTime;
-                                if (groupAssembly > 0) {
-                                    assembly = groupAssembly;
-                                }
                             }
-                            if (group2itemsArray.length == 1)
+                            if (group2itemsArray.length === 1) {
                                 tag2groupArray[tag2groupArray.length] = group2itemsArray[0];
-                            else {
+                            } else {
                                 group2itemsArray.sort(orderTagsByDuration);
-                                tag2groupArray[tag2groupArray.length] = [tid, dur, assembly, parallel, parallels, reactorStartTime, execs, null, group2itemsArray];
+                                tag2groupArray[tag2groupArray.length] = [tid, dur, execs, null, group2itemsArray];
                             }
                         }
 
@@ -4316,29 +4268,6 @@ window.isDump = isDump;
                     for (var i = 0; i < c.length; i++) {
                         var child = c[i];
                         var durationIsSmall = (duration_bar_only_for_self_time ? child[M_SELF_DURATION] : child[M_DURATION]) < 1;
-                        if (x[M_REACTOR_THREAD_TIME] > 0) {
-                            if (i < c.length - 2 && !showSmallCallsButton
-                                && (!hasFiltering && durationIsSmall
-                                    || hasFiltering && !(child[M_PREV_SELF_DURATION] < 0) && (x[M_PREV_SELF_DURATION] < 0 || durationIsSmall)
-                                )
-                            ) {
-                                showSmallCallsButton = 1;
-                                html[html.length] = TREE_ITEM_TAG;
-                                html[html.length] = ' ' + ATTR_NODE_IDX + '="';
-                                html[html.length] = i;
-                                html[html.length] = '"><span ' + ATTR_BUTTON_ID + '="' + BUTTON_ID_ZERO_METHOD + '" class="uc ui-state-default ui-button ui-widget ui-corner-all ui-priority-secondary" style="vertical-align:bottom;">';
-                                html[html.length] = '<span class="ui-icon ui-icon-plus"></span></span> ';
-                                html[html.length] = GRAY_START;
-                                html[html.length] = 'Show rest ';
-                                var totalTime = 0;
-                                for (j = c.length - 1; j >= i; j--) totalTime += (duration_bar_only_for_self_time ? c[j][M_SELF_DURATION] : c[j][M_DURATION]);
-                                renderDurationBar(html, totalTime, scale);
-                                html[html.length] = Duration__formatTime(totalTime);
-                                html[html.length] = GRAY_END;
-                                html[html.length] = TREE_ITEM_TAG_CLOSE;
-                                break;
-                            }
-                        }
                         html[html.length] = TREE_ITEM_TAG;
                         html[html.length] = ' ' + ATTR_NODE_IDX + '="';
                         html[html.length] = i + '"';
@@ -4371,15 +4300,6 @@ window.isDump = isDump;
                 html[html.length] = '></span> ';
             }
 
-            function renderReactorDurationBar(html, size, scale, force) {
-                var width = size * scale;
-                if (width < 0.6 && !force) return;
-                if (width > 60) width = 60;
-                html[html.length] = REACTORT_BAR_START;
-                html[html.length] = width.toFixed(0);
-                html[html.length] = '></span> ';
-            }
-
             function renderNodeDuration(html, x, prevNode, scale) {
                 if (treeBeingRendered[CallTree_SUBTREE_ID] && !(x[M_PREV_SELF_DURATION] < 0))
                     html[html.length] = '<span class="ui-priority-secondary ' + DOM_CLASS_TREE_NUMBERS + '">';
@@ -4387,8 +4307,6 @@ window.isDump = isDump;
                     html[html.length] = '<span class=' + DOM_CLASS_TREE_NUMBERS + '>';
                 var selfDuration = x[M_SELF_DURATION];
                 var duration = x[M_DURATION];
-                var reactorNonBlockingTime = x[M_REACTOR_THREAD_TIME];
-                var reactorFrame =x[M_REACTOR_FRAME];
 
                 var suspensionTime = x[M_SUSPENSION];
                 var selfSuspensionTime = x[M_SELF_SUSPENSION];
@@ -4409,52 +4327,19 @@ window.isDump = isDump;
                     }
                 }
 
-                if (reactorFrame > 0) {
-                    html[html.length] = REACTORT_IMG_START;
-                }
-
                 if (duration == selfDuration) { // this implies suspension==selfSuspension
-                    if (x[M_REACTOR_FRAME] > 0) {
-                        renderReactorDurationBar(html, duration, scale, true);
-                    } else {
-                        renderDurationBar(html, duration, scale, true);
-                    }
+                    renderDurationBar(html, duration, scale, true);
                     if (duration == 0) {
-                        if (reactorFrame == 0) {
-                            html[html.length] = '0ms';
-                        }
-                        if (reactorNonBlockingTime > 0) {
-                            html[html.length] = ' (';
-                            html[html.length] = ' <b>';
-                            html[html.length] = Duration__formatTime(x[M_REACTOR_THREAD_TIME]);
-                            html[html.length] = '</b>';
-                            html[html.length] = '<b>';
-                            html[html.length] = ' idle';
-                            html[html.length] = '</b> )';
+                        html[html.length] = '0ms';
+                    } else {
+                        html[html.length] = '<b>';
+                        html[html.length] = Duration__formatTime(duration);
+                        html[html.length] = '</b>';
+                        if (x[M_ID] > 0) {
+                            html[html.length] = ' self';
                         }
                     }
-                    else {
-                        if (reactorFrame == 0) {
-                            html[html.length] = '<b>';
-                            html[html.length] = Duration__formatTime(duration);
-                            html[html.length] = '</b>';
-                            if (x[M_ID] > 0) {
-                                html[html.length] = ' self';
-                            }
-                        }
-
-                        if (reactorNonBlockingTime > 0) {
-                            html[html.length] = ' (';
-                            html[html.length] = ' <b>';
-                            html[html.length] = Duration__formatTime(x[M_REACTOR_THREAD_TIME]);
-                            html[html.length] = '</b>';
-                            html[html.length] = '<b>';
-                            html[html.length] = ' idle';
-                            html[html.length] = '</b> )';
-                        }
-
-                    }
-                    if (suspensionTime > 0 && reactorFrame == 0) {
+                    if (suspensionTime > 0) {
                         html[html.length] = GRAY_START;
                         html[html.length] = ' + ';
                         renderDurationBar(html, suspensionTime, scale);
@@ -4463,77 +4348,63 @@ window.isDump = isDump;
                         html[html.length] = GRAY_END;
                     }
                 } else {
-                    if (reactorFrame == 0) {
-                        if (!duration_bar_only_for_self_time)
-                            renderDurationBar(html, duration - selfDuration, scale, true);
-                        html[html.length] = Duration__formatTime(duration);
-                    }
+                    if (!duration_bar_only_for_self_time)
+                        renderDurationBar(html, duration - selfDuration, scale, true);
+                    html[html.length] = Duration__formatTime(duration);
 
-                    if (reactorNonBlockingTime > 0) {
+                    if (selfDuration > 0) {
+                        if (suspensionTime > 0) {
+                            html[html.length] = GRAY_START;
+                            html[html.length] = ' + ';
+                            if (!duration_bar_only_for_self_time)
+                                renderDurationBar(html, suspensionTime - selfSuspensionTime, scale);
+                            html[html.length] = Duration__formatTime(suspensionTime);
+                            html[html.length] = ' gc';
+                            html[html.length] = GRAY_END;
+                        }
                         html[html.length] = ' (';
+
+                        renderDurationBar(html, selfDuration, scale);
+
                         html[html.length] = '<b>';
-                        html[html.length] = Duration__formatTime(x[M_REACTOR_THREAD_TIME]);
-                        html[html.length] = '</b>';
-                        html[html.length] = '<b>';
-                        html[html.length] = ' idle';
-                        html[html.length] = '</b> )';
-                    }
+                        html[html.length] = Duration__formatTime(selfDuration);
+                        html[html.length] = '</b> self';
 
-                    if (reactorFrame == 0) {
-                        if (selfDuration > 0) {
-                            if (suspensionTime > 0) {
-                                html[html.length] = GRAY_START;
-                                html[html.length] = ' + ';
-                                if (!duration_bar_only_for_self_time)
-                                    renderDurationBar(html, suspensionTime - selfSuspensionTime, scale);
-                                html[html.length] = Duration__formatTime(suspensionTime);
-                                html[html.length] = ' gc';
-                                html[html.length] = GRAY_END;
-                            }
-                            html[html.length] = ' (';
+                        if (selfSuspensionTime > 0) {
+                            html[html.length] = GRAY_START;
+                            html[html.length] = ' + ';
+                            renderDurationBar(html, selfSuspensionTime, scale);
+                            html[html.length] = Duration__formatTime(selfSuspensionTime);
+                            html[html.length] = ' self gc';
+                            html[html.length] = GRAY_END;
+                        }
 
-                            renderDurationBar(html, selfDuration, scale);
+                        html[html.length] = ')';
+                    } else if (suspensionTime > 0) { // selfDuration == 0 && suspension>0
+                        html[html.length] = GRAY_START;
+                        if (suspensionTime == selfSuspensionTime) {
+                            html[html.length] = ' + ';
+                            renderDurationBar(html, selfSuspensionTime, scale);
+                            html[html.length] = Duration__formatTime(suspensionTime);
+                            html[html.length] = ' self gc';
 
-                            html[html.length] = '<b>';
-                            html[html.length] = Duration__formatTime(selfDuration);
-                            html[html.length] = '</b> self';
+                        } else {
+                            html[html.length] = ' + ';
+                            if (!duration_bar_only_for_self_time)
+                                renderDurationBar(html, suspensionTime - selfSuspensionTime, scale);
+                            html[html.length] = Duration__formatTime(suspensionTime);
+                            html[html.length] = ' gc';
+
 
                             if (selfSuspensionTime > 0) {
-                                html[html.length] = GRAY_START;
-                                html[html.length] = ' + ';
+                                html[html.length] = ' (';
                                 renderDurationBar(html, selfSuspensionTime, scale);
                                 html[html.length] = Duration__formatTime(selfSuspensionTime);
                                 html[html.length] = ' self gc';
-                                html[html.length] = GRAY_END;
+                                html[html.length] = ')';
                             }
-
-                            html[html.length] = ')';
-                        } else if (suspensionTime > 0) { // selfDuration == 0 && suspension>0
-                            html[html.length] = GRAY_START;
-                            if (suspensionTime == selfSuspensionTime) {
-                                html[html.length] = ' + ';
-                                renderDurationBar(html, selfSuspensionTime, scale);
-                                html[html.length] = Duration__formatTime(suspensionTime);
-                                html[html.length] = ' self gc';
-
-                            } else {
-                                html[html.length] = ' + ';
-                                if (!duration_bar_only_for_self_time)
-                                    renderDurationBar(html, suspensionTime - selfSuspensionTime, scale);
-                                html[html.length] = Duration__formatTime(suspensionTime);
-                                html[html.length] = ' gc';
-
-
-                                if (selfSuspensionTime > 0) {
-                                    html[html.length] = ' (';
-                                    renderDurationBar(html, selfSuspensionTime, scale);
-                                    html[html.length] = Duration__formatTime(selfSuspensionTime);
-                                    html[html.length] = ' self gc';
-                                    html[html.length] = ')';
-                                }
-                            }
-                            html[html.length] = GRAY_END;
                         }
+                        html[html.length] = GRAY_END;
                     }
                 }
                 html[html.length] = ' ';
@@ -4695,10 +4566,6 @@ window.isDump = isDump;
             var TOOLTIP_IN_CALLS_GROUP = 2;
             /** @const */
             var TOOLTIP_IN_CALLS_ITEM = 3;
-            /** @const */
-            var TOOLTIP_REACTOR_DURATION = 4;
-            /** @const */
-            var TOOLTIP_PARALLEL_INFO = 5;
 
             CT.ttide = function() {
                 return CT.ide(toolTipNode[1][M_ID]);
@@ -4744,38 +4611,6 @@ window.isDump = isDump;
                 $('#h0-sj').text((tag[T_JAR] || '').replace(/^\[(.*)\]$/, '$1'));
                 $('#h0-l').text((tag[T_SOURCE] || '').replace(/^\((.*)\)$/, '$1'));
                 $('#h0').show().position(toolTipPositionProperties);
-            };
-
-            toolTipRenderers[TOOLTIP_REACTOR_DURATION] = function() {
-                ToolTip__ensureInit();
-                var n = toolTipNode[1];
-                var tag = tags.t[n[M_ID]];
-                $('#h4-m').html(tags.toWrapHTML(n[M_ID]));
-                // $('#h4-t').text(n[M_BLOCKING_OPERATOR]);
-                // $('#h4-start').text(n[M_PREV_BLOCKING_OPERATION]);
-                // $('#h4-end').text(n[M_CURRENT_BLOCKING_OPERATION]);
-                $('#h4-d').text(Duration__formatTime(n[M_REACTOR_THREAD_TIME]));
-                $('#h4').show().position(toolTipPositionProperties);
-            };
-
-
-            toolTipRenderers[TOOLTIP_PARALLEL_INFO] = function() {
-                ToolTip__ensureInit();
-                var n = toolTipNode[1];
-                $('#h5-m').html(tags.toWrapHTML(n[M_ID]));
-                var nodeTags = n[M_TAGS];
-                $('#parallel-table').empty();
-                nodeTags.forEach(function(tag) {
-                    if (toolTipNode[3] == tag[1]) {
-                        var parallels = tag[P_PARALLELS];
-                        parallels.forEach(function(entry) {
-                            $('#parallel-table').append('<tr class="odd">' +
-                                '<th><a href="#" onclick="return CT.ide(' + entry[0] + ');">' + (tags.t[entry[0]][T_SOURCE] || '').replace(/^\((.*)\)$/, '$1') + '</a></th>' +
-                                '<td>' + Duration__formatTime(entry[1]) + '</td></tr>')
-                        });
-                    }
-                });
-                $('#h5').show().position(toolTipPositionProperties);
             };
 
             toolTipRenderers[TOOLTIP_FIND_USAGES] = function() {
@@ -4827,7 +4662,7 @@ window.isDump = isDump;
                 $('#h3').show().position(toolTipPositionProperties);
             };
 
-            function ToolTip__scheduleShow(event, $node, isParallel, tagId, position) {
+            function ToolTip__scheduleShow(event, $node, tagId, position) {
                 if (Document_mouseIsDown) {
                     ToolTip__scheduleHide();
                     return;
@@ -4843,11 +4678,7 @@ window.isDump = isDump;
                 var tree = toolTipNode[0];
                 var n = toolTipNode[1];
                 var nextRenderer, treeType = tree.ty;
-                if (isParallel)
-                    nextRenderer = TOOLTIP_PARALLEL_INFO;
-                else if (n[M_REACTOR_FRAME] > 0)
-                    nextRenderer = TOOLTIP_REACTOR_DURATION;
-                else if (treeType === CallTree_TYPE_OUT_CALLS)
+                if (treeType === CallTree_TYPE_OUT_CALLS)
                     nextRenderer = TOOLTIP_OUT_CALLS;
                 else if (treeType === CallTree_TYPE_FIND_USAGES)
                     nextRenderer = TOOLTIP_FIND_USAGES;
@@ -4933,15 +4764,6 @@ window.isDump = isDump;
                     $('#db-queries').html(CT.dbStats);
                     if (CT.dbExceptions)
                         $('#db-exceptions').html(CT.dbExceptions);
-                } else if (newTab == 'tabs-gantt') {
-                    if (!trees[0]) {
-                        app[newTab] = false;
-                        return;
-                    }
-                    $('#loading').show();
-                    setTimeout(function () {
-                        CallTree_renderGantt();
-                    }, 0);
                 }
             }
 
@@ -4997,29 +4819,13 @@ window.isDump = isDump;
                     toolTipMouseIsOver = $parents.filter('.' + DOM_CLASS_TOOLTIP).length > 0;
                     if (toolTipMouseIsOver) return;
 
-                    var parallelParents = $target.firstParents(35).addBack();
-                    var $parallel = parallelParents.filter('.' + DOM_PARALLEL_CLASS_TREE_NUMBERS);
-                    var tagId = $parallel.attr(ATTR_TAG_ID_REACTOR);
-                    var toolTipPosition = $parallel;
-                    if ($parallel.length != 0) {
-                        for (var i = 0; i < parallelParents.length; i++) {
-                            var nextParent = $parallel.parent();
-                            if (nextParent.attr(ATTR_NODE_IDX)) {
-                                break;
-                            }
-                            $parallel = nextParent;
-                        }
-                        ToolTip__scheduleShow(event, $parallel, true, tagId, toolTipPosition);
-                        return;
-                    }
-
                     var $node = $parents.filter('.' + DOM_CLASS_TREE_NUMBERS).last();
                     if ($node.length == 0) {
                         ToolTip__scheduleHide();
                         return;
                     }
 
-                    ToolTip__scheduleShow(event, $node, false, 0);
+                    ToolTip__scheduleShow(event, $node, 0);
                 });
 
                 $(document).mousedown(function() {
@@ -6238,13 +6044,6 @@ window.isDump = isDump;
                     0 /*M_CHILD_EXECUTIONS*/,
                     0 /*M_START_TIME*/,
                     0 /*M_END_TIME*/,
-                    0,/*M_REACTOR_FRAME*/
-                    0,/*M_REACTOR_THREAD_TIME*/
-                    0,/*M_BLOCKING_OPERATOR*/
-                    0,/*M_REACTOR_START_DATE*/
-                    0,/*M_REACTOR_END_DATE*/
-                    0,/*M_PREV_BLOCKING_OPERATION*/
-                    0,/*M_CURRENT_BLOCKING_OPERATION*/
                     [],/*M_CHILDREN*/
                     0 /* M_COLLAPSE_LEVELS */
                 ];
@@ -6256,12 +6055,7 @@ window.isDump = isDump;
                                      suspension,
                                      self_suspension,
                                      executions,
-                                     child_executions,
-                                     reactor_frame,
-                                     reactor_thread_time,
-                                     blocking_operator,
-                                     prev_blocking_operator,
-                                     current_blocking_operator) {
+                                     child_executions) {
                 return [id,
                     duration,
                     self_duration,
@@ -6271,13 +6065,6 @@ window.isDump = isDump;
                     child_executions,
                     0 /*M_START_TIME*/,
                     0 /*M_END_TIME*/,
-                    reactor_frame,
-                    reactor_thread_time,
-                    blocking_operator,
-                    0,
-                    0,
-                    prev_blocking_operator,
-                    current_blocking_operator,
                     [],
                     0 /* M_COLLAPSE_LEVELS */
                 ];
@@ -6285,11 +6072,6 @@ window.isDump = isDump;
 
             function mergeNodes(dst, src) {
                 dst[M_EXECUTIONS] += src[M_EXECUTIONS];
-                dst[M_REACTOR_THREAD_TIME] = Math.max(dst[M_REACTOR_THREAD_TIME], src[M_REACTOR_THREAD_TIME]);
-                dst[M_REACTOR_FRAME] = src[M_REACTOR_FRAME];
-                dst[M_BLOCKING_OPERATOR] = src[M_BLOCKING_OPERATOR];
-                dst[M_CURRENT_BLOCKING_OPERATION] = src[M_CURRENT_BLOCKING_OPERATION];
-                dst[M_PREV_BLOCKING_OPERATION] = src[M_PREV_BLOCKING_OPERATION];
                 dst[M_SELF_DURATION] += src[M_SELF_DURATION];
                 dst[M_SELF_SUSPENSION] += src[M_SELF_SUSPENSION];
 
@@ -6306,7 +6088,7 @@ window.isDump = isDump;
                     for (j = 0; j < y.length && (y[j][P_ID] != a[P_ID] || y[j][P_VALUE] != a[P_VALUE]); j++) {
                     }
                     if (j == y.length)
-                        y[j] = [a[P_ID], a[P_DURATION], a[P_ASSEMBLY_ID], a[P_PARALLEL], a[P_PARALLELS], a[P_REACTOR_START_TIME], a[P_EXECUTIONS], a[P_VALUE]];
+                        y[j] = [a[P_ID], a[P_DURATION], a[P_EXECUTIONS], a[P_VALUE]];
                     else {
                         var y_j = y[j];
                         y_j[P_DURATION] += a[P_DURATION];
@@ -6360,13 +6142,7 @@ window.isDump = isDump;
                 tree[M_DURATION] += tree[M_SELF_DURATION];
                 tree[M_SUSPENSION] += tree[M_SELF_SUSPENSION];
 
-                if (tree[M_REACTOR_THREAD_TIME] > tree[M_DURATION]) {
-                    prevTree[M_DURATION] = tree[M_DURATION] + prevTree[M_REACTOR_THREAD_TIME];
-                } else if (tree[M_REACTOR_THREAD_TIME] > 0) {
-                    prevTree[M_DURATION] = Math.max(prevTree[M_REACTOR_THREAD_TIME], tree[M_REACTOR_THREAD_TIME]);
-                } else {
-                    prevTree[M_DURATION] += tree[M_DURATION];
-                }
+                prevTree[M_DURATION] += tree[M_DURATION];
                 prevTree[M_CHILD_EXECUTIONS] += tree[M_EXECUTIONS] + tree[M_CHILD_EXECUTIONS];
                 prevTree[M_SUSPENSION] += tree[M_SUSPENSION];
             }
@@ -6457,31 +6233,15 @@ window.isDump = isDump;
 
                 function appendStacktrace(level,
                                           duration,
-                                          reactorThreadTime,
-                                          blockOper,
-                                          currentBlockOper,
-                                          prevBlockOper,
-                                          reactorFrame,
                                           selfDuration,
                                           suspension,
                                           selfSuspension,
                                           executions) {
                     var node = root;
                     node[M_EXECUTIONS] += executions;
-                    if (reactorThreadTime > duration) {
-                        node[M_DURATION] = duration + reactorThreadTime;
-                    } else if (reactorThreadTime > 0) {
-                        node[M_DURATION] = Math.max(duration, node[M_DURATION]);
-                    } else {
-                        node[M_DURATION] += duration;
-                    }
-                    node[M_REACTOR_THREAD_TIME] = Math.max(node[M_REACTOR_THREAD_TIME], reactorThreadTime);
+                    node[M_DURATION] += duration;
                     node[M_SELF_DURATION] += selfDuration;
                     node[M_SUSPENSION] += suspension;
-                    node[M_REACTOR_FRAME] = reactorFrame;
-                    node[M_BLOCKING_OPERATOR] = blockOper;
-                    node[M_CURRENT_BLOCKING_OPERATION] = currentBlockOper;
-                    node[M_PREV_BLOCKING_OPERATION] = prevBlockOper;
                     node[M_SELF_SUSPENSION] += selfSuspension;
                     node[M_CHILD_EXECUTIONS] += executions;
                     for (var i = level; i >= 0; i--) {
@@ -6490,17 +6250,7 @@ window.isDump = isDump;
                         node = getOrCreateChild(node[M_CHILDREN], x[M_ID], xSign);
                         node[M_EXECUTIONS] += executions;
                         node[M_CHILD_EXECUTIONS] += x[M_EXECUTIONS];
-                        if (reactorThreadTime > duration) {
-                            node[M_DURATION] = duration + reactorThreadTime;
-                        } else if (reactorThreadTime > 0) {
-                            node[M_DURATION] = Math.max(duration, node[M_DURATION]);
-                        } else {
-                            node[M_DURATION] += duration;
-                        }
-                        node[M_REACTOR_THREAD_TIME] = Math.max(node[M_REACTOR_THREAD_TIME], reactorThreadTime);
-                        node[M_BLOCKING_OPERATOR] = blockOper;
-                        node[M_CURRENT_BLOCKING_OPERATION] = currentBlockOper;
-                        node[M_PREV_BLOCKING_OPERATION] = prevBlockOper;
+                        node[M_DURATION] += duration;
                         node[M_SELF_DURATION] += selfDuration;
                         node[M_SUSPENSION] += suspension;
                         node[M_SELF_SUSPENSION] += selfSuspension;
@@ -6520,7 +6270,7 @@ window.isDump = isDump;
                                 if (nodeTagk[P_ID] == a[P_ID] && nodeTagk[P_VALUE] == a[P_VALUE]) break;
                             }
                             if (k == nodeTagsLen)
-                                nodeTags[k] = [a[P_ID], a[P_DURATION], a[P_ASSEMBLY_ID], a[P_PARALLEL], a[P_PARALLELS], a[P_REACTOR_START_TIME], a[P_EXECUTIONS], a[P_VALUE]];
+                                nodeTags[k] = [a[P_ID], a[P_DURATION], a[P_EXECUTIONS], a[P_VALUE]];
                             else {
                                 var y_k = nodeTags[k];
                                 y_k[P_DURATION] += a[P_DURATION];
@@ -6547,11 +6297,6 @@ window.isDump = isDump;
                     appendStacktrace(
                         level,
                         duration,
-                        node[M_REACTOR_THREAD_TIME],
-                        node[M_BLOCKING_OPERATOR],
-                        node[M_CURRENT_BLOCKING_OPERATION],
-                        node[M_PREV_BLOCKING_OPERATION],
-                        node[M_REACTOR_FRAME],
                         node[M_SELF_DURATION],
                         node[M_SUSPENSION],
                         node[M_SELF_SUSPENSION],
@@ -6582,11 +6327,6 @@ window.isDump = isDump;
                     appendStacktrace(
                         level,
                         duration,
-                        node[M_REACTOR_THREAD_TIME],
-                        node[M_BLOCKING_OPERATOR],
-                        node[M_CURRENT_BLOCKING_OPERATION],
-                        node[M_PREV_BLOCKING_OPERATION],
-                        node[M_REACTOR_FRAME],
                         node[M_SELF_DURATION],
                         node[M_SUSPENSION],
                         node[M_SELF_SUSPENSION],
@@ -6630,20 +6370,9 @@ window.isDump = isDump;
                     dst[M_EXECUTIONS] += node[M_EXECUTIONS];
                     dst[M_SELF_DURATION] += node[M_SELF_DURATION];
                     dst[M_SELF_SUSPENSION] += node[M_SELF_SUSPENSION];
-                    dst[M_REACTOR_FRAME] = node[M_REACTOR_FRAME];
-                    dst[M_BLOCKING_OPERATOR] = node[M_BLOCKING_OPERATOR];
-                    dst[M_PREV_BLOCKING_OPERATION] = node[M_PREV_BLOCKING_OPERATION];
-                    dst[M_CURRENT_BLOCKING_OPERATION] = node[M_CURRENT_BLOCKING_OPERATION];
                     if (nodeIsRegular) {
                         dst[M_CHILD_EXECUTIONS] += node[M_CHILD_EXECUTIONS];
-                        if (node[M_REACTOR_THREAD_TIME] > node[M_DURATION]) {
-                            dst[M_DURATION] = node[M_DURATION] + node[M_REACTOR_THREAD_TIME];
-                        } else if (dst[M_REACTOR_THREAD_TIME] > 0) {
-                            dst[M_DURATION] = Math.max(dst[M_DURATION], node[M_DURATION]);
-                        } else {
-                            dst[M_DURATION] += node[M_DURATION];
-                        }
-                        dst[M_REACTOR_THREAD_TIME] = Math.max(node[M_REACTOR_THREAD_TIME], dst[M_REACTOR_THREAD_TIME]);
+                        dst[M_DURATION] += node[M_DURATION];
                         dst[M_SUSPENSION] += node[M_SUSPENSION];
                     } else
                         dst[M_CHILD_EXECUTIONS] -= node[M_EXECUTIONS];
@@ -6664,7 +6393,7 @@ window.isDump = isDump;
 
                         var dstTag = dstTagsMap[tagPK];
                         if (!dstTag)
-                            dstTags[dstTags.length] = dstTagsMap[tagPK] = [tag[P_ID], tag[P_DURATION], tag[P_ASSEMBLY_ID], tag[P_PARALLEL], tag[P_PARALLELS], tag[P_REACTOR_START_TIME], tag[P_EXECUTIONS], tag[P_VALUE]];
+                            dstTags[dstTags.length] = dstTagsMap[tagPK] = [tag[P_ID], tag[P_DURATION], tag[P_EXECUTIONS], tag[P_VALUE]];
                         else {
                             dstTag[P_DURATION] += tag[P_DURATION];
                             dstTag[P_EXECUTIONS] += tag[P_EXECUTIONS];
@@ -6744,45 +6473,22 @@ window.isDump = isDump;
 
                 function appendStacktrace(level,
                                           duration,
-                                          reactorThreadTime,
-                                          blockOper,
-                                          currentBlockOper,
-                                          prevBlockOper,
-                                          reactorFrame,
                                           selfDuration,
                                           suspension,
                                           selfSuspension,
                                           executions) {
                     var node = root;
                     node[M_EXECUTIONS] += executions;
-                    if (reactorThreadTime > duration) {
-                        node[M_DURATION] = duration + reactorThreadTime;
-                    } else if (reactorThreadTime > 0) {
-                        node[M_DURATION] = Math.max(duration, node[M_DURATION]);
-                    } else {
-                        node[M_DURATION] += duration;
-                    }
-                    node[M_REACTOR_THREAD_TIME] = Math.max(reactorThreadTime, node[M_REACTOR_THREAD_TIME]);
+                    node[M_DURATION] += duration;
                     node[M_SELF_DURATION] += selfDuration;
                     node[M_SUSPENSION] += suspension;
-                    node[M_REACTOR_FRAME] = reactorFrame;
-                    node[M_BLOCKING_OPERATOR] = blockOper;
-                    node[M_CURRENT_BLOCKING_OPERATION] = currentBlockOper;
-                    node[M_PREV_BLOCKING_OPERATION] = prevBlockOper;
                     node[M_SELF_SUSPENSION] += selfSuspension;
                     for (var i = 0; i <= level; i++) {
                         var x = nodes[i];
                         var xSign = getMethodSignature(x);
                         node = getOrCreateChild(node[M_CHILDREN], x[M_ID], xSign);
                         node[M_EXECUTIONS] += executions;
-                        if (reactorThreadTime > duration) {
-                            node[M_DURATION] = duration + reactorThreadTime;
-                        } else if (reactorThreadTime > 0) {
-                            node[M_DURATION] = Math.max(duration, node[M_DURATION]);
-                        } else {
-                            node[M_DURATION] += duration;
-                        }
-                        node[M_REACTOR_THREAD_TIME] = Math.max(reactorThreadTime, node[M_REACTOR_THREAD_TIME]);
+                        node[M_DURATION] += duration;
                         node[M_SELF_DURATION] += selfDuration;
                         node[M_SUSPENSION] += suspension;
                         node[M_SELF_SUSPENSION] += selfSuspension;
@@ -6805,7 +6511,7 @@ window.isDump = isDump;
                                 if (nodeTagk[P_ID] == a[P_ID] && nodeTagk[P_VALUE] == a[P_VALUE]) break;
                             }
                             if (k == nodeTagsLen)
-                                nodeTags[k] = [a[P_ID], a[P_DURATION], a[P_ASSEMBLY_ID], a[P_PARALLEL], a[P_PARALLELS], a[P_REACTOR_START_TIME], a[P_EXECUTIONS], a[P_VALUE]];
+                                nodeTags[k] = [a[P_ID], a[P_DURATION], a[P_EXECUTIONS], a[P_VALUE]];
                             else {
                                 var y_k = nodeTags[k];
                                 y_k[P_DURATION] += a[P_DURATION];
@@ -6835,11 +6541,6 @@ window.isDump = isDump;
                     appendStacktrace(
                         level,
                         duration,
-                        node[M_REACTOR_THREAD_TIME],
-                        node[M_BLOCKING_OPERATOR],
-                        node[M_CURRENT_BLOCKING_OPERATION],
-                        node[M_PREV_BLOCKING_OPERATION],
-                        node[M_REACTOR_FRAME],
                         node[M_SELF_DURATION],
                         node[M_SUSPENSION],
                         node[M_SELF_SUSPENSION],
@@ -6899,7 +6600,7 @@ window.isDump = isDump;
 
                         var dstTag = dstTagsMap[tagPK];
                         if (!dstTag)
-                            dstTags[dstTags.length] = dstTagsMap[tagPK] = [tag[P_ID], tag[P_DURATION], tag[P_ASSEMBLY_ID], tag[P_PARALLEL], tag[P_PARALLELS], tag[P_REACTOR_START_TIME], tag[P_EXECUTIONS], tag[P_VALUE]];
+                            dstTags[dstTags.length] = dstTagsMap[tagPK] = [tag[P_ID], tag[P_DURATION], tag[P_EXECUTIONS], tag[P_VALUE]];
                         else {
                             dstTag[P_DURATION] += tag[P_DURATION];
                             dstTag[P_EXECUTIONS] += tag[P_EXECUTIONS];
@@ -6913,18 +6614,14 @@ window.isDump = isDump;
             }
 
             function Tree__makeAdjustments(tree, map) {
-                var duration = 0, gc = 0, calls = 0, adj = 0, reactorEndDate = 0, reactorStartDate = 0;
+                var duration = 0, gc = 0, calls = 0, adj = 0;
 
                 function walk(node, k) {
                     var startDuration = duration, startGc = gc, startCalls = calls, startAdj = adj;
                     var node_id = node[M_ID];
                     delete node[M_CATEGORY];
                     var dt = map[node_id], i;
-                    var red = node[M_REACTOR_END_DATE];
-                    var rsd = node[M_REACTOR_START_DATE];
                     if (dt !== undefined) {
-                        reactorEndDate = red;
-                        reactorStartDate = rsd;
                         k *= dt;
                         adj++; // increase number of adjusted nodes
                     }
@@ -6953,47 +6650,7 @@ window.isDump = isDump;
                     }
 
                     var newSelfDuration = node[M_PREV_SELF_DURATION] * k;
-                    var newReactorDuration;
                     var newDuration;
-                    var redH = red + 100;
-                    var redM = red - 100;
-                    var rsdH = rsd + 100;
-                    var rsdM = rsd - 100;
-                    if (redH >= reactorEndDate &&
-                        redM <= reactorEndDate &&
-                        rsdH >= reactorStartDate &&
-                        rsdM <= reactorStartDate){
-                        newReactorDuration = 0;
-                        newDuration = newReactorDuration + newSelfDuration + childDuration;
-                        node[M_REACTOR_START_DATE] = Number.MAX_VALUE;
-                        node[M_REACTOR_END_DATE] = Number.MIN_VALUE;
-                    } else {
-                        red = Number.MIN_VALUE;
-                        rsd = Number.MAX_VALUE;
-                        if (t && t.length > 0) {
-                            for (i = t.length - 1; i >= 0; i--) {
-                                var react_end_date = t[i][M_REACTOR_END_DATE];
-                                if (red !== reactorEndDate && react_end_date !== 0) {
-                                    red = Math.max(red, react_end_date);
-                                }
-                                var react_SD = t[i][M_REACTOR_START_DATE];
-                                if (rsd !== reactorStartDate && react_SD !== 0) {
-                                    rsd = Math.min(rsd, react_SD);
-                                }
-                            }
-                        }
-                        if (red == Number.MIN_VALUE || rsd == Number.MAX_VALUE) {
-                            newReactorDuration = 0;
-                            newDuration = newReactorDuration + newSelfDuration + childDuration;
-                            node[M_REACTOR_START_DATE] = Number.MAX_VALUE;
-                            node[M_REACTOR_END_DATE] = Number.MIN_VALUE;
-                        } else {
-                            newReactorDuration = red - rsd + newSelfDuration + childDuration;
-                            node[M_REACTOR_START_DATE] = rsd;
-                            node[M_REACTOR_END_DATE] = red;
-                            newDuration = newReactorDuration;
-                        }
-                    }
                     var newSelfSuspension = node[M_PREV_SELF_SUSPENSION] * k;
                     var newSuspension = childGc + newSelfSuspension;
                     var newExecutions = node[M_PREV_EXECUTIONS] * k;
@@ -7004,7 +6661,6 @@ window.isDump = isDump;
                     node[M_DURATION] = newDuration;
                     node[M_SELF_DURATION] = newSelfDuration;
                     node[M_SUSPENSION] = newSuspension;
-                    node[M_REACTOR_THREAD_TIME] = newReactorDuration;
                     node[M_SELF_SUSPENSION] = newSelfSuspension;
                     node[M_EXECUTIONS] = newExecutions;
                     node[M_CHILD_EXECUTIONS] = childCalls;
@@ -7062,7 +6718,7 @@ window.isDump = isDump;
 
                     var tags = node[M_TAGS], newTags;
                     if (tags && tags.length > 0) {
-                        for (i = 0, len = tags.length; i < len; i++) {
+                        for (var i = 0, len = tags.length; i < len; i++) {
                             var tag = tags[i];
                             if (goodTags[tag[P_ID]] || val.test(tag[P_VALUE])) {
                                 numberOfResults++;
@@ -7080,12 +6736,7 @@ window.isDump = isDump;
                         node[M_SUSPENSION],
                         node[M_SELF_SUSPENSION],
                         node[M_EXECUTIONS],
-                        node[M_CHILD_EXECUTIONS],
-                        node[M_REACTOR_FRAME],
-                        node[M_REACTOR_THREAD_TIME],
-                        node[M_BLOCKING_OPERATOR],
-                        node[M_PREV_BLOCKING_OPERATION],
-                        node[M_CURRENT_BLOCKING_OPERATION]
+                        node[M_CHILD_EXECUTIONS]
                         );
                     var tags = node[M_TAGS];
                     if (nodeMatches(node))
@@ -7186,7 +6837,6 @@ window.isDump = isDump;
 
             var dataView;
             var timeRange;
-            var reactorData = [];
             var colors = [];
             var grid, gridOptions;
             var timeline, timelineItemRowids = [], timelineRowId2Idx = {};
@@ -7199,62 +6849,9 @@ window.isDump = isDump;
             var timezone = profiler_settings.timezone;
             var timezone_pending = timezone;
 
-            CT.ganttAppend = function(time, duration, rowId, folderId, methodId, emit) {
-                var reactorDataId = reactorData.length;
-                return reactorData[reactorDataId] = [time, duration, rowId, folderId, methodId, emit];
-            };
-
-            CT.addGanttFolder = function (folderId, folderName) {
-                //service name and namespace columns are never presented on the gantt chart
-                return folderContents[folderId] = new ProfilingFolder(folderId, folderName, 'n_a', 'n_a');
-            };
-
             CT.timeRange = function(min, max) {
                 return timeRange = {min:min, max:max};
             };
-
-
-            function CallTree_renderGantt() {
-                dataView = new SlickDataView();
-
-                dataView.setItems(reactorData, G_ROWID);
-
-                dataView.sort(function(a, b) {
-                    var x = a[0], y = b[0];
-                    if (x < y) return -1;
-                    return x > y;
-                }, false);
-
-                dataView.onRowCountChanged.subscribe(function() {
-                    grid.updateRowCount();
-                    updateTimeline();
-                });
-
-                gridOptions = {
-                    enableCellNavigation: true,
-                    forceFitColumns: false,
-                    secondaryHeaderRowHeight: 25,
-                    rowCssClasses: format_row_css,
-                    rowHeight: 30
-                };
-
-                var newState = {};
-                newState.timerange = timeRange;
-                newState.duration = {min: 10};
-                newState.tz = profiler_settings.timezone;
-
-                newState.wname = window.name;
-
-                if (newState.duration || newState.timerange) {
-                    pushState(newState);
-                    skipPostLoad = true;
-                } else if (!getState('wname')) {
-                    pushState(newState);
-                }
-
-                $(updateTimeline);
-                $('#loading').hide();
-            }
 
             links.Timeline.StepDate.prototype.getLabelMajor = function(options, date) {
                 if (date == undefined) {
@@ -7346,19 +6943,6 @@ window.isDump = isDump;
                         };
 
                     tl[tl.length] = item;
-                }
-                if (!timeline) {
-                    var $timeline = $('#gantt-timeline');
-                    timeline = new links.Timeline($timeline[0]);
-                    $timeline.resizable({
-                        handles: 's'
-                        , resize: function (event, ui) {
-                            invokeLater(resizeCallList, resizeCallList, 300);
-                        }, stop: function (event, ui) {
-                            invokeLaterCancel(resizeCallList);
-                            pushState({timelineBottom: ui.position.top + ui.size.height});
-                        }, minHeight: 0
-                    }).find('.ui-resizable-handle').css('z-index', '8');
                 }
                 var intervalMin, intervalMax;
                 if (filters_timerange) {
