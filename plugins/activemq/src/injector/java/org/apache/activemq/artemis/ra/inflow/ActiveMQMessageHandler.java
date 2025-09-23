@@ -1,6 +1,6 @@
 package org.apache.activemq.artemis.ra.inflow;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import javax.resource.spi.endpoint.MessageEndpointFactory;
 

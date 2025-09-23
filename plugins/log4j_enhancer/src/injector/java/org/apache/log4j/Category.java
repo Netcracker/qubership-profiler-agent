@@ -1,6 +1,6 @@
 package org.apache.log4j;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 public class Category {
     protected static void logWritten$profiler(Object message) {

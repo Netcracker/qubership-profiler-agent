@@ -1,7 +1,7 @@
 package com.datastax.oss.driver.internal.core.cql;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.StringUtils;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.StringUtils;
 
 import com.datastax.oss.driver.api.core.CqlIdentifier;
 import com.datastax.oss.driver.api.core.cql.ColumnDefinition;

@@ -2,10 +2,10 @@
 <profiler-configuration>
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.**</class>
+            <class>com.netcracker.profiler.test.**</class>
         </rule>
         <rule>
-            <class>org.qubership.profiler.**</class>
+            <class>com.netcracker.profiler.**</class>
             <do-not-profile/>
         </rule>
     </ruleset>

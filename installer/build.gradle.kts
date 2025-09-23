@@ -15,7 +15,7 @@ val testAppJar by tasks.registering(Jar::class) {
     archiveClassifier = "test-app"
     from(testApp.output)
     manifest {
-        attributes["Main-Class"] = "org.qubership.profiler.testapp.Main"
+        attributes["Main-Class"] = "com.netcracker.profiler.testapp.Main"
     }
 }
 

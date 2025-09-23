@@ -1,6 +1,6 @@
 package com.rabbitmq.client.impl;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 public class ChannelN {
     public void basicPublish$profiler(String exchange, String routingKey, byte[] body, Throwable throwable) {

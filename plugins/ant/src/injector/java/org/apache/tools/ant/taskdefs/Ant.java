@@ -1,7 +1,7 @@
 package org.apache.tools.ant.taskdefs;
 
-import org.qubership.profiler.agent.JSHelper;
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.JSHelper;
+import com.netcracker.profiler.agent.Profiler;
 
 import org.apache.tools.ant.Location;
 import org.apache.tools.ant.Project;

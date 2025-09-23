@@ -1,8 +1,8 @@
 package org.apache.activemq.artemis.jms.client;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.ProfilerData;
-import org.qubership.profiler.agent.StringUtils;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.ProfilerData;
+import com.netcracker.profiler.agent.StringUtils;
 
 import javax.jms.TextMessage;
 

@@ -1,6 +1,6 @@
 package com.liferay.portlet.layoutconfiguration.util;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import java.security.Principal;
 

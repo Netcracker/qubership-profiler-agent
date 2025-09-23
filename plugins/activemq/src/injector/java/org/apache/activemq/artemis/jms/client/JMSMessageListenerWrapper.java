@@ -1,6 +1,6 @@
 package org.apache.activemq.artemis.jms.client;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import javax.jms.MessageListener;
 

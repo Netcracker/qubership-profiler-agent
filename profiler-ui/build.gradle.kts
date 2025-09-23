@@ -57,13 +57,13 @@ val jsResources = configurations.consumable("jsResources") {
         variants {
             create("prodResources") {
                 attributes {
-                    attribute(Attribute.of("org.qubership.js.optimization", String::class.java), "prod")
+                    attribute(Attribute.of("com.netcracker.js.optimization", String::class.java), "prod")
                 }
                 artifact(buildUi)
             }
             create("singlePage") {
                 attributes {
-                    attribute(Attribute.of("org.qubership.js.optimization", String::class.java), "single-page")
+                    attribute(Attribute.of("com.netcracker.js.optimization", String::class.java), "single-page")
                 }
                 artifact(buildTreeSinglepage)
             }

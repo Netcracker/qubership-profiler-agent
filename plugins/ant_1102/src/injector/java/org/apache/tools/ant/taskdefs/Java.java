@@ -2,8 +2,8 @@ package org.apache.tools.ant.taskdefs;
 
 import static org.apache.tools.ant.taskdefs.ExecTask.cleanCmdLine$profiler;
 
-import org.qubership.profiler.agent.DumpRootResolverAgent;
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.DumpRootResolverAgent;
+import com.netcracker.profiler.agent.Profiler;
 
 import org.apache.tools.ant.Task;
 import org.apache.tools.ant.types.CommandlineJava;
@@ -47,7 +47,7 @@ public class Java extends Task {
                 if ("WLSTInterpreterInvoker".equals(escServerName)) {
                     cmdl.createVmArgument().setValue("-XX:TieredStopAtLevel=1");
                 }
-                cmdl.createVmArgument().setValue("-Dorg.qubership.esc.serverName=" + escServerName);
+                cmdl.createVmArgument().setValue("-Dcom.netcracker.esc.serverName=" + escServerName);
             }
         }
         Profiler.event(cleanCmdLine$profiler(cmdl.describeCommand()), "command.line.pre");

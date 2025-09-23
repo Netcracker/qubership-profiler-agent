@@ -4,52 +4,52 @@
 <web-app>
     <filter>
         <filter-name>CompressingFilter</filter-name>
-        <filter-class>org.qubership.profiler.shaded.com.github.ziplet.filter.compression.CompressingFilter</filter-class>
+        <filter-class>com.netcracker.profiler.shaded.com.github.ziplet.filter.compression.CompressingFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>DummyAuthenticationFilter</filter-name>
-        <filter-class>org.qubership.profiler.security.DummyAuthenticationFilter</filter-class>
+        <filter-class>com.netcracker.profiler.security.DummyAuthenticationFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>DummySecurityFilter</filter-name>
-        <filter-class>org.qubership.profiler.security.DummySecurityFilter</filter-class>
+        <filter-class>com.netcracker.profiler.security.DummySecurityFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>CachingFilter</filter-name>
-        <filter-class>org.qubership.profiler.filter.CachingFilter</filter-class>
+        <filter-class>com.netcracker.profiler.filter.CachingFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>AddDefaultHeadersFilter</filter-name>
-        <filter-class>org.qubership.profiler.filter.AddDefaultHeadersFilter</filter-class>
+        <filter-class>com.netcracker.profiler.filter.AddDefaultHeadersFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>AddContentTypeForHtmlFilesFilter</filter-name>
-        <filter-class>org.qubership.profiler.filter.AddContentTypeForHtmlFilesFilter</filter-class>
+        <filter-class>com.netcracker.profiler.filter.AddContentTypeForHtmlFilesFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>MDCInsertingServletFilter</filter-name>
-        <filter-class>org.qubership.profiler.shaded.ch.qos.logback.classic.helpers.MDCInsertingServletFilter</filter-class>
+        <filter-class>com.netcracker.profiler.shaded.ch.qos.logback.classic.helpers.MDCInsertingServletFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>UsernameFilter</filter-name>
-        <filter-class>org.qubership.profiler.audit.UsernameFilter</filter-class>
+        <filter-class>com.netcracker.profiler.audit.UsernameFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>ProfilerTimeoutFilter</filter-name>
-        <filter-class>org.qubership.profiler.filter.ProfilerTimeoutFilter</filter-class>
+        <filter-class>com.netcracker.profiler.filter.ProfilerTimeoutFilter</filter-class>
     </filter>
 
     <filter>
         <filter-name>CSRFGuardFilter</filter-name>
-        <filter-class>org.qubership.profiler.security.csrf.CSRFGuardFilter</filter-class>
+        <filter-class>com.netcracker.profiler.security.csrf.CSRFGuardFilter</filter-class>
     </filter>
 
     <filter-mapping>
@@ -122,60 +122,60 @@
     </filter-mapping>
 
     <listener>
-        <listener-class>org.qubership.profiler.servlet.LogbackInitializer</listener-class>
+        <listener-class>com.netcracker.profiler.servlet.LogbackInitializer</listener-class>
     </listener>
 
     <listener>
-        <listener-class>org.qubership.profiler.audit.SessionAuditListener</listener-class>
+        <listener-class>com.netcracker.profiler.audit.SessionAuditListener</listener-class>
     </listener>
 
     <listener>
-        <listener-class>org.qubership.profiler.servlet.SpringBootInitializer</listener-class>
+        <listener-class>com.netcracker.profiler.servlet.SpringBootInitializer</listener-class>
     </listener>
 
     <servlet>
         <servlet-name>CallFetcher</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.CallFetcher</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.CallFetcher</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>TreeFetcher</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.TreeFetcher</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.TreeFetcher</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>Config</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.Config</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.Config</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>ThreadDump</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.ThreadDump</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.ThreadDump</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>RawData</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.RawData</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.RawData</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>ActivePODs</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.ActivePODsFetcher</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.ActivePODsFetcher</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>DumpExporter</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.DumpExporterServlet</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.DumpExporterServlet</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>StreamsDownloader</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.StreamsDownloaderServlet</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.StreamsDownloaderServlet</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>ExcelExporter</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.ExcelExporterServlet</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.ExcelExporterServlet</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>Metrics</servlet-name>
-        <servlet-class>org.qubership.profiler.servlet.Metrics</servlet-class>
+        <servlet-class>com.netcracker.profiler.servlet.Metrics</servlet-class>
     </servlet>
     <servlet>
         <servlet-name>CsrfToken</servlet-name>
-        <servlet-class>org.qubership.profiler.security.csrf.CsrfTokenServlet</servlet-class>
+        <servlet-class>com.netcracker.profiler.security.csrf.CsrfTokenServlet</servlet-class>
     </servlet>
 
     <servlet-mapping>

@@ -5,7 +5,7 @@
             <pattern>[%thread] %highlight(%-5level) %cyan(%logger{15}) -%kvp -%msg %n</pattern>
         </encoder>
     </appender>
-    <root level="${org.qubership.profiler.log.root_level:-info}">
+    <root level="${com.netcracker.profiler.log.root_level:-info}">
         <appender-ref ref="STDOUT" />
     </root>
 </configuration>

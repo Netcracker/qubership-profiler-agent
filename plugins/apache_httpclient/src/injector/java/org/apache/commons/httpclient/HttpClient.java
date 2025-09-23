@@ -1,6 +1,6 @@
 package org.apache.commons.httpclient;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 public class HttpClient {
 

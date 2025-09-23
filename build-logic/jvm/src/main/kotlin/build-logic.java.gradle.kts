@@ -142,6 +142,6 @@ tasks.configureEach<Jar> {
         attributes["Implementation-Title"] = "Qubership Profiler Agent"
         attributes["Implementation-Version"] = project.version
         attributes["Implementation-Vendor"] = "Netcracker Qubership"
-        attributes["Implementation-Vendor-Id"] = "org.qubership"
+        attributes["Implementation-Vendor-Id"] = "com.netcracker"
     }
 }

@@ -34,7 +34,7 @@ val jacocoReport by tasks.registering(JacocoReport::class) {
 }
 
 allprojects {
-    group = "org.qubership.profiler"
+    group = "com.netcracker.profiler"
     version = buildVersion
 }
 

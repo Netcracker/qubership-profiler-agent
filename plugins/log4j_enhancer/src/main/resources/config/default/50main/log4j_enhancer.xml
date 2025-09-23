@@ -8,7 +8,7 @@
     <ruleset>
         <rule>
             <class>org.apache.log4j.Category</class>
-            <class>org.qubership.framework.logging.impl.log4j.NCLogger</class>
+            <class>com.netcracker.framework.logging.impl.log4j.NCLogger</class>
             <method>forcedLog(String,Priority,Object,Throwable)</method>
             <execute-before static="true" type="org/apache/log4j/Category">logWritten$profiler(p3)</execute-before>
             <do-not-profile/>

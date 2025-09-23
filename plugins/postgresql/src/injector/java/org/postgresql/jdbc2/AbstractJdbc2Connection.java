@@ -1,9 +1,9 @@
 package org.postgresql.jdbc2;
 
-import org.qubership.profiler.agent.CallInfo;
-import org.qubership.profiler.agent.LocalState;
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.StringUtils;
+import com.netcracker.profiler.agent.CallInfo;
+import com.netcracker.profiler.agent.LocalState;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.StringUtils;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -47,7 +47,7 @@ public abstract class AbstractJdbc2Connection implements Connection {
         if (SET_E2E$profiler == 1) {
             return;
         } else if (SET_E2E$profiler == 0) {
-            if (Boolean.getBoolean("org.qubership.execution-statistics-collector.postgresql.e2e.disabled")) {
+            if (Boolean.getBoolean("com.netcracker.execution-statistics-collector.postgresql.e2e.disabled")) {
                 SET_E2E$profiler = 1;
             } else {
                 SET_E2E$profiler = 2;

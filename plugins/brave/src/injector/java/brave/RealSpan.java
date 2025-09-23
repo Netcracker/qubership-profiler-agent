@@ -1,7 +1,7 @@
 package brave;
 
-import org.qubership.profiler.agent.CallInfo;
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.CallInfo;
+import com.netcracker.profiler.agent.Profiler;
 
 import brave.propagation.TraceContext;
 

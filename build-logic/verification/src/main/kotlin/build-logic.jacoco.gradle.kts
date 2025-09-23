@@ -19,8 +19,8 @@ afterEvaluate {
     for (t in arrayOf(testTasks, javaExecTasks)) {
         t.configureEach {
             extensions.findByType<JacocoTaskExtension>()?.apply {
-                // We want collect code coverage for org.qubership classes only
-                includes?.add("org.qubership.*")
+                // We want collect code coverage for com.netcracker classes only
+                includes?.add("com.netcracker.*")
             }
         }
     }

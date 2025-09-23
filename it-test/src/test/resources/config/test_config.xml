@@ -7,7 +7,7 @@
     <enhancer>test</enhancer>
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.MethodCodeTest</class>
+            <class>com.netcracker.profiler.test.MethodCodeTest</class>
             <method>test_nf_re_fin</method>
             <execute-when duration-exeeds="0">addedMethod$profiler(p1)</execute-when>
             <execute-after>addedMethod$profiler(p1)</execute-after>
@@ -16,26 +16,26 @@
     </ruleset>
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.MethodCodeTest</class>
+            <class>com.netcracker.profiler.test.MethodCodeTest</class>
             <!--<do-not-profile/>-->
         </rule>
     </ruleset>
 
-    <add-default-implementation class="org.qubership.profiler.test.pigs.TransactionPig" methodName="getCause"
+    <add-default-implementation class="com.netcracker.profiler.test.pigs.TransactionPig" methodName="getCause"
                                 methodDescr="()Ljava/lang/Throwable;"/>
 
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ChangeStructurePig</class>
+            <class>com.netcracker.profiler.test.pigs.ChangeStructurePig</class>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.TransactionPig</class>
+            <class>com.netcracker.profiler.test.pigs.TransactionPig</class>
             <method>getStatusAsString</method>
             <execute-instead return="java.lang.String">getStatusAsString$profiler</execute-instead>
             <do-not-profile/>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.TransactionPig</class>
+            <class>com.netcracker.profiler.test.pigs.TransactionPig</class>
             <method>getCause</method>
             <execute-instead return="java.lang.Throwable">getCause$profiler</execute-instead>
             <do-not-profile/>
@@ -44,51 +44,51 @@
 
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>stringArg</method>
             <log-parameter name="parameter.string">0</log-parameter>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>intArg</method>
             <log-parameter name="parameter.int">0</log-parameter>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>staticInt</method>
             <log-parameter name="parameter.staticInt">0</log-parameter>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>staticIntDouble</method>
             <log-parameter name="parameter.staticInt">0</log-parameter>
             <log-parameter name="parameter.staticDouble">1</log-parameter>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>shiftsTime</method>
             <log-parameter-when duration-exceeds="500" name="parameter.double">1</log-parameter-when>
             <log-parameter-when duration-exceeds="2000" name="parameter.int">0</log-parameter-when>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig$B</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig$B</class>
             <method>&lt;init&gt;(int)</method>
             <log-parameter name="parameter.int">0</log-parameter>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>returnsDouble</method>
             <log-return name="return.double500"/>
             <log-return-when duration-exceeds="2000" name="return.double2000"/>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>returnsByte</method>
             <log-return-when duration-exceeds="500" name="return.byte500"/>
             <log-return-when duration-exceeds="2000" name="return.byte2000"/>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.LogParameterPig</class>
+            <class>com.netcracker.profiler.test.pigs.LogParameterPig</class>
             <method>throwsException</method>
             <log-parameter-when duration-exceeds="100" name="param.gt100">0</log-parameter-when>
         </rule>
@@ -96,22 +96,22 @@
 
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>staticExecuteBefore</method>
-            <execute-before static="true" type="org/qubership/profiler/test/pigs/ExecuteMethodPig$Observer">staticMethod2(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10)</execute-before>
+            <execute-before static="true" type="com/netcracker/profiler/test/pigs/ExecuteMethodPig$Observer">staticMethod2(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10)</execute-before>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>staticExecuteAfter</method>
-            <execute-after static="true" type="org/qubership/profiler/test/pigs/ExecuteMethodPig$Observer">staticMethod2(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10)</execute-after>
+            <execute-after static="true" type="com/netcracker/profiler/test/pigs/ExecuteMethodPig$Observer">staticMethod2(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10)</execute-after>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>staticExecuteAfterWithResult</method>
-            <execute-after static="true" type="org/qubership/profiler/test/pigs/ExecuteMethodPig$Observer">staticMethod2(p1,p2,p3,p4,p5,p6,p7,p8,result,p10)</execute-after>
+            <execute-after static="true" type="com/netcracker/profiler/test/pigs/ExecuteMethodPig$Observer">staticMethod2(p1,p2,p3,p4,p5,p6,p7,p8,result,p10)</execute-after>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>executeInstead</method>
             <execute-instead return="long">executeNewInstead(p1,p2)</execute-instead>
         </rule>
@@ -119,40 +119,40 @@
 
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>throwException</method>
-            <execute-when static="true" type="org/qubership/profiler/test/pigs/ExecuteMethodPig$Observer" exception="true">throwException(p1,p2,p3)</execute-when>
+            <execute-when static="true" type="com/netcracker/profiler/test/pigs/ExecuteMethodPig$Observer" exception="true">throwException(p1,p2,p3)</execute-when>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>throwExceptionOnly</method>
-            <execute-when static="true" type="org/qubership/profiler/test/pigs/ExecuteMethodPig$Observer" exception-only="true">throwExceptionOnly(p1,p2,p3)</execute-when>
+            <execute-when static="true" type="com/netcracker/profiler/test/pigs/ExecuteMethodPig$Observer" exception-only="true">throwExceptionOnly(p1,p2,p3)</execute-when>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>throwExceptionJustThrowable</method>
-            <execute-when static="true" type="org/qubership/profiler/test/pigs/ExecuteMethodPig$Observer" exception="true">throwExceptionJustThrowable(throwable)</execute-when>
+            <execute-when static="true" type="com/netcracker/profiler/test/pigs/ExecuteMethodPig$Observer" exception="true">throwExceptionJustThrowable(throwable)</execute-when>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ExecuteMethodPig</class>
+            <class>com.netcracker.profiler.test.pigs.ExecuteMethodPig</class>
             <method>throwExceptionJustThrowable2</method>
-            <execute-when static="true" type="org/qubership/profiler/test/pigs/ExecuteMethodPig$Observer" exception="true">throwExceptionJustThrowable</execute-when>
+            <execute-when static="true" type="com/netcracker/profiler/test/pigs/ExecuteMethodPig$Observer" exception="true">throwExceptionJustThrowable</execute-when>
         </rule>
     </ruleset>
 
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ProcessArgumentPig</class>
+            <class>com.netcracker.profiler.test.pigs.ProcessArgumentPig</class>
             <method>intArg(int)</method>
             <process-argument argument="0">processInt$profiler(p1)</process-argument>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.ProcessArgumentPig</class>
+            <class>com.netcracker.profiler.test.pigs.ProcessArgumentPig</class>
             <method>mapArg(Map)</method>
             <process-argument argument="0">processMap$profiler(p1)</process-argument>
         </rule>
         <rule>
-            <class>org.qubership.profiler.test.pigs.TestRes</class>
+            <class>com.netcracker.profiler.test.pigs.TestRes</class>
             <method>&lt;init&gt;(String)</method>
             <process-argument argument="0">processRes$profiler(p1)</process-argument>
         </rule>

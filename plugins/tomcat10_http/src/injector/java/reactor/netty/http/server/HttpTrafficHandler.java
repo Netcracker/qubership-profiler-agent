@@ -1,6 +1,6 @@
 package reactor.netty.http.server;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import io.netty.handler.codec.http.HttpRequest;
 

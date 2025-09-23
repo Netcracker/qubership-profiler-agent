@@ -5,7 +5,7 @@ plugins {
 
 tasks.jar {
     manifest {
-        attributes["Entry-Points"] = "org.qubership.profiler.instrument.enhancement.EnhancerPlugin_${project.name}"
+        attributes["Entry-Points"] = "com.netcracker.profiler.instrument.enhancement.EnhancerPlugin_${project.name}"
         attributes["Esc-Dependencies"] = "instrumenter"
     }
 }
@@ -66,9 +66,9 @@ val generateInjector by tasks.registering(JavaExec::class) {
         javaLauncher.convention(javaToolchains.launcherFor(it))
     }
     classpath(generateInjectorClasspath)
-    mainClass = "org.qubership.profiler.tools.GenerateInjectorCommand"
+    mainClass = "com.netcracker.profiler.tools.GenerateInjectorCommand"
     jvmArgs(
-        "-Dorg.qubership.profiler.log.root_level=${
+        "-Dcom.netcracker.profiler.log.root_level=${
             when {
                 logger.isTraceEnabled -> "trace"
                 logger.isDebugEnabled -> "debug"
@@ -84,7 +84,7 @@ val generateInjector by tasks.registering(JavaExec::class) {
             listOf(
                 "--output-file",
                 generateInjectorDir.get()
-                    .file("org/qubership/profiler/instrument/enhancement/EnhancerPlugin_${project.name}Enhancers.java")
+                    .file("com/netcracker/profiler/instrument/enhancement/EnhancerPlugin_${project.name}Enhancers.java")
                     .asFile.absolutePath
             )
         }

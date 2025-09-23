@@ -33,7 +33,7 @@ val extractInstaller by tasks.registering(Sync::class) {
 
 tasks.test {
     dependsOn(extractInstaller)
-    systemProperty("org.qubership.profiler.agent.LocalBuffer.SIZE", "16")
+    systemProperty("com.netcracker.profiler.agent.LocalBuffer.SIZE", "16")
     // Execute tests with profiler
     val dumpHome = layout.buildDirectory.dir("dump")
     jvmArgumentProviders.add(

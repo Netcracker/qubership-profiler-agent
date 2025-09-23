@@ -1,8 +1,8 @@
 package org.springframework.web.servlet.mvc.method.annotation;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.http.HttpServletLogUtils;
-import org.qubership.profiler.agent.http.ServletRequestAdapter;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.http.HttpServletLogUtils;
+import com.netcracker.profiler.agent.http.ServletRequestAdapter;
 
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.catalina.connector.Request;

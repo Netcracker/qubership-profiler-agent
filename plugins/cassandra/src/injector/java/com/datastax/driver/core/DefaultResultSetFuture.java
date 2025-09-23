@@ -1,7 +1,7 @@
 package com.datastax.driver.core;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.StringUtils;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.StringUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

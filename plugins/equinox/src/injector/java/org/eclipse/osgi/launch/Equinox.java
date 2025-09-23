@@ -1,6 +1,6 @@
 package org.eclipse.osgi.launch;
 
-import org.qubership.profiler.agent.Bootstrap;
+import com.netcracker.profiler.agent.Bootstrap;
 
 import java.util.HashMap;
 import java.util.Map;

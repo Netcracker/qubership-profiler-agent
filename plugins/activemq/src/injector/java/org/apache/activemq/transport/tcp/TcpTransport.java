@@ -1,7 +1,7 @@
 package org.apache.activemq.transport.tcp;
 
-import org.qubership.profiler.agent.LocalState;
-import org.qubership.profiler.agent.ProfilerData;
+import com.netcracker.profiler.agent.LocalState;
+import com.netcracker.profiler.agent.ProfilerData;
 
 import java.io.InterruptedIOException;
 

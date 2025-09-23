@@ -18,6 +18,6 @@ dependencies {
 tasks.jar {
     manifest {
         attributes["Class-Path"] = "../runtime.jar"
-        attributes["Main-Class"] = "org.qubership.profiler.cli.Main"
+        attributes["Main-Class"] = "com.netcracker.profiler.cli.Main"
     }
 }

@@ -1,6 +1,6 @@
 package com.couchbase.client.java;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 public class Collection {
 

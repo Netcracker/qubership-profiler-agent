@@ -1,6 +1,6 @@
 package org.jboss.resteasy.core;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import io.quarkus.resteasy.runtime.standalone.VertxHttpRequest;
 import jakarta.ws.rs.core.HttpHeaders;

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiler-configuration>
+    <ruleset>
+        <rule>
+            <class>com.netcracker.**</class>
+            <minimum-method-size>50</minimum-method-size>
+        </rule>
+    </ruleset>
+</profiler-configuration>

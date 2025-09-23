@@ -14,7 +14,7 @@
     </parameters>
     <ruleset>
         <rule>
-            <class>org.qubership.profiler.**</class>
+            <class>com.netcracker.profiler.**</class>
             <do-not-profile/>
         </rule>
     </ruleset>

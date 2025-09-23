@@ -1,7 +1,7 @@
 package io.jaegertracing.internal;
 
-import org.qubership.profiler.agent.CallInfo;
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.CallInfo;
+import com.netcracker.profiler.agent.Profiler;
 
 import io.opentracing.Span;
 import io.opentracing.SpanContext;

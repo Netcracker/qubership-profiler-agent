@@ -22,7 +22,7 @@ val jsResources = configurations.resolvable("jsResources") {
     extendsFrom(jsResourcesElements.get())
     attributes {
         attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, LibraryElements.RESOURCES)
-        attribute(Attribute.of("org.qubership.js.optimization", String::class.java), "prod")
+        attribute(Attribute.of("com.netcracker.js.optimization", String::class.java), "prod")
     }
 }
 
@@ -30,7 +30,7 @@ val jsSinglePageResources = configurations.resolvable("jsSinglePageResources") {
     extendsFrom(jsResourcesElements.get())
     attributes {
         attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, LibraryElements.RESOURCES)
-        attribute(Attribute.of("org.qubership.js.optimization", String::class.java), "single-page")
+        attribute(Attribute.of("com.netcracker.js.optimization", String::class.java), "single-page")
     }
 }
 
@@ -50,11 +50,11 @@ tasks.war {
         attributes["Bundle-Version"] = "${project.version}"
         attributes["Bundle-Category"] = "Qubership Tools"
         attributes["Bundle-Name"] = "Qubership Profiler"
-        attributes["Bundle-SymbolicName"] = "org.qubership.profiler"
+        attributes["Bundle-SymbolicName"] = "com.netcracker.profiler"
         attributes["Bundle-ManifestVersion"] = "2"
         attributes["Import-Package"] = "javax.servlet,javax.servlet.http,org.w3c.dom,javax.naming,org.xml.sax,javax.xml.parsers,javax.xml.transform,javax.xml.transform.dom,javax.xml.transform.sax,javax.xml.transform.stax,javax.xml.transform.stream"
         attributes["Bundle-ClassPath"] = ".,WEB-INF/lib/war-lib-${project.version}.jar"
-        attributes["Main-Class"] = "org.qubership.profiler.WARLauncher"
+        attributes["Main-Class"] = "com.netcracker.profiler.WARLauncher"
         attributes["Web-ContextPath"] = "profiler"
     }
     from(sourceSets["launcher"].output)

@@ -1,6 +1,6 @@
 package org.apache.tools.ant;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import java.util.Hashtable;
 

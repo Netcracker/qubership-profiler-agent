@@ -1,8 +1,8 @@
 package io.undertow.servlet.handlers;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.http.HttpServletLogUtils;
-import org.qubership.profiler.agent.http.ServletRequestAdapter;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.http.HttpServletLogUtils;
+import com.netcracker.profiler.agent.http.ServletRequestAdapter;
 
 import javax.servlet.ServletRequest;
 

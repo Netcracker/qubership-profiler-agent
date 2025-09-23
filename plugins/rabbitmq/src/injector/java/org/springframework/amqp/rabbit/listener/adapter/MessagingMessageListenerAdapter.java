@@ -1,7 +1,7 @@
 package org.springframework.amqp.rabbit.listener.adapter;
 
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;

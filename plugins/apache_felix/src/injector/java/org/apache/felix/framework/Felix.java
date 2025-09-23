@@ -1,6 +1,6 @@
 package org.apache.felix.framework;
 
-import org.qubership.profiler.agent.Bootstrap;
+import com.netcracker.profiler.agent.Bootstrap;
 
 import java.util.HashMap;
 import java.util.Map;

@@ -1,6 +1,6 @@
 package sun.net.www.http;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import java.net.URL;
 

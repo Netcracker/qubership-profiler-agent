@@ -42,7 +42,7 @@
             <do-not-profile/>
         </rule>
         <rule>
-            <class>org.qubership.dsi.offlineimport.tool.ImportToolTask</class>
+            <class>com.netcracker.dsi.offlineimport.tool.ImportToolTask</class>
             <method>execute</method>
             <execute-before>logImportFile$profiler</execute-before>
         </rule>
@@ -66,7 +66,7 @@
             <class>org.apache.tools.ant.Main</class>
             <method>exit</method>
             <execute-before static="true"
-                type="org/qubership/profiler/agent/Profiler">threadExit</execute-before>
+                type="com/netcracker/profiler/agent/Profiler">threadExit</execute-before>
             <do-not-profile />
         </rule>
         <rule>

@@ -1,7 +1,7 @@
 package io.undertow.server;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.TimerCache;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.TimerCache;
 
 public class Connectors {
     private static volatile boolean skipRequestTime$profiler;

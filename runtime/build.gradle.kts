@@ -10,7 +10,7 @@ dependencies {
 
 tasks.shadowJar {
     manifest {
-        attributes["Entry-Points"] = "org.qubership.profiler.agent.plugins.EnhancerRegistryPluginImpl org.qubership.profiler.agent.plugins.ProfilerTransformerPluginImpl org.qubership.profiler.agent.plugins.DumperPluginImpl"
+        attributes["Entry-Points"] = "com.netcracker.profiler.agent.plugins.EnhancerRegistryPluginImpl com.netcracker.profiler.agent.plugins.ProfilerTransformerPluginImpl com.netcracker.profiler.agent.plugins.DumperPluginImpl"
     }
 }
 

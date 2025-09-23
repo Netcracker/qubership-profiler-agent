@@ -1,8 +1,8 @@
 package org.elasticsearch.client;
 
-import org.qubership.profiler.agent.Profiler;
-import org.qubership.profiler.agent.ProfilerData;
-import org.qubership.profiler.agent.TimerCache;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.ProfilerData;
+import com.netcracker.profiler.agent.TimerCache;
 
 import org.elasticsearch.action.ActionRequest;
 

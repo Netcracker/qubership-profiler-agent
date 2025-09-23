@@ -1,6 +1,6 @@
 package org.apache.tools.ant.taskdefs;
 
-import org.qubership.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.Profiler;
 
 import org.apache.tools.ant.Task;
 import org.apache.tools.ant.types.Commandline;

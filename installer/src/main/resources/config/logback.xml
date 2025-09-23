@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <configuration scan="true" scanPeriod="30 seconds">
   <!--<appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">-->
-    <!--<file>logs/execution-statistics-collector-${org.qubership.profier.serverName}.log</file>-->
+    <!--<file>logs/execution-statistics-collector-${com.netcracker.profier.serverName}.log</file>-->
     <!--<Append>true</Append>-->
     <!--<rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">-->
-      <!--<FileNamePattern>logs/execution-statistics-collector-${org.qubership.profier.serverName}.log.%i.zip</FileNamePattern>-->
+      <!--<FileNamePattern>logs/execution-statistics-collector-${com.netcracker.profier.serverName}.log.%i.zip</FileNamePattern>-->
       <!--<MinIndex>1</MinIndex>-->
       <!--<MaxIndex>5</MaxIndex>-->
     <!--</rollingPolicy>-->
@@ -23,7 +23,7 @@
   </appender>
 
   <root>
-    <level value="${org.qubership.profiler.log.root_level:-info}" />
+    <level value="${com.netcracker.profiler.log.root_level:-info}" />
     <appender-ref ref="STDOUT" />
     <!--<appender-ref ref="FILE" />-->
   </root>

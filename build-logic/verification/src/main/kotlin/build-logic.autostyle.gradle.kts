@@ -26,7 +26,7 @@ plugins.withId("java") {
             // licenseHeaderFile(licenseHeaderFile)
             importOrder(
                 "static ",
-                "org.qubership.",
+                "com.netcracker.",
                 "",
                 "java.",
                 "javax."
