@@ -136,7 +136,7 @@ transform_service_name() {
 
   # REMOTE_DUMP_HOST may contain either esc-static-service address or esc-collector-service address
   # Need to auto-detect both of them and use accordingly
-  echo "$base_service" | sed "s/esc-static-service/esc-collector-service/"
+  echo "${base_service//esc-static-service/esc-collector-service}"
 }
 
 if [ "dev" = "${NC_DIAGNOSTIC_MODE}" ] || [ "prod" = "${NC_DIAGNOSTIC_MODE}" ] ; then
