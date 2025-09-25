@@ -1,5 +1,6 @@
 import '../styles/activePodPopup.css';
 import { default as jQuery, default as $ } from 'jquery';
+import 'jquery-bbq';
 import { default as jstz } from 'jstz';
 
 class ActivePodPopup {

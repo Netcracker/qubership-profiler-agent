@@ -329,12 +329,11 @@ is-number@^7.0.0:
   resolved "https://registry.yarnpkg.com/is-number/-/is-number-7.0.0.tgz#7535345b896734d5f80c4d06c50955527a14f12b"
   integrity sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==
 
-jquery-bbq@^1.0.0:
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/jquery-bbq/-/jquery-bbq-1.0.0.tgz#3500a7ab000e2ae39891fbf6f8f947012aee251c"
-  integrity sha512-yzXqG8MrGx+JArWEvzzhn8Y54p9m7oxAnHdydGn3b/cFtaJ0CWZ/WWo/1ioBiyNivH4MaA//HE7K0Tla9FD+4g==
+"jquery-bbq@git+https://github.com/vlsi/jquery-bbq.git#2.0.0":
+  version "1.3.1"
+  resolved "git+https://github.com/vlsi/jquery-bbq.git#c173e6d0d1352ffe16b3401aa0e65998041c3c38"
   dependencies:
-    jquery "^1.9.1"
+    jquery ">= 1.4.0"
 
 "jquery-notify@git+https://github.com/ehynds/jquery-notify.git#1.5":
   version "0.0.0"
@@ -362,15 +361,10 @@ jquery.rule@^1.1.2:
   resolved "https://registry.yarnpkg.com/jquery.rule/-/jquery.rule-1.1.2.tgz#d91828265e50b9837d74af84c5cf38397d891802"
   integrity sha512-AAm4fVZPW1AHjWrX0ptjZ7gY4MJYv0NJB4QULng7jULWtK1499EGwqU8+ckDtUbZzzKBDqIiCVCdjMuznsnpJw==
 
-"jquery@>=1.12.0 <5.0.0", "jquery@>=3.4.0 <4.0.0", jquery@^3.5.1:
+"jquery@>= 1.4.0", "jquery@>=1.12.0 <5.0.0", "jquery@>=3.4.0 <4.0.0", jquery@^3.5.1:
   version "3.7.1"
   resolved "https://registry.yarnpkg.com/jquery/-/jquery-3.7.1.tgz#083ef98927c9a6a74d05a6af02806566d16274de"
   integrity sha512-m4avr8yL8kmFN8psrbFFFmB/If14iN5o9nw/NgnnM+kybDJpRsAynV2BsfpTYrTRysYUdADVD7CkUUizgkpLfg==
-
-jquery@^1.9.1:
-  version "1.12.4"
-  resolved "https://registry.yarnpkg.com/jquery/-/jquery-1.12.4.tgz#01e1dfba290fe73deba77ceeacb0f9ba2fec9e0c"
-  integrity sha512-UEVp7PPK9xXYSk8xqXCJrkXnKZtlgWkd2GsAQbMRFK6S/ePU2JN5G2Zum8hIVjzR3CpdfSqdqAzId/xd4TJHeg==
 
 jstz@^2.1.1:
   version "2.1.1"
