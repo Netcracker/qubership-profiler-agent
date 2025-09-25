@@ -1,0 +1,4 @@
+- vulnerabilityID: NSWG-ECO-328
+  target: jquery
+- vulnerabilityID: CVE-2021-20086
+  target: jquery-bbq
