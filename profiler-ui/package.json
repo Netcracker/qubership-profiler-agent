@@ -13,7 +13,7 @@
     "jquery-ui": "^1.13.2",
     "jquery.rule": "^1.1.2",
     "jquery.cookie": "^1.4.1",
-    "jquery-bbq": "git+https://github.com/vlsi/jquery-bbq.git#2.0.0",
+    "jquery-bbq": "git+https://github.com/vlsi/jquery-bbq.git#v2.0.0",
     "jquery-notify": "git+https://github.com/ehynds/jquery-notify.git#1.5",
     "jquery.event.drag": "^2.2.2",
     "url-search-params-polyfill": "^8.2.5",
