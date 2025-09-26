@@ -27,6 +27,7 @@ import { default as vkbeautify } from 'vkbeautify';
 import 'dygraphs/dist/dygraph.css';
 import { default as Dygraph } from 'dygraphs';
 import { Activator } from './activate_ide.mjs';
+import './jquery-browser.mjs';
 import '../styles/prof.css';
 
 jQuery.fn.firstParents = function(n) {

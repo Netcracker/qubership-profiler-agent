@@ -42,3 +42,4 @@ runs:
       with:
         ref: ${{ github.ref_name }}
         token: ${{ github.token }}
+        persist-credentials: false

@@ -4,6 +4,7 @@ import { ESCConstants } from "./ESCConstants.mjs";
 import { ESCDecoders } from "./decoders.mjs";
 import { ESCProfilerSettings } from "./profilerSettings.mjs";
 import { default as jQuery } from 'jquery';
+import './jquery-browser.mjs';
 
 const ESCDataFormat = new function() {
     var self = this;

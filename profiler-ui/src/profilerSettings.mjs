@@ -1,4 +1,5 @@
-import { default as jQuery } from 'jquery';
+import { default as jQuery } from './leaked-jquery.mjs';
+import 'jquery-bbq';
 import { default as moment } from 'moment';
 import 'moment-timezone';
 import 'jquery.cookie';
