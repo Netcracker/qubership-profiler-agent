@@ -47,24 +47,27 @@ func deleteFile(property string) error {
 
 func TestIsDcdEnabled(t *testing.T) {
 	assert.True(t, IsDcdEnabled())
-	err := os.Setenv("DIAGNOSTIC_CENTER_DUMPS_ENABLED", "true")
-	assert.NoError(t, err)
+
+	os.Setenv("DIAGNOSTIC_CENTER_DUMPS_ENABLED", "true")
 	assert.True(t, IsDcdEnabled())
-	err = os.Setenv("DIAGNOSTIC_CENTER_DUMPS_ENABLED", "false")
-	assert.NoError(t, err)
+
+	os.Setenv("DIAGNOSTIC_CENTER_DUMPS_ENABLED", "false")
 	assert.False(t, IsDcdEnabled())
-	err = os.Setenv(NcDiagCenterDumpEnabled, "true")
-	assert.NoError(t, err)
+
+	os.Setenv(NcDiagCenterDumpEnabled, "true")
 	assert.True(t, IsDcdEnabled())
 	assert.Equal(t, "DIAGNOSTIC_CENTER_DUMPS_ENABLED", NcDiagCenterDumpEnabled)
 }
 
 func TestIsLongListeningEnabled(t *testing.T) {
 	assert.False(t, IsLongListeningEnabled())
+
 	os.Setenv("NC_DIAGNOSTIC_JSTACK_LONG_LISTENING_ENABLED", "true")
 	assert.True(t, IsLongListeningEnabled())
+
 	os.Setenv("NC_DIAGNOSTIC_JSTACK_LONG_LISTENING_ENABLED", "false")
 	assert.False(t, IsLongListeningEnabled())
+
 	os.Setenv(NcDiagJStackLongEnabled, "true")
 	assert.True(t, IsLongListeningEnabled())
 	assert.Equal(t, "NC_DIAGNOSTIC_JSTACK_LONG_LISTENING_ENABLED", NcDiagJStackLongEnabled)
@@ -72,33 +75,40 @@ func TestIsLongListeningEnabled(t *testing.T) {
 
 func TestIsThreadDumpEnabled(t *testing.T) {
 	assert.True(t, IsThreadDumpEnabled(testCtx))
+
 	os.Setenv("NC_DIAGNOSTIC_THREADDUMP_ENABLED", "true")
 	assert.True(t, IsThreadDumpEnabled(testCtx))
+
 	os.Setenv("NC_DIAGNOSTIC_THREADDUMP_ENABLED", "false")
 	assert.False(t, IsThreadDumpEnabled(testCtx))
+
 	os.Setenv(NcDiagThreadDumpEnabled, "true")
-	err := saveFile("NC_DIAGNOSTIC_THREADDUMP_ENABLED", []byte("true"))
-	assert.NoError(t, err)
+	saveFile("NC_DIAGNOSTIC_THREADDUMP_ENABLED", []byte("true"))
 	assert.True(t, IsThreadDumpEnabled(testCtx))
-	err = saveFile("NC_DIAGNOSTIC_THREADDUMP_ENABLED", []byte("false"))
-	assert.NoError(t, err)
+
+	saveFile("NC_DIAGNOSTIC_THREADDUMP_ENABLED", []byte("false"))
 	assert.False(t, IsThreadDumpEnabled(testCtx))
-	err = deleteFile("NC_DIAGNOSTIC_THREADDUMP_ENABLED")
-	assert.NoError(t, err)
+
+	deleteFile("NC_DIAGNOSTIC_THREADDUMP_ENABLED")
 	assert.True(t, IsThreadDumpEnabled(testCtx))
 	assert.Equal(t, "NC_DIAGNOSTIC_THREADDUMP_ENABLED", NcDiagThreadDumpEnabled)
 }
 
 func TestIsTopDumpEnabled(t *testing.T) {
 	assert.True(t, IsTopDumpEnabled(testCtx))
+
 	os.Setenv("NC_DIAGNOSTIC_TOP_ENABLED", "true")
 	assert.True(t, IsTopDumpEnabled(testCtx))
+
 	os.Setenv("NC_DIAGNOSTIC_TOP_ENABLED", "false")
 	assert.False(t, IsTopDumpEnabled(testCtx))
+
 	saveFile("NC_DIAGNOSTIC_TOP_ENABLED", []byte("true"))
 	assert.True(t, IsTopDumpEnabled(testCtx))
+
 	saveFile("NC_DIAGNOSTIC_TOP_ENABLED", []byte("false"))
 	assert.False(t, IsTopDumpEnabled(testCtx))
+
 	deleteFile("NC_DIAGNOSTIC_TOP_ENABLED")
 	os.Setenv(NcDiagTopEnabled, "true")
 	assert.True(t, IsTopDumpEnabled(testCtx))
@@ -107,10 +117,13 @@ func TestIsTopDumpEnabled(t *testing.T) {
 
 func TestIsZookeeperEnabled(t *testing.T) {
 	assert.False(t, IsZookeeperEnabled()) // disabled by default
+
 	os.Setenv("ZOOKEEPER_ENABLED", "true")
 	assert.True(t, IsZookeeperEnabled())
+
 	os.Setenv("ZOOKEEPER_ENABLED", "false")
 	assert.False(t, IsZookeeperEnabled())
+
 	os.Setenv(ZkEnabled, "true")
 	assert.True(t, IsZookeeperEnabled())
 	assert.Equal(t, "ZOOKEEPER_ENABLED", ZkEnabled)
@@ -118,13 +131,17 @@ func TestIsZookeeperEnabled(t *testing.T) {
 
 func TestIsConfigServerEnabled(t *testing.T) {
 	assert.False(t, IsConfigServerEnabled()) // disabled by default
+
 	os.Setenv("CONFIG_SERVER", "http://localhost")
 	assert.True(t, IsConfigServerEnabled())
+
 	os.Setenv("CONFIG_SERVER", "")
 	assert.False(t, IsConfigServerEnabled())
+
 	os.Setenv(ConfigServerAddress, "http://localhost")
 	assert.True(t, IsConfigServerEnabled())
 	assert.Equal(t, "CONFIG_SERVER", ConfigServerAddress)
+
 	os.Setenv("CONFIG_SERVER", "")
 }
 
@@ -159,10 +176,13 @@ func TestConfigServerUrl(t *testing.T) {
 
 func TestIsConsulEnabled(t *testing.T) {
 	assert.False(t, IsConsulEnabled()) // disabled by default
+
 	os.Setenv("CONSUL_ENABLED", "true")
 	assert.True(t, IsConsulEnabled())
+
 	os.Setenv("CONSUL_ENABLED", "false")
 	assert.False(t, IsConsulEnabled())
+
 	os.Setenv(ConsulEnabled, "true")
 	assert.True(t, IsConsulEnabled())
 	assert.Equal(t, "CONSUL_ENABLED", ConsulEnabled)
@@ -220,7 +240,6 @@ func TestIdpUrl(t *testing.T) {
 	url, err = IdpUrl()
 	assert.Equal(t, "", url)
 	assert.NotNil(t, err)
-
 	assert.Equal(t, "IDP_URL", IdpAddress)
 }
 
@@ -232,14 +251,19 @@ func TestDiagFolder(t *testing.T) {
 
 func TestScanInterval(t *testing.T) {
 	assert.Equal(t, 1*time.Minute, ScanInterval(testCtx)) // default interval
+
 	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "10s")
 	assert.Equal(t, 10*time.Second, ScanInterval(testCtx))
+
 	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "7m")
 	assert.Equal(t, 7*time.Minute, ScanInterval(testCtx))
+
 	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "2h")
 	assert.Equal(t, 2*time.Hour, ScanInterval(testCtx))
+
 	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "bad")
 	assert.Equal(t, 3*time.Minute, ScanInterval(testCtx)) // default interval for invalid values
+
 	os.Setenv(NcDiagScanInterval, "2m")
 	assert.Equal(t, 2*time.Minute, ScanInterval(testCtx))
 	assert.Equal(t, "DIAGNOSTIC_SCAN_INTERVAL", NcDiagScanInterval)
@@ -247,21 +271,28 @@ func TestScanInterval(t *testing.T) {
 
 func TestDumpFolder(t *testing.T) {
 	assert.Equal(t, "/tmp/diagnostic", DumpFolder())
+
 	os.Setenv("NC_DIAGNOSTIC_LOGS_FOLDER", "/tmp/diagnostic/test")
 	assert.Equal(t, "/tmp/diagnostic/test", DumpFolder())
+
 	os.Setenv("NC_DIAGNOSTIC_LOGS_FOLDER", "")
 }
 
 func TestDumpInterval(t *testing.T) {
 	assert.Equal(t, 1*time.Minute, DumpInterval(testCtx)) // default interval
+
 	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "10s")
 	assert.Equal(t, 10*time.Second, DumpInterval(testCtx))
+
 	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "7m")
 	assert.Equal(t, 7*time.Minute, DumpInterval(testCtx))
+
 	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "2h")
 	assert.Equal(t, 2*time.Hour, DumpInterval(testCtx))
+
 	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "bad")
 	assert.Equal(t, 2*time.Minute, DumpInterval(testCtx)) // default interval for invalid values
+
 	os.Setenv(NcDiagDumpInterval, "6m")
 	assert.Equal(t, 6*time.Minute, DumpInterval(testCtx))
 	assert.Equal(t, "DIAGNOSTIC_DUMP_INTERVAL", NcDiagDumpInterval)
@@ -270,16 +301,20 @@ func TestDumpInterval(t *testing.T) {
 func TestLogFolder(t *testing.T) {
 	os.Setenv("NC_DIAGNOSTIC_LOGS_FOLDER", "")
 	assert.Equal(t, "/tmp/diagnostic", LogFolder())
+
 	os.Setenv("NC_DIAGNOSTIC_LOGS_FOLDER", "/tmp/diagnostic/test")
 	assert.Equal(t, "/tmp/diagnostic/test", LogFolder())
 }
 
 func TestLogInterval(t *testing.T) {
 	assert.Equal(t, 2, LogInterval())    // default interval
+
 	os.Setenv("KEEP_LOGS_INTERVAL", "3") // days
 	assert.Equal(t, 3, LogInterval())
+
 	os.Setenv("KEEP_LOGS_INTERVAL", "bad")
 	assert.Equal(t, 2, LogInterval()) // default interval for invalid values
+
 	os.Setenv(LogRetainInterval, "6")
 	assert.Equal(t, 6, LogInterval())
 	assert.Equal(t, "KEEP_LOGS_INTERVAL", LogRetainInterval)
@@ -287,14 +322,19 @@ func TestLogInterval(t *testing.T) {
 
 func TestLogPrintToConsole(t *testing.T) {
 	assert.Equal(t, false, LogPrintToConsole()) // default
+
 	os.Setenv("LOG_TO_CONSOLE", "true")
 	assert.Equal(t, true, LogPrintToConsole())
+
 	os.Setenv("LOG_TO_CONSOLE", "TRUE")
 	assert.Equal(t, true, LogPrintToConsole())
+
 	os.Setenv("LOG_TO_CONSOLE", "false")
 	assert.Equal(t, false, LogPrintToConsole())
+
 	os.Setenv("LOG_TO_CONSOLE", "bad")
 	assert.Equal(t, false, LogPrintToConsole()) // default for invalid values
+
 	os.Setenv(EnvLogToConsole, "true")
 	assert.Equal(t, true, LogPrintToConsole())
 	assert.Equal(t, "LOG_TO_CONSOLE", EnvLogToConsole)
@@ -302,10 +342,13 @@ func TestLogPrintToConsole(t *testing.T) {
 
 func TestLogFileSize(t *testing.T) {
 	assert.Equal(t, 1, LogFileSize()) // default size in mb
+
 	os.Setenv("LOG_FILE_SIZE", "3")   // days
 	assert.Equal(t, 3, LogFileSize())
+
 	os.Setenv("LOG_FILE_SIZE", "bad")
 	assert.Equal(t, 1, LogFileSize()) // default for invalid values
+
 	os.Setenv(EnvLogFileSize, "6")
 	assert.Equal(t, 6, LogFileSize())
 	assert.Equal(t, "LOG_FILE_SIZE", EnvLogFileSize)
@@ -313,10 +356,13 @@ func TestLogFileSize(t *testing.T) {
 
 func TestLogFileBackups(t *testing.T) {
 	assert.Equal(t, 5, LogFileBackups()) // default size in mb
+
 	os.Setenv("LOG_FILE_BACKUPS", "3")   // days
 	assert.Equal(t, 3, LogFileBackups())
+
 	os.Setenv("LOG_FILE_BACKUPS", "bad")
 	assert.Equal(t, 5, LogFileBackups()) // default for invalid values
+
 	os.Setenv(NumberOfLogFileBackups, "6")
 	assert.Equal(t, 6, LogFileBackups())
 	assert.Equal(t, "LOG_FILE_BACKUPS", NumberOfLogFileBackups)
@@ -374,5 +420,4 @@ func TestGetLogLevelFromEnv(t *testing.T) {
 	os.Setenv("ESC_LOG_LEVEL", "")
 	os.Setenv("LOG_LEVEL", "TRACE")
 	assert.Equal(t, "info", GetLogLevelFromEnv())
-
 }
