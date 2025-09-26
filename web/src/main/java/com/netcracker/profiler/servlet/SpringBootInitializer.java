@@ -12,6 +12,7 @@ import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.boot.logging.LoggingSystem;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -133,7 +134,9 @@ public class SpringBootInitializer implements ServletContextListener {
     }
 
     public void contextInitialized(ServletContextEvent servletContextEvent) {
-        try{
+        String prevLoggingSystem =
+                System.setProperty(LoggingSystem.SYSTEM_PROPERTY, Logback2LoggingSystem.class.getName());
+        try {
             SpringApplication app = constructSpringApplication();
 
             Map<String, Object> properties = new HashMap<>();
@@ -151,8 +154,12 @@ public class SpringBootInitializer implements ServletContextListener {
 
             app.setDefaultProperties(properties);
             MOROZOFF = app.run().getBean(this.getClass());
-        }catch (Throwable e){
+        } catch (Throwable e){
             log.error("", e);
+        } finally {
+            if (prevLoggingSystem != null) {
+                System.setProperty(LoggingSystem.SYSTEM_PROPERTY, prevLoggingSystem);
+            }
         }
         log.info("spring boot started");
     }

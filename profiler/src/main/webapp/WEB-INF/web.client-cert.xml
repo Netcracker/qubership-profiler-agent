@@ -23,8 +23,8 @@
     </filter>
 
     <filter>
-        <filter-name>MDCInsertingServletFilter</filter-name>
-        <filter-class>com.netcracker.profiler.shaded.ch.qos.logback.classic.helpers.MDCInsertingServletFilter</filter-class>
+        <filter-name>Slf4jMDCFilter</filter-name>
+        <filter-class>com.netcracker.profiler.filter.Slf4jMDCFilter</filter-class>
     </filter>
 
     <filter>
@@ -38,7 +38,7 @@
     </filter>
 
     <filter-mapping>
-        <filter-name>MDCInsertingServletFilter</filter-name>
+        <filter-name>Slf4jMDCFilter</filter-name>
         <url-pattern>/*</url-pattern>
     </filter-mapping>
     <filter-mapping>
