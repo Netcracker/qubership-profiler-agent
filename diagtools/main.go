@@ -54,9 +54,9 @@ zkConfig 'path to zookeeper property file' 'zookeeper properties which are to be
 
 func mainUsage() {
 	w := flag.CommandLine.Output()
-	_, _ = fmt.Fprintf(w, "Usage:\nglobal options:\n")
+	_, _ = fmt.Fprint(w, "Usage:\nglobal options:\n")
 	flag.PrintDefaults()
-	_, _ = fmt.Fprintf(w, mainUsageMessage)
+	_, _ = fmt.Fprint(w, mainUsageMessage)
 }
 
 // --------------------------------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ Usage:
 
 func heapUsage() {
 	w := flag.CommandLine.Output()
-	_, _ = fmt.Fprintf(w, heapUsageMessage)
+	_, _ = fmt.Fprint(w, heapUsageMessage)
 }
 
 func heapModifier(baseCtx context.Context, done chan struct{}) {
@@ -131,7 +131,7 @@ Usage:
 
 func scanUsage() {
 	w := flag.CommandLine.Output()
-	_, _ = fmt.Fprintf(w, scanUsageMessage)
+	_, _ = fmt.Fprint(w, scanUsageMessage)
 }
 
 func scanModifier(baseCtx context.Context, done chan struct{}) {
@@ -152,7 +152,7 @@ Usage:
 
 func consulConfigUsage() {
 	w := flag.CommandLine.Output()
-	_, _ = fmt.Fprintf(w, consulConfigUsageMessage)
+	_, _ = fmt.Fprint(w, consulConfigUsageMessage)
 }
 
 func consulConfigModifier(baseCtx context.Context, done chan struct{}) {
@@ -173,7 +173,7 @@ Usage:
 
 func configServerUsage() {
 	w := flag.CommandLine.Output()
-	_, _ = fmt.Fprintf(w, serverConfigUsageMessage)
+	_, _ = fmt.Fprint(w, serverConfigUsageMessage)
 }
 
 func cmdConfigServerModifier(baseCtx context.Context, done chan struct{}) {
@@ -194,7 +194,7 @@ Usage:
 
 func zkConfigUsage() {
 	w := flag.CommandLine.Output()
-	_, _ = fmt.Fprintf(w, zkConfigUsageMessage)
+	_, _ = fmt.Fprint(w, zkConfigUsageMessage)
 }
 
 func cmdZkConfigModifier(baseCtx context.Context, done chan struct{}) {
