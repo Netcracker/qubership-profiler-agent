@@ -2,7 +2,7 @@
 
 # Variables
 BINARY_NAME=diagtools
-BUILD_DIR=target
+BUILD_DIR=build
 
 # Default target
 .PHONY: all
