@@ -94,6 +94,7 @@ func (consulCfg *ConsulCfg) configFromConsul(property string) ([]byte, error) {
 	return pair.Value, nil
 }
 
+//nolint:unused
 func (consulCfg *ConsulCfg) setProperty(ctx context.Context, svc, property string, value string) (err error) {
 	if len(svc) == 0 {
 		svc = consulCfg.ServiceName
@@ -193,7 +194,7 @@ func (consulCfg *ConsulCfg) getSecretIdByM2MToken(ctx context.Context) (token st
 		return
 	}
 	if response.StatusCode != http.StatusOK {
-		return "", errors.New(fmt.Sprintf("error while generating ACL token: respose code: %s", response.Status))
+		return "", fmt.Errorf("error while generating ACL token: response code: %s", response.Status)
 	}
 	var respBodyMap map[string]interface{}
 	err = json.Unmarshal(respBody, &respBodyMap)

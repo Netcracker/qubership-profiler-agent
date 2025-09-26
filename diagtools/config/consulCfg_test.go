@@ -11,12 +11,16 @@ import (
 
 func TestConsulCfg_InitConfig(t *testing.T) {
 
-	os.Setenv(constants.NcCloudNamespace, "ns")
-	os.Setenv(constants.NcMicroServiceName, "svc")
+	err := os.Setenv(constants.NcCloudNamespace, "ns")
+	assert.NoError(t, err)
+	err = os.Setenv(constants.NcMicroServiceName, "svc")
+	assert.NoError(t, err)
 
 	args := []string{testDir, "invalid", constants.NcDiagMode, constants.NcDiagDumpInterval}
-	os.Setenv(constants.ConsulEnabled, "true")
-	os.Setenv(constants.ConsulAddress, "http://localhost:2082")
+	err = os.Setenv(constants.ConsulEnabled, "true")
+	assert.NoError(t, err)
+	err = os.Setenv(constants.ConsulAddress, "http://localhost:2082")
+	assert.NoError(t, err)
 
 	t.Run("default", func(t *testing.T) {
 		consulCfg := &ConsulCfg{}

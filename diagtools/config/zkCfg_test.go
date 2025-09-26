@@ -51,11 +51,3 @@ func TestZkCfg_InitConfig(t *testing.T) {
 		assert.Equal(t, []string{"localhost:2181"}, zkCfg.ZkAddresses)
 	})
 }
-
-func escConfig() string {
-	return `
-<xml>
-    <rule>override </rule>
-</xml>
-`
-}

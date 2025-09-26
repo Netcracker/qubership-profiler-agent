@@ -4,17 +4,20 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"gopkg.in/natefinch/lumberjack.v2"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+type contextKey string
+
 const (
-	ContextKey = "context"
+	ContextKey contextKey = "context"
 )
 
 var (

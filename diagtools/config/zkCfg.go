@@ -96,7 +96,8 @@ func (zkCfg *ZkCfg) CheckEscConfigFile(ctx context.Context, filename string) (er
 }
 
 // utilities for test purposes:
-
+//
+//nolint:unused
 func (zkCfg *ZkCfg) setProperty(ctx context.Context, svc, property string, value string) (err error) {
 	if len(svc) == 0 {
 		svc = zkCfg.ServiceName
@@ -118,11 +119,16 @@ func (zkCfg *ZkCfg) setProperty(ctx context.Context, svc, property string, value
 	return err
 }
 
+//nolint:unused
 func (zkCfg *ZkCfg) create(ctx context.Context, path string, value string) error { // create/update zk node
 	_, err := zkCfg.ZkConnect.Create(path, []byte(value), 0, zk.WorldACL(zk.PermAll))
 	if err != nil && errors.Is(err, zk.ErrNodeExists) {
 		var stat *zk.Stat
-		_, stat, err = zkCfg.ZkConnect.Get(path)
+		_, stat, getErr := zkCfg.ZkConnect.Get(path)
+		if getErr != nil {
+			log.Errorf(ctx, getErr, "Could not get zk node for property '%s' ", path)
+			return getErr
+		}
 		_, err = zkCfg.ZkConnect.Set(path, []byte(value), stat.Version)
 	}
 	if err != nil {
@@ -133,6 +139,7 @@ func (zkCfg *ZkCfg) create(ctx context.Context, path string, value string) error
 	return err
 }
 
+//nolint:unused
 func (zkCfg *ZkCfg) inConnect(ctx context.Context, f func()) error {
 	err := zkCfg.InitConfig(ctx)
 	if err != nil {

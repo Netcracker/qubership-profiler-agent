@@ -77,7 +77,7 @@ func (csConfig *CSConfig) generateM2MToken(ctx context.Context) (err error) {
 	}
 	clientM2M, err := utils.HttpClient()
 	if err != nil {
-		return errors.Join(errors.New("Error while configuring HTTP client with TLS"), err)
+		return errors.Join(errors.New("error while configuring HTTP client with TLS"), err)
 	}
 	// Create body payload
 	data := url.Values{}
@@ -131,7 +131,7 @@ func (csConfig *CSConfig) generateM2MToken(ctx context.Context) (err error) {
 	if !isOk {
 		err = errors.New("error while creating m2m token")
 		for key, vale := range idpResponse {
-			err = errors.Join(err, errors.New(fmt.Sprintf("%s:%s", key, vale)))
+			err = errors.Join(err, fmt.Errorf("%s:%s", key, vale))
 		}
 		return err
 	}
