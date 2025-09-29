@@ -6,7 +6,7 @@ require (
 	github.com/go-zookeeper/zk v1.0.4
 	github.com/hashicorp/consul/api v1.32.4
 	github.com/shirou/gopsutil/v3 v3.24.5
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/sys v0.36.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
