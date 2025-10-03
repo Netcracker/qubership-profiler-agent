@@ -3,13 +3,10 @@ package com.netcracker.profiler.dom;
 import com.netcracker.profiler.io.Hotspot;
 import com.netcracker.profiler.sax.raw.TreeRowid;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 public class ProfiledTree {
     private Hotspot root = new Hotspot(-1);
-    public List<GanttInfo> ganttInfos = new ArrayList<>();
     private TagDictionary dict;
     private ClobValues clobValues;
     private boolean ownDict = false;
@@ -55,8 +52,7 @@ public class ProfiledTree {
 
         if (root.id != that.root.id)
             throw new IllegalArgumentException("Unable to merge two trees with different root ids: " + root.id + " and " + that.root.id);
-        if (ganttInfos == null) ganttInfos = new ArrayList<>();
-        root.mergeWithChildren(that.root, ganttInfos);
+        root.mergeWithChildren(that.root);
 
         rowid = TreeRowid.UNDEFINED;
     }

@@ -82,13 +82,6 @@ public class LocalState {
         }
     }
 
-    public void reactorExit() {
-        if (ProfilerData.MINIMAL_LOGGED_DURATION == 0)
-            logExitImmediately();
-        else
-            logExitLazy();
-    }
-
     public void event(Object value, int id) {
         if (ProfilerData.MINIMAL_LOGGED_DURATION == 0)
             logEventImmediately(value, id);

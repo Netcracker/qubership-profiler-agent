@@ -15,11 +15,4 @@ public class CallDataReaderFactory {
                 return new CallDataReader_00();
         }
     }
-
-    public static ReactorCallReader createReactorReader(int fileFormat) {
-        switch (fileFormat) {
-            default:
-                return new ReactorCallReader_00();
-        }
-    }
 }

@@ -1,7 +1,6 @@
 package com.netcracker.profiler.output;
 
 import com.netcracker.profiler.dom.ClobValues;
-import com.netcracker.profiler.dom.GanttInfo;
 import com.netcracker.profiler.dom.ProfiledTree;
 import com.netcracker.profiler.dom.ProfiledTreeStreamVisitor;
 import com.netcracker.profiler.io.Hotspot;
@@ -17,7 +16,6 @@ import com.netcracker.profiler.util.ProfilerConstants;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.util.ByteArrayBuilder;
-import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +41,6 @@ public class CallTreeMediator extends ProfiledTreeStreamVisitor {
     private final String callback;
     private String mainFileName = "tree.html";
     private final int callbackId;
-    private final Map<String, String> folderIdMapping;
 
     private final CallTreeParams params;
     private final int paramTrimSizeForUI;
@@ -55,8 +52,7 @@ public class CallTreeMediator extends ProfiledTreeStreamVisitor {
                             int callbackId,
                             CallTreeParams params,
                             int paramTrimSizeForUI,
-                            boolean isZip,
-                            Map<String, String> folderIdMapping) {
+                            boolean isZip) {
         super(ProfilerConstants.PROFILER_V1);
         this.layout = layout;
         this.callback = callback;
@@ -64,7 +60,6 @@ public class CallTreeMediator extends ProfiledTreeStreamVisitor {
         this.params = params;
         this.paramTrimSizeForUI = paramTrimSizeForUI;
         this.isZip = isZip;
-        this.folderIdMapping = folderIdMapping;
     }
 
     public void setDurationFormat(DurationFormat durationFormat) {
@@ -112,22 +107,6 @@ public class CallTreeMediator extends ProfiledTreeStreamVisitor {
                 jgen.writeRaw("CT.updateFormatFromPersonalSettings();\n");
                 converter.serialize(tree, jgen);
 
-                for (GanttInfo info : tree.ganttInfos) {
-                    jgen.writeRaw("CT.ganttAppend(");
-                    jgen.writeNumber(info.startTime);
-                    jgen.writeRaw(",");
-                    jgen.writeNumber(info.totalTime);
-                    jgen.writeRaw(",'");
-                    jgen.writeRaw(info.fullRow);
-                    jgen.writeRaw("',");
-                    jgen.writeNumber(info.folderId);
-                    jgen.writeRaw(",");
-                    jgen.writeNumber(info.id);
-                    jgen.writeRaw(",");
-                    jgen.writeNumber(info.emit);
-                    jgen.writeRaw(");");
-                }
-
                 Hotspot root = tree.getRoot();
                 jgen.writeRaw("CT.timeRange(");
                 jgen.writeNumber(root.startTime);
@@ -135,7 +114,6 @@ public class CallTreeMediator extends ProfiledTreeStreamVisitor {
                 jgen.writeNumber(root.endTime);
                 jgen.writeRaw(");");
 
-                initGanttFolders(jgen);
                 jgen.flush();
 
                 PrintWriter writer = new PrintWriter(arrayBuilder);
@@ -201,16 +179,6 @@ public class CallTreeMediator extends ProfiledTreeStreamVisitor {
             for (ErrorMessage error : errors) {
                 error.toJson(jgen);
             }
-        }
-    }
-
-    private void initGanttFolders(JsonGenerator jgen) throws IOException {
-        for(Map.Entry<String, String> entry: folderIdMapping.entrySet()) {
-            jgen.writeRaw("CT.addGanttFolder(");
-            jgen.writeRaw(entry.getKey());  //numeric. should not enclose in quotes
-            jgen.writeRaw(",'");
-            jgen.writeRaw(StringUtils.replace(StringUtils.replace(entry.getValue(), "'", "\\'"), "\n", "\\n")); //just in case escape js literal
-            jgen.writeRaw("');");
         }
     }
 

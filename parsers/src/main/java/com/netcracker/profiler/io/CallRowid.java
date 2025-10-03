@@ -16,27 +16,21 @@ public class CallRowid implements Comparable<CallRowid> {
                 q,
                 Integer.parseInt(str[1]),
                 Integer.parseInt(str[2]),
-                Integer.parseInt(str[3]),
-                str.length>=5 ? Integer.parseInt(str[4]) : 0,
-                str.length>=6 ? Integer.parseInt(str[5]) : 0
+                Integer.parseInt(str[3])
         );
     }
-    public CallRowid(String file, int folderId, int traceFileIndex, int bufferOffset, int recordIndex, int reactorFileIndex, int reactorBufferOffset) {
+    public CallRowid(String file, int folderId, int traceFileIndex, int bufferOffset, int recordIndex) {
         this.file = file;
         String fullAddress = "_" +
                 traceFileIndex + "_" +
                 bufferOffset + "_" +
-                recordIndex + "_" +
-                reactorFileIndex + "_" +
-                reactorBufferOffset + "_";
+                recordIndex + "_";
         rowid = new TreeRowid(
                 folderId,
                 fullAddress,
                 traceFileIndex,
                 bufferOffset,
-                recordIndex,
-                reactorFileIndex,
-                reactorBufferOffset
+                recordIndex
         );
     }
 

@@ -4,28 +4,22 @@ public class TreeRowid implements Comparable<TreeRowid> {
     public final int traceFileIndex;
     public final int bufferOffset;
     public final int recordIndex;
-    public final int reactorFileIndex;
-    public final int reactorBufferOffset;
     public final String fullRowId;
     public final int folderId;
 
-    public final static TreeRowid UNDEFINED = new TreeRowid(0,null,0, 0, 0, 0, 0);
+    public final static TreeRowid UNDEFINED = new TreeRowid(0,null,0, 0, 0);
 
 
     public TreeRowid(int folderId,
                      String fullRowId,
                      int traceFileIndex,
                      int bufferOffset,
-                     int recordIndex,
-                     int reactorFileIndex,
-                     int reactorBufferOffset) {
+                     int recordIndex) {
         this.folderId = folderId;
         this.fullRowId = fullRowId;
         this.traceFileIndex = traceFileIndex;
         this.bufferOffset = bufferOffset;
         this.recordIndex = recordIndex;
-        this.reactorFileIndex = reactorFileIndex;
-        this.reactorBufferOffset = reactorBufferOffset;
     }
 
     public int compareTo(TreeRowid o) {
@@ -69,8 +63,6 @@ public class TreeRowid implements Comparable<TreeRowid> {
         sb.append("traceFileIndex=").append(traceFileIndex);
         sb.append(", bufferOffset=").append(bufferOffset);
         sb.append(", recordIndex=").append(recordIndex);
-        sb.append(", reactorFileIndex=").append(reactorFileIndex);
-        sb.append(", reactorBufferOffset=").append(reactorBufferOffset);
         sb.append(", fullRowId='").append(fullRowId).append('\'');
         sb.append(", folderId=").append(folderId);
         sb.append('}');

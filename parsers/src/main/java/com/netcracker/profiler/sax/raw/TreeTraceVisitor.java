@@ -38,32 +38,6 @@ public class TreeTraceVisitor {
             tv.visitEnter(methodId);
     }
 
-    public void visitEnter(int methodId,
-                           long lastAssemblyId,
-                           long lastParentAssemblyId,
-                           byte isReactorEndPoint,
-                           byte isReactorFrame,
-                           long reactStartTime,
-                           int  reactDuration,
-                           int blockingOperator,
-                           int prevOperation,
-                           int currentOperation,
-                           int emit){
-        sp++;
-        if (tv != null)
-            tv.visitEnter(methodId,
-                         lastAssemblyId,
-                         lastParentAssemblyId,
-                         isReactorEndPoint,
-                         isReactorFrame,
-                         reactStartTime,
-                         reactDuration,
-                         blockingOperator,
-                         prevOperation,
-                         currentOperation,
-                    emit);
-    }
-
     public void visitExit() {
         if (tv != null)
             tv.visitExit();
@@ -73,11 +47,6 @@ public class TreeTraceVisitor {
     public void visitLabel(int labelId, ValueHolder value) {
         if (tv != null)
             tv.visitLabel(labelId, value);
-    }
-
-    public void visitLabel(int labelId, ValueHolder value, long assemblyId) {
-        if (tv != null)
-            tv.visitLabel(labelId, value, assemblyId);
     }
 
     public void visitTimeAdvance(long timeAdvance) {

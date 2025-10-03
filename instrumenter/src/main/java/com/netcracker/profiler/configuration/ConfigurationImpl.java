@@ -666,10 +666,6 @@ public class ConfigurationImpl implements ConfigurationSPI {
                         rule.addSuperclass(content);
                     } else if ("method".equals(tagName)) {
                         rule.addIncludedMethod(content);
-                    } else if ("start-endpoint".equals(tagName)) {
-                        rule.turnStartEndPoint();
-                    } else if ("reactor-point".equals(tagName)) {
-                        rule.turnReactorPoint();
                     } else if ("include-method".equals(tagName)) {
                         rule.addIncludedMethod(content);
                     } else if ("exclude-method".equals(tagName)) {

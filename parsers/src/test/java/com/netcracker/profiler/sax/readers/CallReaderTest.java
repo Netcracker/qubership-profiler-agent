@@ -30,13 +30,12 @@ class MockCallReader extends CallReader {
     }
 
     public boolean findCalls(DataInputStreamEx is,
-            DataInputStreamEx reactorCalls,
-            String callsStreamIndex,
+                             String callsStreamIndex,
             SuspendLog suspendLog,
             ArrayList<Call> result,
             final BitSet requiredIds,
             long endScan) {
-        return findCallsInStream(is, reactorCalls, callsStreamIndex, suspendLog, result, requiredIds, endScan);
+        return findCallsInStream(is, callsStreamIndex, suspendLog, result, requiredIds, endScan);
     }
 }
 
@@ -63,7 +62,7 @@ public class CallReaderTest {
         ArrayList<Call> result = new ArrayList<Call>();
         BitSet requiredIds = new BitSet();
         long endScan = Long.MAX_VALUE;
-        spy.findCalls(calls, null, null, suspendLog, result, requiredIds, endScan);
+        spy.findCalls(calls, null, suspendLog, result, requiredIds, endScan);
         assertEquals(27, result.size(), "Assertions No of Calls");
         assertEquals("Call{time=1691167327716, cpuTime=1184, waitTime=0, memoryUsed=0, method=9, duration=415, queueWaitDuration=0, suspendDuration=0, calls=4, traceFileIndex=1, bufferOffset=8, recordIndex=0, transactions=0, logsGenerated=0, logsWritten=0, fileRead=0, fileWritten=0, netRead=0, netWritten=0, threadName='main', params=null}", result.get(0).toString(), "Assertions first Call");
         assertEquals("Call{time=1691167391053, cpuTime=37, waitTime=0, memoryUsed=50, method=0, duration=115, queueWaitDuration=51, suspendDuration=0, calls=0, traceFileIndex=0, bufferOffset=109, recordIndex=0, transactions=0, logsGenerated=101, logsWritten=0, fileRead=0, fileWritten=50, netRead=0, netWritten=37, threadName='unknown # 116', params=null}", result.get(result.size()-1).toString(), "Assertions last Call");
