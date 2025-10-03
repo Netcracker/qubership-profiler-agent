@@ -1,6 +1,7 @@
 plugins {
     id("build-logic.java-published-library")
     id("build-logic.test-junit5")
+    id("com.google.osdetector")
 }
 
 // https://github.com/gradle/gradle/pull/16627
@@ -37,12 +38,41 @@ val cloneBaseImageRepoIfNeeded by tasks.registering(Exec::class) {
     outputs.dir(baseImageRepo)
 }
 
+val diagtoolsElements = configurations.dependencyScope("diagtoolsElements")
+
+
+dependencies {
+    diagtoolsElements(projects.diagtools)
+}
+
+val diagtoolsArchives = configurations.resolvable("diagtoolsArchives") {
+    extendsFrom(diagtoolsElements.get())
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.NATIVE_RUNTIME))
+        attribute(
+            OperatingSystemFamily.OPERATING_SYSTEM_ATTRIBUTE,
+            // We will test in a linux-based container
+            OperatingSystemFamily.LINUX
+        )
+        attribute(
+            MachineArchitecture.ARCHITECTURE_ATTRIBUTE,
+            // See https://github.com/trustin/os-maven-plugin/blob/43ed4d4bdc647ec369d152bfd18698f0997aa65b/src/main/java/kr/motd/maven/os/Detector.java#L192
+            when (osdetector.arch) {
+                "aarch_64" -> MachineArchitecture.ARM64
+                "x86_64" -> MachineArchitecture.X86_64
+                else -> TODO("Unsupported architecture: ${osdetector.arch}")
+            }
+        )
+    }
+}
+
 val copyInstallerZipToDockerArtifacts by tasks.registering(Copy::class) {
     description =
         "Copies profiler agent distribution to the Docker build directory (Docker can't use files outside of its build directory)"
     dependsOn(cloneBaseImageRepoIfNeeded)
     into(baseImageRepo.map { it.dir("local-artifacts") })
     from(installerZip)
+    from(diagtoolsArchives)
 }
 
 val buildBaseImage by tasks.registering(Exec::class) {
@@ -51,6 +81,7 @@ val buildBaseImage by tasks.registering(Exec::class) {
     dependsOn(cloneBaseImageRepoIfNeeded, copyInstallerZipToDockerArtifacts)
     executable = "docker"
     workingDir(baseImageRepo)
+    args("buildx")
     args("build")
     args("--file", "Dockerfile.java-alpine")
     args("-t", "qubership/qubership-core-base-image:profiler-latest")
