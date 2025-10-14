@@ -51,6 +51,7 @@ include("runtime")
 include("test-config")
 include("war-lib")
 include("web")
+include("mock-collector")
 
 include("plugins:activemq")
 include("plugins:ant")
