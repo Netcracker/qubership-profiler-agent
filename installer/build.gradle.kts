@@ -16,7 +16,7 @@ val testAppJar by tasks.registering(Jar::class) {
     archiveClassifier = "test-app"
     from(testApp.output)
     manifest {
-        attributes["Main-Class"] = "com.netcracker.profiler.testapp.Main"
+        attributes["Main-Class"] = "com.netcracker.profilerTest.testapp.Main"
     }
 }
 
@@ -75,6 +75,12 @@ val copyInstallerZipToDockerArtifacts by tasks.registering(Copy::class) {
     from(diagtoolsArchives)
 }
 
+val buildMockCollectorImage by tasks.registering {
+    group = LifecycleBasePlugin.BUILD_GROUP
+    description = "Builds mock-collector Docker image for integration tests"
+    dependsOn(":mock-collector:buildMockCollectorDockerImage")
+}
+
 val buildBaseImage by tasks.registering(Exec::class) {
     group = LifecycleBasePlugin.BUILD_GROUP
     description = "Builds java-base image with the latest profiler agent"
@@ -91,7 +97,7 @@ val buildBaseImage by tasks.registering(Exec::class) {
 }
 
 tasks.test {
-    dependsOn(buildBaseImage, testAppJar)
+    dependsOn(buildBaseImage, buildMockCollectorImage, testAppJar)
     jvmArgumentProviders.add(
         CommandLineArgumentProvider {
             listOf(
