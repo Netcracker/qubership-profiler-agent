@@ -6,6 +6,7 @@ pluginManagement {
         id("com.github.vlsi.ide") version "2.0.0"
         id("com.gradleup.shadow") version "8.3.9"
         id("com.github.node-gradle.node") version "7.1.0"
+        id("com.google.osdetector") version "1.7.3"
         kotlin("jvm") version "2.2.20"
         kotlin("kapt") version "2.2.20"
     }
@@ -51,6 +52,7 @@ include("runtime")
 include("test-config")
 include("war-lib")
 include("web")
+include("mock-collector")
 
 include("plugins:activemq")
 include("plugins:ant")
