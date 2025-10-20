@@ -69,7 +69,7 @@ jobs:
           cat .github/linters/super-linter.env .github/super-linter.env | grep -v '^#' | grep -vE '^\s*$' >> "$GITHUB_ENV" || true
 
       - name: Lint Code Base
-        uses: super-linter/super-linter/slim@ffde3b2b33b745cb612d787f669ef9442b1339a6 # v8.1.0
+        uses: super-linter/super-linter/slim@2bdd90ed3262e023ac84bf8fe35dc480721fc1f2 # v8.2.1
         env:
           VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
           # To report GitHub Actions status checks
