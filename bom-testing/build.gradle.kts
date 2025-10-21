@@ -14,7 +14,7 @@ dependencies {
     constraints {
         api("com.beust:jcommander:1.82")
         api("com.zaxxer:HikariCP:7.0.2")
-        api("io.mockk:mockk:1.14.5")
+        api("io.mockk:mockk:1.14.6")
         api("org.jmockit:jmockit-coverage:1.23")
         api("org.jmockit:jmockit:1.50")
         api("org.mockito:mockito-core:5.20.0")
