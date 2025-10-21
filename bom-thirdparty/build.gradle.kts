@@ -24,7 +24,7 @@ dependencies {
         api("net.sf.trove4j:trove4j:3.0.3")
         api("net.sourceforge.argparse4j:argparse4j:0.9.0")
         api("org.apache.httpcomponents:httpcore:4.4.16")
-        api("org.apache.tomcat.embed:tomcat-embed-core:9.0.109")
+        api("org.apache.tomcat.embed:tomcat-embed-core:9.0.111")
         api("org.apache.tomcat.embed:tomcat-embed-logging-juli:8.5.2")
         api("org.hdrhistogram:HdrHistogram:2.2.2")
         api("org.openjdk.jmc:common:8.3.1")
