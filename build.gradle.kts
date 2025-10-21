@@ -22,7 +22,7 @@ val buildVersion = "profiler".v + (if (buildParameters.release) "" else "-SNAPSH
 println("Building Profiler $buildVersion")
 
 jacoco {
-    toolVersion = "0.8.13"
+    toolVersion = "0.8.14"
     providers.gradleProperty("jacoco.version")
         .takeIf { it.isPresent }
         ?.let { toolVersion = it.get() }
