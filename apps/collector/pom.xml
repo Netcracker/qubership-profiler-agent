@@ -20,7 +20,7 @@
     <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
     <quarkus.platform.version>3.25.1</quarkus.platform.version>
     <cucumber.version>7.13.0</cucumber.version>
-    <poi.ooxml.version>5.2.3</poi.ooxml.version>
+    <poi.ooxml.version>5.4.0</poi.ooxml.version>
 
     <skipITs>true</skipITs>
     <surefire-plugin.version>3.2.3</surefire-plugin.version>
