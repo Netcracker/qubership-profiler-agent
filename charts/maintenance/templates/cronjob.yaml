@@ -1,0 +1,66 @@
+kind: CronJob
+apiVersion: batch/v1
+metadata:
+  name: {{ .Values.maintenanceJob.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.maintenanceJob | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.maintenanceJob.annotations | nindent 4 }}
+spec:
+  concurrencyPolicy: Forbid
+  schedule: {{ .Values.maintenanceJob.cron | quote }}
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "common.namedLabels" .Values.maintenanceJob | nindent 8 }}
+        {{- include "common.commonLabels" . | nindent 8 }}
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: {{ .Values.maintenanceJob.serviceAccount.name }}
+          securityContext:
+            {{- include "maintenanceJob.podSecurityContext" . | indent 6 }}
+          restartPolicy: Never
+          {{- if .Values.maintenanceJob.priorityClassName }}
+          priorityClassName: {{ .Values.maintenanceJob.priorityClassName | quote }}
+          {{- end }}
+          containers:
+            - name: {{ .Values.maintenanceJob.name }}
+              image: {{ include "maintenanceJob.image" . }}
+              args:
+                {{- include "maintenanceJob.args" . | nindent 16 }}
+              env:
+                {{- include "maintenanceJob.envs" . | nindent 16 }}
+              resources:
+                {{- include "maintenanceJob.resources" . | indent 12 }}
+              securityContext:
+                {{- include "maintenanceJob.containerSecurityContext" . | nindent 16 }}
+              volumeMounts:
+                - mountPath: /config
+                  name: config
+                {{- if .Values.cloud.postgres.tls.ca }}
+                - name: pg-tls
+                  mountPath: "/tls/pg"
+                {{- end }}
+                {{- if .Values.cloud.s3.tls.ca }}
+                - name: s3-tls
+                  mountPath: "/tls/s3"
+                {{- end }}
+          volumes:
+            - name: config
+              configMap:
+                name: {{ .Values.maintenanceJob.name }}-job-config
+            {{- if .Values.cloud.postgres.tls.ca }}
+            - name: pg-tls
+              secret: 
+                secretName: {{ .Values.maintenanceJob.name }}-pg-tls-cert
+            {{- end }}
+            {{- if .Values.cloud.s3.tls.ca }}
+            - name: s3-tls
+              secret: 
+                secretName: {{ .Values.maintenanceJob.name }}-s3-tls-cert
+            {{- end }}

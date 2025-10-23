@@ -1,0 +1,18 @@
+@mixin font-face($file-name, $font-family, $font-weight: 400, $font-style: normal) {
+    @font-face {
+        font-weight: $font-weight;
+        font-family: $font-family;
+        font-style: $font-style;
+        src: url('@assets/fonts/#{$file-name}.woff') format('woff');
+    }
+}
+
+@include font-face(Inter-Thin, Inter, 100);
+@include font-face(Inter-ExtraLight, Inter, 200);
+@include font-face(Inter-Light, Inter, 300);
+@include font-face(Inter-Regular, Inter, 400);
+@include font-face(Inter-Medium, Inter, 500);
+@include font-face(Inter-SemiBold, Inter, 600);
+@include font-face(Inter-Bold, Inter, 700);
+@include font-face(Inter-ExtraBold, Inter, 800);
+@include font-face(Inter-Black, Inter, 900);

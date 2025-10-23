@@ -1,0 +1,138 @@
+############# Infra Passport #############
+
+INFRA_POSTGRES_HOST: ~
+INFRA_POSTGRES_PORT: ~
+INFRA_POSTGRES_ADMIN_USERNAME: ~
+INFRA_POSTGRES_ADMIN_PASSWORD: ~
+
+############# Persistence #############
+
+cloud:
+  postgres:
+    host: ~      # default value is from INFRA_POSTGRES_HOST env
+    port: ~      # default value is from INFRA_POSTGRES_PORT env
+    username: ~  # default value is from INFRA_POSTGRES_ADMIN_USERNAME env
+    password: ~  # default value is from INFRA_POSTGRES_ADMIN_PASSWORD env
+    database: profiler_dumps
+
+  dumpsStorage:
+
+    # Deploy cloud-profiler-dumps-collector on ephemeral storage.
+    # Important! To deploy with using ephemeral storage variables DIAG_PV_NAME and DIAG_PV_STORAGE_CLASS should not specify.
+    # Available values: [true, false]. Default: none
+    emptydir: ~
+
+    # Allow to specify Persistence Volume (PV) name to mount this PV into pod and use for store diagnostic info.
+    # Mutually exclusive with DIAG_PV_STORAGE_CLASS. Default: none
+    name: ~
+
+    # Allow to specify Storage Class name (https://kubernetes.io/docs/concepts/storage/storage-classes/) which will be
+    # used to provision PV. Mutually exclusive with DIAG_PV_NAME. Default: none
+    storageClassName: ~
+
+    # Allows to configure the capacity of your storage. Default: 1Gi
+    size: 1Gi
+
+    # Allow to override diag PV access mode: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes
+    accessMode: ReadWriteOnce
+
+    # Allow to specify path in which will store all received diagnostic information.
+    # If DIAG_HTTP_STORAGE_HOST not empty, this parameter will be ignored and all info will be proxy
+    # to host specified in DIAG_HTTP_STORAGE_HOST. Default: none
+    mountPath: '/diag'
+
+    # Allow to configure time after reach which diagnostic information will be archived. Used units is hours.
+    # Default: 2 (hours)
+    hoursArchiveAfter: 2
+
+    # Allow to configure time after reach which diagnostic information will be removed. Used units is days.
+    # Default: 14 (days)
+    daysDeleteAfter: 14
+
+    # Maximum number of heap dumps allowed per pod. When the limit is exceeded, the oldest dumps will be deleted
+    # Default: 10 (count)
+    maxHeapDumpsPerPod: 10
+
+    # Allow to configure storage host to which will proxy all requests to store diagnostic information.
+    # If not specify, but DIAG_PV_MOUNT_PATH specified as non-null, all diagnostic info will store on PV.
+    # Default:
+    host: 'http://esc-collector-service:8080'
+
+############# Dumps Collector Service #############
+
+dumpsCollector:
+  install: true
+  name: cloud-profiler-dumps-collector
+  image: ~
+
+  replicas: 1
+
+  securityContext: {}
+  containerSecurityContext: {}
+  priorityClassName: ~
+
+  resources:
+    requests: {}
+    limits: {}
+  annotations: {}
+  labels: {}
+
+  nodeSelector: {}
+  affinity: {}
+  tolerations: {}
+
+  service:
+    name: cloud-profiler-dumps-collector
+    httpPort: 8080
+
+  ingress:
+    install: true
+    host: ~
+
+  monitoring:
+    enabled: true
+    port: http
+    path: /esc/metrics
+    scheme: http
+    interval: 30s
+
+############# TLS Configuration #############
+
+# TLS configuration for cloud-profiler.
+#
+tlsConfig: {}
+#   generateCerts:
+#     enabled: false
+#     secretName: cloud-profiler-tls
+#     clusterIssuerName: ""
+#     duration: 365
+#     renewBefore: 15
+#   useExistingCerts:
+#     enabled: false
+#     secretName: cloud-profiler-tls
+#     caCert: ""
+#     tlsCert: ""
+#     tlsKey: ""
+
+############# Ingress #############
+
+# Allow override Ingress host name. Otherwise, host will generate as:
+# {{ .Values.SERVICE_NAME }}-{{ .Values.NAMESPACE }}.{{ .Values.SERVER_HOSTNAME }}
+# Can be useful during deploy via DP.Helm.Deployer
+# For example: CLOUD_PROFILER_DUMPS_COLLECTOR_HOST: cloud-profiler-dumps-collector.test.org
+# CLOUD_PROFILER_DUMPS_COLLECTOR_HOST: ''
+
+########################## AppDeployer variables ##########################
+# All variables in this section AppDeployer will fill automatically. And there is no sense to set them manually.
+
+# Microservice Name
+# SERVICE_NAME: 'cloud-profiler-dumps-collector'
+
+# Version of application which will deploy
+# ARTIFACT_DESCRIPTOR_VERSION: ''
+
+# Docker repository with images
+# IMAGE_REPOSITORY: ''
+
+# Which git application development branch should be used to deploy
+# TAG: ''

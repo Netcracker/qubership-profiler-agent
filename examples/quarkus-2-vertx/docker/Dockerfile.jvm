@@ -1,0 +1,9 @@
+ARG IMAGE
+FROM ${IMAGE:-centos7/openjdk11-x86:11.0.23.01}
+
+COPY target/quarkus-app/lib/ /app/deployments/lib/
+COPY target/quarkus-app/*.jar /app/deployments/
+COPY target/quarkus-app/app/ /app/deployments/app/
+COPY target/quarkus-app/quarkus/ /app/deployments/quarkus/
+
+CMD ["/usr/bin/java", "-Dquarkus.http.host=0.0.0.0", "-Xmx512m", "-Djava.security.egd=file:/dev/./urandom", "-XX:-OmitStackTraceInFastThrow", "-jar", "/app/deployments/quarkus-run.jar"]

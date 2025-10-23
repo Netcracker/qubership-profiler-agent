@@ -1,0 +1,19 @@
+apiVersion: v2
+name: cloud-profiler-maintenance-job
+description: A Helm chart for  cloud-profiler-maintenance-job
+
+# A chart can be either an 'application' or a 'library' chart.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+version: 0.0.1
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application.
+appVersion: 1.1.0
+
+home: https://github.com/Netcracker/qubership-profiler-backend/charts/maintenance
+maintainers:
+  - name: NetCracker
+    email: support@NetCracker.com

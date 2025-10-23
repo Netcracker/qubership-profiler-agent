@@ -1,0 +1,91 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: {{ .Values.compactor.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.compactor | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.compactor.annotations | nindent 4 }}
+spec:
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.compactor.name }}
+  replicas: {{ .Values.compactor.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        {{- include "common.namedLabels" .Values.compactor | nindent 8 }}
+        {{- include "common.commonLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.compactor.serviceAccount.name }}
+      securityContext:
+        {{- include "compactor.podSecurityContext" . | indent 2 }}
+      {{- if .Values.compactor.priorityClassName }}
+      priorityClassName: {{ .Values.compactor.priorityClassName | quote }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.compactor.name }}
+          image: {{ include "compactor.image" . }}
+          args:
+            {{- include "compactor.args" . | nindent 12 }}
+          env:
+            {{- include "compactor.envs" . | nindent 12 }}
+          resources:
+            {{- include "compactor.resources" . | indent 8 }}
+          securityContext:
+            {{- include "compactor.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: compactor-temp-dir
+              mountPath: "/output"
+            {{- if .Values.cloud.postgres.tls.ca }}
+            - name: pg-tls
+              mountPath: "/tls/pg"
+            {{- end }}
+            {{- if .Values.cloud.s3.tls.ca }}
+            - name: s3-tls
+              mountPath: "/tls/s3"
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 6060
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 30
+      volumes:
+        - name: compactor-temp-dir
+          {{- if .Values.compactor.pvc.install }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.compactor.pvc.name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.cloud.postgres.tls.ca }}
+        - name: pg-tls
+          secret: 
+            secretName: {{ .Values.compactor.name }}-pg-tls-cert
+        {{- end }}
+        {{- if .Values.cloud.s3.tls.ca }}
+        - name: s3-tls
+          secret: 
+            secretName: {{ .Values.compactor.name }}-s3-tls-cert
+        {{- end }}

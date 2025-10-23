@@ -1,0 +1,2 @@
+
+INSERT INTO %s (pod_id, pod_name, restart_time, position, tag) VALUES ($1, $2, $3, $4, $5)

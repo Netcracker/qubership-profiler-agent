@@ -1,0 +1,22 @@
+{{- if or .Values.cloud.dumpsStorage.name .Values.cloud.dumpsStorage.storageClassName }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: 'pvc-diag-{{ .Values.dumpsCollector.name }}'
+  labels:
+    {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  resources:
+    requests:
+      storage: {{ .Values.cloud.dumpsStorage.size | default "1Gi" |  quote }}
+  accessModes:
+    - {{ .Values.cloud.dumpsStorage.accessMode }}
+  {{- if .Values.cloud.dumpsStorage.name }}
+  # Empty string must be explicitly set otherwise default storageClassName will be set
+  storageClassName: {{ .Values.cloud.dumpsStorage.storageClassName | default "" | quote}}
+  volumeName: {{ .Values.cloud.dumpsStorage.name }}
+  {{- else if .Values.cloud.dumpsStorage.storageClassName }}
+  storageClassName: {{ .Values.cloud.dumpsStorage.storageClassName | quote}}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,15 @@
+{{- /*
+-- create traces inventory tables
+-- partitions created for each 5min
+*/ -}}
+
+CREATE TABLE IF NOT EXISTS traces_{{.TimeStamp}} (
+    pod_name text,
+    restart_time timestamptz,
+    trace_file_index integer,
+    buffer_offset integer,
+    record_index integer,
+    trace bytea,
+    PRIMARY KEY (pod_name, restart_time, trace_file_index, buffer_offset, record_index)
+);
+-- CREATE INDEX traces_{{.TimeStamp}}_idx ON traces_{{.TimeStamp}} (pod, restart_time, trace_file_index, buffer_offset, record_index);

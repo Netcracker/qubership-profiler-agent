@@ -1,0 +1,25 @@
+@import '@netcracker/ux-react/assets/styles/scss/colors';
+
+.contentControls {
+    display: inline-grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+}
+
+.searchTips {
+    min-width: 500px !important;
+}
+.codeExample {
+    li {
+        margin-top: 5px;
+    }
+    code {
+        color: $pigeon;
+        font-weight: 500;
+        font-size: 13px;
+    }
+    code:first-child {
+        border: 1px dashed lightsteelblue;
+        padding: 2px;
+    }
+}

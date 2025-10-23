@@ -1,0 +1,18 @@
+{{- if .Values.compactor.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  labels:
+    {{- include "common.namedLabels" (merge (dict "podMonitor" true) .Values.compactor) | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+  name: {{ .Values.compactor.name }}-pod-monitor
+spec:
+  podMetricsEndpoints:
+  - interval: {{ .Values.compactor.monitoring.interval }}
+    targetPort: 6060
+  jobLabel: k8s
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.compactor.name }}
+{{- end }}

@@ -1,0 +1,75 @@
+kind: Deployment
+apiVersion: {{ include "deployment.apiVersion" . }}
+metadata:
+  name: {{ .Values.ui.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.ui | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.ui.name }}
+  replicas: {{ .Values.ui.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        {{- include "common.namedLabels" .Values.ui | nindent 8 }}
+        {{- include "common.commonLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.ui.serviceAccount.name }}
+      securityContext:
+        {{- include "ui.podSecurityContext" . | nindent 8 }}
+      {{- if .Values.ui.priorityClassName }}
+      priorityClassName: {{ .Values.ui.priorityClassName | quote }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.ui.name }}
+          image: {{ include "ui.image" . }}
+          args:
+            {{- include "ui.args" . | nindent 12 }}
+          ports:
+            {{- include "common.ports" . | nindent 12 }}
+          env:
+            {{- include "ui.envs" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+          securityContext:
+            {{- include "ui.containerSecurityContext" . | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 90
+            timeoutSeconds: 3
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 80
+            timeoutSeconds: 3
+            failureThreshold: 30
+          volumeMounts:
+            {{- if .Values.extra_certs }}
+            - name: extra-certificates
+              mountPath: /tmp/cert/extra-certificates
+            {{- end }}
+            - name: ui-s3-download-storage
+              mountPath: "/app/{{ .Values.ui.s3.downloadCacheDir }}"
+      volumes:
+        {{- if .Values.extra_certs }}
+        - name: extra-certificates
+          configMap:
+            name: '{{ .Values.ui.service.name }}-extra-certificates'
+        {{- end }}
+        - name: ui-s3-download-storage
+          persistentVolumeClaim:
+            claimName: {{ .Values.ui.pvc.name }}

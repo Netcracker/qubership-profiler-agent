@@ -1,0 +1,33 @@
+@import '@netcracker/ux-react/assets/styles/scss/colors';
+
+.toolControls {
+    display: inline-grid;
+    grid-template-columns: auto 2fr auto;
+    gap: 12px;
+}
+
+.traceButton {
+    display: inline-grid;
+    grid-template-columns: auto 2fr auto;
+    gap: 12px;
+}
+
+.search {
+    max-width: 200px !important;
+}
+
+.codeExample {
+    padding-left: 10px;
+    li {
+        margin-top: 5px;
+    }
+    code {
+        color: $pigeon;
+        font-weight: 500;
+        font-size: 13px;
+    }
+    code:first-child {
+        border: 1px dashed lightsteelblue;
+        padding: 2px;
+    }
+}

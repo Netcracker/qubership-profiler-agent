@@ -1,0 +1,4 @@
+
+INSERT INTO %s
+    (pod_id, namespace, service_name, pod_name, restart_time, active_since, last_active)
+VALUES ($1, $2, $3, $4, $5, $6, $7)

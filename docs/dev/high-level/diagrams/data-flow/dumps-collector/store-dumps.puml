@@ -1,0 +1,21 @@
+@startuml store-dumps
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Dumps Collector (Store Dumps)
+
+box "CDT Server Namespace" #F5F5F5
+    participant "nc-diagnostic-agent" as ncDiagAgentCDT #B1DDF0
+    participant "dumps-collector" as dumpCollector #E1D5E7
+    database "PV" as pv #white
+end box
+
+-> ncDiagAgentCDT: Proxy dumps via HTTP(S)
+ncDiagAgentCDT -> dumpCollector: Proxy dumps via HTTP(S)
+
+dumpCollector -> pv: Store top, thread, heap dumps
+
+
+@enduml

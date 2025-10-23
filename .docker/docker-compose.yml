@@ -1,0 +1,81 @@
+version: '3'
+
+services:
+
+  # DATABASES
+  postgres:
+    image: postgres:15.3-alpine
+    container_name: ${PG_CONTAINER_NAME:-postgres}
+    hostname: postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - PG_CONTAINER_NAME=${PG_CONTAINER_NAME:-postgres}
+      - PG_TEST_USER=${PG_TEST_USER:-test}
+      - PG_TEST_USER_PASSWORD=${PG_TEST_USER_PASSWORD:-test}
+      - PG_TEST_DATABASE=${PG_TEST_DATABASE:-cdt_test}
+    ports:
+      - "5432:5432"
+    volumes:
+     - ${PG_INIT_PATH:-./postgres/init}:/docker-entrypoint-initdb.d
+
+  postgres_db:
+    image: postgres:latest
+    hostname: postgres-db
+    container_name: postgres
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres  # Set a strong password
+    volumes:
+      - postgres_db:/var/lib/postgresql/data
+      - ../src/main/resources/persistence/cloud.init_db.sql:/docker-entrypoint-initdb.d/schema.sql
+
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"  # MinIO API port
+      - "9001:9001"  # MinIO UI port
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+
+  # OBSERVABILITY
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+
+  node-exporter:
+    image: prometheus/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "5778:5778"
+      - "9411:9411"
+      - "14250:14250"
+      - "16686:16686"
+
+volumes:
+  postgres_db:
+    driver: local

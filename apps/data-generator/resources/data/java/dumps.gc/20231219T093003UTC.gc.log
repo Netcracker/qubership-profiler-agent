@@ -1,0 +1,480 @@
+[2023-12-19T08:30:17.106+0000][18078.354s][trace][gc] GC(817) Young invoke=818 size=32
+[2023-12-19T08:30:17.106+0000][18078.354s][trace][gc] GC(817) Tenured: promo attempt is safe: available(287940216) >= av_promo(14855), max_promo(145037568)
+[2023-12-19T08:30:17.114+0000][18078.361s][info ][gc] GC(817) Pause Young (Allocation Failure) 205M->68M(494M) 7.559ms
+[2023-12-19T08:30:40.280+0000][18101.528s][trace][gc] GC(818) Young invoke=819 size=64
+[2023-12-19T08:30:40.280+0000][18101.528s][trace][gc] GC(818) Tenured: promo attempt is safe: available(287937096) >= av_promo(14166), max_promo(145353440)
+[2023-12-19T08:30:40.286+0000][18101.534s][info ][gc] GC(818) Pause Young (Allocation Failure) 205M->68M(494M) 6.132ms
+[2023-12-19T08:31:05.570+0000][18126.818s][trace][gc] GC(819) Young invoke=820 size=88
+[2023-12-19T08:31:05.570+0000][18126.818s][trace][gc] GC(819) Tenured: promo attempt is safe: available(287934656) >= av_promo(13613), max_promo(145333576)
+[2023-12-19T08:31:05.577+0000][18126.825s][info ][gc] GC(819) Pause Young (Allocation Failure) 205M->69M(494M) 6.810ms
+[2023-12-19T08:31:08.954+0000][18130.202s][trace][gc] GC(820) Young invoke=821 size=842808
+[2023-12-19T08:31:08.954+0000][18130.202s][trace][gc] GC(820) Tenured: promo attempt is safe: available(287931472) >= av_promo(12927), max_promo(145309776)
+[2023-12-19T08:31:08.960+0000][18130.207s][info ][gc] GC(820) Pause Young (Allocation Failure) 205M->69M(494M) 5.467ms
+[2023-12-19T08:31:10.757+0000][18132.005s][trace][gc] GC(821) Young invoke=822 size=24
+[2023-12-19T08:31:10.757+0000][18132.005s][trace][gc] GC(821) Tenured: promo attempt is safe: available(287928872) >= av_promo(12373), max_promo(145514152)
+[2023-12-19T08:31:10.762+0000][18132.010s][info ][gc] GC(821) Pause Young (Allocation Failure) 205M->69M(494M) 4.499ms
+[2023-12-19T08:31:12.298+0000][18133.546s][trace][gc] GC(822) Young invoke=823 size=64
+[2023-12-19T08:31:12.298+0000][18133.546s][trace][gc] GC(822) Tenured: promo attempt is safe: available(287925720) >= av_promo(11733), max_promo(146138128)
+[2023-12-19T08:31:12.311+0000][18133.559s][info ][gc] GC(822) Pause Young (Allocation Failure) 206M->75M(494M) 13.232ms
+[2023-12-19T08:31:13.632+0000][18134.880s][trace][gc] GC(823) Young invoke=824 size=56
+[2023-12-19T08:31:13.632+0000][18134.880s][trace][gc] GC(823) Tenured: promo attempt is safe: available(287923184) >= av_promo(11233), max_promo(152770288)
+[2023-12-19T08:31:13.640+0000][18134.888s][info ][gc] GC(823) Pause Young (Allocation Failure) 212M->71M(494M) 7.771ms
+[2023-12-19T08:31:14.715+0000][18135.963s][trace][gc] GC(824) Young invoke=825 size=128
+[2023-12-19T08:31:14.715+0000][18135.963s][trace][gc] GC(824) Tenured: promo attempt is safe: available(286770120) >= av_promo(435681), max_promo(147312528)
+[2023-12-19T08:31:14.735+0000][18135.982s][info ][gc] GC(824) Pause Young (Allocation Failure) 208M->76M(494M) 19.872ms
+[2023-12-19T08:31:15.971+0000][18137.219s][trace][gc] GC(825) Young invoke=826 size=48
+[2023-12-19T08:31:15.971+0000][18137.219s][trace][gc] GC(825) Tenured: promo attempt is safe: available(286770120) >= av_promo(423796), max_promo(152237000)
+[2023-12-19T08:31:15.977+0000][18137.225s][info ][gc] GC(825) Pause Young (Allocation Failure) 213M->69M(494M) 6.675ms
+[2023-12-19T08:31:16.994+0000][18138.242s][trace][gc] GC(826) Young invoke=827 size=32
+[2023-12-19T08:31:16.994+0000][18138.242s][trace][gc] GC(826) Tenured: promo attempt is safe: available(285948432) >= av_promo(656561), max_promo(144108960)
+[2023-12-19T08:31:16.998+0000][18138.245s][info ][gc] GC(826) Pause Young (Allocation Failure) 206M->70M(494M) 3.949ms
+[2023-12-19T08:31:18.580+0000][18139.827s][trace][gc] GC(827) Young invoke=828 size=859280
+[2023-12-19T08:31:18.580+0000][18139.827s][trace][gc] GC(827) Tenured: promo attempt is safe: available(285948432) >= av_promo(638717), max_promo(145312744)
+[2023-12-19T08:31:18.582+0000][18139.830s][info ][gc] GC(827) Pause Young (Allocation Failure) 207M->68M(494M) 2.179ms
+[2023-12-19T08:31:20.040+0000][18141.288s][trace][gc] GC(828) Young invoke=829 size=128
+[2023-12-19T08:31:20.040+0000][18141.288s][trace][gc] GC(828) Tenured: promo attempt is safe: available(285948432) >= av_promo(622658), max_promo(143426704)
+[2023-12-19T08:31:20.063+0000][18141.311s][info ][gc] GC(828) Pause Young (Allocation Failure) 205M->72M(494M) 23.179ms
+[2023-12-19T08:31:21.704+0000][18142.951s][trace][gc] GC(829) Young invoke=830 size=24
+[2023-12-19T08:31:21.704+0000][18142.952s][trace][gc] GC(829) Tenured: promo attempt is safe: available(285948432) >= av_promo(608204), max_promo(146959432)
+[2023-12-19T08:31:21.711+0000][18142.959s][info ][gc] GC(829) Pause Young (Allocation Failure) 208M->72M(494M) 7.465ms
+[2023-12-19T08:31:23.272+0000][18144.520s][trace][gc] GC(830) Young invoke=831 size=32
+[2023-12-19T08:31:23.273+0000][18144.520s][trace][gc] GC(830) Tenured: promo attempt is safe: available(285948432) >= av_promo(595196), max_promo(146807992)
+[2023-12-19T08:31:23.281+0000][18144.529s][info ][gc] GC(830) Pause Young (Allocation Failure) 208M->74M(494M) 9.004ms
+[2023-12-19T08:31:24.413+0000][18145.661s][trace][gc] GC(831) Young invoke=832 size=24
+[2023-12-19T08:31:24.413+0000][18145.661s][trace][gc] GC(831) Tenured: promo attempt is safe: available(285948432) >= av_promo(583489), max_promo(149129048)
+[2023-12-19T08:31:24.422+0000][18145.670s][info ][gc] GC(831) Pause Young (Allocation Failure) 210M->71M(494M) 9.029ms
+[2023-12-19T08:31:25.869+0000][18147.117s][trace][gc] GC(832) Young invoke=833 size=216
+[2023-12-19T08:31:25.869+0000][18147.117s][trace][gc] GC(832) Tenured: promo attempt is safe: available(285948432) >= av_promo(572953), max_promo(146054672)
+[2023-12-19T08:31:25.875+0000][18147.123s][info ][gc] GC(832) Pause Young (Allocation Failure) 207M->71M(494M) 6.216ms
+[2023-12-19T08:31:27.150+0000][18148.398s][trace][gc] GC(833) Young invoke=834 size=56
+[2023-12-19T08:31:27.150+0000][18148.398s][trace][gc] GC(833) Tenured: promo attempt is safe: available(285948432) >= av_promo(563470), max_promo(146595560)
+[2023-12-19T08:31:27.162+0000][18148.410s][info ][gc] GC(833) Pause Young (Allocation Failure) 208M->72M(494M) 12.140ms
+[2023-12-19T08:31:28.742+0000][18149.989s][trace][gc] GC(834) Young invoke=835 size=64
+[2023-12-19T08:31:28.742+0000][18149.990s][trace][gc] GC(834) Tenured: promo attempt is safe: available(285861296) >= av_promo(516320), max_promo(146730328)
+[2023-12-19T08:31:28.747+0000][18149.995s][info ][gc] GC(834) Pause Young (Allocation Failure) 208M->68M(494M) 5.393ms
+[2023-12-19T08:31:44.303+0000][18165.551s][trace][gc] GC(835) Young invoke=836 size=168
+[2023-12-19T08:31:44.303+0000][18165.551s][trace][gc] GC(835) Tenured: promo attempt is safe: available(285838904) >= av_promo(483973), max_promo(143348544)
+[2023-12-19T08:31:44.308+0000][18165.556s][info ][gc] GC(835) Pause Young (Allocation Failure) 205M->68M(494M) 5.329ms
+[2023-12-19T08:32:08.047+0000][18189.295s][trace][gc] GC(836) Young invoke=837 size=208912
+[2023-12-19T08:32:08.047+0000][18189.295s][trace][gc] GC(836) Tenured: promo attempt is safe: available(285837808) >= av_promo(456776), max_promo(143292768)
+[2023-12-19T08:32:08.050+0000][18189.298s][info ][gc] GC(836) Pause Young (Allocation Failure) 205M->69M(494M) 3.647ms
+[2023-12-19T08:32:32.800+0000][18214.047s][trace][gc] GC(837) Young invoke=838 size=16
+[2023-12-19T08:32:32.800+0000][18214.048s][trace][gc] GC(837) Tenured: promo attempt is safe: available(285837168) >= av_promo(430268), max_promo(143534440)
+[2023-12-19T08:32:32.805+0000][18214.053s][info ][gc] GC(837) Pause Young (Allocation Failure) 205M->68M(494M) 5.417ms
+[2023-12-19T08:32:57.473+0000][18238.721s][trace][gc] GC(838) Young invoke=839 size=3088
+[2023-12-19T08:32:57.473+0000][18238.721s][trace][gc] GC(838) Tenured: promo attempt is safe: available(285837168) >= av_promo(423835), max_promo(143327040)
+[2023-12-19T08:32:57.477+0000][18238.724s][info ][gc] GC(838) Pause Young (Allocation Failure) 205M->69M(494M) 3.795ms
+[2023-12-19T08:33:22.737+0000][18263.985s][trace][gc] GC(839) Young invoke=840 size=48
+[2023-12-19T08:33:22.737+0000][18263.985s][trace][gc] GC(839) Tenured: promo attempt is safe: available(285837168) >= av_promo(418046), max_promo(143405848)
+[2023-12-19T08:33:22.743+0000][18263.991s][info ][gc] GC(839) Pause Young (Allocation Failure) 205M->68M(494M) 6.687ms
+[2023-12-19T08:33:46.920+0000][18288.168s][trace][gc] GC(840) Young invoke=841 size=216
+[2023-12-19T08:33:46.920+0000][18288.168s][trace][gc] GC(840) Tenured: promo attempt is safe: available(285836920) >= av_promo(390267), max_promo(143272392)
+[2023-12-19T08:33:46.929+0000][18288.177s][info ][gc] GC(840) Pause Young (Allocation Failure) 205M->68M(494M) 9.065ms
+[2023-12-19T08:34:11.434+0000][18312.682s][trace][gc] GC(841) Young invoke=842 size=48
+[2023-12-19T08:34:11.434+0000][18312.682s][trace][gc] GC(841) Tenured: promo attempt is safe: available(285836744) >= av_promo(363878), max_promo(143311288)
+[2023-12-19T08:34:11.439+0000][18312.687s][info ][gc] GC(841) Pause Young (Allocation Failure) 205M->69M(494M) 5.049ms
+[2023-12-19T08:34:36.396+0000][18337.644s][trace][gc] GC(842) Young invoke=843 size=72
+[2023-12-19T08:34:36.397+0000][18337.644s][trace][gc] GC(842) Tenured: promo attempt is safe: available(285836584) >= av_promo(338868), max_promo(143426336)
+[2023-12-19T08:34:36.402+0000][18337.650s][info ][gc] GC(842) Pause Young (Allocation Failure) 205M->69M(494M) 5.433ms
+[2023-12-19T08:35:00.916+0000][18362.164s][trace][gc] GC(843) Young invoke=844 size=24
+[2023-12-19T08:35:00.917+0000][18362.164s][trace][gc] GC(843) Tenured: promo attempt is safe: available(285836488) >= av_promo(315234), max_promo(144070744)
+[2023-12-19T08:35:00.921+0000][18362.169s][info ][gc] GC(843) Pause Young (Allocation Failure) 206M->69M(494M) 4.555ms
+[2023-12-19T08:35:25.645+0000][18386.893s][trace][gc] GC(844) Young invoke=845 size=24
+[2023-12-19T08:35:25.645+0000][18386.893s][trace][gc] GC(844) Tenured: promo attempt is safe: available(285836320) >= av_promo(292927), max_promo(143365768)
+[2023-12-19T08:35:25.654+0000][18386.902s][info ][gc] GC(844) Pause Young (Allocation Failure) 205M->69M(494M) 8.618ms
+[2023-12-19T08:35:49.518+0000][18410.766s][trace][gc] GC(845) Young invoke=846 size=32
+[2023-12-19T08:35:49.519+0000][18410.766s][trace][gc] GC(845) Tenured: promo attempt is safe: available(285836224) >= av_promo(271943), max_promo(143378424)
+[2023-12-19T08:35:49.522+0000][18410.770s][info ][gc] GC(845) Pause Young (Allocation Failure) 205M->69M(494M) 3.469ms
+[2023-12-19T08:36:13.597+0000][18434.845s][trace][gc] GC(846) Young invoke=847 size=32
+[2023-12-19T08:36:13.597+0000][18434.845s][trace][gc] GC(846) Tenured: promo attempt is safe: available(285836128) >= av_promo(252228), max_promo(143381800)
+[2023-12-19T08:36:13.602+0000][18434.849s][info ][gc] GC(846) Pause Young (Allocation Failure) 205M->69M(494M) 4.348ms
+[2023-12-19T08:36:38.333+0000][18459.580s][trace][gc] GC(847) Young invoke=848 size=168
+[2023-12-19T08:36:38.333+0000][18459.581s][trace][gc] GC(847) Tenured: promo attempt is safe: available(285835896) >= av_promo(233714), max_promo(143447088)
+[2023-12-19T08:36:38.336+0000][18459.584s][info ][gc] GC(847) Pause Young (Allocation Failure) 205M->69M(494M) 3.544ms
+[2023-12-19T08:37:02.680+0000][18483.928s][trace][gc] GC(848) Young invoke=849 size=24
+[2023-12-19T08:37:02.680+0000][18483.928s][trace][gc] GC(848) Tenured: promo attempt is safe: available(285835368) >= av_promo(216332), max_promo(143459520)
+[2023-12-19T08:37:02.685+0000][18483.932s][info ][gc] GC(848) Pause Young (Allocation Failure) 205M->69M(494M) 4.730ms
+[2023-12-19T08:37:27.892+0000][18509.140s][trace][gc] GC(849) Young invoke=850 size=168
+[2023-12-19T08:37:27.892+0000][18509.140s][trace][gc] GC(849) Tenured: promo attempt is safe: available(285835272) >= av_promo(200168), max_promo(143571032)
+[2023-12-19T08:37:27.895+0000][18509.143s][info ][gc] GC(849) Pause Young (Allocation Failure) 205M->68M(494M) 2.400ms
+[2023-12-19T08:37:52.509+0000][18533.757s][trace][gc] GC(850) Young invoke=851 size=32
+[2023-12-19T08:37:52.509+0000][18533.757s][trace][gc] GC(850) Tenured: promo attempt is safe: available(285834320) >= av_promo(184930), max_promo(143312272)
+[2023-12-19T08:37:52.513+0000][18533.761s][info ][gc] GC(850) Pause Young (Allocation Failure) 205M->69M(494M) 3.593ms
+[2023-12-19T08:38:16.604+0000][18557.852s][trace][gc] GC(851) Young invoke=852 size=32
+[2023-12-19T08:38:16.604+0000][18557.852s][trace][gc] GC(851) Tenured: promo attempt is safe: available(285829656) >= av_promo(170115), max_promo(143432760)
+[2023-12-19T08:38:16.608+0000][18557.856s][info ][gc] GC(851) Pause Young (Allocation Failure) 205M->69M(494M) 3.824ms
+[2023-12-19T08:38:40.831+0000][18582.079s][trace][gc] GC(852) Young invoke=853 size=111632
+[2023-12-19T08:38:40.831+0000][18582.079s][trace][gc] GC(852) Tenured: promo attempt is safe: available(285823672) >= av_promo(156237), max_promo(143426296)
+[2023-12-19T08:38:40.837+0000][18582.085s][info ][gc] GC(852) Pause Young (Allocation Failure) 205M->69M(494M) 5.714ms
+[2023-12-19T08:39:06.548+0000][18607.796s][trace][gc] GC(853) Young invoke=854 size=3744
+[2023-12-19T08:39:06.548+0000][18607.796s][trace][gc] GC(853) Tenured: promo attempt is safe: available(285818544) >= av_promo(143638), max_promo(143609640)
+[2023-12-19T08:39:06.553+0000][18607.801s][info ][gc] GC(853) Pause Young (Allocation Failure) 205M->69M(494M) 5.129ms
+[2023-12-19T08:39:30.945+0000][18632.193s][trace][gc] GC(854) Young invoke=855 size=210960
+[2023-12-19T08:39:30.945+0000][18632.193s][trace][gc] GC(854) Tenured: promo attempt is safe: available(285814096) >= av_promo(132164), max_promo(143653104)
+[2023-12-19T08:39:30.950+0000][18632.198s][info ][gc] GC(854) Pause Young (Allocation Failure) 205M->69M(494M) 5.553ms
+[2023-12-19T08:39:55.006+0000][18656.254s][trace][gc] GC(855) Young invoke=856 size=206864
+[2023-12-19T08:39:55.007+0000][18656.254s][trace][gc] GC(855) Tenured: promo attempt is safe: available(285809480) >= av_promo(121564), max_promo(143629696)
+[2023-12-19T08:39:55.011+0000][18656.259s][info ][gc] GC(855) Pause Young (Allocation Failure) 205M->69M(494M) 4.873ms
+[2023-12-19T08:40:19.391+0000][18680.639s][trace][gc] GC(856) Young invoke=857 size=32
+[2023-12-19T08:40:19.391+0000][18680.639s][trace][gc] GC(856) Tenured: promo attempt is safe: available(285806488) >= av_promo(112085), max_promo(143537064)
+[2023-12-19T08:40:19.397+0000][18680.645s][info ][gc] GC(856) Pause Young (Allocation Failure) 205M->68M(494M) 5.815ms
+[2023-12-19T08:40:43.959+0000][18705.206s][trace][gc] GC(857) Young invoke=858 size=24
+[2023-12-19T08:40:43.959+0000][18705.207s][trace][gc] GC(857) Tenured: promo attempt is safe: available(285803488) >= av_promo(103314), max_promo(143315392)
+[2023-12-19T08:40:43.963+0000][18705.211s][info ][gc] GC(857) Pause Young (Allocation Failure) 205M->68M(494M) 4.604ms
+[2023-12-19T08:41:08.565+0000][18729.813s][trace][gc] GC(858) Young invoke=859 size=16
+[2023-12-19T08:41:08.566+0000][18729.813s][trace][gc] GC(858) Tenured: promo attempt is safe: available(285799624) >= av_promo(95060), max_promo(143306192)
+[2023-12-19T08:41:08.568+0000][18729.816s][info ][gc] GC(858) Pause Young (Allocation Failure) 205M->69M(494M) 2.836ms
+[2023-12-19T08:41:33.608+0000][18754.856s][trace][gc] GC(859) Young invoke=860 size=176
+[2023-12-19T08:41:33.608+0000][18754.856s][trace][gc] GC(859) Tenured: promo attempt is safe: available(285795176) >= av_promo(87363), max_promo(143421560)
+[2023-12-19T08:41:33.613+0000][18754.861s][info ][gc] GC(859) Pause Young (Allocation Failure) 205M->68M(494M) 4.967ms
+[2023-12-19T08:41:58.304+0000][18779.552s][trace][gc] GC(860) Young invoke=861 size=24
+[2023-12-19T08:41:58.304+0000][18779.552s][trace][gc] GC(860) Tenured: promo attempt is safe: available(285791712) >= av_promo(80466), max_promo(143309744)
+[2023-12-19T08:41:58.309+0000][18779.557s][info ][gc] GC(860) Pause Young (Allocation Failure) 205M->69M(494M) 5.370ms
+[2023-12-19T08:42:23.748+0000][18804.996s][trace][gc] GC(861) Young invoke=862 size=176
+[2023-12-19T08:42:23.748+0000][18804.996s][trace][gc] GC(861) Tenured: promo attempt is safe: available(285788960) >= av_promo(74231), max_promo(143494160)
+[2023-12-19T08:42:23.751+0000][18804.999s][info ][gc] GC(861) Pause Young (Allocation Failure) 205M->69M(494M) 3.657ms
+[2023-12-19T08:42:48.476+0000][18829.724s][trace][gc] GC(862) Young invoke=863 size=24
+[2023-12-19T08:42:48.476+0000][18829.724s][trace][gc] GC(862) Tenured: promo attempt is safe: available(285784176) >= av_promo(68120), max_promo(143357160)
+[2023-12-19T08:42:48.482+0000][18829.730s][info ][gc] GC(862) Pause Young (Allocation Failure) 205M->69M(494M) 5.460ms
+[2023-12-19T08:43:13.443+0000][18854.691s][trace][gc] GC(863) Young invoke=864 size=112656
+[2023-12-19T08:43:13.443+0000][18854.691s][trace][gc] GC(863) Tenured: promo attempt is safe: available(285781272) >= av_promo(62857), max_promo(143423992)
+[2023-12-19T08:43:13.459+0000][18854.706s][info ][gc] GC(863) Pause Young (Allocation Failure) 205M->69M(494M) 15.580ms
+[2023-12-19T08:43:37.835+0000][18879.083s][trace][gc] GC(864) Young invoke=865 size=168
+[2023-12-19T08:43:37.835+0000][18879.083s][trace][gc] GC(864) Tenured: promo attempt is safe: available(285778344) >= av_promo(57990), max_promo(143567328)
+[2023-12-19T08:43:37.840+0000][18879.088s][info ][gc] GC(864) Pause Young (Allocation Failure) 205M->69M(494M) 4.869ms
+[2023-12-19T08:44:03.134+0000][18904.382s][trace][gc] GC(865) Young invoke=866 size=168
+[2023-12-19T08:44:03.135+0000][18904.382s][trace][gc] GC(865) Tenured: promo attempt is safe: available(285754184) >= av_promo(59326), max_promo(143342888)
+[2023-12-19T08:44:03.141+0000][18904.389s][info ][gc] GC(865) Pause Young (Allocation Failure) 205M->69M(494M) 6.830ms
+[2023-12-19T08:44:28.030+0000][18929.278s][trace][gc] GC(866) Young invoke=867 size=88
+[2023-12-19T08:44:28.030+0000][18929.278s][trace][gc] GC(866) Tenured: promo attempt is safe: available(285751456) >= av_promo(55205), max_promo(143460472)
+[2023-12-19T08:44:28.034+0000][18929.282s][info ][gc] GC(866) Pause Young (Allocation Failure) 205M->69M(494M) 4.182ms
+[2023-12-19T08:44:52.958+0000][18954.206s][trace][gc] GC(867) Young invoke=868 size=24
+[2023-12-19T08:44:52.959+0000][18954.207s][trace][gc] GC(867) Tenured: promo attempt is safe: available(285747720) >= av_promo(51172), max_promo(143448408)
+[2023-12-19T08:44:52.964+0000][18954.212s][info ][gc] GC(867) Pause Young (Allocation Failure) 205M->69M(494M) 5.374ms
+[2023-12-19T08:45:17.712+0000][18978.960s][trace][gc] GC(868) Young invoke=869 size=64
+[2023-12-19T08:45:17.713+0000][18978.960s][trace][gc] GC(868) Tenured: promo attempt is safe: available(285743880) >= av_promo(47412), max_promo(143459728)
+[2023-12-19T08:45:17.717+0000][18978.965s][info ][gc] GC(868) Pause Young (Allocation Failure) 205M->69M(494M) 4.922ms
+[2023-12-19T08:45:41.783+0000][19003.031s][trace][gc] GC(869) Young invoke=870 size=48
+[2023-12-19T08:45:41.783+0000][19003.031s][trace][gc] GC(869) Tenured: promo attempt is safe: available(285740656) >= av_promo(44036), max_promo(143561016)
+[2023-12-19T08:45:41.788+0000][19003.036s][info ][gc] GC(869) Pause Young (Allocation Failure) 205M->69M(494M) 5.509ms
+[2023-12-19T08:46:07.517+0000][19028.764s][trace][gc] GC(870) Young invoke=871 size=24
+[2023-12-19T08:46:07.517+0000][19028.765s][trace][gc] GC(870) Tenured: promo attempt is safe: available(285737176) >= av_promo(40850), max_promo(143766248)
+[2023-12-19T08:46:07.520+0000][19028.768s][info ][gc] GC(870) Pause Young (Allocation Failure) 205M->69M(494M) 3.297ms
+[2023-12-19T08:46:31.881+0000][19053.128s][trace][gc] GC(871) Young invoke=872 size=112656
+[2023-12-19T08:46:31.881+0000][19053.128s][trace][gc] GC(871) Tenured: promo attempt is safe: available(285734016) >= av_promo(37949), max_promo(143519328)
+[2023-12-19T08:46:31.883+0000][19053.131s][info ][gc] GC(871) Pause Young (Allocation Failure) 205M->69M(494M) 2.870ms
+[2023-12-19T08:46:56.029+0000][19077.277s][trace][gc] GC(872) Young invoke=873 size=48
+[2023-12-19T08:46:56.029+0000][19077.277s][trace][gc] GC(872) Tenured: promo attempt is safe: available(285730368) >= av_promo(35169), max_promo(143610816)
+[2023-12-19T08:46:56.033+0000][19077.281s][info ][gc] GC(872) Pause Young (Allocation Failure) 205M->69M(494M) 4.630ms
+[2023-12-19T08:47:20.621+0000][19101.869s][trace][gc] GC(873) Young invoke=874 size=88
+[2023-12-19T08:47:20.621+0000][19101.869s][trace][gc] GC(873) Tenured: promo attempt is safe: available(285727472) >= av_promo(32730), max_promo(143293672)
+[2023-12-19T08:47:20.624+0000][19101.872s][info ][gc] GC(873) Pause Young (Allocation Failure) 205M->69M(494M) 3.299ms
+[2023-12-19T08:47:45.420+0000][19126.668s][trace][gc] GC(874) Young invoke=875 size=24
+[2023-12-19T08:47:45.420+0000][19126.668s][trace][gc] GC(874) Tenured: promo attempt is safe: available(285724600) >= av_promo(30460), max_promo(143403320)
+[2023-12-19T08:47:45.425+0000][19126.673s][info ][gc] GC(874) Pause Young (Allocation Failure) 205M->69M(494M) 5.097ms
+[2023-12-19T08:48:10.457+0000][19151.705s][trace][gc] GC(875) Young invoke=876 size=184
+[2023-12-19T08:48:10.457+0000][19151.705s][trace][gc] GC(875) Tenured: promo attempt is safe: available(285693264) >= av_promo(37589), max_promo(143446128)
+[2023-12-19T08:48:10.460+0000][19151.708s][info ][gc] GC(875) Pause Young (Allocation Failure) 205M->69M(494M) 2.574ms
+[2023-12-19T08:48:36.128+0000][19177.376s][trace][gc] GC(876) Young invoke=877 size=200
+[2023-12-19T08:48:36.128+0000][19177.376s][trace][gc] GC(876) Tenured: promo attempt is safe: available(285689928) >= av_promo(35386), max_promo(143288608)
+[2023-12-19T08:48:36.133+0000][19177.381s][info ][gc] GC(876) Pause Young (Allocation Failure) 205M->69M(494M) 4.467ms
+[2023-12-19T08:49:00.436+0000][19201.684s][trace][gc] GC(877) Young invoke=878 size=40
+[2023-12-19T08:49:00.437+0000][19201.684s][trace][gc] GC(877) Tenured: promo attempt is safe: available(285686912) >= av_promo(33337), max_promo(143730808)
+[2023-12-19T08:49:00.439+0000][19201.687s][info ][gc] GC(877) Pause Young (Allocation Failure) 205M->69M(494M) 3.089ms
+[2023-12-19T08:49:25.413+0000][19226.660s][trace][gc] GC(878) Young invoke=879 size=59768
+[2023-12-19T08:49:25.413+0000][19226.661s][trace][gc] GC(878) Tenured: promo attempt is safe: available(285683936) >= av_promo(31380), max_promo(143259368)
+[2023-12-19T08:49:25.416+0000][19226.664s][info ][gc] GC(878) Pause Young (Allocation Failure) 205M->69M(494M) 3.348ms
+[2023-12-19T08:49:49.902+0000][19251.150s][trace][gc] GC(879) Young invoke=880 size=56
+[2023-12-19T08:49:49.903+0000][19251.150s][trace][gc] GC(879) Tenured: promo attempt is safe: available(285680784) >= av_promo(29481), max_promo(143400368)
+[2023-12-19T08:49:49.908+0000][19251.155s][info ][gc] GC(879) Pause Young (Allocation Failure) 205M->69M(494M) 5.284ms
+[2023-12-19T08:50:14.345+0000][19275.593s][trace][gc] GC(880) Young invoke=881 size=176
+[2023-12-19T08:50:14.345+0000][19275.593s][trace][gc] GC(880) Tenured: promo attempt is safe: available(285677864) >= av_promo(27719), max_promo(143528440)
+[2023-12-19T08:50:14.350+0000][19275.598s][info ][gc] GC(880) Pause Young (Allocation Failure) 205M->69M(494M) 4.916ms
+[2023-12-19T08:50:39.156+0000][19300.404s][trace][gc] GC(881) Young invoke=882 size=32
+[2023-12-19T08:50:39.156+0000][19300.404s][trace][gc] GC(881) Tenured: promo attempt is safe: available(285675120) >= av_promo(26073), max_promo(143532816)
+[2023-12-19T08:50:39.161+0000][19300.409s][info ][gc] GC(881) Pause Young (Allocation Failure) 205M->69M(494M) 5.384ms
+[2023-12-19T08:51:04.458+0000][19325.705s][trace][gc] GC(882) Young invoke=883 size=163408
+[2023-12-19T08:51:04.458+0000][19325.706s][trace][gc] GC(882) Tenured: promo attempt is safe: available(285672320) >= av_promo(24498), max_promo(143406792)
+[2023-12-19T08:51:04.462+0000][19325.710s][info ][gc] GC(882) Pause Young (Allocation Failure) 205M->69M(494M) 4.626ms
+[2023-12-19T08:51:29.662+0000][19350.910s][trace][gc] GC(883) Young invoke=884 size=48
+[2023-12-19T08:51:29.662+0000][19350.910s][trace][gc] GC(883) Tenured: promo attempt is safe: available(285668832) >= av_promo(22888), max_promo(143576496)
+[2023-12-19T08:51:29.668+0000][19350.915s][info ][gc] GC(883) Pause Young (Allocation Failure) 205M->69M(494M) 5.437ms
+[2023-12-19T08:51:54.317+0000][19375.565s][trace][gc] GC(884) Young invoke=885 size=24
+[2023-12-19T08:51:54.317+0000][19375.565s][trace][gc] GC(884) Tenured: promo attempt is safe: available(285666072) >= av_promo(21513), max_promo(143438232)
+[2023-12-19T08:51:54.321+0000][19375.569s][info ][gc] GC(884) Pause Young (Allocation Failure) 205M->69M(494M) 4.698ms
+[2023-12-19T08:52:18.602+0000][19399.850s][trace][gc] GC(885) Young invoke=886 size=32
+[2023-12-19T08:52:18.602+0000][19399.850s][trace][gc] GC(885) Tenured: promo attempt is safe: available(285663376) >= av_promo(20223), max_promo(143575608)
+[2023-12-19T08:52:18.605+0000][19399.853s][info ][gc] GC(885) Pause Young (Allocation Failure) 205M->69M(494M) 3.003ms
+[2023-12-19T08:52:42.965+0000][19424.213s][trace][gc] GC(886) Young invoke=887 size=672
+[2023-12-19T08:52:42.965+0000][19424.213s][trace][gc] GC(886) Tenured: promo attempt is safe: available(285658512) >= av_promo(18740), max_promo(143545304)
+[2023-12-19T08:52:42.970+0000][19424.218s][info ][gc] GC(886) Pause Young (Allocation Failure) 205M->69M(494M) 4.991ms
+[2023-12-19T08:53:08.522+0000][19449.770s][trace][gc] GC(887) Young invoke=888 size=32
+[2023-12-19T08:53:08.522+0000][19449.770s][trace][gc] GC(887) Tenured: promo attempt is safe: available(285655744) >= av_promo(17661), max_promo(143395560)
+[2023-12-19T08:53:08.527+0000][19449.775s][info ][gc] GC(887) Pause Young (Allocation Failure) 205M->69M(494M) 5.130ms
+[2023-12-19T08:53:32.782+0000][19474.030s][trace][gc] GC(888) Young invoke=889 size=409616
+[2023-12-19T08:53:32.782+0000][19474.030s][trace][gc] GC(888) Tenured: promo attempt is safe: available(285652848) >= av_promo(16617), max_promo(143480680)
+[2023-12-19T08:53:32.788+0000][19474.035s][info ][gc] GC(888) Pause Young (Allocation Failure) 205M->69M(494M) 5.302ms
+[2023-12-19T08:53:57.569+0000][19498.817s][trace][gc] GC(889) Young invoke=890 size=40
+[2023-12-19T08:53:57.569+0000][19498.817s][trace][gc] GC(889) Tenured: promo attempt is safe: available(285630496) >= av_promo(22054), max_promo(143795656)
+[2023-12-19T08:53:57.573+0000][19498.821s][info ][gc] GC(889) Pause Young (Allocation Failure) 206M->69M(494M) 4.918ms
+[2023-12-19T08:54:22.950+0000][19524.198s][trace][gc] GC(890) Young invoke=891 size=32
+[2023-12-19T08:54:22.950+0000][19524.198s][trace][gc] GC(890) Tenured: promo attempt is safe: available(285627568) >= av_promo(21008), max_promo(143418704)
+[2023-12-19T08:54:22.956+0000][19524.204s][info ][gc] GC(890) Pause Young (Allocation Failure) 205M->69M(494M) 5.982ms
+[2023-12-19T08:54:47.170+0000][19548.418s][trace][gc] GC(891) Young invoke=892 size=32
+[2023-12-19T08:54:47.170+0000][19548.418s][trace][gc] GC(891) Tenured: promo attempt is safe: available(285624696) >= av_promo(19990), max_promo(143779448)
+[2023-12-19T08:54:47.174+0000][19548.422s][info ][gc] GC(891) Pause Young (Allocation Failure) 206M->69M(494M) 4.707ms
+[2023-12-19T08:55:11.566+0000][19572.813s][trace][gc] GC(892) Young invoke=893 size=48
+[2023-12-19T08:55:11.566+0000][19572.813s][trace][gc] GC(892) Tenured: promo attempt is safe: available(285620680) >= av_promo(18799), max_promo(143304240)
+[2023-12-19T08:55:11.568+0000][19572.816s][info ][gc] GC(892) Pause Young (Allocation Failure) 205M->69M(494M) 2.415ms
+[2023-12-19T08:55:37.019+0000][19598.267s][trace][gc] GC(893) Young invoke=894 size=200
+[2023-12-19T08:55:37.019+0000][19598.267s][trace][gc] GC(893) Tenured: promo attempt is safe: available(285617440) >= av_promo(17819), max_promo(143366072)
+[2023-12-19T08:55:37.024+0000][19598.272s][info ][gc] GC(893) Pause Young (Allocation Failure) 205M->69M(494M) 5.241ms
+[2023-12-19T08:56:01.924+0000][19623.171s][trace][gc] GC(894) Young invoke=895 size=32
+[2023-12-19T08:56:01.924+0000][19623.172s][trace][gc] GC(894) Tenured: promo attempt is safe: available(285614408) >= av_promo(16914), max_promo(143596304)
+[2023-12-19T08:56:01.928+0000][19623.176s][info ][gc] GC(894) Pause Young (Allocation Failure) 205M->69M(494M) 4.709ms
+[2023-12-19T08:56:27.164+0000][19648.412s][trace][gc] GC(895) Young invoke=896 size=140488
+[2023-12-19T08:56:27.164+0000][19648.412s][trace][gc] GC(895) Tenured: promo attempt is safe: available(285611784) >= av_promo(16112), max_promo(143320992)
+[2023-12-19T08:56:27.168+0000][19648.416s][info ][gc] GC(895) Pause Young (Allocation Failure) 205M->69M(494M) 3.921ms
+[2023-12-19T08:56:52.616+0000][19673.864s][trace][gc] GC(896) Young invoke=897 size=96
+[2023-12-19T08:56:52.616+0000][19673.864s][trace][gc] GC(896) Tenured: promo attempt is safe: available(285608792) >= av_promo(15265), max_promo(143662832)
+[2023-12-19T08:56:52.621+0000][19673.869s][info ][gc] GC(896) Pause Young (Allocation Failure) 206M->69M(494M) 5.029ms
+[2023-12-19T08:57:17.204+0000][19698.452s][trace][gc] GC(897) Young invoke=898 size=64
+[2023-12-19T08:57:17.204+0000][19698.452s][trace][gc] GC(897) Tenured: promo attempt is safe: available(285605960) >= av_promo(14483), max_promo(143417464)
+[2023-12-19T08:57:17.207+0000][19698.455s][info ][gc] GC(897) Pause Young (Allocation Failure) 205M->69M(494M) 2.976ms
+[2023-12-19T08:57:41.276+0000][19722.524s][trace][gc] GC(898) Young invoke=899 size=80
+[2023-12-19T08:57:41.276+0000][19722.524s][trace][gc] GC(898) Tenured: promo attempt is safe: available(285603064) >= av_promo(13722), max_promo(143483960)
+[2023-12-19T08:57:41.281+0000][19722.529s][info ][gc] GC(898) Pause Young (Allocation Failure) 205M->69M(494M) 5.180ms
+[2023-12-19T08:58:05.861+0000][19747.109s][trace][gc] GC(899) Young invoke=900 size=48
+[2023-12-19T08:58:05.861+0000][19747.109s][trace][gc] GC(899) Tenured: promo attempt is safe: available(285600328) >= av_promo(13025), max_promo(143676832)
+[2023-12-19T08:58:05.868+0000][19747.116s][info ][gc] GC(899) Pause Young (Allocation Failure) 206M->69M(494M) 7.593ms
+[2023-12-19T08:58:31.381+0000][19772.629s][trace][gc] GC(900) Young invoke=901 size=96
+[2023-12-19T08:58:31.381+0000][19772.629s][trace][gc] GC(900) Tenured: promo attempt is safe: available(285597432) >= av_promo(12330), max_promo(143393736)
+[2023-12-19T08:58:31.385+0000][19772.633s][info ][gc] GC(900) Pause Young (Allocation Failure) 205M->69M(494M) 3.711ms
+[2023-12-19T08:58:55.497+0000][19796.745s][trace][gc] GC(901) Young invoke=902 size=48
+[2023-12-19T08:58:55.498+0000][19796.745s][trace][gc] GC(901) Tenured: promo attempt is safe: available(285569536) >= av_promo(20351), max_promo(143574160)
+[2023-12-19T08:58:55.503+0000][19796.751s][info ][gc] GC(901) Pause Young (Allocation Failure) 205M->69M(494M) 5.614ms
+[2023-12-19T08:59:19.940+0000][19821.188s][trace][gc] GC(902) Young invoke=903 size=16
+[2023-12-19T08:59:19.940+0000][19821.188s][trace][gc] GC(902) Tenured: promo attempt is safe: available(285566208) >= av_promo(19464), max_promo(143861616)
+[2023-12-19T08:59:19.944+0000][19821.192s][info ][gc] GC(902) Pause Young (Allocation Failure) 206M->69M(494M) 4.507ms
+[2023-12-19T08:59:45.644+0000][19846.892s][trace][gc] GC(903) Young invoke=904 size=32
+[2023-12-19T08:59:45.644+0000][19846.892s][trace][gc] GC(903) Tenured: promo attempt is safe: available(285563176) >= av_promo(18635), max_promo(143319360)
+[2023-12-19T08:59:45.649+0000][19846.897s][info ][gc] GC(903) Pause Young (Allocation Failure) 205M->69M(494M) 5.003ms
+[2023-12-19T09:00:10.889+0000][19872.137s][trace][gc] GC(904) Young invoke=905 size=24
+[2023-12-19T09:00:10.889+0000][19872.137s][trace][gc] GC(904) Tenured: promo attempt is safe: available(285560296) >= av_promo(17834), max_promo(143650024)
+[2023-12-19T09:00:10.894+0000][19872.142s][info ][gc] GC(904) Pause Young (Allocation Failure) 206M->69M(494M) 4.719ms
+[2023-12-19T09:00:35.747+0000][19896.995s][trace][gc] GC(905) Young invoke=906 size=48
+[2023-12-19T09:00:35.747+0000][19896.995s][trace][gc] GC(905) Tenured: promo attempt is safe: available(285557056) >= av_promo(16974), max_promo(143454256)
+[2023-12-19T09:00:35.752+0000][19897.000s][info ][gc] GC(905) Pause Young (Allocation Failure) 205M->69M(494M) 5.085ms
+[2023-12-19T09:01:00.036+0000][19921.284s][trace][gc] GC(906) Young invoke=907 size=32
+[2023-12-19T09:01:00.036+0000][19921.284s][trace][gc] GC(906) Tenured: promo attempt is safe: available(285554176) >= av_promo(16201), max_promo(143585200)
+[2023-12-19T09:01:00.039+0000][19921.287s][info ][gc] GC(906) Pause Young (Allocation Failure) 205M->69M(494M) 2.930ms
+[2023-12-19T09:01:25.719+0000][19946.967s][trace][gc] GC(907) Young invoke=908 size=40
+[2023-12-19T09:01:25.719+0000][19946.967s][trace][gc] GC(907) Tenured: promo attempt is safe: available(285551168) >= av_promo(15420), max_promo(143292688)
+[2023-12-19T09:01:25.723+0000][19946.970s][info ][gc] GC(907) Pause Young (Allocation Failure) 205M->69M(494M) 3.310ms
+[2023-12-19T09:01:49.988+0000][19971.236s][trace][gc] GC(908) Young invoke=909 size=112
+[2023-12-19T09:01:49.988+0000][19971.236s][trace][gc] GC(908) Tenured: promo attempt is safe: available(285548192) >= av_promo(14669), max_promo(143505440)
+[2023-12-19T09:01:49.994+0000][19971.242s][info ][gc] GC(908) Pause Young (Allocation Failure) 205M->69M(494M) 6.054ms
+[2023-12-19T09:02:14.709+0000][19995.957s][trace][gc] GC(909) Young invoke=910 size=32
+[2023-12-19T09:02:14.709+0000][19995.957s][trace][gc] GC(909) Tenured: promo attempt is safe: available(285545456) >= av_promo(13984), max_promo(143831624)
+[2023-12-19T09:02:14.714+0000][19995.962s][info ][gc] GC(909) Pause Young (Allocation Failure) 206M->69M(494M) 5.523ms
+[2023-12-19T09:02:39.556+0000][20020.804s][trace][gc] GC(910) Young invoke=911 size=24
+[2023-12-19T09:02:39.557+0000][20020.804s][trace][gc] GC(910) Tenured: promo attempt is safe: available(285542456) >= av_promo(13272), max_promo(143343592)
+[2023-12-19T09:02:39.562+0000][20020.809s][info ][gc] GC(910) Pause Young (Allocation Failure) 205M->69M(494M) 5.251ms
+[2023-12-19T09:03:04.213+0000][20045.461s][trace][gc] GC(911) Young invoke=912 size=88
+[2023-12-19T09:03:04.213+0000][20045.461s][trace][gc] GC(911) Tenured: promo attempt is safe: available(285520152) >= av_promo(19040), max_promo(143485680)
+[2023-12-19T09:03:04.218+0000][20045.466s][info ][gc] GC(911) Pause Young (Allocation Failure) 205M->69M(494M) 5.156ms
+[2023-12-19T09:03:29.974+0000][20071.222s][trace][gc] GC(912) Young invoke=913 size=64
+[2023-12-19T09:03:29.974+0000][20071.222s][trace][gc] GC(912) Tenured: promo attempt is safe: available(285516976) >= av_promo(18240), max_promo(143699608)
+[2023-12-19T09:03:29.977+0000][20071.225s][info ][gc] GC(912) Pause Young (Allocation Failure) 206M->69M(494M) 2.625ms
+[2023-12-19T09:03:54.305+0000][20095.553s][trace][gc] GC(913) Young invoke=914 size=101392
+[2023-12-19T09:03:54.305+0000][20095.553s][trace][gc] GC(913) Tenured: promo attempt is safe: available(285511976) >= av_promo(17132), max_promo(143479096)
+[2023-12-19T09:03:54.308+0000][20095.556s][info ][gc] GC(913) Pause Young (Allocation Failure) 205M->69M(494M) 2.800ms
+[2023-12-19T09:04:18.657+0000][20119.905s][trace][gc] GC(914) Young invoke=915 size=48
+[2023-12-19T09:04:18.657+0000][20119.905s][trace][gc] GC(914) Tenured: promo attempt is safe: available(285509312) >= av_promo(16510), max_promo(143527208)
+[2023-12-19T09:04:18.660+0000][20119.907s][info ][gc] GC(914) Pause Young (Allocation Failure) 205M->69M(494M) 2.344ms
+[2023-12-19T09:04:43.070+0000][20144.317s][trace][gc] GC(915) Young invoke=916 size=168
+[2023-12-19T09:04:43.070+0000][20144.318s][trace][gc] GC(915) Tenured: promo attempt is safe: available(285506848) >= av_promo(15901), max_promo(143306352)
+[2023-12-19T09:04:43.075+0000][20144.323s][info ][gc] GC(915) Pause Young (Allocation Failure) 205M->69M(494M) 5.416ms
+[2023-12-19T09:05:08.535+0000][20169.783s][trace][gc] GC(916) Young invoke=917 size=16
+[2023-12-19T09:05:08.535+0000][20169.783s][trace][gc] GC(916) Tenured: promo attempt is safe: available(285503880) >= av_promo(15188), max_promo(143382880)
+[2023-12-19T09:05:08.540+0000][20169.788s][info ][gc] GC(916) Pause Young (Allocation Failure) 205M->69M(494M) 4.990ms
+[2023-12-19T09:05:33.204+0000][20194.452s][trace][gc] GC(917) Young invoke=918 size=136
+[2023-12-19T09:05:33.204+0000][20194.452s][trace][gc] GC(917) Tenured: promo attempt is safe: available(285501104) >= av_promo(14522), max_promo(143471408)
+[2023-12-19T09:05:33.209+0000][20194.457s][info ][gc] GC(917) Pause Young (Allocation Failure) 205M->69M(494M) 5.033ms
+[2023-12-19T09:05:57.914+0000][20219.162s][trace][gc] GC(918) Young invoke=919 size=80
+[2023-12-19T09:05:57.914+0000][20219.162s][trace][gc] GC(918) Tenured: promo attempt is safe: available(285498984) >= av_promo(13975), max_promo(143394656)
+[2023-12-19T09:05:57.917+0000][20219.165s][info ][gc] GC(918) Pause Young (Allocation Failure) 205M->69M(494M) 2.844ms
+[2023-12-19T09:06:22.426+0000][20243.674s][trace][gc] GC(919) Young invoke=920 size=24
+[2023-12-19T09:06:22.427+0000][20243.675s][trace][gc] GC(919) Tenured: promo attempt is safe: available(285497064) >= av_promo(13448), max_promo(143551224)
+[2023-12-19T09:06:22.431+0000][20243.679s][info ][gc] GC(919) Pause Young (Allocation Failure) 206M->69M(494M) 4.990ms
+[2023-12-19T09:06:47.054+0000][20268.302s][trace][gc] GC(920) Young invoke=921 size=24
+[2023-12-19T09:06:47.054+0000][20268.302s][trace][gc] GC(920) Tenured: promo attempt is safe: available(285494872) >= av_promo(12860), max_promo(143443904)
+[2023-12-19T09:06:47.058+0000][20268.306s][info ][gc] GC(920) Pause Young (Allocation Failure) 205M->69M(494M) 3.399ms
+[2023-12-19T09:07:12.246+0000][20293.494s][trace][gc] GC(921) Young invoke=922 size=56
+[2023-12-19T09:07:12.246+0000][20293.494s][trace][gc] GC(921) Tenured: promo attempt is safe: available(285493192) >= av_promo(12364), max_promo(143326120)
+[2023-12-19T09:07:12.249+0000][20293.497s][info ][gc] GC(921) Pause Young (Allocation Failure) 205M->69M(494M) 2.874ms
+[2023-12-19T09:07:37.178+0000][20318.426s][trace][gc] GC(922) Young invoke=923 size=80
+[2023-12-19T09:07:37.178+0000][20318.426s][trace][gc] GC(922) Tenured: promo attempt is safe: available(285491096) >= av_promo(11784), max_promo(143549568)
+[2023-12-19T09:07:37.183+0000][20318.431s][info ][gc] GC(922) Pause Young (Allocation Failure) 206M->69M(494M) 4.998ms
+[2023-12-19T09:08:01.498+0000][20342.746s][trace][gc] GC(923) Young invoke=924 size=32
+[2023-12-19T09:08:01.498+0000][20342.746s][trace][gc] GC(923) Tenured: promo attempt is safe: available(285489136) >= av_promo(11241), max_promo(143304056)
+[2023-12-19T09:08:01.503+0000][20342.751s][info ][gc] GC(923) Pause Young (Allocation Failure) 205M->69M(494M) 4.811ms
+[2023-12-19T09:08:26.525+0000][20367.773s][trace][gc] GC(924) Young invoke=925 size=32
+[2023-12-19T09:08:26.526+0000][20367.773s][trace][gc] GC(924) Tenured: promo attempt is safe: available(285487072) >= av_promo(10691), max_promo(143372704)
+[2023-12-19T09:08:26.531+0000][20367.779s][info ][gc] GC(924) Pause Young (Allocation Failure) 205M->69M(494M) 5.719ms
+[2023-12-19T09:08:50.963+0000][20392.211s][trace][gc] GC(925) Young invoke=926 size=40
+[2023-12-19T09:08:50.964+0000][20392.211s][trace][gc] GC(925) Tenured: promo attempt is safe: available(285485016) >= av_promo(10160), max_promo(143532352)
+[2023-12-19T09:08:50.969+0000][20392.216s][info ][gc] GC(925) Pause Young (Allocation Failure) 205M->69M(494M) 5.231ms
+[2023-12-19T09:09:15.395+0000][20416.643s][trace][gc] GC(926) Young invoke=927 size=24
+[2023-12-19T09:09:15.395+0000][20416.643s][trace][gc] GC(926) Tenured: promo attempt is safe: available(285482960) >= av_promo(9649), max_promo(143637520)
+[2023-12-19T09:09:15.399+0000][20416.647s][info ][gc] GC(926) Pause Young (Allocation Failure) 206M->69M(494M) 4.604ms
+[2023-12-19T09:09:40.398+0000][20441.646s][trace][gc] GC(927) Young invoke=928 size=24
+[2023-12-19T09:09:40.398+0000][20441.646s][trace][gc] GC(927) Tenured: promo attempt is safe: available(285461288) >= av_promo(15878), max_promo(143358456)
+[2023-12-19T09:09:40.403+0000][20441.651s][info ][gc] GC(927) Pause Young (Allocation Failure) 205M->69M(494M) 5.305ms
+[2023-12-19T09:10:05.133+0000][20466.381s][trace][gc] GC(928) Young invoke=929 size=3088
+[2023-12-19T09:10:05.133+0000][20466.381s][trace][gc] GC(928) Tenured: promo attempt is safe: available(285449976) >= av_promo(17148), max_promo(143439536)
+[2023-12-19T09:10:05.138+0000][20466.386s][info ][gc] GC(928) Pause Young (Allocation Failure) 205M->69M(494M) 5.636ms
+[2023-12-19T09:10:30.583+0000][20491.831s][trace][gc] GC(929) Young invoke=930 size=56
+[2023-12-19T09:10:30.583+0000][20491.831s][trace][gc] GC(929) Tenured: promo attempt is safe: available(285448024) >= av_promo(16602), max_promo(143576640)
+[2023-12-19T09:10:30.586+0000][20491.834s][info ][gc] GC(929) Pause Young (Allocation Failure) 206M->69M(494M) 2.639ms
+[2023-12-19T09:10:54.689+0000][20515.937s][trace][gc] GC(930) Young invoke=931 size=88
+[2023-12-19T09:10:54.689+0000][20515.937s][trace][gc] GC(930) Tenured: promo attempt is safe: available(285445792) >= av_promo(15965), max_promo(143412312)
+[2023-12-19T09:10:54.692+0000][20515.940s][info ][gc] GC(930) Pause Young (Allocation Failure) 205M->69M(494M) 2.514ms
+[2023-12-19T09:11:19.222+0000][20540.470s][trace][gc] GC(931) Young invoke=932 size=40
+[2023-12-19T09:11:19.222+0000][20540.470s][trace][gc] GC(931) Tenured: promo attempt is safe: available(285442496) >= av_promo(15131), max_promo(143463240)
+[2023-12-19T09:11:19.226+0000][20540.474s][info ][gc] GC(931) Pause Young (Allocation Failure) 205M->69M(494M) 3.509ms
+[2023-12-19T09:11:43.699+0000][20564.947s][trace][gc] GC(932) Young invoke=933 size=200
+[2023-12-19T09:11:43.699+0000][20564.947s][trace][gc] GC(932) Tenured: promo attempt is safe: available(285440576) >= av_promo(14571), max_promo(143431448)
+[2023-12-19T09:11:43.705+0000][20564.953s][info ][gc] GC(932) Pause Young (Allocation Failure) 205M->69M(494M) 5.639ms
+[2023-12-19T09:12:08.398+0000][20589.646s][trace][gc] GC(933) Young invoke=934 size=64
+[2023-12-19T09:12:08.398+0000][20589.646s][trace][gc] GC(933) Tenured: promo attempt is safe: available(285418376) >= av_promo(20124), max_promo(143364040)
+[2023-12-19T09:12:08.401+0000][20589.649s][info ][gc] GC(933) Pause Young (Allocation Failure) 205M->69M(494M) 2.502ms
+[2023-12-19T09:12:32.951+0000][20614.199s][trace][gc] GC(934) Young invoke=935 size=168
+[2023-12-19T09:12:32.951+0000][20614.199s][trace][gc] GC(934) Tenured: promo attempt is safe: available(285409728) >= av_promo(19629), max_promo(143363352)
+[2023-12-19T09:12:32.956+0000][20614.204s][info ][gc] GC(934) Pause Young (Allocation Failure) 205M->69M(494M) 5.085ms
+[2023-12-19T09:12:57.488+0000][20638.736s][trace][gc] GC(935) Young invoke=936 size=24
+[2023-12-19T09:12:57.488+0000][20638.736s][trace][gc] GC(935) Tenured: promo attempt is safe: available(285407040) >= av_promo(18957), max_promo(143479416)
+[2023-12-19T09:12:57.494+0000][20638.742s][info ][gc] GC(935) Pause Young (Allocation Failure) 206M->69M(494M) 5.666ms
+[2023-12-19T09:13:21.820+0000][20663.067s][trace][gc] GC(936) Young invoke=937 size=24
+[2023-12-19T09:13:21.820+0000][20663.068s][trace][gc] GC(936) Tenured: promo attempt is safe: available(285403816) >= av_promo(18158), max_promo(143567640)
+[2023-12-19T09:13:21.823+0000][20663.070s][info ][gc] GC(936) Pause Young (Allocation Failure) 206M->69M(494M) 3.108ms
+[2023-12-19T09:13:46.326+0000][20687.574s][trace][gc] GC(937) Young invoke=938 size=16
+[2023-12-19T09:13:46.326+0000][20687.574s][trace][gc] GC(937) Tenured: promo attempt is safe: available(285400904) >= av_promo(17415), max_promo(143336824)
+[2023-12-19T09:13:46.331+0000][20687.579s][info ][gc] GC(937) Pause Young (Allocation Failure) 205M->69M(494M) 5.307ms
+[2023-12-19T09:14:11.760+0000][20713.008s][trace][gc] GC(938) Young invoke=939 size=152032
+[2023-12-19T09:14:11.761+0000][20713.008s][trace][gc] GC(938) Tenured: promo attempt is safe: available(285396304) >= av_promo(16382), max_promo(143461032)
+[2023-12-19T09:14:11.763+0000][20713.011s][info ][gc] GC(938) Pause Young (Allocation Failure) 206M->69M(494M) 2.702ms
+[2023-12-19T09:14:37.119+0000][20738.367s][trace][gc] GC(939) Young invoke=940 size=120
+[2023-12-19T09:14:37.119+0000][20738.367s][trace][gc] GC(939) Tenured: promo attempt is safe: available(285393312) >= av_promo(15700), max_promo(143745336)
+[2023-12-19T09:14:37.124+0000][20738.372s][info ][gc] GC(939) Pause Young (Allocation Failure) 206M->69M(494M) 5.248ms
+[2023-12-19T09:15:01.883+0000][20763.131s][trace][gc] GC(940) Young invoke=941 size=160
+[2023-12-19T09:15:01.883+0000][20763.131s][trace][gc] GC(940) Tenured: promo attempt is safe: available(285390440) >= av_promo(15041), max_promo(143425464)
+[2023-12-19T09:15:01.888+0000][20763.136s][info ][gc] GC(940) Pause Young (Allocation Failure) 205M->69M(494M) 5.229ms
+[2023-12-19T09:15:26.285+0000][20787.533s][trace][gc] GC(941) Young invoke=942 size=48
+[2023-12-19T09:15:26.285+0000][20787.533s][trace][gc] GC(941) Tenured: promo attempt is safe: available(285383208) >= av_promo(14876), max_promo(143507600)
+[2023-12-19T09:15:26.288+0000][20787.536s][info ][gc] GC(941) Pause Young (Allocation Failure) 206M->69M(494M) 3.085ms
+[2023-12-19T09:15:51.035+0000][20812.283s][trace][gc] GC(942) Young invoke=943 size=32
+[2023-12-19T09:15:51.035+0000][20812.283s][trace][gc] GC(942) Tenured: promo attempt is safe: available(285380112) >= av_promo(14260), max_promo(143332024)
+[2023-12-19T09:15:51.039+0000][20812.287s][info ][gc] GC(942) Pause Young (Allocation Failure) 205M->69M(494M) 4.870ms
+[2023-12-19T09:16:16.154+0000][20837.402s][trace][gc] GC(943) Young invoke=944 size=40
+[2023-12-19T09:16:16.154+0000][20837.402s][trace][gc] GC(943) Tenured: promo attempt is safe: available(285377224) >= av_promo(13685), max_promo(143439800)
+[2023-12-19T09:16:16.162+0000][20837.410s][info ][gc] GC(943) Pause Young (Allocation Failure) 206M->69M(494M) 7.747ms
+[2023-12-19T09:16:41.843+0000][20863.091s][trace][gc] GC(944) Young invoke=945 size=32
+[2023-12-19T09:16:41.843+0000][20863.091s][trace][gc] GC(944) Tenured: promo attempt is safe: available(285354320) >= av_promo(19505), max_promo(143302688)
+[2023-12-19T09:16:41.848+0000][20863.096s][info ][gc] GC(944) Pause Young (Allocation Failure) 205M->69M(494M) 5.370ms
+[2023-12-19T09:17:06.001+0000][20887.249s][trace][gc] GC(945) Young invoke=946 size=64
+[2023-12-19T09:17:06.001+0000][20887.249s][trace][gc] GC(945) Tenured: promo attempt is safe: available(285351448) >= av_promo(18842), max_promo(143440880)
+[2023-12-19T09:17:06.004+0000][20887.252s][info ][gc] GC(945) Pause Young (Allocation Failure) 206M->69M(494M) 3.248ms
+[2023-12-19T09:17:30.993+0000][20912.241s][trace][gc] GC(946) Young invoke=947 size=48
+[2023-12-19T09:17:30.993+0000][20912.241s][trace][gc] GC(946) Tenured: promo attempt is safe: available(285348624) >= av_promo(18154), max_promo(143593944)
+[2023-12-19T09:17:30.998+0000][20912.246s][info ][gc] GC(946) Pause Young (Allocation Failure) 206M->69M(494M) 5.124ms
+[2023-12-19T09:17:55.599+0000][20936.847s][trace][gc] GC(947) Young invoke=948 size=120
+[2023-12-19T09:17:55.599+0000][20936.847s][trace][gc] GC(947) Tenured: promo attempt is safe: available(285345632) >= av_promo(17414), max_promo(143400848)
+[2023-12-19T09:17:55.606+0000][20936.854s][info ][gc] GC(947) Pause Young (Allocation Failure) 206M->69M(494M) 7.049ms
+[2023-12-19T09:18:19.593+0000][20960.841s][trace][gc] GC(948) Young invoke=949 size=24
+[2023-12-19T09:18:19.593+0000][20960.841s][trace][gc] GC(948) Tenured: promo attempt is safe: available(285341368) >= av_promo(16454), max_promo(143464416)
+[2023-12-19T09:18:19.596+0000][20960.844s][info ][gc] GC(948) Pause Young (Allocation Failure) 206M->69M(494M) 2.950ms
+[2023-12-19T09:18:44.316+0000][20985.564s][trace][gc] GC(949) Young invoke=950 size=233168
+[2023-12-19T09:18:44.316+0000][20985.564s][trace][gc] GC(949) Tenured: promo attempt is safe: available(285338224) >= av_promo(15746), max_promo(143387608)
+[2023-12-19T09:18:44.321+0000][20985.569s][info ][gc] GC(949) Pause Young (Allocation Failure) 206M->69M(494M) 5.194ms
+[2023-12-19T09:19:09.320+0000][21010.568s][trace][gc] GC(950) Young invoke=951 size=24
+[2023-12-19T09:19:09.320+0000][21010.568s][trace][gc] GC(950) Tenured: promo attempt is safe: available(285334960) >= av_promo(15025), max_promo(143872904)
+[2023-12-19T09:19:09.325+0000][21010.573s][info ][gc] GC(950) Pause Young (Allocation Failure) 206M->69M(494M) 4.970ms
+[2023-12-19T09:19:33.738+0000][21034.986s][trace][gc] GC(951) Young invoke=952 size=24
+[2023-12-19T09:19:33.739+0000][21034.986s][trace][gc] GC(951) Tenured: promo attempt is safe: available(285332008) >= av_promo(14377), max_promo(143411104)
+[2023-12-19T09:19:33.744+0000][21034.991s][info ][gc] GC(951) Pause Young (Allocation Failure) 206M->69M(494M) 5.191ms
+[2023-12-19T09:19:57.781+0000][21059.029s][trace][gc] GC(952) Young invoke=953 size=24
+[2023-12-19T09:19:57.781+0000][21059.029s][trace][gc] GC(952) Tenured: promo attempt is safe: available(285329624) >= av_promo(13834), max_promo(143511424)
+[2023-12-19T09:19:57.786+0000][21059.034s][info ][gc] GC(952) Pause Young (Allocation Failure) 206M->69M(494M) 5.113ms
+[2023-12-19T09:20:22.529+0000][21083.777s][trace][gc] GC(953) Young invoke=954 size=24
+[2023-12-19T09:20:22.529+0000][21083.777s][trace][gc] GC(953) Tenured: promo attempt is safe: available(285326464) >= av_promo(13148), max_promo(143450896)
+[2023-12-19T09:20:22.534+0000][21083.781s][info ][gc] GC(953) Pause Young (Allocation Failure) 206M->69M(494M) 4.681ms
+[2023-12-19T09:20:46.643+0000][21107.891s][trace][gc] GC(954) Young invoke=955 size=32
+[2023-12-19T09:20:46.644+0000][21107.891s][trace][gc] GC(954) Tenured: promo attempt is safe: available(285318440) >= av_promo(13606), max_promo(143596048)
+[2023-12-19T09:20:46.650+0000][21107.898s][info ][gc] GC(954) Pause Young (Allocation Failure) 206M->70M(494M) 6.519ms
+[2023-12-19T09:21:12.237+0000][21133.485s][trace][gc] GC(955) Young invoke=956 size=88
+[2023-12-19T09:21:12.237+0000][21133.485s][trace][gc] GC(955) Tenured: promo attempt is safe: available(285315480) >= av_promo(13035), max_promo(143975808)
+[2023-12-19T09:21:12.241+0000][21133.489s][info ][gc] GC(955) Pause Young (Allocation Failure) 206M->69M(494M) 4.683ms
+[2023-12-19T09:21:36.760+0000][21158.008s][trace][gc] GC(956) Young invoke=957 size=144
+[2023-12-19T09:21:36.760+0000][21158.008s][trace][gc] GC(956) Tenured: promo attempt is safe: available(285312040) >= av_promo(12391), max_promo(143415944)
+[2023-12-19T09:21:36.763+0000][21158.011s][info ][gc] GC(956) Pause Young (Allocation Failure) 206M->69M(494M) 3.085ms
+[2023-12-19T09:22:01.312+0000][21182.560s][trace][gc] GC(957) Young invoke=958 size=88
+[2023-12-19T09:22:01.312+0000][21182.560s][trace][gc] GC(957) Tenured: promo attempt is safe: available(285289848) >= av_promo(18150), max_promo(143325672)
+[2023-12-19T09:22:01.315+0000][21182.563s][info ][gc] GC(957) Pause Young (Allocation Failure) 205M->69M(494M) 3.509ms
+[2023-12-19T09:22:26.054+0000][21207.302s][trace][gc] GC(958) Young invoke=959 size=32
+[2023-12-19T09:22:26.054+0000][21207.302s][trace][gc] GC(958) Tenured: promo attempt is safe: available(285286944) >= av_promo(17532), max_promo(143488088)
+[2023-12-19T09:22:26.057+0000][21207.305s][info ][gc] GC(958) Pause Young (Allocation Failure) 206M->69M(494M) 2.669ms
+[2023-12-19T09:22:50.827+0000][21232.074s][trace][gc] GC(959) Young invoke=960 size=117776
+[2023-12-19T09:22:50.827+0000][21232.075s][trace][gc] GC(959) Tenured: promo attempt is safe: available(285284184) >= av_promo(16909), max_promo(143515616)
+[2023-12-19T09:22:50.832+0000][21232.080s][info ][gc] GC(959) Pause Young (Allocation Failure) 206M->69M(494M) 5.176ms
+[2023-12-19T09:23:15.469+0000][21256.717s][trace][gc] GC(960) Young invoke=961 size=56
+[2023-12-19T09:23:15.469+0000][21256.717s][trace][gc] GC(960) Tenured: promo attempt is safe: available(285281296) >= av_promo(16242), max_promo(143674208)
+[2023-12-19T09:23:15.472+0000][21256.720s][info ][gc] GC(960) Pause Young (Allocation Failure) 206M->69M(494M) 2.710ms
+[2023-12-19T09:23:40.134+0000][21281.382s][trace][gc] GC(961) Young invoke=962 size=24
+[2023-12-19T09:23:40.135+0000][21281.382s][trace][gc] GC(961) Tenured: promo attempt is safe: available(285258440) >= av_promo(21633), max_promo(143385768)
+[2023-12-19T09:23:40.139+0000][21281.387s][info ][gc] GC(961) Pause Young (Allocation Failure) 206M->69M(494M) 5.058ms
+[2023-12-19T09:24:04.995+0000][21306.242s][trace][gc] GC(962) Young invoke=963 size=200
+[2023-12-19T09:24:04.995+0000][21306.243s][trace][gc] GC(962) Tenured: promo attempt is safe: available(285255696) >= av_promo(20918), max_promo(143428336)
+[2023-12-19T09:24:05.000+0000][21306.247s][info ][gc] GC(962) Pause Young (Allocation Failure) 206M->69M(494M) 5.199ms
+[2023-12-19T09:24:29.307+0000][21330.555s][trace][gc] GC(963) Young invoke=964 size=136
+[2023-12-19T09:24:29.307+0000][21330.555s][trace][gc] GC(963) Tenured: promo attempt is safe: available(285252504) >= av_promo(20080), max_promo(143580696)
+[2023-12-19T09:24:29.310+0000][21330.558s][info ][gc] GC(963) Pause Young (Allocation Failure) 206M->69M(494M) 2.782ms
+[2023-12-19T09:24:54.020+0000][21355.268s][trace][gc] GC(964) Young invoke=965 size=32
+[2023-12-19T09:24:54.020+0000][21355.268s][trace][gc] GC(964) Tenured: promo attempt is safe: available(285249400) >= av_promo(19247), max_promo(143291896)
+[2023-12-19T09:24:54.025+0000][21355.273s][info ][gc] GC(964) Pause Young (Allocation Failure) 205M->69M(494M) 5.223ms
+[2023-12-19T09:25:19.165+0000][21380.413s][trace][gc] GC(965) Young invoke=966 size=221200
+[2023-12-19T09:25:19.165+0000][21380.413s][trace][gc] GC(965) Tenured: promo attempt is safe: available(285246712) >= av_promo(18482), max_promo(143364400)
+[2023-12-19T09:25:19.168+0000][21380.416s][info ][gc] GC(965) Pause Young (Allocation Failure) 206M->69M(494M) 2.848ms
+[2023-12-19T09:25:44.492+0000][21405.739s][trace][gc] GC(966) Young invoke=967 size=64
+[2023-12-19T09:25:44.492+0000][21405.740s][trace][gc] GC(966) Tenured: promo attempt is safe: available(285243664) >= av_promo(17643), max_promo(143629544)
+[2023-12-19T09:25:44.497+0000][21405.745s][info ][gc] GC(966) Pause Young (Allocation Failure) 206M->69M(494M) 6.041ms
+[2023-12-19T09:26:09.268+0000][21430.515s][trace][gc] GC(967) Young invoke=968 size=80
+[2023-12-19T09:26:09.268+0000][21430.516s][trace][gc] GC(967) Tenured: promo attempt is safe: available(285240768) >= av_promo(16844), max_promo(143503968)
+[2023-12-19T09:26:09.271+0000][21430.519s][info ][gc] GC(967) Pause Young (Allocation Failure) 206M->69M(494M) 3.853ms
+[2023-12-19T09:26:33.378+0000][21454.626s][trace][gc] GC(968) Young invoke=969 size=32
+[2023-12-19T09:26:33.378+0000][21454.626s][trace][gc] GC(968) Tenured: promo attempt is safe: available(285216224) >= av_promo(22851), max_promo(143538704)
+[2023-12-19T09:26:33.380+0000][21454.628s][info ][gc] GC(968) Pause Young (Allocation Failure) 206M->70M(494M) 2.626ms
+[2023-12-19T09:26:57.427+0000][21478.675s][trace][gc] GC(969) Young invoke=970 size=32
+[2023-12-19T09:26:57.427+0000][21478.675s][trace][gc] GC(969) Tenured: promo attempt is safe: available(285213528) >= av_promo(22021), max_promo(143847216)
+[2023-12-19T09:26:57.434+0000][21478.682s][info ][gc] GC(969) Pause Young (Allocation Failure) 206M->70M(494M) 7.024ms
+[2023-12-19T09:27:21.978+0000][21503.226s][trace][gc] GC(970) Young invoke=971 size=3088
+[2023-12-19T09:27:21.978+0000][21503.226s][trace][gc] GC(970) Tenured: promo attempt is safe: available(285210616) >= av_promo(21118), max_promo(144164272)
+[2023-12-19T09:27:21.984+0000][21503.231s][info ][gc] GC(970) Pause Young (Allocation Failure) 206M->69M(494M) 5.940ms
+[2023-12-19T09:27:46.607+0000][21527.855s][trace][gc] GC(971) Young invoke=972 size=24
+[2023-12-19T09:27:46.607+0000][21527.855s][trace][gc] GC(971) Tenured: promo attempt is safe: available(285207832) >= av_promo(20227), max_promo(143344400)
+[2023-12-19T09:27:46.610+0000][21527.858s][info ][gc] GC(971) Pause Young (Allocation Failure) 206M->69M(494M) 3.156ms
+[2023-12-19T09:28:11.253+0000][21552.501s][trace][gc] GC(972) Young invoke=973 size=168
+[2023-12-19T09:28:11.253+0000][21552.501s][trace][gc] GC(972) Tenured: promo attempt is safe: available(285198928) >= av_promo(19899), max_promo(143431704)
+[2023-12-19T09:28:11.258+0000][21552.506s][info ][gc] GC(972) Pause Young (Allocation Failure) 206M->69M(494M) 4.879ms
+[2023-12-19T09:28:35.652+0000][21576.900s][trace][gc] GC(973) Young invoke=974 size=32
+[2023-12-19T09:28:35.652+0000][21576.900s][trace][gc] GC(973) Tenured: promo attempt is safe: available(285195792) >= av_promo(19056), max_promo(143452992)
+[2023-12-19T09:28:35.658+0000][21576.906s][info ][gc] GC(973) Pause Young (Allocation Failure) 206M->70M(494M) 6.057ms
+[2023-12-19T09:29:00.728+0000][21601.976s][trace][gc] GC(974) Young invoke=975 size=24
+[2023-12-19T09:29:00.728+0000][21601.976s][trace][gc] GC(974) Tenured: promo attempt is safe: available(285191712) >= av_promo(18054), max_promo(144080664)
+[2023-12-19T09:29:00.731+0000][21601.979s][info ][gc] GC(974) Pause Young (Allocation Failure) 206M->69M(494M) 2.795ms
+[2023-12-19T09:29:25.379+0000][21626.627s][trace][gc] GC(975) Young invoke=976 size=232
+[2023-12-19T09:29:25.379+0000][21626.627s][trace][gc] GC(975) Tenured: promo attempt is safe: available(285188632) >= av_promo(17272), max_promo(143432312)
+[2023-12-19T09:29:25.382+0000][21626.630s][info ][gc] GC(975) Pause Young (Allocation Failure) 206M->69M(494M) 3.394ms
+[2023-12-19T09:29:48.826+0000][21650.074s][trace][gc] GC(976) Young invoke=977 size=32
+[2023-12-19T09:29:48.827+0000][21650.074s][trace][gc] GC(976) Tenured: promo attempt is safe: available(285186200) >= av_promo(16607), max_promo(143467456)
+[2023-12-19T09:29:48.832+0000][21650.080s][info ][gc] GC(976) Pause Young (Allocation Failure) 206M->70M(494M) 6.089ms

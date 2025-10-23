@@ -1,0 +1,27 @@
+@startuml list-ns-services
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title UI Service (List Namespaces & Services)
+
+actor "User" as user #White
+
+box "CDT Server Namespace" #F5F5F5
+    participant "Ingress" as ingress #FFF2CC
+    participant "ui-service frontend" as uiFront #D5E8D4
+    participant "ui-service backend" as uiBack #D5E8D4
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+user -> ingress: Navigate to top & thread dumps page
+ingress -> uiFront: Route request to frontend
+
+uiFront -> uiBack: Request filtered namespaces & services
+uiBack -> postgreSQL: Find matching namespaces & services
+uiBack -> uiFront: Return list of namespaces & services
+uiFront -> user: Display filtered namespaces & services
+
+@enduml

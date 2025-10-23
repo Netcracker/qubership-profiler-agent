@@ -1,0 +1,13 @@
+{{- if .Values.grafanaDashboard.enabled -}}
+apiVersion: integreatly.org/v1alpha1
+kind: GrafanaDashboard
+metadata:
+  name: {{ .Values.global.name }}-dashboard
+  labels:
+    app.kubernetes.io/name: {{ .Values.global.name }}
+    app.kubernetes.io/component: monitoring
+spec:
+  # Dashboard will insert directly into custom resource
+  json: >
+    {{ .Files.Get "monitoring/cdt-loader-dashboard.json" | nindent 4 }}
+{{- end }}

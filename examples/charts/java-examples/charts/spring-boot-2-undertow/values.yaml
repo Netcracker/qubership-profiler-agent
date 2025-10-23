@@ -1,0 +1,49 @@
+# Default values for go-example-service
+# This is a YAML-formatted file
+# Declare variables to be passed into your templates.
+
+## A name of a microservice to deploy with.
+## This name will be used as name of the microservice deployment and in labels.
+# Type: string
+# Mandatory: no
+#
+name: spring-boot-2-undertow
+
+## A docker image to use for ClickHouse-operator deployment
+# Type: string
+# Mandatory: yes
+#
+# image: personal/micrometer-spring-boot-2:build3
+
+extraEnvs:
+  - name: NC_DIAGNOSTIC_MODE
+    value: prod
+  - name: NC_DIAGNOSTIC_AGENT_SERVICE
+    value: esc-collector-service.profiler.svc
+
+## Allow to disable create ServiceMonitor CR for go-example during deploy
+# Type: string
+# Mandatory: no
+#
+serviceMonitor: true
+
+## SecurityContext holds pod-level security attributes.
+# The parameters are required if a Pod Security Policy is enabled
+#  for Kubernetes cluster and required if a Security Context Constraints is enabled
+# for Openshift cluster.
+# Type: object
+# Mandatory: no
+#
+securityContext:
+  ## The UID to run the entrypoint of the container process.
+  # Defaults to user specified in image metadata if unspecified.
+  # Type: integer
+  # Mandatory: no
+  #
+  runAsUser: 2000
+
+  ## The GID to run the entrypoint of the container process.
+  # Defaults to group specified in image metadata if unspecified.
+  # Type: integer
+  # Mandatory: no
+  fsGroup: 2000

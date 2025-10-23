@@ -1,0 +1,96 @@
+# This template can be applying for deploy in Kubernetes or OpenShift >=3.11
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: '{{ .Values.dumpsCollector.name }}'
+  labels:
+    {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+  {{- toYaml .Values.dumpsCollector.annotations | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.dumpsCollector.name }}
+  replicas: {{ .Values.dumpsCollector.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        {{- include "common.namedLabels" .Values.dumpsCollector | nindent 8 }}
+        {{- include "common.commonLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.dumpsCollector.nodeSelector }}
+      nodeSelector: {{ toYaml .Values.dumpsCollector.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.dumpsCollector.affinity }}
+      affinity: {{ toYaml .Values.dumpsCollector.affinity | nindent 8 }}
+      {{- end }}
+      {{- if .Values.dumpsCollector.tolerations }}
+      tolerations: {{ toYaml .Values.dumpsCollector.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.dumpsCollector.priorityClassName }}
+      priorityClassName: {{ .Values.dumpsCollector.priorityClassName | quote }}
+      {{- end }}
+      securityContext:
+        {{ include "dumpsCollector.securityContext" . }}
+      containers:
+        - name: '{{ .Values.dumpsCollector.name }}'
+          image: {{ include "dumpsCollector.image" . }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.dumpsCollector.service.httpPort }}
+              protocol: TCP
+          resources:
+            {{- include "dumpsCollector.resources" . | nindent 12 }}
+          securityContext:
+            {{ include "dumpsCollector.containerSecurityContext" . }}
+          env:
+            {{- include "dumpsCollector.envs" . | nindent 12 }}
+          {{- if or .Values.cloud.dumpsStorage.name .Values.cloud.dumpsStorage.storageClassName }}
+          volumeMounts:
+            - name: diag-pv
+              mountPath: '/diag'
+          {{- if or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
+            - name: cloud-profiler-tls
+              mountPath: /tmp/cert/cloud-profiler-tls
+          {{- end }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /probes/live
+              port: http
+              {{- if or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
+              scheme: HTTPS
+              {{- else }}
+              scheme: HTTP
+              {{- end }}
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /probes/ready
+              port: http
+              {{- if or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
+              scheme: HTTPS
+              {{- else }}
+              scheme: HTTP
+              {{- end }}
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+      volumes:
+        - name: diag-pv
+          persistentVolumeClaim:
+            claimName: 'pvc-diag-{{ .Values.dumpsCollector.name }}'
+        {{- if or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
+        - name: cloud-profiler-tls
+          secret:
+            secretName: {{ include "tls.secretName" . }}
+        {{- end }}
+  revisionHistoryLimit: 3

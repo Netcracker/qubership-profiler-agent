@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.ui.service.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.ui | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  ports:
+    - name: http
+      port: {{ .Values.ui.service.port }}
+      protocol: TCP
+      targetPort: {{ .Values.ui.service.port }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.ui.name }}
+  sessionAffinity: None
+  type: ClusterIP

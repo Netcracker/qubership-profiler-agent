@@ -1,0 +1,15 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: '{{ .Values.dumpsCollector.service.name }}'
+  labels:
+    {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  ports:
+  - name: http
+    port: {{ .Values.dumpsCollector.service.httpPort }}
+    protocol: TCP
+    targetPort: {{ .Values.dumpsCollector.service.httpPort }}
+  selector:
+    app.kubernetes.io/name: '{{ .Values.dumpsCollector.name }}'

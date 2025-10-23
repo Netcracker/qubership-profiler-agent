@@ -1,0 +1,52 @@
+{{- if .Values.maintenanceJob.migrateSchema.enabled }}
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: {{ .Values.maintenanceJob.migrateSchema.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.maintenanceJob.migrateSchema | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+    {{- if .Values.maintenanceJob.migrateSchema.annotations }}
+    {{- toYaml .Values.maintenanceJob.migrateSchema.annotations | nindent 4 }}
+    {{- end }}
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "common.namedLabels" .Values.maintenanceJob.migrateSchema | nindent 8 }}
+        {{- include "common.commonLabels" . | nindent 8 }}
+    spec:
+      activeDeadlineSeconds: 320
+      serviceAccountName: {{ .Values.maintenanceJob.migrateSchema.serviceAccount.name }}
+      securityContext:
+        {{- include "maintenanceJob.migrateSchema.podSecurityContext" . | indent 2 }}
+      restartPolicy: "OnFailure"
+      {{- if .Values.maintenanceJob.priorityClassName }}
+      priorityClassName: {{ .Values.maintenanceJob.priorityClassName | quote }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.maintenanceJob.migrateSchema.name }}
+          image: {{ include "maintenanceJob.migrateSchema.image" . }}
+          args:
+            {{- include "maintenanceJob.migrateSchema.args" . | nindent 10 }}
+          env:
+            {{- include "maintenanceJob.migrateSchema.envs" . | nindent 10 }}
+          resources:
+            {{- include "maintenanceJob.migrateSchema.resources" . | indent 8 }}
+          securityContext:
+            {{- include "maintenanceJob.migrateSchema.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.cloud.postgres.tls.ca }}
+            - name: pg-tls
+              mountPath: "/tls/pg"
+            {{- end }}
+      volumes:
+        {{- if .Values.cloud.postgres.tls.ca }}
+        - name: pg-tls
+          secret: 
+            secretName: {{ .Values.maintenanceJob.name }}-pg-tls-cert
+        {{- end }}
+{{- end }}

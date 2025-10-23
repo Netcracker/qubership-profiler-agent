@@ -1,0 +1,13 @@
+{{- if .Values.compactor.pvc.install }}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ .Values.compactor.pvc.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.compactor.pvc | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.compactor.pvc.annotations | nindent 4 }}
+spec:
+  {{- toYaml .Values.compactor.pvc.spec | nindent 2 }}
+{{- end }}

@@ -1,0 +1,27 @@
+{{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: '{{ .Values.dumpsCollector.name }}'
+  labels:
+    {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  {{- if or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+  {{- end }}
+spec:
+  rules:
+    - host: {{ include "dumpsCollector.ingress" . }}
+      http:
+        paths:
+          - path: /
+            {{- if (.Capabilities.APIVersions.Has "networking.k8s.io/v1") }}
+            pathType: Prefix
+            backend:
+              service:
+                name: '{{ .Values.dumpsCollector.service.name }}'
+                port:
+                  name: http
+            {{- end }}
+{{- end }}

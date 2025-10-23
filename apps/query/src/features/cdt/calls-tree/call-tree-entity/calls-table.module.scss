@@ -1,0 +1,14 @@
+@import '@netcracker/ux-react/assets/styles/scss/colors';
+
+.container {
+    display: grid;
+    grid-auto-columns: 100%;
+    grid-template-rows: auto 1fr;
+    gap: 8px;
+    height: 100%;
+
+    // ux-table container
+    > :last-child {
+        overflow: hidden;
+    }
+}

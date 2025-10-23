@@ -1,0 +1,37 @@
+@startuml top-th-request-from-user
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Dump Collectors (Request for Top or Thread Dumps from User)
+
+actor "User" as user #White
+
+box "CDT Server Namespace" #F5F5F5
+    participant "Ingress" as ingress #FFF2CC
+    participant "dumps-collector" as dumpCollector #E1D5E7
+    database "PV" as pv #white
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+user -> user: Click to download top or thread dumps in desired pod
+user -> ingress: Request top or thread dumps (with filters)
+ingress -> dumpCollector: Forward request to dumps-collector
+dumpCollector -> postgreSQL: Find files that match the filters
+
+dumpCollector -> ingress: Start archive stream
+ingress -> user: Initiate archive download
+
+alt Found archived dumps
+    dumpCollector -> pv: Retrieve matching zip files
+    dumpCollector -> ingress: Append archived dumps to archive
+    ingress -> user: Stream archived dumps
+end
+
+dumpCollector -> pv: Retrieve matching raw files
+dumpCollector -> ingress: Append raw dumps to archive
+ingress -> user: Stream raw dumps
+
+@enduml

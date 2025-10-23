@@ -1,0 +1,28 @@
+@startuml heap-request-from-user
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Dumps Collector (Request for Heap Dump from User)
+
+actor "User" as user #White
+
+box "CDT Server Namespace" #F5F5F5
+    participant "Ingress" as ingress #FFF2CC
+    participant "dumps-collector" as dumpCollector #E1D5E7
+    database "PV" as pv #white
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+user -> user: Click to download heap dump
+user -> ingress: Request heap dump (with filters)
+ingress -> dumpCollector: Route to dumps-collector
+
+dumpCollector -> postgreSQL: Find heap dump that matches the filters
+dumpCollector -> pv: Retrieve matching heap dump archive
+dumpCollector -> ingress: Return matching archive
+ingress -> user: Deliver heap dump archive
+
+@enduml

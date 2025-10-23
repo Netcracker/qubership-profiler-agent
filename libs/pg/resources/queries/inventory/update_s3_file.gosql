@@ -1,0 +1,5 @@
+
+UPDATE %s SET
+		status=$1, services=$2, rows_count=$3, file_size=$4, remote_storage_path=$5
+		WHERE uuid=$6
+

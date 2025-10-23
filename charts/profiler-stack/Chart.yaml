@@ -1,0 +1,39 @@
+apiVersion: v2
+name: profiler-stack
+description: A Helm chart for profiler-stack
+
+# A chart can be either an 'application' or a 'library' chart.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+version: 0.0.1
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application.
+appVersion: 1.1.0
+
+home: https://github.com/Netrracker/qubership-profiler-backend/charts/profiler-stack
+maintainers:
+  - name: NetCracker
+    email: support@NetCracker.com
+
+dependencies:
+  - name: collector
+    version: ~0
+    repository: https://github.com/Netrracker/qubership-profiler-backend/charts/collector
+  - name: compactor
+    version: ~0
+    repository: https://github.com/Netrracker/qubership-profiler-backend/charts/compactor
+  - name: dumps-collector
+    version: ~0
+    repository: https://github.com/Netrracker/qubership-profiler-backend/charts/dumps-collector
+  - name: maintenance
+    version: ~0
+    repository: https://github.com/Netrracker/qubership-profiler-backend/charts/maintenance
+  - name: migration
+    version: ~0
+    repository: https://github.com/Netrracker/qubership-profiler-backend/charts/migration
+  - name: query
+    version: ~0
+    repository: https://github.com/Netrracker/qubership-profiler-backend/charts/query

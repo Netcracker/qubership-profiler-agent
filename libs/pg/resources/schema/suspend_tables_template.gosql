@@ -1,0 +1,15 @@
+{{- /*
+-- create suspend inventory tables
+-- partitions created for each 5min
+*/ -}}
+-- TODO create indexes on date and on (pod_name, restart_time)
+CREATE TABLE IF NOT EXISTS suspend_{{.TimeStamp}}
+(
+    date         timestamptz,
+    pod_id       text,
+    pod_name     text,
+    restart_time timestamptz,
+    cur_time     timestamptz, -- by minute
+    suspend_time jsonb,    -- ts (second+ms) -> count
+    PRIMARY KEY (date, pod_name, restart_time, cur_time)
+);

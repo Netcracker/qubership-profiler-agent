@@ -1,0 +1,5 @@
+-- remove enums
+DROP TYPE IF EXISTS table_type CASCADE;
+DROP TYPE IF EXISTS table_status CASCADE;
+DROP TYPE IF EXISTS file_type CASCADE;
+DROP TYPE IF EXISTS file_status CASCADE;

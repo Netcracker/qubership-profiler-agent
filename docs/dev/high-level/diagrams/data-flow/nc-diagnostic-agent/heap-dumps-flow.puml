@@ -1,0 +1,40 @@
+@startuml heap-dumps-flow
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Heap Dumps Flow
+
+box "Application Namespace" #F5F5F5
+    box "Microservice" #white
+        participant profilerAgent [
+            **profiler-agent**
+            ----
+            diagtool
+        ]
+    end box
+
+    participant "nc-diagnostic-agent" as ncDiagAgentApp #B1DDF0
+end box
+
+box "CDT Server Namespace" #F5F5F5
+    participant "nc-diagnostic-agent" as ncDiagAgentCDT #B1DDF0
+    participant "dumps-collector" as dumpCollector #E1D5E7
+    database "PV" as pv #white
+end box
+
+loop Every ~ 20 seconds
+    profilerAgent -> profilerAgent: Check if heap dumps exist
+
+    alt Heap dump found
+        profilerAgent -> profilerAgent: Zip heap dump
+        profilerAgent -> ncDiagAgentApp: Send dumps via HTTP(S)
+    end
+end
+
+ncDiagAgentApp -> ncDiagAgentCDT: Proxy dumps via HTTP(S)
+ncDiagAgentCDT -> dumpCollector: Proxy dumps via HTTP(S)
+dumpCollector -> pv: Store zipped heap dump
+
+@enduml

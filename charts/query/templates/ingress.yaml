@@ -1,0 +1,62 @@
+{{- if and .Values.ui.install .Values.ui.ingress.install }}
+apiVersion: {{ include "ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ .Values.ui.name }}-query
+  labels:
+    {{- include "common.namedLabels" .Values.ui | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 12k
+spec:
+  {{- if .Values.ui.ingress.className }}
+  ingressClassName: {{ .Values.ui.ingress.className }}
+  {{- end }}
+  rules:
+    - host: {{ include "ui.ingress" . }}
+      http:
+        paths:
+          - path: /
+            {{- if semverCompare "<1.21-0" .Capabilities.KubeVersion.GitVersion }}
+            backend:
+              serviceName: {{ .Values.ui.name }}
+              servicePort: "http"
+            {{- else }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.ui.name }}
+                port:
+                  name: "http"
+            {{- end }}
+          - path: /cdt/v2/heaps/download
+            {{- if semverCompare "<1.21-0" .Capabilities.KubeVersion.GitVersion }}
+            backend:
+              serviceName: {{ .Values.collector.backwardCompatibility.dumpsCollector.name }}
+              servicePort: "http"
+            {{- else }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.collector.backwardCompatibility.dumpsCollector.name }}
+                port:
+                  name: "http"
+            {{- end }}
+          - path: /cdt/v2/download
+            {{- if semverCompare "<1.21-0" .Capabilities.KubeVersion.GitVersion }}
+            backend:
+              serviceName: {{ .Values.collector.backwardCompatibility.dumpsCollector.name }}
+              servicePort: "http"
+            {{- else }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.collector.backwardCompatibility.dumpsCollector.name }}
+                port:
+                  name: "http"
+            {{- end }}
+  {{- if .Values.ui.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ui.ingress.tls | nindent 4 }}
+  {{- end }}
+{{- end }}

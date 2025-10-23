@@ -1,0 +1,157 @@
+@use '@netcracker/ux-react/assets/styles/scss/scroll';
+@use '@netcracker/ux-react/assets/styles/scss/typography';
+@use './assets/styles/fonts.scss';
+@use '@assets/styles/containers/app.scss';
+@use '@assets/styles/containers/flex-containers.scss';
+
+@import 'antd/es/date-picker/style/index.css';
+
+@import '@netcracker/ux-react/index.css';
+@import '@netcracker/ux-react/assets/styles/scss/colors';
+@import '@netcracker/ux-react/assets/styles/scss/typography.mixins';
+
+// Dashboard grid layout ->
+@import 'react-grid-layout/css/styles.css';
+@import 'react-resizable/css/styles.css';
+
+*,
+*:before,
+*:after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+::-webkit-scrollbar-corner {
+    background-color: transparent;
+}
+
+// ux scroll styles
+@include scroll.ux-react-scroll-default();
+
+body {
+    --ux-react-form-item-plus-item-margin-top: 0;
+    // Main font size for all text
+    @include ux-typography-base();
+    @include ux-typography-13px-regular();
+
+    height: 100vh;
+    background-color: #f8f9fa;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.amarant-label {
+    --ux-react-dropdown-new-item-icon-color: #{$amarant};
+    color: $amarant;
+}
+
+.magnet-label {
+    color: $magnet;
+}
+
+.niagara-label {
+    color: $niagara;
+}
+
+#root {
+    height: 100%;
+}
+
+.mark-text {
+    padding: 0px;
+    background-color: $sand;
+}
+
+.ux-select-long-value {
+    --ux-react-label-pointer-events: auto;
+
+    .ux-select {
+        &__label,
+        &__placeholder,
+        &__option,
+        &__single-value {
+            z-index: 10;
+            --ux-react-ellipsis-white-space: normal;
+        }
+    }
+}
+
+.ux-link {
+    color: var(--ux-react-link-color, $denim);
+    &:active,
+    :focus,
+    :hover,
+    :visited {
+        color: var(--ux-react-link-color, $denim);
+    }
+    &:hover {
+        color: var(--ux-react-link-color, $denim);
+        text-decoration: underline;
+    }
+}
+
+.ux-date-picker-suffix {
+    justify-content: flex-end;
+}
+
+.table-container {
+    display: grid;
+    grid-auto-columns: 100%;
+    grid-template-rows: 1fr;
+    overflow: scroll;
+    row-gap: 8px;
+
+    > :last-child {
+        width: 100%;
+    }
+
+    > .ux-table-new {
+        .ux-table-new__cell {
+            word-break: keep-all;
+        }
+        overflow: auto;
+    }
+}
+
+.card-with-table {
+    overflow: hidden;
+    .ux-react-table-new {
+        .ux-react-table-new__cell {
+            word-break: keep-all;
+        }
+        overflow: auto;
+    }
+}
+
+.dashed-info-page {
+    border: 1px dashed var(--grey-london-fog, #d5dce3);
+    border-radius: 20px;
+    --ui-info-page-icon-padding-bottom: 0px;
+}
+
+// hot fix. Get rid of it in future
+.ux-table-with-native-expand {
+    .ux-table-cell-with-append :first-child {
+        transform: translate(0, 1px);
+    }
+}
+
+.react-grid-item.react-grid-placeholder {
+    border-radius: 4px;
+    background: rgba(0, 104, 255, 0.5);
+}
+
+.progress-bar {
+    width: 0;
+    min-width: 100%;
+    word-break: keep-all;
+}
+
+.draggable-handle {
+    cursor: grab;
+}
+
+.draggable-cancel {
+    cursor: auto;
+}

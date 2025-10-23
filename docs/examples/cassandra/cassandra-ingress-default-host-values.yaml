@@ -1,0 +1,19 @@
+# Test values for cloud-profiler
+# This is a YAML-formatted file
+# Declare variables to be passed into your templates
+
+# Test values of CLOUD_PUBLIC_HOST and NAMESPACE. Usually if inject automatically by AppDeployer from
+# Cloud definition -> Cloud Public URL
+# Cloud definition -> Namespaces -> Namespace
+CLOUD_PUBLIC_HOST: kubernetes.test.org
+NAMESPACE: profiler
+
+collector:
+  ingress:
+    install: true
+    host: test
+
+ui:
+  ingress:
+    install: true
+    host: test
