@@ -1,0 +1,98 @@
+---
+# This workflow executes several linters on changed files based on languages used in your code base whenever
+# you push a code or open a pull request.
+#
+# You can adjust the behavior by modifying this file.
+# For more information, see:
+# https://github.com/super-linter/super-linter
+# Configuration file for super-linter example:
+# .github/super-linter.env
+# Configuration files for individual linters should be placed in .github/linters
+
+name: Lint Code Base
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      full_scan:
+        type: boolean
+        default: false
+        required: false
+        description: "Lint all codebase"
+permissions:
+  contents: read
+
+jobs:
+  prepare-configs:
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Get the common linters configuration"
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        ref: main # fix/superlinter-config
+        repository: netcracker/.github
+        persist-credentials: false
+        sparse-checkout: |
+          config/linters
+    - name: "Upload the common linters configuration"
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: linter-config
+        path: "${{ github.workspace }}/config"
+        include-hidden-files: true
+  run-lint:
+    needs: [prepare-configs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      # To report GitHub Actions status checks
+      statuses: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        # Full git history is needed to get a proper list of changed files within `super-linter`
+        fetch-depth: 0
+        persist-credentials: false
+    - name: "Get the common linters configuration"
+      uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      id: download
+      with:
+        name: linter-config
+        path: /tmp/linter-config
+    - name: "Apply the common linters configuration"
+      if: ${{ steps.download.outputs.download-path != '' }}
+      run: |
+        mkdir -p ./.github/linters
+        cp --update=none -vRT /tmp/linter-config/linters ./.github/linters
+
+    - name: "Load super-linter environment file"
+      shell: bash
+      run: |
+        # shellcheck disable=2086
+        if [ -f "${GITHUB_WORKSPACE}/.github/super-linter.env" ]; then
+          echo "Applying local linter environment:"
+          grep "\S" ${GITHUB_WORKSPACE}/.github/super-linter.env | grep -v "^#"
+          grep "\S" ${GITHUB_WORKSPACE}/.github/super-linter.env | grep -v "^#" >> $GITHUB_ENV
+        elif [ -f "/tmp/linter-config/linters/super-linter.env" ]; then
+          echo "::warning:: Local linter environment file .github/super-linter.env is not found"
+          echo "Applying common linter environment:"
+          grep "\S" /tmp/linter-config/linters/super-linter.env | grep -v "^#"
+          grep "\S" /tmp/linter-config/linters/super-linter.env | grep -v "^#" >> $GITHUB_ENV
+        fi
+
+    - name: Lint Code Base
+      uses: super-linter/super-linter/slim@ffde3b2b33b745cb612d787f669ef9442b1339a6 # v8.1.0
+      env:
+        VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
+        # To report GitHub Actions status checks
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DEFAULT_BRANCH: ${{ github.event.pull_request.base.ref || github.event.push.ref }}
+
