@@ -9,7 +9,7 @@ javaPlatform {
 }
 
 dependencies {
-    api(platform("org.junit:junit-bom:5.13.4"))
+    api(platform("org.junit:junit-bom:5.14.0"))
     api(platform("org.testcontainers:testcontainers-bom:2.0.1"))
     constraints {
         api("com.beust:jcommander:1.82")
