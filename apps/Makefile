@@ -4,7 +4,7 @@
 .PHONY: help build-all clean-all test-all docker-build-all archive-all
 
 # Variables
-APPS := collector data-generator dumps-collector load-generator maintenance migration query
+APPS := collector dumps-collector maintenance query
 
 # Default target
 help:
@@ -77,29 +77,13 @@ collector-build:
 	@echo "==> Building collector..."
 	$(MAKE) -C collector build
 
-compactor-build:
-	@echo "==> Building compactor..."
-	$(MAKE) -C compactor build
-
-data-generator-build:
-	@echo "==> Building data-generator..."
-	$(MAKE) -C data-generator build
-
 dumps-collector-build:
 	@echo "==> Building dumps-collector..."
 	$(MAKE) -C dumps-collector build
 
-load-generator-build:
-	@echo "==> Building load-generator..."
-	$(MAKE) -C load-generator build
-
 maintenance-build:
 	@echo "==> Building maintenance..."
 	$(MAKE) -C maintenance build
-
-migration-build:
-	@echo "==> Building migration..."
-	$(MAKE) -C migration build
 
 query-build:
 	@echo "==> Building query..."
@@ -109,29 +93,13 @@ collector-clean:
 	@echo "==> Cleaning collector..."
 	$(MAKE) -C collector clean
 
-compactor-clean:
-	@echo "==> Cleaning compactor..."
-	$(MAKE) -C compactor clean
-
-data-generator-clean:
-	@echo "==> Cleaning data-generator..."
-	$(MAKE) -C data-generator clean
-
 dumps-collector-clean:
 	@echo "==> Cleaning dumps-collector..."
 	$(MAKE) -C dumps-collector clean
 
-load-generator-clean:
-	@echo "==> Cleaning load-generator..."
-	$(MAKE) -C load-generator clean
-
 maintenance-clean:
 	@echo "==> Cleaning maintenance..."
 	$(MAKE) -C maintenance clean
-
-migration-clean:
-	@echo "==> Cleaning migration..."
-	$(MAKE) -C migration clean
 
 query-clean:
 	@echo "==> Cleaning query..."
@@ -141,29 +109,13 @@ collector-test:
 	@echo "==> Testing collector..."
 	$(MAKE) -C collector test
 
-compactor-test:
-	@echo "==> Testing compactor..."
-	$(MAKE) -C compactor test
-
-data-generator-test:
-	@echo "==> Testing data-generator..."
-	$(MAKE) -C data-generator test
-
 dumps-collector-test:
 	@echo "==> Testing dumps-collector..."
 	$(MAKE) -C dumps-collector test
 
-load-generator-test:
-	@echo "==> Testing load-generator..."
-	$(MAKE) -C load-generator test
-
 maintenance-test:
 	@echo "==> Testing maintenance..."
 	$(MAKE) -C maintenance test
-
-migration-test:
-	@echo "==> Testing migration..."
-	$(MAKE) -C migration test
 
 query-test:
 	@echo "==> Testing query..."
@@ -173,29 +125,13 @@ collector-docker:
 	@echo "==> Building Docker image for collector..."
 	$(MAKE) -C collector docker-build
 
-compactor-docker:
-	@echo "==> Building Docker image for compactor..."
-	$(MAKE) -C compactor docker-build
-
-data-generator-docker:
-	@echo "==> Building Docker image for data-generator..."
-	$(MAKE) -C data-generator docker-build
-
 dumps-collector-docker:
 	@echo "==> Building Docker image for dumps-collector..."
 	$(MAKE) -C dumps-collector docker-build
 
-load-generator-docker:
-	@echo "==> Building Docker image for load-generator..."
-	$(MAKE) -C load-generator docker-build
-
 maintenance-docker:
 	@echo "==> Building Docker image for maintenance..."
 	$(MAKE) -C maintenance docker-build
-
-migration-docker:
-	@echo "==> Building Docker image for migration..."
-	$(MAKE) -C migration docker-build
 
 query-docker:
 	@echo "==> Building Docker image for query..."
@@ -205,29 +141,13 @@ collector-archive:
 	@echo "==> Creating archive for collector..."
 	$(MAKE) -C collector archive
 
-compactor-archive:
-	@echo "==> Creating archive for compactor..."
-	$(MAKE) -C compactor archive
-
-data-generator-archive:
-	@echo "==> Creating archive for data-generator..."
-	$(MAKE) -C data-generator archive
-
 dumps-collector-archive:
 	@echo "==> Creating archive for dumps-collector..."
 	$(MAKE) -C dumps-collector archive
 
-load-generator-archive:
-	@echo "==> Creating archive for load-generator..."
-	$(MAKE) -C load-generator archive
-
 maintenance-archive:
 	@echo "==> Creating archive for maintenance..."
 	$(MAKE) -C maintenance archive
-
-migration-archive:
-	@echo "==> Creating archive for migration..."
-	$(MAKE) -C migration archive
 
 query-archive:
 	@echo "==> Creating archive for query..."
@@ -238,29 +158,13 @@ help-collector:
 	@echo "Help for collector application:"
 	$(MAKE) -C collector help
 
-help-compactor:
-	@echo "Help for compactor application:"
-	$(MAKE) -C compactor help
-
-help-data-generator:
-	@echo "Help for data-generator application:"
-	$(MAKE) -C data-generator help
-
 help-dumps-collector:
 	@echo "Help for dumps-collector application:"
 	$(MAKE) -C dumps-collector help
 
-help-load-generator:
-	@echo "Help for load-generator application:"
-	$(MAKE) -C load-generator help
-
 help-maintenance:
 	@echo "Help for maintenance application:"
 	$(MAKE) -C maintenance help
-
-help-migration:
-	@echo "Help for migration application:"
-	$(MAKE) -C migration help
 
 help-query:
 	@echo "Help for query application:"
