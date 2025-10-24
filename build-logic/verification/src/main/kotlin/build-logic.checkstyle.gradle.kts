@@ -23,6 +23,12 @@ checkstyle {
     )
 }
 
+dependencies {
+    constraints {
+        checkstyle("org.apache.commons:commons-lang3:3.19.0")
+    }
+}
+
 val checkstyleTasks = tasks.withType<Checkstyle>()
 checkstyleTasks.configureEach {
     // Checkstyle 8.26 does not need classpath, see https://github.com/gradle/gradle/issues/14227
