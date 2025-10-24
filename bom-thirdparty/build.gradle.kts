@@ -25,7 +25,7 @@ dependencies {
         api("javax:javaee-api:6.0")
         api("net.sf.trove4j:trove4j:3.0.3")
         api("net.sourceforge.argparse4j:argparse4j:0.9.0")
-        api("org.apache.commons:commons-lang3:3.17.0")
+        api("org.apache.commons:commons-lang3:3.19.0")
         api("org.apache.httpcomponents:httpcore:4.4.16")
         api("org.apache.tomcat.embed:tomcat-embed-core:11.0.13")
         api("org.apache.tomcat.embed:tomcat-embed-logging-juli:8.5.2")
