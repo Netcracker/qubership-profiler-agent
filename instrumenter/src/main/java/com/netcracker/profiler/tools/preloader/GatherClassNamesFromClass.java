@@ -13,6 +13,7 @@ public class GatherClassNamesFromClass extends Remapper {
     private HashSet<String> classNames;
 
     public GatherClassNamesFromClass(HashSet<String> classNames) {
+        super(Opcodes.ASM9);
         this.classNames = classNames;
     }
 

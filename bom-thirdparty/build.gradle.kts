@@ -10,7 +10,7 @@ javaPlatform {
 
 dependencies {
     api(platform("com.fasterxml.jackson:jackson-bom:2.20.0"))
-    api(platform("org.ow2.asm:asm-bom:9.8"))
+    api(platform("org.ow2.asm:asm-bom:9.9"))
     api(platform("com.google.inject:guice-bom:7.0.0"))
     constraints {
         api("backport-util-concurrent:backport-util-concurrent:3.1")
