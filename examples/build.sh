@@ -23,15 +23,15 @@ DOCKER_TAG="build4"
 
 # Script variables
 applications=(
-"quarkus-2-vertx"
-"quarkus-3-vertx"
-"quarkus-3-vertx-resteasy"
-"spring-boot-2-jetty"
-"spring-boot-2-tomcat"
-"spring-boot-2-undertow"
-"spring-boot-3-jetty"
-"spring-boot-3-tomcat"
-"spring-boot-3-undertow"
+    "quarkus-2-vertx"
+    "quarkus-3-vertx"
+    "quarkus-3-vertx-resteasy"
+    "spring-boot-2-jetty"
+    "spring-boot-2-tomcat"
+    "spring-boot-2-undertow"
+    "spring-boot-3-jetty"
+    "spring-boot-3-tomcat"
+    "spring-boot-3-undertow"
 )
 
 built_images=()
@@ -41,58 +41,58 @@ built_images=()
 echo "=> Build applications via maven ..."
 
 if [[ "${MAVEN_BUILD}" == "true" ]]; then
-  for application in "${applications[@]}"; do
-    echo "=> Build ${application} application ..."
-    mvn clean package -f "${application}/pom.xml"
-  done
+    for application in "${applications[@]}"; do
+        echo "=> Build ${application} application ..."
+        mvn clean package -f "${application}/pom.xml"
+    done
 else
-  echo "=> Skip applications maven build!"
+    echo "=> Skip applications maven build!"
 fi
 
 echo "=> Copy agent installer-cloud.zip to all applications ..."
 
 for application in "${applications[@]}"; do
-  echo "=> Copy agent archive to ${application} ..."
-  rm -rf "./${application}/agent"
-  rm -rf "./${application}/target/agent"
-  mkdir -p "./${application}/target/agent"
-  cp ./target/* "./${application}/target/agent/"
+    echo "=> Copy agent archive to ${application} ..."
+    rm -rf "./${application}/agent"
+    rm -rf "./${application}/target/agent"
+    mkdir -p "./${application}/target/agent"
+    cp ./target/* "./${application}/target/agent/"
 done
 
 echo "=> Building docker images ..."
 
 if [[ "${DOCKER_BUILD}" == "true" ]]; then
-  for application in "${applications[@]}"; do
-    echo "=> Building and push ${application} docker image ..."
+    for application in "${applications[@]}"; do
+        echo "=> Building and push ${application} docker image ..."
 
-    tag="${DOCKER_REGISTRY}/${DOCKER_REGISTRY_PATH}/${application}:${DOCKER_TAG}"
+        tag="${DOCKER_REGISTRY}/${DOCKER_REGISTRY_PATH}/${application}:${DOCKER_TAG}"
 
-    echo "=> Docker tag of new image ${tag} ..."
+        echo "=> Docker tag of new image ${tag} ..."
 
-    dockerfile="${application}/${DOCKER_FILE_SPRING_BOOT}"
-    if [[ "${application}" == *"quarkus"* ]]; then
-      dockerfile="${application}/${DOCKER_FILE_QUARKUS}"
-    fi
+        dockerfile="${application}/${DOCKER_FILE_SPRING_BOOT}"
+        if [[ "${application}" == *"quarkus"* ]]; then
+            dockerfile="${application}/${DOCKER_FILE_QUARKUS}"
+        fi
 
-    docker build \
-      --tag "${tag}" \
-      --build-arg IMAGE="${DOCKER_BASE_IMAGE}" \
-      --file "${dockerfile}" ./${application}/
+        docker build \
+            --tag "${tag}" \
+            --build-arg IMAGE="${DOCKER_BASE_IMAGE}" \
+            --file "${dockerfile}" ./${application}/
 
-    built_images=("${built_images[@]}" "$tag")
-    if [[ "${DOCKER_PUSH}" == "true" ]]; then
-      echo "==> Built and pushed image: ${tag}"
-      docker push ${tag}
-    else
-      echo "=> Skip built docker image push!"
-      echo "==> Built image: ${tag}"
-    fi
-  done
+        built_images=("${built_images[@]}" "$tag")
+        if [[ "${DOCKER_PUSH}" == "true" ]]; then
+            echo "==> Built and pushed image: ${tag}"
+            docker push ${tag}
+        else
+            echo "=> Skip built docker image push!"
+            echo "==> Built image: ${tag}"
+        fi
+    done
 else
-  echo "=> Skip applications docker image build!"
+    echo "=> Skip applications docker image build!"
 fi
 
 echo "=> Built docker images:"
 for image in "${built_images[@]}"; do
-  echo "${image}"
+    echo "${image}"
 done

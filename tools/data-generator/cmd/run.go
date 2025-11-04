@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/data-generator/pkg/data"
-	"github.com/Netcracker/qubership-profiler-backend/apps/data-generator/pkg/s3"
-	"github.com/Netcracker/qubership-profiler-backend/apps/data-generator/pkg/worker"
+	"github.com/Netcracker/qubership-profiler-backend/tools/data-generator/pkg/data"
+	"github.com/Netcracker/qubership-profiler-backend/tools/data-generator/pkg/s3"
+	"github.com/Netcracker/qubership-profiler-backend/tools/data-generator/pkg/worker"
 	"github.com/spf13/cobra"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"

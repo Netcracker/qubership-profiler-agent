@@ -9,7 +9,7 @@ BUILD_DIR := build
 OUTPUT_DIR := $(BUILD_DIR)/_output
 SAAS_MANIFEST_DIR := deployments
 DOCKER_IMAGE := $(ARTIFACT_NAME)
-JAVA_HOME := /usr/lib/jvm/java-21-openjdk-amd64
+JAVA_HOME ?= $(shell echo $$JAVA_HOME)
 
 # Default target
 help:
@@ -28,7 +28,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 	@if [ -f "./mvnw" ]; then \
 		chmod +x ./mvnw; \
-		export JAVA_HOME=$(JAVA_HOME) && ./mvnw clean; \
+		export JAVA_HOME=$(JAVA_HOME) && ./mvnw --batch-mode clean; \
 	else \
 		echo "Maven wrapper not found, skipping clean"; \
 	fi
@@ -38,7 +38,7 @@ build: clean
 	@echo "==> Building Java application..."
 	@if [ -f "./mvnw" ]; then \
 		chmod +x ./mvnw; \
-		export JAVA_HOME=$(JAVA_HOME) && ./mvnw clean package; \
+		export JAVA_HOME=$(JAVA_HOME) && ./mvnw --batch-mode clean package; \
 	else \
 		echo "Maven wrapper not found, using system mvn"; \
 		export JAVA_HOME=$(JAVA_HOME) && mvn clean package; \
@@ -49,7 +49,7 @@ test:
 	@echo "==> Running tests..."
 	@if [ -f "./mvnw" ]; then \
 		chmod +x ./mvnw; \
-		export JAVA_HOME=$(JAVA_HOME) && ./mvnw test; \
+		export JAVA_HOME=$(JAVA_HOME) && ./mvnw --batch-mode test; \
 	else \
 		echo "Maven wrapper not found, using system mvn"; \
 		export JAVA_HOME=$(JAVA_HOME) && mvn test; \

@@ -8,8 +8,8 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 	model "github.com/Netcracker/qubership-profiler-backend/libs/storage"
 
-	data2 "github.com/Netcracker/qubership-profiler-backend/apps/data-generator/pkg/data"
-	"github.com/Netcracker/qubership-profiler-backend/apps/data-generator/pkg/s3"
+	data2 "github.com/Netcracker/qubership-profiler-backend/tools/data-generator/pkg/data"
+	"github.com/Netcracker/qubership-profiler-backend/tools/data-generator/pkg/s3"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/parquet"

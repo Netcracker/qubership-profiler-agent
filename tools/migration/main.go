@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/migration/pkg/cleaner"
-	"github.com/Netcracker/qubership-profiler-backend/apps/migration/pkg/envconfig"
+	"github.com/Netcracker/qubership-profiler-backend/tools/migration/pkg/cleaner"
+	"github.com/Netcracker/qubership-profiler-backend/tools/migration/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 )
 

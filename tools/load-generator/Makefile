@@ -1,6 +1,6 @@
 build:
 	@if command -v go >/dev/null 2>&1; then \
-		go build -o ./bin/parser -ldflags="-w -s" -trimpath github.com/Netcracker/qubership-profiler-backend/apps/load-generator; \
+		go build -o ./bin/parser -ldflags="-w -s" -trimpath github.com/Netcracker/qubership-profiler-backend/tools/load-generator; \
 	else \
 		echo "Go not found, skipping Go build. Use docker-build to build with Docker."; \
 	fi
@@ -30,7 +30,7 @@ clickjson:
 
 cli_build:
 	@if command -v go >/dev/null 2>&1; then \
-		go build -o ./bin/clg -ldflags="-w -s" -trimpath github.com/Netcracker/qubership-profiler-backend/apps/load-generator; \
+		go build -o ./bin/clg -ldflags="-w -s" -trimpath github.com/Netcracker/qubership-profiler-backend/tools/load-generator; \
 	else \
 		echo "Go not found, skipping Go build. Use docker-build to build with Docker."; \
 	fi

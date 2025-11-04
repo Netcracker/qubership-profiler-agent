@@ -4,7 +4,12 @@
 .PHONY: help build-all clean-all test-all docker-build-all archive-all
 
 # Variables
+# Set SKIP_FRONTEND=Y to exclude the query (frontend) app from builds
+ifeq ($(SKIP_FRONTEND),Y)
+APPS := collector dumps-collector maintenance
+else
 APPS := collector dumps-collector maintenance query
+endif
 
 # Default target
 help:

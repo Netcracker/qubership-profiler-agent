@@ -1,4 +1,4 @@
-module github.com/Netcracker/qubership-profiler-backend/apps/load-generator/go-metrics
+module github.com/Netcracker/qubership-profiler-backend/tools/load-generator/go-metrics
 
 require (
 	github.com/prometheus/client_golang v1.16.0

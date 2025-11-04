@@ -3,7 +3,7 @@ package cleaner
 import (
 	"context"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/migration/pkg/envconfig"
+	"github.com/Netcracker/qubership-profiler-backend/tools/migration/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/libs/files"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"k8s.io/client-go/dynamic"

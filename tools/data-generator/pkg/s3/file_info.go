@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/data-generator/pkg/data"
+	"github.com/Netcracker/qubership-profiler-backend/tools/data-generator/pkg/data"
 	"github.com/Netcracker/qubership-profiler-backend/libs/storage/inventory"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/common"

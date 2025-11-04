@@ -2,12 +2,12 @@
 # Orchestrates builds for all applications and deployment components
 
 .PHONY: help build-all clean-all test-all docker-build-all archive-all \
-        apps tools charts examples delivery \
-        apps-build apps-clean apps-test apps-docker apps-archive \
-        tools-build tools-clean tools-test tools-docker tools-archive \
-        charts-build charts-clean \
-        examples-build examples-clean \
-        delivery-build delivery-clean
+	apps tools charts examples delivery \
+	apps-build apps-clean apps-test apps-docker apps-archive \
+	tools-build tools-clean tools-test tools-docker tools-archive \
+	charts-build charts-clean \
+	examples-build examples-clean \
+	delivery-build delivery-clean
 
 # Variables
 APPS_DIR := apps
@@ -15,6 +15,11 @@ TOOLS_DIR := tools
 CHARTS_DIR := charts
 EXAMPLES_DIR := examples
 DELIVERY_DIR := delivery
+
+# Build configuration
+# Set SKIP_FRONTEND=Y to exclude the frontend (query app) from builds
+# Example: SKIP_FRONTEND=Y make build-all
+export SKIP_FRONTEND
 
 # Application names (production components)
 APPS := collector dumps-collector maintenance query
@@ -33,6 +38,10 @@ help:
 	@echo "  test-all         - Run all tests"
 	@echo "  docker-build-all - Build all Docker images"
 	@echo "  archive-all      - Create all deployment archives"
+	@echo ""
+	@echo "Build options:"
+	@echo "  SKIP_FRONTEND=Y  - Skip frontend (query app) build"
+	@echo "                     Example: SKIP_FRONTEND=Y make build-all"
 	@echo ""
 	@echo "Component targets:"
 	@echo "  apps             - Build all applications"

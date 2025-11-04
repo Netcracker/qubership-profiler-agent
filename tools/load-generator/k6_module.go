@@ -1,7 +1,7 @@
 package wireshark
 
 import (
-	"github.com/Netcracker/qubership-profiler-backend/apps/load-generator/pkg/cdt"
+	"github.com/Netcracker/qubership-profiler-backend/tools/load-generator/pkg/cdt"
 	"go.k6.io/k6/js/common"
 	"go.k6.io/k6/js/modules"
 )

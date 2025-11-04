@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/load-generator/pkg/utils"
+	"github.com/Netcracker/qubership-profiler-backend/tools/load-generator/pkg/utils"
 	"github.com/Netcracker/qubership-profiler-backend/libs/generator"
 	"go.k6.io/k6/js/common"
 	"go.k6.io/k6/js/modules"

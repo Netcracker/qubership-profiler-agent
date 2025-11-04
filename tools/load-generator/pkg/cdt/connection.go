@@ -3,7 +3,7 @@ package cdt
 import (
 	"context"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/load-generator/pkg/utils"
+	"github.com/Netcracker/qubership-profiler-backend/tools/load-generator/pkg/utils"
 	profilerCommon "github.com/Netcracker/qubership-profiler-backend/libs/common"
 	"github.com/Netcracker/qubership-profiler-backend/libs/generator"
 	"github.com/Netcracker/qubership-profiler-backend/libs/io"
