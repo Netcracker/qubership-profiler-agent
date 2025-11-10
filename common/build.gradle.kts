@@ -12,5 +12,4 @@ dependencies {
     implementation("org.ow2.asm:asm-commons")
     implementation("org.ow2.asm:asm-util")
     implementation("com.google.inject:guice")
-    testImplementation("commons-io:commons-io")
 }
