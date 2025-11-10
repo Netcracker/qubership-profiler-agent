@@ -307,7 +307,7 @@ func TestLogFolder(t *testing.T) {
 }
 
 func TestLogInterval(t *testing.T) {
-	assert.Equal(t, 2, LogInterval())    // default interval
+	assert.Equal(t, 2, LogInterval()) // default interval
 
 	os.Setenv("KEEP_LOGS_INTERVAL", "3") // days
 	assert.Equal(t, 3, LogInterval())
@@ -343,7 +343,7 @@ func TestLogPrintToConsole(t *testing.T) {
 func TestLogFileSize(t *testing.T) {
 	assert.Equal(t, 1, LogFileSize()) // default size in mb
 
-	os.Setenv("LOG_FILE_SIZE", "3")   // days
+	os.Setenv("LOG_FILE_SIZE", "3") // days
 	assert.Equal(t, 3, LogFileSize())
 
 	os.Setenv("LOG_FILE_SIZE", "bad")
@@ -357,7 +357,7 @@ func TestLogFileSize(t *testing.T) {
 func TestLogFileBackups(t *testing.T) {
 	assert.Equal(t, 5, LogFileBackups()) // default size in mb
 
-	os.Setenv("LOG_FILE_BACKUPS", "3")   // days
+	os.Setenv("LOG_FILE_BACKUPS", "3") // days
 	assert.Equal(t, 3, LogFileBackups())
 
 	os.Setenv("LOG_FILE_BACKUPS", "bad")
