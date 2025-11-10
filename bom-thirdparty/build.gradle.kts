@@ -19,7 +19,7 @@ dependencies {
         api("com.github.ajalt.clikt:clikt:5.0.3")
         api("com.google.guava:guava:33.5.0-jre")
         api("com.google.guava:guava:33.5.0-jre")
-        api("io.micrometer:micrometer-core:1.15.5")
+        api("io.micrometer:micrometer-core:1.16.0")
         api("jakarta.servlet:jakarta.servlet-api:6.1.0")
         api("javax:javaee-api:6.0")
         api("net.sf.trove4j:trove4j:3.0.3")
