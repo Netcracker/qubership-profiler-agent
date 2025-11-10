@@ -15,6 +15,20 @@
   ],
   "packageRules": [
     {
+      "description": "Update Go version everywhere at once: build image, go.mod and GitHub Actions workflows",
+      "groupName": "Go",
+      "matchDatasources": [
+        "docker",
+        "golang-version",
+        "github-releases"
+      ],
+      "matchPackageNames": [
+        "go",
+        "golang",
+        "actions/go-versions"
+      ]
+    },
+    {
       "description": "Stick with JavaEE API 6 to support running with older application servers",
       "groupName": "JavaEE",
       "allowedVersions": "< 7",
