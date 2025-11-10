@@ -19,7 +19,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/log"
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/utils"
 
-	"github.com/shirou/gopsutil/v3/process"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 type Action struct {
