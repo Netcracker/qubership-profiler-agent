@@ -31,7 +31,7 @@ gradle.allprojects {
     if (path != ":plugins") {
         buildscript {
             dependencies {
-                classpath(platform("com.fasterxml.jackson:jackson-bom:2.20.0"))
+                classpath(platform("com.fasterxml.jackson:jackson-bom:2.20.1"))
                 constraints {
                     classpath("org.eclipse.jgit:org.eclipse.jgit:7.4.0.202509020913-r")
                 }
