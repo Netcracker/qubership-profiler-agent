@@ -1,10 +1,10 @@
 module github.com/Netcracker/qubership-profiler-agent/diagtools
 
-go 1.25.0
+go 1.25.4
 
 require (
 	github.com/go-zookeeper/zk v1.0.4
-	github.com/hashicorp/consul/api v1.32.4
+	github.com/hashicorp/consul/api v1.33.0
 	github.com/shirou/gopsutil/v4 v4.25.10
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sys v0.38.0
