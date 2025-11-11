@@ -242,7 +242,7 @@ public class ConfigurationReloader implements Runnable {
 
     private boolean reloadClassFromStream(Class clazz, InputStream is, String source) {
         final ReloadStatusMutable reloadStatus = this.reloadStatus;
-        try {
+        try (InputStream stream = is) {
             logger.info("Reloading class "+clazz.getName()+" from "+source);
             if (NEED_REFLECTION_WA) {
                 try {
@@ -252,7 +252,7 @@ public class ConfigurationReloader implements Runnable {
                     logger.log(Level.WARNING, "Problem during preloading methods via reflection for class " +  clazz.getName(), t);
                 }
             }
-            final byte[] bytes = IOHelper.readFully(is);
+            final byte[] bytes = IOHelper.readFully(stream);
             inst.redefineClasses(new ClassDefinition(clazz, bytes));
             logger.fine("Successfully reloaded " + clazz.getName());
             if (firstReloadedClasses.size() < 20)
@@ -264,8 +264,6 @@ public class ConfigurationReloader implements Runnable {
             reloadStatus.setErrorCount(reloadStatus.getErrorCount() + 1);
             if (firstReloadedClasses.size() < 20)
                 firstReloadedClasses.add(clazz.getName() + " - fail");
-        } finally {
-            IOHelper.close(is);
         }
         return false;
     }

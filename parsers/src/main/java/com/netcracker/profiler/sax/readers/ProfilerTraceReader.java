@@ -12,7 +12,6 @@ import com.netcracker.profiler.sax.values.StringValue;
 import com.netcracker.profiler.sax.values.ValueHolder;
 import com.netcracker.profiler.timeout.ProfilerTimeoutException;
 import com.netcracker.profiler.timeout.ProfilerTimeoutHandler;
-import com.netcracker.profiler.util.IOHelper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -312,15 +311,12 @@ public abstract class ProfilerTraceReader {
         if (mode == null) mode = ClobReadMode.ALL_VALUES;
         if (readTypes == null) readTypes = ClobReadTypes.ALL_VALUES;
 
-        DataInputStreamEx trace = null;
         String dataFolderPath = file.getParentFile().getParent();
 
         Set<ClobValue> uniqueClobIds = new LinkedHashSet<>();
         ClobValue lastClobId = null;
         boolean hasReadFirstValue = false;
-        try {
-
-            trace = DataInputStreamEx.openDataInputStream(file);
+        try (DataInputStreamEx trace = DataInputStreamEx.openDataInputStream(file)) {
             trace.readLong(); //timerStartTime
 
             MEGALOOP:
@@ -383,8 +379,6 @@ public abstract class ProfilerTraceReader {
             throw e;
         } catch (Throwable t) {
             ErrorSupervisor.getInstance().warn("Error while reading clobIds from folder " + dataFolderPath, t);
-        } finally {
-            IOHelper.close(trace);
         }
         if ((mode == ClobReadMode.LAST_ONLY || mode == ClobReadMode.FIRST_AND_LAST) && lastClobId != null) {
             uniqueClobIds.add(lastClobId);

@@ -1,7 +1,6 @@
 package com.netcracker.profiler.dump;
 
 import com.netcracker.profiler.agent.StringUtils;
-import com.netcracker.profiler.util.IOHelper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,12 +83,8 @@ public class DumpFileLog implements Closeable {
             parent.mkdirs();
         }
         boolean fileCreated = fileList.createNewFile();
-        DataOutputStreamEx out = null;
-        try {
-            out = new DataOutputStreamEx(new BufferedOutputStream(new FileOutputStream(fileList), 65536));
+        try (DataOutputStreamEx out = new DataOutputStreamEx(new BufferedOutputStream(new FileOutputStream(fileList), 65536))) {
             writeHeader(out);
-        } finally {
-            IOHelper.close(out);
         }
     }
 
@@ -110,9 +105,7 @@ public class DumpFileLog implements Closeable {
 
     private Queue<DumpFile> readDumpFileLog() {
         Queue<DumpFile> result = null;
-        DataInputStreamEx inputStream = null;
-        try {
-            inputStream = DataInputStreamEx.openDataInputStream(fileList);
+        try (DataInputStreamEx inputStream = DataInputStreamEx.openDataInputStream(fileList)) {
             String formatVersion = inputStream.readString();
             if (!CURRENT_LOG_FORMAT.equals(formatVersion)) {
                 throw new IllegalArgumentException(String.format("File format '%s' is unknown", formatVersion));
@@ -155,8 +148,6 @@ public class DumpFileLog implements Closeable {
             result = dumpFiles;
         } catch (IOException e) {
             log.warn("Can't parse file {}. Will res", fileList, e);
-        } finally {
-            IOHelper.close(inputStream);
         }
         return result;
     }
@@ -251,7 +242,13 @@ public class DumpFileLog implements Closeable {
     }
 
     public synchronized void close() {
-        IOHelper.close(outputStream);
-        outputStream = null;
+        if (outputStream != null) {
+            try {
+                outputStream.close();
+            } catch (IOException e) {
+                /* ignore */
+            }
+            outputStream = null;
+        }
     }
 }

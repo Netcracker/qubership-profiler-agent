@@ -1,7 +1,6 @@
 package com.netcracker.profiler.dump;
 
 import com.netcracker.profiler.timeout.ReadInterruptedException;
-import com.netcracker.profiler.util.IOHelper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -336,8 +335,13 @@ public class DataInputStreamEx extends FilterInputStream implements IDataInputSt
     }
 
     public static DataInputStreamEx reopenDataInputStream(DataInputStreamEx prev, File root, String name, int index) throws IOException {
-        if (prev != null)
-            IOHelper.close(prev);
+        if (prev != null) {
+            try {
+                prev.close();
+            } catch (IOException e) {
+                /* ignore */
+            }
+        }
         return openDataInputStream(root, name, index);
     }
 

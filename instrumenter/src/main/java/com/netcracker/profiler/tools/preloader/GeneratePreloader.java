@@ -1,7 +1,5 @@
 package com.netcracker.profiler.tools.preloader;
 
-import com.netcracker.profiler.util.IOHelper;
-
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.commons.ClassRemapper;
 
@@ -37,9 +35,7 @@ public class GeneratePreloader {
     private void generatePreloader() {
         String[] classes = classNames.toArray(new String[classNames.size()]);
         Arrays.sort(classes);
-        PrintWriter w = null;
-        try {
-            w = new PrintWriter(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(destName), "UTF-8")));
+        try (PrintWriter w = new PrintWriter(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(destName), "UTF-8")))) {
             for (String s : classes) {
                 if (s.length() > 3 && s.charAt(0) == 'L' && s.charAt(s.length() - 1) == ';')
                     s = s.substring(1, s.length() - 1);
@@ -48,16 +44,12 @@ public class GeneratePreloader {
         } catch (IOException e) {
             System.err.println("Unable to generate preloader " + destName);
             e.printStackTrace();
-        } finally {
-            IOHelper.close(w);
         }
     }
 
     private void gatherClassNames() {
-        ZipInputStream is = null;
         ZipEntry entry;
-        try {
-            is = new ZipInputStream(new FileInputStream(jarName));
+        try (ZipInputStream is = new ZipInputStream(new FileInputStream(jarName))) {
             GatherClassNamesFromClass remapper = new GatherClassNamesFromClass(classNames);
             ClassRemapper remap = new ClassRemapper(null, remapper);
             while ((entry = is.getNextEntry()) != null) {
@@ -69,8 +61,6 @@ public class GeneratePreloader {
         } catch (IOException e) {
             System.err.println("Unable to process jar " + jarName);
             e.printStackTrace();
-        } finally {
-            IOHelper.close(is);
         }
     }
 }

@@ -2,7 +2,6 @@ package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.configuration.ParameterInfoDto;
 import com.netcracker.profiler.dump.DataInputStreamEx;
-import com.netcracker.profiler.util.IOHelper;
 import com.netcracker.profiler.util.StringUtils;
 
 import com.google.inject.assistedinject.Assisted;
@@ -70,9 +69,7 @@ public class ParamReaderFile extends ParamReader {
 
     public List<String> fillTags(final BitSet requredIds, Collection<Throwable> exceptions) {
         ArrayList<String> tags = new ArrayList<String>(requredIds.size());
-        DataInputStreamEx calls = null;
-        try {
-            calls = DataInputStreamEx.openDataInputStream(root, "dictionary", 1);
+        try (DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(root, "dictionary", 1)) {
             int pos = 0;
             for (int i = requredIds.nextSetBit(0); i >= 0; i = requredIds.nextSetBit(i + 1)) {
                 for (; pos < i; pos++) {
@@ -87,8 +84,6 @@ public class ParamReaderFile extends ParamReader {
         } catch (EOFException e) {
         } catch (IOException e) {
             exceptions.add(e);
-        } finally {
-            IOHelper.close(calls);
         }
         return tags;
     }
@@ -96,9 +91,7 @@ public class ParamReaderFile extends ParamReader {
     @Override
     public List<String> fillCallsTags(Collection<Throwable> exceptions) {
         String[] tags = new String[1000];
-        DataInputStreamEx callsDictIs = null;
-        try {
-            callsDictIs = DataInputStreamEx.openDataInputStream(root, "callsDictionary", 1);
+        try (DataInputStreamEx callsDictIs = DataInputStreamEx.openDataInputStream(root, "callsDictionary", 1)) {
             while(true) {
                 int i = callsDictIs.readVarInt();
                 String value = callsDictIs.readString();
@@ -114,8 +107,6 @@ public class ParamReaderFile extends ParamReader {
         } catch (EOFException e) {
         } catch (IOException e) {
             exceptions.add(e);
-        } finally {
-            IOHelper.close(callsDictIs);
         }
         return new ArrayList<>(Arrays.asList(tags));
     }

@@ -205,29 +205,27 @@ public class Installer implements ServletContextListener {
             log.warn("Trying to create file of length {} with contents of {} bytes. Aborting installation to ensure data consistency.", length, bytes.length);
             return false;
         }
-        FileOutputStream fos = null;
         final String dstAbsolutePath = dst.getAbsolutePath();
-        try {
-            File parentFile = dst.getParentFile();
+        File parentFile = dst.getParentFile();
+        if (parentFile == null) {
+            log.warn("Unable to retrieve parent file for {}", dstAbsolutePath);
+            parentFile = dst.getAbsoluteFile();
             if (parentFile == null) {
-                log.warn("Unable to retrieve parent file for {}", dstAbsolutePath);
-                parentFile = dst.getAbsoluteFile();
-                if (parentFile == null) {
-                    log.error("Unable to retrieve absolute file for {}", dstAbsolutePath);
-                    return false;
-                }
-                parentFile = parentFile.getParentFile();
-                if (parentFile == null) {
-                    log.error("Unable to retrieve parent file for {} via absolute file", dstAbsolutePath);
-                    return false;
-                }
-            }
-            if (!parentFile.exists() && !parentFile.mkdirs()) {
-                log.error("Unable to create parent directory for file {}", dstAbsolutePath);
+                log.error("Unable to retrieve absolute file for {}", dstAbsolutePath);
                 return false;
             }
+            parentFile = parentFile.getParentFile();
+            if (parentFile == null) {
+                log.error("Unable to retrieve parent file for {} via absolute file", dstAbsolutePath);
+                return false;
+            }
+        }
+        if (!parentFile.exists() && !parentFile.mkdirs()) {
+            log.error("Unable to create parent directory for file {}", dstAbsolutePath);
+            return false;
+        }
 
-            fos = new FileOutputStream(dst);
+        try (FileOutputStream fos = new FileOutputStream(dst)) {
             fos.write(bytes, offset, length);
             log.debug("Successfully written file {}", dstAbsolutePath);
             try {
@@ -242,8 +240,6 @@ public class Installer implements ServletContextListener {
         } catch (IOException e) {
             log.error("Unable to write file {}", dstAbsolutePath, e);
             return false;
-        } finally {
-            IOHelper.close(fos);
         }
     }
 
@@ -298,9 +294,7 @@ public class Installer implements ServletContextListener {
     }
 
     byte[] readFile(File file, boolean failOnNotFound) {
-        FileInputStream fis = null;
-        try {
-            fis = new FileInputStream(file);
+        try (FileInputStream fis = new FileInputStream(file)) {
             return IOHelper.readFully(fis);
         } catch (FileNotFoundException e) {
             if (failOnNotFound)
@@ -311,8 +305,6 @@ public class Installer implements ServletContextListener {
         } catch (IOException e) {
             log.error("Unable to read file {}", file.getAbsolutePath(), e);
             return null;
-        } finally {
-            IOHelper.close(fis);
         }
     }
 
