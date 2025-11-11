@@ -8,7 +8,6 @@ import com.netcracker.profiler.guice.DumpRootLocation;
 import com.netcracker.profiler.io.DurationParser;
 import com.netcracker.profiler.sax.readers.ProfilerTraceReaderFile;
 import com.netcracker.profiler.sax.values.ClobValue;
-import com.netcracker.profiler.util.IOHelper;
 import com.netcracker.profiler.utils.CommonUtils;
 
 import net.sourceforge.argparse4j.inf.Namespace;
@@ -100,8 +99,7 @@ public class ExportDump implements Command {
 
     private final static UnaryFunction<File, Long> CALLS_START_TIMESTAMP = new UnaryFunction<File, Long>() {
         public Long evaluate(File file) {
-            try {
-                DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(file);
+            try (DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(file)) {
                 if (calls == null) {
                     return System.currentTimeMillis();
                 }
@@ -123,9 +121,7 @@ public class ExportDump implements Command {
 
     private final static UnaryFunction<File, Long> TRACE_START_TIMESTAMP = new UnaryFunction<File, Long>() {
         public Long evaluate(File file) {
-            DataInputStreamEx trace = null;
-            try {
-                trace = DataInputStreamEx.openDataInputStream(file);
+            try (DataInputStreamEx trace = DataInputStreamEx.openDataInputStream(file)) {
                 if (trace == null) {
                     return System.currentTimeMillis();
                 }
@@ -140,8 +136,6 @@ public class ExportDump implements Command {
                 return System.currentTimeMillis();
             } catch (IOException e) {
                 throw new RuntimeException(e);
-            } finally {
-                IOHelper.close(trace);
             }
         }
     };
@@ -217,9 +211,9 @@ public class ExportDump implements Command {
             throw e;
         }
 
-        zos = new ZipOutputStream(os);
-        zos.setLevel(ZipOutputStream.STORED);
-        try {
+        try (ZipOutputStream zos = new ZipOutputStream(os)) {
+            this.zos = zos;
+            zos.setLevel(ZipOutputStream.STORED);
             log.info("Exporting data from {}", dumpRoot.getAbsolutePath());
             File[] servers = dumpRoot.listFiles(DIRECTORY_FILTER);
             if (servers == null || servers.length == 0) {
@@ -236,8 +230,6 @@ public class ExportDump implements Command {
                 log.debug("Exporting data for server {}", currentServer);
                 findInFolder(server, "", 0, Long.MAX_VALUE);
             }
-        } finally {
-            IOHelper.close(zos);
         }
         if (dryRun)
             log.info("Dry-run export finished successfully. The estimated export size is {} ({} MiB)", totalBytes, totalBytes / 1024 / 1024);
@@ -466,7 +458,6 @@ public class ExportDump implements Command {
     }
 
     private void appendFile(String folder, File file) throws IOException {
-        InputStream is;
         String zipFileName = "execution-statistics-collector" + File.separatorChar + "dump"
                 + File.separatorChar + currentServer + folder + File.separatorChar + file.getName();
 
@@ -474,31 +465,24 @@ public class ExportDump implements Command {
             log.trace("Adding file {} as {}", file, zipFileName);
         }
 
-        try {
-            is = new FileInputStream(file);
-        } catch (FileNotFoundException e) {
-            log.warn("Unable to open file " + file.getAbsolutePath(), e);
-            return;
-        }
-        totalFiles++;
-        totalBytes += file.length();
-        if (dryRun) {
-            log.trace("Avoiding file copy since running in dry-run mode {}", file);
-            is.close();
-            return;
-        }
-        ZipEntry ze = new ZipEntry(zipFileName);
-        ze.setTime(file.lastModified());
-        ze.setSize(file.length());
-        zos.putNextEntry(ze);
-        try {
+        try (InputStream is = new FileInputStream(file)) {
+            totalFiles++;
+            totalBytes += file.length();
+            if (dryRun) {
+                log.trace("Avoiding file copy since running in dry-run mode {}", file);
+                return;
+            }
+            ZipEntry ze = new ZipEntry(zipFileName);
+            ze.setTime(file.lastModified());
+            ze.setSize(file.length());
+            zos.putNextEntry(ze);
             int read;
             while ((read = is.read(tmp)) > 0)
                 zos.write(tmp, 0, read);
-        } finally {
-            is.close();
+            zos.closeEntry();
+        } catch (FileNotFoundException e) {
+            log.warn("Unable to open file " + file.getAbsolutePath(), e);
         }
-        zos.closeEntry();
     }
 
 

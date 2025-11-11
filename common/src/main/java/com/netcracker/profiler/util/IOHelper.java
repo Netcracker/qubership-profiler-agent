@@ -71,30 +71,4 @@ public class IOHelper {
         }
         return new BufferedReader(reader);
     }
-
-    public static void close(InputStream is) {
-        if (is == null) return;
-        try {
-            is.close();
-        } catch(Throwable t){
-            /* ignore */
-        }
-    }
-    public static void close(OutputStream os) {
-        if (os == null) return;
-        try {
-            os.close();
-        } catch(Throwable t){
-            /* ignore */
-        }
-    }
-
-    public static void close(Writer w) {
-        if (w == null) return;
-        try {
-            w.close();
-        } catch(Throwable t){
-            /* ignore */
-        }
-    }
 }

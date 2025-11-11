@@ -2,7 +2,6 @@ package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.configuration.ParameterInfoDto;
 import com.netcracker.profiler.dump.DataInputStreamEx;
-import com.netcracker.profiler.util.IOHelper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,21 +24,10 @@ public abstract class ParamReader {
         String rootName = root.getAbsolutePath() + File.separatorChar + fileName + File.separatorChar;
 
         for (Map.Entry<Integer, Map<Integer, String>> idx : result.entrySet()) {
-            DataInputStreamEx dedupIs = null;
             String exceptionMessage = null;
-            try {
-                try {
-                    dedupIs = DataInputStreamEx.reopenDataInputStream(dedupIs, root, fileName, idx.getKey());
-                } catch (FileNotFoundException e) {
-                    dedupIs = null;
-                    exceptionMessage = e.toString();
-                    exceptions.add(e);
-                } catch (IOException e) {
-                    exceptions.add(e);
-                    exceptionMessage = e.toString() + ", file " + rootName + idx.getKey() + " reached";
-                }
+            try (DataInputStreamEx dedupIs = DataInputStreamEx.openDataInputStream(root, fileName, idx.getKey())) {
                 Map<Integer, String> map = idx.getValue();
-                Integer[] ids = map.keySet().toArray(new Integer[map.size()]);
+                Integer[] ids = map.keySet().toArray(new Integer[0]);
                 Arrays.sort(ids);
 
                 for (Integer id : ids) {
@@ -65,8 +53,18 @@ public abstract class ParamReader {
 
                     map.put(id, value);
                 }
-            } finally {
-                IOHelper.close(dedupIs);
+            } catch (FileNotFoundException e) {
+                exceptionMessage = e.toString();
+                exceptions.add(e);
+                // Fill all values with the exception message
+                Map<Integer, String> map = idx.getValue();
+                Integer[] ids = map.keySet().toArray(new Integer[0]);
+                for (Integer id : ids) {
+                    map.put(id, exceptionMessage);
+                }
+            } catch (IOException e) {
+                exceptions.add(e);
+                exceptionMessage = e.toString() + ", file " + rootName + idx.getKey() + " reached";
             }
         }
     }
