@@ -16,7 +16,7 @@ appVersion: 1.1.0
 home: https://github.com/Netrracker/qubership-profiler-backend/charts/profiler-stack
 maintainers:
   - name: NetCracker
-    email: support@NetCracker.com
+    email: opensourcegroup@netcracker.com
 
 dependencies:
   - name: collector
