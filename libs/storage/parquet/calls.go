@@ -20,10 +20,22 @@ type (
 )
 
 func (p Parameters) AddVal(key string, values ...string) {
-	if _, has := p[key]; !has {
-		p[key] = &ParamsValueList{}
+	if len(values) == 0 {
+		return
 	}
-	p[key].ValueList = append(p[key].ValueList, values...)
+
+	valList, ok := p[key]
+	if !ok {
+		p[key] = &ParamsValueList{ValueList: append([]string(nil), values...)}
+		return
+	}
+
+	if cap(valList.ValueList)-len(valList.ValueList) < len(values) {
+		newSlice := make([]string, len(valList.ValueList), len(valList.ValueList)+len(values))
+		copy(newSlice, valList.ValueList)
+		valList.ValueList = newSlice
+	}
+	valList.ValueList = append(valList.ValueList, values...)
 }
 
 func (p Parameters) Get(key string) []string {
