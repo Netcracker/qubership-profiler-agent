@@ -1,5 +1,5 @@
-ARG IMAGE
-FROM ${IMAGE:-alpine/openjdk17:17.0.7.7.05}
+ARG IMAGE=alpine/openjdk17:17.0.7.7.05
+FROM ${IMAGE}
 
 ### Star update agent inside the image
 ENV APP_UID=10001

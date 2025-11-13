@@ -1,9 +1,11 @@
-ARG IMAGE
-FROM ${IMAGE:-alpine/openjdk17:17.0.11.9.04}
+ARG IMAGE=alpine/openjdk17:17.0.11.9.04
+FROM ${IMAGE}
 
 COPY target/quarkus-app/lib/ /app/deployments/lib/
 COPY target/quarkus-app/*.jar /app/deployments/
 COPY target/quarkus-app/app/ /app/deployments/app/
 COPY target/quarkus-app/quarkus/ /app/deployments/quarkus/
+
+USER 10001
 
 CMD ["/usr/bin/java", "-Dquarkus.http.host=0.0.0.0", "-Xmx512m", "-Djava.security.egd=file:/dev/./urandom", "-XX:-OmitStackTraceInFastThrow", "-jar", "/app/deployments/quarkus-run.jar"]

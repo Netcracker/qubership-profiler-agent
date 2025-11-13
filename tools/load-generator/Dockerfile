@@ -1,4 +1,4 @@
-FROM grafana/xk6:latest as build
+FROM grafana/xk6:1.2.5 as build
 COPY --chmod=0777 . /tmp/proj
 
 RUN mkdir -p /tmp/project
@@ -31,4 +31,7 @@ RUN chmod +x /xk6/scripts/start.sh
 
 EXPOSE      80
 EXPOSE      8080
+
+USER 10001
+
 ENTRYPOINT  [ "/xk6/scripts/start.sh" ]

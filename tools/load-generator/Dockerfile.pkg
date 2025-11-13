@@ -1,4 +1,4 @@
-FROM alpine:3.18.2 AS release
+FROM alpine:3.22.2 AS release
 COPY  k6       /xk6/k6
 COPY  scripts  /xk6/scripts
 COPY  ./data   /xk6/data
@@ -20,4 +20,7 @@ RUN chmod +x /xk6/scripts/start.sh
 
 EXPOSE      80
 EXPOSE      8080
+
+USER 10001
+
 ENTRYPOINT  [ "/xk6/scripts/start.sh" ]

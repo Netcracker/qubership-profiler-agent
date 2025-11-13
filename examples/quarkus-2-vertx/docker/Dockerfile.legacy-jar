@@ -1,7 +1,9 @@
-ARG IMAGE
-FROM ${IMAGE:-alpine/openjdk17:17.0.7.7.05}
+ARG IMAGE=alpine/openjdk17:17.0.7.7.05
+FROM ${IMAGE}
 
 COPY target/lib/ /app/lib/
 COPY target/*-runner.jar /app/app-runner.jar
+
+USER 10001
 
 CMD ["/usr/bin/java", "-Dquarkus.http.host=0.0.0.0", "-Xmx512m", "-Djava.security.egd=file:/dev/./urandom", "-XX:-OmitStackTraceInFastThrow", "-jar", "/app/app-runner.jar"]

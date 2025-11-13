@@ -1,6 +1,6 @@
-ARG IMAGE
-ARG AGENT_LINK=https://github.com/nc.sandbox.files.dev/personal/alka0114/installer-cloud.zip
-FROM ${IMAGE:-alpine/openjdk17:17.0.7.7.05}
+ARG IMAGE=alpine/openjdk17:17.0.11.9.04
+ARG AGENT_LINK
+FROM ${IMAGE}
 
 ### Star update agent inside the image
 ENV APP_UID=10001
