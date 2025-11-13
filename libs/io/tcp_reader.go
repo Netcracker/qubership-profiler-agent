@@ -34,6 +34,11 @@ func (tr *TcpReader) Done() {
 	tr.eof = true
 }
 
+
+func (tr *TcpReader) SetDebug(debug bool) {
+	tr.debug = debug
+}
+
 func PrepareTcpReader(reader io.Reader) *TcpReader {
 	buffered := bufio.NewReaderSize(reader, 4096)
 	return &TcpReader{buffered, nil, false, 0, false}
@@ -95,10 +100,12 @@ func (tr *TcpReader) read(ctx context.Context, o interface{}) {
 	if tr.err == io.EOF {
 		tr.eof = true
 	}
-	if binary.Size(o) > 1 {
-		log.Trace(ctx, "<- #%5d, got %d bytes: %s", tr.pos, binary.Size(o), common.AsHex(asBytes(o), 30))
-	} else {
-		log.Debug(ctx, "<- #%5d, got %d bytes: %s", tr.pos, binary.Size(o), common.AsHex(asBytes(o), 30))
+	if tr.debug {
+		if binary.Size(o) > 1 {
+			log.Trace(ctx, "<- #%5d, got %d bytes: %s", tr.pos, binary.Size(o), common.AsHex(asBytes(o), 30))
+		} else {
+			log.Debug(ctx, "<- #%5d, got %d bytes: %s", tr.pos, binary.Size(o), common.AsHex(asBytes(o), 30))
+		}
 	}
 	if tr.err != nil {
 		log.Error(ctx, tr.err, "could not read at pos # %d", tr.pos)
