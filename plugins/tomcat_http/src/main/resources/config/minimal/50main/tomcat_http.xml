@@ -8,31 +8,5 @@
             <method>invoke</method>
             <method-editor>TomcatRequestHandler</method-editor>
         </rule>
-
-        <!--apache + spring.webapplicationtype=servlet-->
-        <rule>
-            <class>org.springframework.web.servlet.mvc.method.annotation.ReactiveTypeHandler$AbstractEmitterSubscriber
-            </class>
-            <method>run</method>
-            <execute-after exception="true">run$profiler(throwable)</execute-after>
-        </rule>
-        <rule>
-            <class>reactor.netty.http.server.HttpTrafficHandler</class>
-            <method>channelRead</method>
-            <execute-after exception="true">channelRead$profiler(p1, p2,throwable)</execute-after>
-            <start-endpoint/>
-        </rule>
-        <!--netty + spring.webapplicationtype=reactive-->
-        <rule>
-            <class>io.netty.channel.nio.NioEventLoop</class>
-            <method>runAllTasks</method>
-            <minimum-method-size>0</minimum-method-size>
-        </rule>
-        <!--apache + spring.webapplicationtype=reactive-->
-        <rule>
-            <class>org.apache.tomcat.util.net.SocketProcessorBase</class>
-            <method>run</method>
-            <minimum-method-size>0</minimum-method-size>
-        </rule>
     </ruleset>
 </profiler-configuration>
