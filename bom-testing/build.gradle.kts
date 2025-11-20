@@ -10,7 +10,7 @@ javaPlatform {
 
 dependencies {
     api(platform("org.junit:junit-bom:5.14.1"))
-    api(platform("org.testcontainers:testcontainers-bom:2.0.1"))
+    api(platform("org.testcontainers:testcontainers-bom:2.0.2"))
     constraints {
         api("com.beust:jcommander:1.82")
         api("com.zaxxer:HikariCP:7.0.2")
