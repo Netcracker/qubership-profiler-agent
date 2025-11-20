@@ -11,9 +11,9 @@ dependencies {
     implementation(project(":verification"))
     api("org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin:2.2.21")
     api("org.jetbrains.kotlin.kapt:org.jetbrains.kotlin.kapt.gradle.plugin:2.2.21")
-    implementation("com.github.vlsi.crlf:com.github.vlsi.crlf.gradle.plugin:3.0.0")
-    implementation("com.github.vlsi.gradle-extensions:com.github.vlsi.gradle-extensions.gradle.plugin:3.0.0")
+    implementation("com.github.vlsi.crlf:com.github.vlsi.crlf.gradle.plugin:3.0.1")
+    implementation("com.github.vlsi.gradle-extensions:com.github.vlsi.gradle-extensions.gradle.plugin:3.0.1")
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin")
     implementation("com.github.autostyle:com.github.autostyle.gradle.plugin:4.0")
-    implementation("com.github.vlsi.jandex:com.github.vlsi.jandex.gradle.plugin:3.0.0")
+    implementation("com.github.vlsi.jandex:com.github.vlsi.jandex.gradle.plugin:3.0.1")
 }
