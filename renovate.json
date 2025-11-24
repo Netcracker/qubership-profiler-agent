@@ -61,6 +61,14 @@
       ]
     },
     {
+      "description": "Stick with JUnit 5 as JUnit 6 requires Java 17 for the runtime",
+      "groupName": "org.junit",
+      "allowedVersions": "< 6",
+      "matchPackageNames": [
+        "org.junit:junit-bom{/,}**"
+      ]
+    },
+    {
       "description": "Stick with JMC < 9 since JMC 9+ requires Java 17 for the runtime",
       "groupName": "org.openjdk.jmc",
       "allowedVersions": "< 9",
