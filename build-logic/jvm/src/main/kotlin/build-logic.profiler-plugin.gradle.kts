@@ -79,12 +79,13 @@ val generateInjector by tasks.registering(JavaExec::class) {
             }
         }"
     )
+    val projectName = project.name
     argumentProviders.add(
         CommandLineArgumentProvider {
             listOf(
                 "--output-file",
                 generateInjectorDir.get()
-                    .file("com/netcracker/profiler/instrument/enhancement/EnhancerPlugin_${project.name}Enhancers.java")
+                    .file("com/netcracker/profiler/instrument/enhancement/EnhancerPlugin_${projectName}Enhancers.java")
                     .asFile.absolutePath
             )
         }
