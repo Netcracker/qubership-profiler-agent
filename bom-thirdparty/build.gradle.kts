@@ -13,6 +13,7 @@ dependencies {
     api(platform("org.ow2.asm:asm-bom:9.9"))
     api(platform("com.google.inject:guice-bom:7.0.0"))
     constraints {
+        api("at.yawk.lz4:lz4-java:1.10.0")
         api("backport-util-concurrent:backport-util-concurrent:3.1")
         api("ch.qos.logback:logback-classic:1.5.20")
         api("ch.qos.logback:logback-core:1.5.20")
@@ -30,6 +31,11 @@ dependencies {
         api("org.apache.tomcat.embed:tomcat-embed-logging-juli:8.5.2")
         api("org.hdrhistogram:HdrHistogram:2.2.2")
         api("org.jspecify:jspecify:1.0.0")
+        api("org.lz4:lz4-java") {
+            version {
+                rejectAll()
+            }
+        }
         api("org.openjdk.jmc:common:8.3.1")
         api("org.openjdk.jmc:flightrecorder:8.3.1")
         api("org.slf4j:slf4j-api:2.0.17")
