@@ -18,7 +18,7 @@ public class SunJMXThreadFormatParser implements ThreadFormatParser {
             threadinfo.name = matcher.group(1);
             threadinfo.state = matcher.group(2).trim();
         } else {
-            log.error("parseThread failed on: '" + s + "' using pattern '" + threadPattern + "'");
+            log.error("parseThread failed on: '{}' using pattern '{}'", s, threadPattern);
         }
         return threadinfo;
     }
@@ -35,7 +35,7 @@ public class SunJMXThreadFormatParser implements ThreadFormatParser {
             String s2 = matcher.group(2);
             i = s2.indexOf(':');
             if (i == -1) {
-                if (s2.length() == 0)
+                if (s2.isEmpty())
                     method.locationClass = "Unknown";
                 else
                     method.locationClass = s2;
@@ -52,5 +52,5 @@ public class SunJMXThreadFormatParser implements ThreadFormatParser {
     }
 
     private final Pattern threadPattern = Pattern.compile("\"(.*?)\" (waiting to lock|waiting on|locked|parking to wait for|eliminated)?");
-    private final Pattern methodPattern = Pattern.compile("\t([\\p{Alnum}$_.<>/]+)\\(([^\\)]*)\\)");
+    private final Pattern methodPattern = Pattern.compile("\t([\\p{Alnum}$_.<>/-]+)\\(([^)]*)\\)");
 }

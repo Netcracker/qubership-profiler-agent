@@ -27,13 +27,9 @@ public class SdkSpan {
             callInfo.setEndToEndId(traceId);
         }
         callInfo.setTraceId(traceId);
-        Profiler.event(traceId, "trace.id");
-
-        String spanId = context.getSpanId();
-        if (spanId == null) {
-            return;
+        if(callInfo.traceIdChanged()) {
+            Profiler.event(traceId, "trace.id");
         }
-        Profiler.event(spanId, "span.id");
     }
 
 }

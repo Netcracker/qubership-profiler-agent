@@ -15,7 +15,7 @@
         <rule>
             <class>brave.RealSpan</class>
             <method>tag(String, String)</method>
-            <execute-after>logTag$profiler(p2, p1)</execute-after>
+            <execute-after>logTag$profiler(p1, p2)</execute-after>
         </rule>
     </ruleset>
     <rule>

@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiler-configuration>
+    <parameters>
+        <parameter name="exception.class" deduplicate="true"/>
+        <parameter name="exception.text"/>
+        <parameter name="exception" big="true"/>
+    </parameters>
+    <ruleset>
+        <rule>
+            <class>java.lang.Class</class>
+            <method>forName(String)</method>
+        </rule>
+        <rule>
+            <class>java.lang.ClassLoader</class>
+            <method>getResource(String)</method>
+            <method>getResources(String)</method>
+            <method>getResourceAsStream(String)</method>
+        </rule>
+        <rule>
+            <class>sun.misc.URLClassPath$JarLoader</class>
+            <method>validIndex(String)</method>
+            <execute-after static="true" class="com.netcracker.profiler.agent.JarIndexExtraInfo">addFileName(java.lang.Object this, p1, result)</execute-after>
+        </rule>
+        <rule>
+            <class>java.util.concurrent.FutureTask</class>
+            <method>awaitDone</method>
+        </rule>
+        <rule>
+            <!-- Garbage collect buffer on thread exit -->
+            <class>java.lang.Thread</class>
+            <method>exit</method>
+            <execute-before static="true" class="com.netcracker.profiler.agent.Profiler">threadExit</execute-before>
+            <!-- We do not want enter/exit pair to be generated for this method -->
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>java.io.File</class>
+            <method>renameTo</method>
+            <method>delete</method>
+        </rule>
+        <rule>
+            <class>java.io.FileInputStream</class>
+            <method>read</method>
+            <method-modifier>public</method-modifier>
+            <execute-after static="true" class="com.netcracker.profiler.agent.IOCounters">fileRead(state, result)</execute-after>
+        </rule>
+        <rule>
+            <class>java.io.FileOutputStream</class>
+            <method>write(byte[])</method>
+            <execute-after static="true" class="com.netcracker.profiler.agent.IOCounters">fileWritten(state, p1)</execute-after>
+        </rule>
+        <rule>
+            <class>java.io.FileOutputStream</class>
+            <method>write(byte[], int, int)</method>
+            <execute-before static="true" class="com.netcracker.profiler.agent.IOCounters">fileWritten(state, p3)</execute-before>
+        </rule>
+        <rule>
+            <class>java.io.ZipFile$ZipFileInputStream</class>
+            <method>read(byte[], int, int)</method>
+            <execute-after static="true" class="com.netcracker.profiler.agent.IOCounters">fileRead(state, result)</execute-after>
+        </rule>
+        <rule>
+            <class>java.net.SocketInputStream</class>
+            <method>read(byte[], int, int)</method>
+            <method-modifier>public</method-modifier>
+            <execute-after static="true" class="com.netcracker.profiler.agent.IOCounters">netRead(state, result)</execute-after>
+            <execute-when duration-exceeds="50" static="true" class="com.netcracker.profiler.agent.IOCounters">dumpInputSocket(java.lang.Object this)</execute-when>
+        </rule>
+        <rule>
+            <class>java.net.SocketOutputStream</class>
+            <method>write(byte[], int, int)</method>
+            <method-modifier>public</method-modifier>
+            <execute-before static="true" class="com.netcracker.profiler.agent.IOCounters">netWritten(state, p3)</execute-before>
+            <execute-when duration-exceeds="50" static="true" class="com.netcracker.profiler.agent.IOCounters">dumpOutputSocket(java.lang.Object this)</execute-when>
+        </rule>
+        <rule>
+            <class>java.net.Socket</class>
+            <class>sun.nio.ch.SocketAdaptor</class>
+            <class>sun.security.ssl.SSLSocketImpl</class>
+            <method>connect(SocketAddress, int)</method>
+            <execute-when duration-exceeds="10" static="true" class="com.netcracker.profiler.agent.IOCounters">dumpSocket(java.lang.Object this)</execute-when>
+        </rule>
+
+        <rule>
+            <class>sun.nio.ch.NioSocketImpl</class>
+            <method>read(byte[], int, int)</method>
+            <execute-after static="true" class="com.netcracker.profiler.agent.IOCounters">netRead(state, result)</execute-after>
+            <execute-when duration-exceeds="50" static="true" class="com.netcracker.profiler.agent.IOCounters">dumpSocket(java.lang.Object this)</execute-when>
+        </rule>
+        <rule>
+            <class>sun.nio.ch.NioSocketImpl</class>
+            <method>write(byte[], int, int)</method>
+            <execute-before static="true" class="com.netcracker.profiler.agent.IOCounters">netWritten(state, p3)</execute-before>
+            <execute-when duration-exceeds="50" static="true" class="com.netcracker.profiler.agent.IOCounters">dumpSocket(java.lang.Object this)</execute-when>
+        </rule>
+        <rule>
+            <class>sun.nio.ch.SocketChannelImpl</class>
+            <method>read(ByteBuffer)</method>
+            <method>read(ByteBuffer[], int, int)</method>
+            <method-modifier>public</method-modifier>
+            <execute-after static="true" class="com.netcracker.profiler.agent.IOCounters">netRead(state, result)</execute-after>
+            <execute-when duration-exceeds="50" static="true" class="com.netcracker.profiler.agent.IOCounters">dumpSocket(java.lang.Object this)</execute-when>
+        </rule>
+        <rule>
+            <class>sun.nio.ch.SocketChannelImpl</class>
+            <method>write(ByteBuffer)</method>
+            <method>write(ByteBuffer[], int, int)</method>
+            <method-modifier>public</method-modifier>
+            <execute-after static="true" class="com.netcracker.profiler.agent.IOCounters">netWritten(state, result)</execute-after>
+            <execute-when duration-exceeds="50" static="true" class="com.netcracker.profiler.agent.IOCounters">dumpSocket(java.lang.Object this)</execute-when>
+        </rule>
+    </ruleset>
+    <ruleset>
+        <rule>
+            <class>java.lang.ref.Finalizer$FinalizerThread</class>
+            <method>run</method>
+        </rule>
+    </ruleset>
+    <ruleset>
+        <rule>
+            <class>netscape.ldap.LDAPConnThread</class>
+            <class>com.sun.jndi.ldap.Connection</class>
+            <method>run</method>
+        </rule>
+    </ruleset>
+    <ruleset>
+        <rule>
+            <class>com.jcraft.jsch.Session</class>
+            <method>run</method>
+        </rule>
+    </ruleset>
+</profiler-configuration>

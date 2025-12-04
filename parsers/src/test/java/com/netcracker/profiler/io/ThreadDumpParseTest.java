@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.netcracker.profiler.sax.readers.ThreadDumpReader;
 import com.netcracker.profiler.sax.stack.DumpVisitor;
 import com.netcracker.profiler.sax.stack.DumpsVisitor;
+import com.netcracker.profiler.threaddump.parser.MethodThreadLineInfo;
 import com.netcracker.profiler.threaddump.parser.SunThreadFormatParser;
 import com.netcracker.profiler.threaddump.parser.ThreadInfo;
+import com.netcracker.profiler.threaddump.parser.ThreaddumpParser;
 import com.netcracker.profiler.util.IOHelper;
 import com.netcracker.profiler.util.ProfilerConstants;
 
@@ -32,6 +34,18 @@ public class ThreadDumpParseTest {
         assertNotNull(threadInfo);
         assertEquals("play-thread-3", threadInfo.name, "name");
         assertEquals("0x00000008dcc54000", threadInfo.threadID, "tid");
+    }
+
+    @Test
+    public void testKotlinMethods() {
+        SunThreadFormatParser p = new SunThreadFormatParser();
+        ThreaddumpParser.ThreadLineInfo threadLineInfo = p.parseThreadLine("\tat com.atlassian.jira.migration.tracking.MigrationTracker.addAndStartStatusPoller$lambda-5(MigrationTracker.kt:88)");
+        assertInstanceOf(MethodThreadLineInfo.class, threadLineInfo);
+        MethodThreadLineInfo methodThreadLineInfo = (MethodThreadLineInfo) threadLineInfo;
+        assertEquals("addAndStartStatusPoller$lambda-5", methodThreadLineInfo.methodName);
+        assertEquals("com.atlassian.jira.migration.tracking.MigrationTracker", methodThreadLineInfo.className);
+        assertEquals("MigrationTracker.kt", methodThreadLineInfo.locationClass);
+        assertEquals("88", methodThreadLineInfo.locationLineNo);
     }
 
     @Test

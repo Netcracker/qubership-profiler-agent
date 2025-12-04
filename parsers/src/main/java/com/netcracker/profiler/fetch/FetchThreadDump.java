@@ -24,6 +24,8 @@ public class FetchThreadDump implements Runnable {
     private final String dumpsFile;
     private final long firstByte;
     private final long lastByte;
+    private boolean filterSystemThreads = true;
+    private boolean groupThreads = false;
 
     private static class FindThreadDumpsProcessor implements InputStreamProcessor {
         private final ThreadDumpReader reader;
@@ -49,6 +51,12 @@ public class FetchThreadDump implements Runnable {
         this.lastByte = lastByte;
     }
 
+    public FetchThreadDump(ProfiledTreeStreamVisitor sv, String dumpsFile, long firstByte, long lastByte, boolean filterSystemThreads, boolean groupThreads) {
+        this(sv, dumpsFile, firstByte, lastByte);
+        this.filterSystemThreads = filterSystemThreads;
+        this.groupThreads = groupThreads;
+    }
+
     public void run() {
         DumpsVisitor processChain = getDumpsProcessChain(sv);
         final ThreadDumpReader reader = new ThreadDumpReader(processChain.asSkipVisitEnd());
@@ -67,12 +75,14 @@ public class FetchThreadDump implements Runnable {
 
     private DumpsVisitor getDumpsProcessChain(ProfiledTreeStreamVisitor sv) {
         ProfiledTreeStreamVisitor merge = new MergeTrees(sv);
-        DumpsVisitor agg = new AggregateThreadStacks(merge);
+        DumpsVisitor agg = new AggregateThreadStacks(merge, groupThreads);
         return new DumpsVisitor(ProfilerConstants.PROFILER_V1, agg) {
             @Override
             public DumpVisitor visitDump() {
                 DumpVisitor out = super.visitDump();
-                out = new FilterThreadStacks(out);
+                if (filterSystemThreads) {
+                    out = new FilterThreadStacks(out);
+                }
                 out = new MoveLockLineUp(out);
                 return out;
             }

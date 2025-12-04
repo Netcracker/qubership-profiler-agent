@@ -223,7 +223,11 @@ public class TreeFetcher extends HttpServletBase<CallTreeMediator, TreeFetcher.R
             mediator.setDurationFormat(CallTreeMediator.DurationFormat.SAMPLES);
             long firstByte = parseLong(req, "firstByte", 0);
             long lastByte = parseLong(req, "lastByte", Long.MAX_VALUE);
-            return new FetchThreadDump(mediator, dumpsFile, firstByte, lastByte);
+            String filterThreadsStr = req.getParameter("filterThreads");
+            boolean filterThreads = filterThreadsStr == null || Boolean.parseBoolean(filterThreadsStr);
+            String groupThreadsStr = req.getParameter("groupThreads");
+            boolean groupThreads = Boolean.parseBoolean(groupThreadsStr);
+            return new FetchThreadDump(mediator, dumpsFile, firstByte, lastByte, filterThreads, groupThreads);
         }
 
         if (format == AnalyzeSourceFormat.DBMS_HPROF) {
