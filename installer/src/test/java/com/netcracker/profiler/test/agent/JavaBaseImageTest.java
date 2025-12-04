@@ -59,7 +59,7 @@ public class JavaBaseImageTest {
                     "Profiler agent should be enabled");
 
             assertCounterNonZero(mockCollector.getMetricRegistry(), "mock.server.connections");
-            assertCounterNonZero(mockCollector.getMetricRegistry(), "mock.server.stream.chunks", "stream_name", "dictionary");
+            assertCounterNonZero(mockCollector.getMetricRegistry(), "mock.server.stream.chunks", "stream_name", "posDictionary");
             assertCounterNonZero(mockCollector.getMetricRegistry(), "mock.server.stream.chunks", "stream_name", "trace");
             assertCounterNonZero(mockCollector.getMetricRegistry(), "mock.server.stream.chunks", "stream_name", "calls");
         }

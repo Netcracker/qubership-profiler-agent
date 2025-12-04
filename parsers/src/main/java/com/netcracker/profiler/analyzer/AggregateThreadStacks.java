@@ -5,6 +5,7 @@ import com.netcracker.profiler.dom.ProfiledTree;
 import com.netcracker.profiler.dom.ProfiledTreeStreamVisitor;
 import com.netcracker.profiler.dom.TagDictionary;
 import com.netcracker.profiler.io.Hotspot;
+import com.netcracker.profiler.io.HotspotTag;
 import com.netcracker.profiler.sax.stack.DumpVisitor;
 import com.netcracker.profiler.sax.stack.DumpsVisitor;
 import com.netcracker.profiler.threaddump.parser.ThreadInfo;
@@ -17,12 +18,19 @@ public class AggregateThreadStacks extends DumpsVisitor {
     private final ProfiledTreeStreamVisitor sv;
 
     private TagDictionary dict = new TagDictionary(100);
+    private int PARAM_THREAD_NAME = dict.resolve("thread.name");
 
     private int dumps;
     private int threads;
+    private boolean groupThreads;
 
     public AggregateThreadStacks(ProfiledTreeStreamVisitor sv) {
         this(ProfilerConstants.PROFILER_V1, sv);
+    }
+
+    public AggregateThreadStacks(ProfiledTreeStreamVisitor sv, boolean groupThreads) {
+        this(sv);
+        this.groupThreads = groupThreads;
     }
 
     protected AggregateThreadStacks(int api, ProfiledTreeStreamVisitor sv) {
@@ -35,11 +43,22 @@ public class AggregateThreadStacks extends DumpsVisitor {
         dumps++;
         return new DumpVisitor(ProfilerConstants.PROFILER_V1) {
             ProfiledTree tree = new ProfiledTree(dict, new ClobValues());
+
             @Override
             public void visitThread(ThreadInfo thread) {
                 threads++;
                 Hotspot hs = tree.getRoot();
                 int j = 0;
+                if (groupThreads) {
+                    boolean useTid = thread.threadID != null;
+                    int id = dict.resolve(useTid ? thread.threadID : thread.name);
+                    hs = hs.getOrCreateChild(id);
+                    hs.totalTime++;
+                    hs.childTime++;
+                    if (useTid) {
+                        tag(hs, PARAM_THREAD_NAME, thread.name);
+                    }
+                }
                 ArrayList<ThreaddumpParser.ThreadLineInfo> trace = thread.stackTrace;
                 for (int i = trace.size() - 1; i >= j; i--) {
                     ThreaddumpParser.ThreadLineInfo line = trace.get(i);
@@ -56,6 +75,13 @@ public class AggregateThreadStacks extends DumpsVisitor {
                 sv.visitTree(tree);
             }
         };
+    }
+
+    private void tag(Hotspot hs, int tagId, String value) {
+        HotspotTag tag = new HotspotTag(tagId);
+        tag.addValue(value);
+        tag.totalTime = 1;
+        hs.addTag(tag);
     }
 
     @Override

@@ -2,6 +2,7 @@ package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.configuration.ParameterInfoDto;
 import com.netcracker.profiler.guice.DumpRootLocation;
+import com.netcracker.profiler.tags.Dictionary;
 
 import com.google.inject.assistedinject.Assisted;
 import org.slf4j.Logger;
@@ -69,7 +70,7 @@ public class CallToJS implements CallListener {
         out.print("\"");
     }
 
-    public void processCalls(String rootReference, ArrayList<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
+    public void processCalls(String rootReference, ArrayList<Call> calls, Dictionary tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
         printCalls(rootReference, calls, tags, paramInfo, requredIds);
     }
 
@@ -80,7 +81,7 @@ public class CallToJS implements CallListener {
         return cf.filter(call);
     }
 
-    public void printCalls(String rootReference, List<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
+    public void printCalls(String rootReference, List<Call> calls, Dictionary tags, Map<String, ParameterInfoDto> paramInfo, BitSet requredIds) {
         try { // root == profiler/dump/server_name/2010/06/10/123123123
             if (calls.isEmpty()) return;
 

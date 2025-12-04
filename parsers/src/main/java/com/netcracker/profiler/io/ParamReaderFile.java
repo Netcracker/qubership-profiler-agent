@@ -2,6 +2,8 @@ package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.configuration.ParameterInfoDto;
 import com.netcracker.profiler.dump.DataInputStreamEx;
+import com.netcracker.profiler.tags.Dictionary;
+import com.netcracker.profiler.tags.DictionaryList;
 import com.netcracker.profiler.util.StringUtils;
 
 import com.google.inject.assistedinject.Assisted;
@@ -10,9 +12,9 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.EOFException;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.*;
+import java.util.zip.ZipException;
 
 public class ParamReaderFile extends ParamReader {
     File root;
@@ -67,11 +69,11 @@ public class ParamReaderFile extends ParamReader {
         return info;
     }
 
-    public List<String> fillTags(final BitSet requredIds, Collection<Throwable> exceptions) {
-        ArrayList<String> tags = new ArrayList<String>(requredIds.size());
+    public Dictionary fillTags(final BitSet requiredIds, Collection<Throwable> exceptions) {
+        ArrayList<String> tags = new ArrayList<>(requiredIds.size());
         try (DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(root, "dictionary", 1)) {
             int pos = 0;
-            for (int i = requredIds.nextSetBit(0); i >= 0; i = requredIds.nextSetBit(i + 1)) {
+            for (int i = requiredIds.nextSetBit(0); i >= 0; i = requiredIds.nextSetBit(i + 1)) {
                 for (; pos < i; pos++) {
                     calls.skipString();
                     tags.add(null);
@@ -79,17 +81,52 @@ public class ParamReaderFile extends ParamReader {
                 tags.add(calls.readString());
                 pos++;
             }
-        } catch (FileNotFoundException e) {
-            exceptions.add(e);
-        } catch (EOFException e) {
+        } catch (EOFException ignored) {
+        } catch (ZipException e) {
+            if(!"invalid stored block lengths".equals(e.getMessage())) {
+                exceptions.add(e);
+            }
+            //it's ok to get ZipException(invalid stored block lengths) when reading current stream
         } catch (IOException e) {
             exceptions.add(e);
         }
-        return tags;
+        return new DictionaryList(tags);
     }
 
     @Override
-    public List<String> fillCallsTags(Collection<Throwable> exceptions) {
+    public Integer[] findTags(Collection<Throwable> exceptions, String... tagNames) {
+        Integer[] result = new Integer[tagNames.length];
+        Map<String, Integer> tagsMap = new HashMap<>(tagNames.length);
+        for(int i=0; i<tagNames.length; i++) {
+            tagsMap.put(tagNames[i], i);
+        }
+        int tagsFound=0;
+
+        try (DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(root, "dictionary", 1)) {
+            int pos = 0;
+            while(tagsFound < tagNames.length) {
+                String tag = calls.readString();
+                Integer idx = tagsMap.get(tag);
+                if(idx != null) {
+                    result[idx] = pos;
+                    tagsFound++;
+                }
+                pos++;
+            }
+        } catch (EOFException ignored) {
+        } catch (ZipException e) {
+            if(!"invalid stored block lengths".equals(e.getMessage())) {
+                exceptions.add(e);
+            }
+            //it's ok to get ZipException(invalid stored block lengths) when reading current stream
+        } catch (IOException e) {
+            exceptions.add(e);
+        }
+        return result;
+    }
+
+    @Override
+    public Dictionary fillCallsTags(Collection<Throwable> exceptions) {
         String[] tags = new String[1000];
         try (DataInputStreamEx callsDictIs = DataInputStreamEx.openDataInputStream(root, "callsDictionary", 1)) {
             while(true) {
@@ -102,13 +139,16 @@ public class ParamReaderFile extends ParamReader {
                 }
                 tags[i] = value;
             }
-        } catch (FileNotFoundException e) {
-            exceptions.add(e);
-        } catch (EOFException e) {
+        } catch (EOFException ignored) {
+        } catch (ZipException e) {
+            if(!"invalid stored block lengths".equals(e.getMessage())) {
+                exceptions.add(e);
+            }
+            //it's ok to get ZipException(invalid stored block lengths) when reading current stream
         } catch (IOException e) {
             exceptions.add(e);
         }
-        return new ArrayList<>(Arrays.asList(tags));
+        return new DictionaryList(new ArrayList<>(Arrays.asList(tags)));
     }
 
     public DataInputStreamEx openDataInputStreamAllSequences(String streamName) throws IOException {

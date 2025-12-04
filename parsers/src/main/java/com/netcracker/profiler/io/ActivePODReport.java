@@ -25,6 +25,24 @@ public class ActivePODReport {
 
     List<HeapDumpInfo> heapDumps = new ArrayList<>();
 
+    public ActivePODReport() {
+    }
+
+    public ActivePODReport(String namespace, String serviceName, String podName, long activeSinceMillis, long firstSampleMillis, long lastSampleMillis, long dataAtStart, long dataAtEnd, Float currentBitrate, List<DownloadOptions> downloadOptions, boolean onlineNow, List<HeapDumpInfo> heapDumps) {
+        this.namespace = namespace;
+        this.serviceName = serviceName;
+        this.podName = podName;
+        this.activeSinceMillis = activeSinceMillis;
+        this.firstSampleMillis = firstSampleMillis;
+        this.lastSampleMillis = lastSampleMillis;
+        this.dataAtStart = dataAtStart;
+        this.dataAtEnd = dataAtEnd;
+        this.currentBitrate = currentBitrate;
+        this.downloadOptions = downloadOptions;
+        this.onlineNow = onlineNow;
+        this.heapDumps = heapDumps;
+    }
+
     public ActivePODReport(String podName) {
         this.podName = podName;
     }
@@ -33,9 +51,9 @@ public class ActivePODReport {
         this.activeSinceMillis = Math.min(this.activeSinceMillis, statActiveSinceMillis);
     }
 
-    public void accepSampleMillis(long statSampleMIllis){
-        this.firstSampleMillis = Math.min(this.firstSampleMillis, statSampleMIllis);
-        this.lastSampleMillis = Math.max(this.lastSampleMillis, statSampleMIllis);
+    public void acceptSampleMillis(long statSampleMillis){
+        this.firstSampleMillis = Math.min(this.firstSampleMillis, statSampleMillis);
+        this.lastSampleMillis = Math.max(this.lastSampleMillis, statSampleMillis);
     }
 
     public void acceptDataStat(long statDate, long statData){
@@ -64,6 +82,10 @@ public class ActivePODReport {
         if("td".equals(streamReport.streamName)){
             downloadOptions.add(new DownloadOptions("td", "/esc/download"));
         }
+    }
+
+    public void acceptGcDumps() {
+        downloadOptions.add(new DownloadOptions("gc", "/esc/download"));
     }
 
     public void addGoProfileType(String type) {
@@ -170,16 +192,19 @@ public class ActivePODReport {
         String typeName;
         String uri;
 
-        private DownloadOptions(String typeName, String uri) {
+        DownloadOptions() {
+        }
+
+        DownloadOptions(String typeName, String uri) {
             this.typeName = typeName;
             this.uri = uri;
         }
 
-        private String getTypeName() {
+        String getTypeName() {
             return typeName;
         }
 
-        private String getUri() {
+        String getUri() {
             return uri;
         }
     }

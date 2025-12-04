@@ -7,6 +7,8 @@ import com.netcracker.profiler.dump.DumperDetector;
 import com.netcracker.profiler.guice.DumpRootLocation;
 import com.netcracker.profiler.io.call.CallDataReaderFactory;
 import com.netcracker.profiler.sax.factory.SuspendLogFactory;
+import com.netcracker.profiler.tags.Dictionary;
+import com.netcracker.profiler.tags.DictionaryList;
 import com.netcracker.profiler.timeout.ProfilerTimeoutHandler;
 import com.netcracker.profiler.util.ProfilerConstants;
 import com.netcracker.profiler.utils.CommonUtils;
@@ -22,6 +24,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.zip.ZipException;
 
 import jakarta.inject.Inject;
 
@@ -50,6 +53,7 @@ public class CallReaderFile extends CallReader {
     private final @Nullable Set<String> nodes;
     private final @Nullable Set<String> dumpDirs;
     private boolean readDictionary = true;
+    private boolean useCallsDictionary;
 
     private long durationFrom = 0;
     private long durationTo = Long.MAX_VALUE;
@@ -57,7 +61,7 @@ public class CallReaderFile extends CallReader {
     private final static UnaryFunction<File, Long> CALLS_START_TIMESTAMP = new UnaryFunction<File, Long>() {
         public Long evaluate(File file) {
             try {
-                DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(file);
+                DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(file, 16);
                 long time = calls.readLong();
                 if ((int) (time >>> 32) == ProfilerConstants.CALL_HEADER_MAGIC) {
                     time = calls.readLong();
@@ -69,6 +73,12 @@ public class CallReaderFile extends CallReader {
                 }
                 return time;
             } catch (EOFException e) {
+                return System.currentTimeMillis();
+            } catch (ZipException e) {
+                if(!"invalid stored block lengths".equals(e.getMessage())) {
+                    //it's ok to get ZipException(invalid stored block lengths) when reading current stream
+                    throw new RuntimeException(e);
+                }
                 return System.currentTimeMillis();
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -192,14 +202,14 @@ public class CallReaderFile extends CallReader {
             BitSet requiredIds = new BitSet();
             final ParamReader paramReader = paramReaderFileFactory.create(root);
             Map<String, ParameterInfoDto> paramInfo = paramReader.fillParamInfo(exceptions, root.getAbsolutePath());
-            List<String> tags;
-            boolean useCallsDictionary = false;
+            Dictionary tags;
             File callsDictionaryFolder = new File(root, "callsDictionary");
+            useCallsDictionary = false;
             if(READ_CALLS_DICTIONARY && callsDictionaryFolder.exists()) {
                 tags = paramReader.fillCallsTags(exceptions);
                 useCallsDictionary = true;
             } else {
-                tags = new ArrayList<>();
+                tags = new DictionaryList();
             }
 
 
@@ -214,7 +224,7 @@ public class CallReaderFile extends CallReader {
                         endScan = Long.MAX_VALUE;
                     }
                 }
-                findInCallsFolder(callsFolder, suspendLog, requiredIds, paramInfo, tags, root, endScan, paramReader, useCallsDictionary);
+                findInCallsFolder(callsFolder, suspendLog, requiredIds, paramInfo, tags, root, endScan, paramReader);
             } else {
                 long endScan = Long.MAX_VALUE;
                 long maxDuration = Long.MAX_VALUE;
@@ -228,7 +238,7 @@ public class CallReaderFile extends CallReader {
                     }
 
                     File callsFolder = callsFolderEntry.getValue();
-                    findInCallsFolder(callsFolder, suspendLog, requiredIds, paramInfo, tags, root, endScan, paramReader, useCallsDictionary);
+                    findInCallsFolder(callsFolder, suspendLog, requiredIds, paramInfo, tags, root, endScan, paramReader);
                     endScan = end + maxDuration;
                     if(endScan < 0) { //Overflow
                         endScan = Long.MAX_VALUE;
@@ -236,6 +246,9 @@ public class CallReaderFile extends CallReader {
                     maxDuration = minDuration - 1;
                 }
             }
+
+            // TODO: is it required?
+            // callback.postProcess(getJSReference(root));
             return;
         }
         if (root.isDirectory()) {
@@ -291,7 +304,7 @@ public class CallReaderFile extends CallReader {
     }
 
     private void findInCallsFolder(File callsFolder, SuspendLog suspendLog, BitSet requiredIds, Map<String, ParameterInfoDto> paramInfo,
-                                   List<String> tags, File root, long endScan, ParamReader paramReader, boolean useCallsDictionary) {
+                                   Dictionary tags, File root, long endScan, ParamReader paramReader) {
         final File[] files = callsFolder.listFiles();
         Arrays.sort(files);
 
@@ -315,10 +328,23 @@ public class CallReaderFile extends CallReader {
             }
 
             int newCardinality = requiredIds.cardinality();
-            if (prevCardinality != newCardinality && readDictionary && !useCallsDictionary) {
+            if (prevCardinality != newCardinality && readDictionary) {
                 prevCardinality = newCardinality;
-                tags.clear();
-                tags.addAll(paramReader.fillTags(requiredIds, exceptions));
+                if (useCallsDictionary) {
+                    for (int j = requiredIds.nextSetBit(0); j >= 0; j = requiredIds.nextSetBit(j + 1)) {
+                        if (tags.get(j) == null) {
+                            logger.warn("Cannot find tag {} in callsDictionary under {}. Will use full dictionary.", j, callsFolder.getParent());
+                            useCallsDictionary = false;
+                            break;
+                        }
+                    }
+                }
+                if (!useCallsDictionary) {
+                    // TODO: MAKE SURE THAT IT WORKS!!!
+                    tags.asList().clear();
+                    tags.asList().addAll(paramReader.fillTags(requiredIds, exceptions).asList());
+                    loadTags(tags, requiredIds, paramReader, "profiler.title");
+                }
             }
 
             callDataReader.postCompute(result, tags, requiredIds);
@@ -326,6 +352,19 @@ public class CallReaderFile extends CallReader {
             callback.processCalls(getJSReference(root), result, tags, paramInfo, requiredIds);
 
             if(stop) break;
+        }
+    }
+
+    private void loadTags(Dictionary tags, BitSet requiredIds, ParamReader paramReader, String... tagNames) {
+        ArrayList<String> tagsList = (ArrayList<String>) tags.asList();
+        Integer[] tagIds = paramReader.findTags(exceptions, tagNames);
+        for (int i = 0; i < tagNames.length; i++) {
+            Integer tagId = tagIds[i];
+            if (tagId == null) continue;
+            String tagName = tagNames[i];
+            tagsList.ensureCapacity(tagId);
+            tagsList.set(tagId, tagName);
+            requiredIds.set(tagId);
         }
     }
 
@@ -376,7 +415,7 @@ public class CallReaderFile extends CallReader {
 
         if (result.isEmpty()) return;
 
-        final List<String> tags = paramReaderFileFactory.create(inFlightRoot).fillTags(requiredIds, exceptions);
+        final Dictionary tags = paramReaderFileFactory.create(inFlightRoot).fillTags(requiredIds, exceptions);
         final Map<String, ParameterInfoDto> paramInfo = paramReaderFileFactory.create(inFlightRoot).fillParamInfo(exceptions, inFlightRoot.getAbsolutePath());
         callback.processCalls(getJSReference(inFlightRoot), result, tags, paramInfo, requiredIds);
     }

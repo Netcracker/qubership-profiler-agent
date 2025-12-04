@@ -1,7 +1,10 @@
 package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.agent.*;
+import com.netcracker.profiler.agent.ProfilerData;
 import com.netcracker.profiler.configuration.ParameterInfoDto;
+import com.netcracker.profiler.tags.Dictionary;
+import com.netcracker.profiler.tags.DictionaryList;
 
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
@@ -44,11 +47,12 @@ public class ParamReaderFromMemory extends ParamReaderFile {
     }
 
     @Override
-    public List<String> fillTags(BitSet requredIds, Collection<Throwable> exceptions) {
-        if (canReadFromMemory(root))
-            return ProfilerData.getTags();
+    public Dictionary fillTags(BitSet requiredIds, Collection<Throwable> exceptions) {
+        if (canReadFromMemory(root)) {
+            return new DictionaryList(ProfilerData.getTags());
+        }
 
-        return super.fillTags(requredIds, exceptions);
+        return super.fillTags(requiredIds, exceptions);
     }
 
     private boolean canReadFromMemory(File root) {
