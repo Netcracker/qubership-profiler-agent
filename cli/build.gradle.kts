@@ -9,6 +9,7 @@ dependencies {
     implementation(projects.parsers)
     implementation(projects.web)
     implementation("backport-util-concurrent:backport-util-concurrent")
+    implementation("com.jcraft:jsch")
     implementation("ch.qos.logback:logback-classic")
     implementation("ch.qos.logback:logback-core")
     implementation("net.sourceforge.argparse4j:argparse4j")
