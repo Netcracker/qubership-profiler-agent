@@ -1,19 +1,15 @@
 package com.netcracker.profiler.instrument.enhancement;
 
 import com.netcracker.profiler.agent.Configuration_01;
+import com.netcracker.profiler.util.NaturalComparator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Element;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 public class EnhancerPlugin_jetty_http extends EnhancerPlugin {
 
     private final static Logger log = LoggerFactory.getLogger(EnhancerPlugin_jetty_http.class);
-
-    private static final Pattern p = Pattern.compile("(\\d+)\\.(\\d+)\\.(\\d+)");
 
     @Override
     public void init(Element e, Configuration_01 configuration) {
@@ -30,28 +26,31 @@ public class EnhancerPlugin_jetty_http extends EnhancerPlugin {
         configuration.getParameterInfo("X-B3-ParentSpanId").index(true);
         configuration.getParameterInfo("X-B3-SpanId").index(true);
         configuration.getParameterInfo("x-request-id").index(true);
+        configuration.getParameterInfo("x-version").index(true);
+        configuration.getParameterInfo("x-version-name").index(true);
     }
 
     @Override
     public boolean accept(ClassInfo info) {
+        String version = getVersion(info);
         String jarName = info.getJarName();
-        log.info("Class name: {}, jar name: {}", info.getClassName(), jarName);
-        if (jarName == null) {
+        if (version == null) {
+            log.info("Cannot resolve version for {}", info.getJarName());
             return false;
         }
 
-        if (jarName.contains("jetty")) {
-            Matcher m = p.matcher(jarName);
-            if (!m.find()) {
-                return false;
-            }
+        log.debug("Class name: {}, jar name: {}", info.getClassName(), jarName);
 
-            int majorVersion = Integer.parseInt(m.group(1));
-            log.info("Jetty jar version is {}, run jetty_http plugins = {}", majorVersion, majorVersion <= 9);
-            return majorVersion <= 9;
+        boolean versionCheck = NaturalComparator.INSTANCE.compare(version, "10") < 0;
+        log.debug("Jetty jar version is {}, run jetty_http plugins = {}", version, versionCheck);
+        return versionCheck;
+    }
+
+    private String getVersion(ClassInfo info) {
+        String version = info.getJarAttribute("Implementation-Version");
+        if(version == null) {
+            version = info.getJarAttribute("Bundle-Version");
         }
-
-        log.info("Jar has no 'jetty' in the name, plugin jetty_http will skip");
-        return false;
+        return version;
     }
 }

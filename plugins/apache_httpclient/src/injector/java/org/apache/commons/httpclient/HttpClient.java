@@ -1,6 +1,8 @@
 package org.apache.commons.httpclient;
 
 import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.ProfilerData;
+import com.netcracker.profiler.agent.StringUtils;
 
 public class HttpClient {
 
@@ -8,7 +10,9 @@ public class HttpClient {
         if(method == null) return;
         try {
             URI uri = method.getURI();
-            Profiler.event(uri, "http.request");
+            String urlString = uri == null ? null : uri.toString();
+            urlString = StringUtils.truncateAndMark(urlString, ProfilerData.LOG_OUTGOING_REQUEST_TRIM_SIZE);
+            Profiler.event(urlString, "http.request");
         } catch (URIException e) {
             return;
         }

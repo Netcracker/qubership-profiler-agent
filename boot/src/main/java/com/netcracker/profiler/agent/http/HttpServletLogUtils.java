@@ -115,6 +115,9 @@ public class HttpServletLogUtils {
             Profiler.event(req.getHeader("X-B3-SpanId"), "X-B3-SpanId");
             Profiler.event(req.getHeader("X-B3-ParentSpanId"), "X-B3-ParentSpanId");
 
+            Profiler.event(req.getHeader("x-version"), "x-version");
+            Profiler.event(req.getHeader("x-version-name"), "x-version-name");
+
             for(String header : headersToLog) {
                 Profiler.event(req.getHeader(header), header);
             }

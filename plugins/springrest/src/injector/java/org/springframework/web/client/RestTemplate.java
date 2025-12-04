@@ -1,6 +1,8 @@
 package org.springframework.web.client;
 
 import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.ProfilerData;
+import com.netcracker.profiler.agent.StringUtils;
 
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.ClientHttpResponse;
@@ -22,6 +24,7 @@ public class RestTemplate {
             query = null;
         }
 
+        address = StringUtils.truncateAndMark(address, ProfilerData.LOG_OUTGOING_REQUEST_TRIM_SIZE);
         Profiler.event(address, "resttemplate.url");
         Profiler.event(method, "resttemplate.method");
         if (query != null) {

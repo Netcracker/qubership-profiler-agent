@@ -36,5 +36,7 @@ public class InvocationHandler {
         Profiler.event(headers.getHeaderString("X-B3-ParentSpanId"), "X-B3-ParentSpanId");
         Profiler.event(headers.getHeaderString("X-B3-SpanId"), "X-B3-SpanId");
         Profiler.event(headers.getHeaderString("x-request-id"), "x-request-id");
+        Profiler.event(headers.getHeaderString("x-version"), "x-version");
+        Profiler.event(headers.getHeaderString("x-version-name"), "x-version-name");
     }
 }
