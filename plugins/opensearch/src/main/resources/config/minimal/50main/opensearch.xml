@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiler-configuration>
+    <enhancer>opensearch</enhancer>
+    <ruleset if-enhancer="opensearch">
+        <rule>
+            <class>org.opensearch.client.RestHighLevelClient</class>
+            <method>internalPerformRequest(java.lang.Object, org.opensearch.common.CheckedFunction, org.opensearch.client.RequestOptions, org.opensearch.common.CheckedFunction, java.util.Set)</method>
+            <execute-after type="org/opensearch/client/RestHighLevelClient">internalPerformRequest$profiler(p1, result)</execute-after>
+        </rule>
+        <rule>
+            <class>org.opensearch.client.RestHighLevelClient</class>
+            <method>internalPerformRequestAsync(java.lang.Object, org.opensearch.common.CheckedFunction, org.opensearch.client.RequestOptions, org.opensearch.common.CheckedFunction, org.opensearch.action.ActionListener, java.util.Set)</method>
+            <execute-after type="org/opensearch/client/RestHighLevelClient">internalPerformRequestAsync$profiler(p1)</execute-after>
+        </rule>
+    </ruleset>
+</profiler-configuration>
