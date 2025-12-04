@@ -23,23 +23,18 @@ public class DownloadDump implements Command {
     public static final Logger log = LoggerFactory.getLogger(DownloadDump.class);
     public static final int MAX_PARALLEL_DEGREE = Integer.getInteger(DownloadDump.class.getName() + ".MAX_PARALLEL_DEGREE", 10);
     private final NumberFormat numberFormat = new DecimalFormat("#0.0");
-    private final DumpDownloader dumpDownloader = new DumpDownloader();
     private long startDate;
     private long endDate;
-
     private boolean dryRun;
-
     private boolean skipDetails;
-
     private String outputFolder;
-
     private List<String> selectedServers;
     private String dumpRootPath;
     private final Console console = System.console();
 
     @Override
     public int accept(Namespace args) {
-        try {
+        try (DumpDownloader dumpDownloader = new DumpDownloader()) {
             String host = args.getString("host");
             String user = args.getString("user");
             String password = args.getString("password");
@@ -125,21 +120,13 @@ public class DownloadDump implements Command {
             selectedServers = args.getList("server");
             dumpRootPath = args.getString("dump_root");
 
-            return runExport();
+            return runExport(dumpDownloader);
         } catch (IOException e) {
             throw new RuntimeException(e);
-        } finally {
-            try {
-                if(dumpDownloader != null) {
-                    dumpDownloader.close();
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
         }
     }
 
-    private int runExport() throws IOException {
+    private int runExport(DumpDownloader dumpDownloader) throws IOException {
         if(dumpRootPath == null) {
             log.info("Path to dump root isn't set. Trying to find available dump roots in the host.");
             List<String> dumpRoots = dumpDownloader.findDumpRoots();
