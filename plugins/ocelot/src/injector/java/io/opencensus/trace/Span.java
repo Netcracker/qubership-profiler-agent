@@ -25,14 +25,9 @@ public class Span {
             callInfo.setEndToEndId(traceId);
         }
         callInfo.setTraceId(traceId);
-        Profiler.event(traceId, "trace.id");
-
-        SpanId spanIdObj = context.getSpanId();
-        if(spanIdObj == null) {
-            return;
+        if(callInfo.traceIdChanged()) {
+            Profiler.event(traceId, "trace.id");
         }
-        String spanId= spanIdObj.toLowerBase16();
-        Profiler.event(spanId, "span.id");
     }
 
 }

@@ -26,7 +26,7 @@ public class EnhancerPlugin_cassandra4 extends EnhancerPlugin {
     @Override
     public boolean accept(ClassInfo info) {
         String jarName = info.getJarName();
-        log.info("Class name: {}, jar name: {}", info.getClassName(), jarName);
+        log.debug("Class name: {}, jar name: {}", info.getClassName(), jarName);
         if (jarName == null) {
             return false;
         }

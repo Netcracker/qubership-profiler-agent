@@ -19,7 +19,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 public class WARLauncher {
     //something unique
@@ -166,7 +166,7 @@ public class WARLauncher {
 
             String hostName = (String) tomcatArgs.get("httpListenAddress");
             if (hostName == null)
-                hostName = InetAddress.getLocalHost().getCanonicalHostName();
+                hostName = InetAddress.getLocalHost().getHostAddress();
 
             String portStr = (String) tomcatArgs.get("httpPort");
             int port;
@@ -191,8 +191,6 @@ public class WARLauncher {
             tomcat.setBaseDir(tomcatBaseDir);
 
             tomcat.setPort(port);
-            // In fact, getConnector **creates** a connector, so we need this call
-            tomcat.getConnector();
             tomcat.setHostname(hostName);
 
             Host host = tomcat.getHost();

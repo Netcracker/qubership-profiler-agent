@@ -32,6 +32,7 @@ public class TypeUtils {
                 uri = location.toURI();
                 stringUri = uri.toString();
             } catch (java.net.URISyntaxException e) {
+                // especially for file:/u02/qubership/.../servers/clust1/tmp/_WL_user/Profiler/4jowy9/war/WEB-INF/lib/war-lib-9.3.3.2.jar
                 stringUri = location.toString();
             }
             if (stringUri == null) return null;
@@ -39,6 +40,10 @@ public class TypeUtils {
             if (stringUri.startsWith("jar:file:")) {
                 int endIdx = stringUri.endsWith("!/") ? stringUri.length() - 2 : stringUri.length();
                 file = new File(stringUri.substring("jar:file:".length(), endIdx));
+            } else
+            if (stringUri.startsWith("jar:nested:")) {
+                int endIdx = stringUri.endsWith("!/") ? stringUri.length() - 2 : stringUri.length();
+                file = new File(stringUri.substring("jar:nested:".length(), endIdx));
             } else
             if (stringUri.startsWith("file:")) {
                 file = new File(stringUri.substring("file:".length()));

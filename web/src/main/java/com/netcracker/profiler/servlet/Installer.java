@@ -46,7 +46,7 @@ public class Installer implements ServletContextListener {
 
         if (ServerNameResolver.SERVER_NAME == null || ServerNameResolver.SERVER_NAME.length() == 0) {
             log.info("Application server name is empty, installation is skipped\n" +
-                    "Currently, weblogic (via weblogic.Name) and jboss (via jboss.server.name) servers are supported");
+                     "Currently, only WebLogic Server (via weblogic.Name) and WildFly/JBoss EAP (via jboss.server.name) servers are supported");
             return;
         }
 
@@ -310,7 +310,7 @@ public class Installer implements ServletContextListener {
 
     private void updateWeblogicSetEnv() {
         if (!isWeblogic()) {
-            log.info("Looks like the application server is not Weblogic (weblogic.Server class does not resolve). Automatic installation is supported for Weblogic only.");
+            log.info("Looks like the application server is not WebLogic Server (weblogic.Server class is not accessible). Automatic installation is supported for WebLogic Server only.");
             return;
         }
 
@@ -394,17 +394,29 @@ public class Installer implements ServletContextListener {
         return "JAVA_OPTIONS=\"${JAVA_OPTIONS} " + getJavaOption() + "\"";
     }
 
+    private static int getJavaVersion() {
+        String javaVersionString = System.getProperty("java.version");
+        if (javaVersionString == null || javaVersionString.isEmpty()) {
+            // Fallback - unsupported version
+            return 0;
+        } else if (javaVersionString.startsWith("1.")) {
+            // Other versions are not supported
+            return javaVersionString.startsWith("1.8") ? 8 : 0;
+        } else {
+            // New style version
+            int numberEndIndex = 0;
+            for (; numberEndIndex < javaVersionString.length() && Character.isDigit(javaVersionString.charAt(numberEndIndex)); numberEndIndex++) {
+            }
+            try {
+                return Integer.parseInt(javaVersionString.substring(0, numberEndIndex));
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+    }
+
     private static String getJavaOption() {
-        String javaAgentOption;
-
-        final File workingDir = new File(".").getAbsoluteFile().getParentFile();
-
-        String javaVersion = System.getProperty("java.version", "1.5");
-        if (javaVersion.startsWith("1.4"))
-            javaAgentOption = "-Xbootclasspath/p:" + getProfilerLibFile(new File(workingDir, "applications"), "boot.jar") + " -Xbootclasspath/a:" + getProfilerLibFile(new File(workingDir, "applications"), "profiler-boot.jar");
-        else
-            javaAgentOption = "-javaagent:" + getProfilerLibFile(new File("applications"), "agent.jar");
-        return javaAgentOption;
+        return "-javaagent:" + getProfilerLibFile(new File("applications"), "agent.jar");
     }
 
     private static File getProfilerLibFile(File root, String file) {
@@ -487,7 +499,7 @@ public class Installer implements ServletContextListener {
                 xInt = true;
             else if (arg.startsWith("-XX:+HeapDumpOnOutOfMemoryError"))
                 heapDumpOnOOM = true;
-            else if (arg.startsWith("-Xloggc"))
+            else if (arg.startsWith("-Xloggc") || arg.startsWith("-Xlog:") && arg.contains("gc="))
                 gcLog = true;
             else if (arg.startsWith("profiler-java15.war"))
                 isProfilerWar = true;
@@ -499,18 +511,22 @@ public class Installer implements ServletContextListener {
         if (xInt)
             result.add("Java JIT compiler is disabled. JIT should be enabled for any real measurement (remove -Xint, and -Djava.compiler=NONE options).");
         String javaVendor = System.getProperty("java.vendor");
-        if (!isProfilerWar && ("Sun Microsystems Inc.".equals(javaVendor) || "Oracle Corporation".equals(javaVendor))
-                && (!heapDumpOnOOM || !gcLog)
-                ) {
+        int javaVersion = getJavaVersion();
+        if (!isProfilerWar
+                && ("Sun Microsystems Inc.".equals(javaVendor) || "Oracle Corporation".equals(javaVendor) || "Temurin".equals(javaVendor)
+                || "Eclipse Adoptium".equals(javaVendor) || "Azul Systems, Inc.".equals(javaVendor))
+                && (!heapDumpOnOOM || !gcLog)) {
             StringBuilder msg = new StringBuilder("Add");
-            if (!heapDumpOnOOM)
+            if (!heapDumpOnOOM) {
                 msg.append(" -XX:+HeapDumpOnOutOfMemoryError");
+            }
             if (!gcLog) {
                 if (msg.length() > 5)
                     msg.append(", ");
-                msg.append(" -Xloggc");
+                msg.append(javaVersion > 8 ? " -Xlog:gc" : " -Xloggc");
             }
-            msg.append(", and other gc logging options to enable troubleshooting of out of memory/memory leak cases");
+
+            msg.append(" and other gc logging options to enable troubleshooting of out of memory/memory leak cases");
             result.add(msg.toString());
         }
         if (hasAggressiveOpts) {

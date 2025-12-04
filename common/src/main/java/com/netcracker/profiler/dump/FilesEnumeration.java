@@ -6,11 +6,18 @@ import java.util.Iterator;
 import java.util.zip.GZIPInputStream;
 
 public class FilesEnumeration implements Enumeration<InputStream> {
+    static final int DEFAULT_BUFFER_SIZE = 131072;
     Iterator<File> it;
     File currentFile;
+    int bufferSize;
 
     public FilesEnumeration(Iterator<File> it) {
+        this(it, DEFAULT_BUFFER_SIZE);
+    }
+
+    public FilesEnumeration(Iterator<File> it, int bufferSize) {
         this.it = it;
+        this.bufferSize = bufferSize;
     }
 
     @Override
@@ -34,17 +41,18 @@ public class FilesEnumeration implements Enumeration<InputStream> {
         return currentFile.length();
     }
 
-    private static InputStream openInputStream(File file) throws IOException {
+    private InputStream openInputStream(File file) throws IOException {
         boolean isGzip = file.getName().endsWith(".gz");
         try {
-            return new BufferedInputStream(new GZIPInputStream(new FileInputStream(file.getAbsolutePath() + (isGzip ? "" : ".gz")), 131072), 131072);
+            return new BufferedInputStream(new GZIPInputStream(new FileInputStream(file.getAbsolutePath() + (isGzip ? "" : ".gz")), bufferSize), bufferSize);
         } catch (FileNotFoundException e) {
             /* fall through -- will try find .gz file later */
         }
         String fileName = file.getAbsolutePath();
-        if (isGzip)
-            fileName = fileName.substring(0, fileName.length() - 2);
-        return new BufferedInputStream(new FileInputStream(fileName), 131072);
+        if (isGzip) {
+            fileName = fileName.substring(0, fileName.length() - 3);
+        }
+        return new BufferedInputStream(new FileInputStream(fileName), bufferSize);
     }
 
 }

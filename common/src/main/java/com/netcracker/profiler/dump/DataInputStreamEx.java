@@ -199,8 +199,7 @@ public class DataInputStreamEx extends FilterInputStream implements IDataInputSt
     public long skip(long n) throws IOException {
         checkInterrupted();
         final long bytesRead = super.skip(n);
-        // We do not expect skipping more than 2G bytes as we divite files into several megabyte chunks
-        position = Math.addExact(position, Math.toIntExact(bytesRead));
+        position += bytesRead;
         return bytesRead;
     }
 
@@ -252,7 +251,7 @@ public class DataInputStreamEx extends FilterInputStream implements IDataInputSt
         }
         String fileName = file.getAbsolutePath();
         if (isGzip)
-            fileName = fileName.substring(0, fileName.length() - 2);
+            fileName = fileName.substring(0, fileName.length() - 3);
         return new BufferedInputStream(new FileInputStream(fileName), 131072);
     }
 
@@ -276,22 +275,33 @@ public class DataInputStreamEx extends FilterInputStream implements IDataInputSt
     }
 
     public static FilesEnumeration openDataInputStreams(final List<File> files) throws IOException {
+        return openDataInputStreams(files, null);
+    }
+
+    public static FilesEnumeration openDataInputStreams(final List<File> files, Integer bufferSize) throws IOException {
         List<File> correctedGzExt = new ArrayList<>(files.size());
         for(File file: files) {
             file = attemptGZExt(file);
             correctedGzExt.add(file);
         }
-
-        return new FilesEnumeration(correctedGzExt.iterator());
+        if (bufferSize != null) {
+            return new FilesEnumeration(correctedGzExt.iterator(), bufferSize);
+        } else {
+            return new FilesEnumeration(correctedGzExt.iterator());
+        }
     }
 
     public static DataInputStreamEx openDataInputStream(File file) throws IOException {
+        return openDataInputStream(file, null);
+    }
+
+    public static DataInputStreamEx openDataInputStream(File file, Integer bufferSize) throws IOException {
         file = attemptGZExt(file);
         if(!file.exists()) {
             log.warn("File " + file.getAbsolutePath() + " does not exist. Returning null output stream");
             return null;
         }
-        FilesEnumeration fen = openDataInputStreams(Collections.singletonList(file));
+        FilesEnumeration fen = openDataInputStreams(Collections.singletonList(file), bufferSize);
         InputStream fin = fen.nextElement();
         return new DataInputStreamEx(fin, fen.currentFileLenght());
     }
