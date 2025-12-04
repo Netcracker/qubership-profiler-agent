@@ -84,6 +84,7 @@ dependencies {
     nmcpAggregation(projects.plugins.log4jEnhancer)
     nmcpAggregation(projects.plugins.mysql)
     nmcpAggregation(projects.plugins.ocelot)
+    nmcpAggregation(projects.plugins.opensearch)
     nmcpAggregation(projects.plugins.postgresql)
     nmcpAggregation(projects.plugins.quartz)
     nmcpAggregation(projects.plugins.rabbitmq)
