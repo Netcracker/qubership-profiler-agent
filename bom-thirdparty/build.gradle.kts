@@ -20,6 +20,7 @@ dependencies {
         api("com.github.ajalt.clikt:clikt:5.0.3")
         api("com.google.guava:guava:33.5.0-jre")
         api("com.google.guava:guava:33.5.0-jre")
+        api("com.jcraft:jsch:0.1.55")
         api("io.micrometer:micrometer-core:1.16.0")
         api("jakarta.servlet:jakarta.servlet-api:6.1.0")
         api("javax:javaee-api:6.0")
