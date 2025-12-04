@@ -1,9 +1,12 @@
 package com.netcracker.profiler;
 
 import static com.netcracker.profiler.agent.PropertyFacadeBoot.getPropertyOrEnvVariable;
+import static com.netcracker.profiler.cloud.transport.ProtocolConst.PROTOCOL_VERSION_V2;
+import static com.netcracker.profiler.cloud.transport.ProtocolConst.PROTOCOL_VERSION_V3;
 
 import com.netcracker.profiler.agent.*;
 import com.netcracker.profiler.client.CollectorClientFactory;
+import com.netcracker.profiler.cloud.transport.ProfilerProtocolBlacklistedException;
 import com.netcracker.profiler.cloud.transport.ProtocolConst;
 import com.netcracker.profiler.dump.DataOutputStreamEx;
 import com.netcracker.profiler.dump.DumpFileManager;
@@ -24,6 +27,7 @@ import com.netcracker.profiler.util.MetricsCollector;
 import com.netcracker.profiler.util.MurmurHash;
 import com.netcracker.profiler.util.StringUtils;
 import com.netcracker.profiler.util.ThrowableHelper;
+import com.netcracker.profiler.util.VariableFinder;
 import com.netcracker.profiler.util.cache.TLimitedLongLongHashMap;
 
 import gnu.trove.iterator.TIntObjectIterator;
@@ -48,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 public class Dumper implements IDumper, DumperConstants {
     private static final Logger log = LoggerFactory.getLogger(Dumper.class);
     ESCLogger escLogger = ESCLogger.getLogger(Dumper.class);
+    private final static boolean REMOTE_DUMP_DISABLED = Boolean.getBoolean(Dumper.class.getName() + ".REMOTE_DUMP_DISABLED");
     private final static int BUFFER_STEAL_INTERVAL = Integer.getInteger(Dumper.class.getName() + ".BUFFER_STEAL_INTERVAL", 5);
     private final static int STREAM_FLUSH_INTERVAL = Integer.getInteger(Dumper.class.getName() + ".STREAM_FLUSH_INTERVAL", 5);
     private final static int BUFFER_SCALE_INTERVAL = Integer.getInteger(Dumper.class.getName() + ".BUFFER_SCALE_INTERVAL", 5);
@@ -58,6 +63,9 @@ public class Dumper implements IDumper, DumperConstants {
     public static final int DUMP_ITERATION_METHOD_ID = ProfilerData.resolveTag(DUMP_ITERATION_METHOD_NAME) | DumperConstants.DATA_ENTER_RECORD;
 
     public static final String PROFILER_TITLE = "profiler.title";
+    public static final String NODE_NAME = "node.name";
+    public static final String JAVA_THREAD = "java.thread";
+    public static final String WEBLOGIC_WORKMANAGER = "weblogic.workmanager";
 
     private DumperCallsExporter dumperCallsExporter;
     /*
@@ -82,6 +90,8 @@ public class Dumper implements IDumper, DumperConstants {
     ICompressedLocalAndRemoteOutputStream bigParamsOs;
     ICompressedLocalAndRemoteOutputStream bigParamsDedupOs;
     ICompressedLocalAndRemoteOutputStream dictOs;
+    ICompressedLocalAndRemoteOutputStream posDictOs;
+    ICompressedLocalAndRemoteOutputStream removeDict;
     ICompressedLocalAndRemoteOutputStream callsDictOs;
     ICompressedLocalAndRemoteOutputStream suspendOs;
     ICompressedLocalAndRemoteOutputStream gcOs;
@@ -108,23 +118,24 @@ public class Dumper implements IDumper, DumperConstants {
     private String relativeDumpRootPath;
     private TIntIntHashMap paramTypes = new TIntIntHashMap();
     private byte[] paramTypesStream;
-    private boolean writeCallRanges;
-    private boolean writeCallsDictionary;
-    private static int PARAM_COMMON_STARTED = ProfilerData.resolveTag("common.started");
-    private static int PARAM_PROFILER_TITLE = ProfilerData.resolveTag(PROFILER_TITLE);
-    private static int PARAM_NODE_NAME = ProfilerData.resolveTag("node.name");
-    private static int PARAM_JAVA_THREAD = ProfilerData.resolveTag("java.thread");
-    private static int PARAM_LOG_GENERATED = ProfilerData.resolveTag("log.generated");
-    private static int PARAM_LOG_WRITTEN = ProfilerData.resolveTag("log.written");
-    private static int PARAM_CPU_TIME = ProfilerData.resolveTag("time.cpu");
-    private static int PARAM_WAIT_TIME = ProfilerData.resolveTag("time.wait");
-    private static int PARAM_MEMORY_ALLOCATED = ProfilerData.resolveTag("memory.allocated");
-    private static int PARAM_IO_DISK_READ = ProfilerData.resolveTag("io.disk.read");
-    private static int PARAM_IO_DISK_WRITTEN = ProfilerData.resolveTag("io.disk.written");
-    private static int PARAM_IO_NET_READ = ProfilerData.resolveTag("io.net.read");
-    private static int PARAM_IO_NET_WRITTEN = ProfilerData.resolveTag("io.net.written");
-    private static int PARAM_J2EE_TRANSACTIONS = ProfilerData.resolveTag("j2ee.transactions");
-    private static int PARAM_QUEUE_WAIT_TIME = ProfilerData.resolveTag("time.queue.wait");
+    private final boolean writeCallRanges;
+    private final boolean writeCallsDictionary;
+    private static final int PARAM_COMMON_STARTED = ProfilerData.resolveTag("common.started");
+    private static final int PARAM_PROFILER_TITLE = ProfilerData.resolveTag(PROFILER_TITLE);
+    private static final int PARAM_NODE_NAME = ProfilerData.resolveTag(NODE_NAME);
+    private static final int PARAM_JAVA_THREAD = ProfilerData.resolveTag(JAVA_THREAD);
+    private static final int PARAM_WEBLOGIC_WORK_MANAGER = ProfilerData.resolveTag(WEBLOGIC_WORKMANAGER);
+    private static final int PARAM_LOG_GENERATED = ProfilerData.resolveTag("log.generated");
+    private static final int PARAM_LOG_WRITTEN = ProfilerData.resolveTag("log.written");
+    private static final int PARAM_CPU_TIME = ProfilerData.resolveTag("time.cpu");
+    private static final int PARAM_WAIT_TIME = ProfilerData.resolveTag("time.wait");
+    private static final int PARAM_MEMORY_ALLOCATED = ProfilerData.resolveTag("memory.allocated");
+    private static final int PARAM_IO_DISK_READ = ProfilerData.resolveTag("io.disk.read");
+    private static final int PARAM_IO_DISK_WRITTEN = ProfilerData.resolveTag("io.disk.written");
+    private static final int PARAM_IO_NET_READ = ProfilerData.resolveTag("io.net.read");
+    private static final int PARAM_IO_NET_WRITTEN = ProfilerData.resolveTag("io.net.written");
+    private static final int PARAM_J2EE_TRANSACTIONS = ProfilerData.resolveTag("j2ee.transactions");
+    private static final int PARAM_QUEUE_WAIT_TIME = ProfilerData.resolveTag("time.queue.wait");
 
     public static final String PARAM_REMOTE_DUMP_HOST = "REMOTE_DUMP_HOST";
     public static final String PARAM_REMOTE_DUMP_PORT = "REMOTE_DUMP_PORT";
@@ -132,7 +143,11 @@ public class Dumper implements IDumper, DumperConstants {
     public static final String PARAM_REMOTE_DUMP_PORT_SSL = "REMOTE_DUMP_PORT_SSL";
     public static final String PARAM_FORCE_LOCAL_DUMP = "FORCE_LOCAL_DUMP";
     public static final String PARAM_CLOUD_NAMESPACE = "CLOUD_NAMESPACE";
+    public static final String PARAM_NAMESPACE = "NAMESPACE";
+    public static final String FILE_NAMESPACE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace";
     public static final String PARAM_MICROSERVICE_NAME = "MICROSERVICE_NAME";
+    public static final String PARAM_SERVICE_NAME = "SERVICE_NAME";
+    public static final String BLACKLISTED_NAMESPACE = "BLACKLISTED";
 
     int lastBufferStealTime;
     int lastStreamFlushTime;
@@ -155,11 +170,12 @@ public class Dumper implements IDumper, DumperConstants {
     private DumperCollectorClient client;
     private boolean localDumpEnabled;
     private boolean remoteConfigured;
+    private boolean isBlacklistedNS = false;
     private GCDumper gcDumper;
     private volatile boolean initialized = false;
 
-    String cloudNamespace = getPropertyOrEnvVariable(PARAM_CLOUD_NAMESPACE);
-    String microserviceName = getPropertyOrEnvVariable(PARAM_MICROSERVICE_NAME);
+    String cloudNamespace = VariableFinder.getNamespace();
+    String microserviceName = VariableFinder.getServicename();
     String podName = ServerNameResolver.SERVER_NAME + "_" + System.currentTimeMillis();
     String remoteHost = getPropertyOrEnvVariable(PARAM_REMOTE_DUMP_HOST);
     String remotePortStringSSL = getPropertyOrEnvVariable(PARAM_REMOTE_DUMP_PORT_SSL);
@@ -177,13 +193,18 @@ public class Dumper implements IDumper, DumperConstants {
         dumpRootFolder = dumpFolder;
         this.metricsPlugin = metricsPlugin;
         dumperCallsExporter = new DumperCallsExporter();
-        if(ProfilerData.INMEMORY_SUSPEND_LOG) {
+        if (ProfilerData.INMEMORY_SUSPEND_LOG) {
             inMemorySuspendLogBuilder = new InMemorySuspendLogBuilder(ProfilerData.INMEMORY_SUSPEND_LOG_SIZE, ProfilerData.INMEMORY_SUSPEND_LOG_SIZE);
         } else {
             inMemorySuspendLogBuilder = new InMemorySuspendLogBuilderStub();
         }
 
-        remoteConfigured = StringUtils.isNotEmpty(remoteHost);
+        if(REMOTE_DUMP_DISABLED) {
+            remoteHost = null;
+        } else {
+            remoteConfigured = StringUtils.isNotEmpty(remoteHost);
+        }
+        log.debug("remoteConfigured: {} and isBlacklistedNS: {}", remoteConfigured, isBlacklistedNS);
         boolean forceLocalDump = StringUtils.isNotEmpty(forceLocalDumpString) && Boolean.parseBoolean(forceLocalDumpString);
         localDumpEnabled = forceLocalDump || !remoteConfigured;
 
@@ -244,21 +265,30 @@ public class Dumper implements IDumper, DumperConstants {
         };
         bigParamsDedupOs.setDependentStream(traceOs);
 
-        this.dictOs = new CompressedLocalAndRemoteOutputStream("dictionary", 0, 0 ){
+        this.dictOs = new CompressedLocalAndRemoteOutputStream("dictionary", 0, 0) {
             @Override
             protected boolean resetExistingContents() {
                 return lastWrittenDictionaryTag == 0;
             }
         };
+        //posDictionary is a stream for new type of dictionary with capabilities of overwriting positions
+        //in 'stream_dictionary' table in case of restarted collector
+        //instead of creating new ones.
+        this.posDictOs = remoteConfigured ? new CompressedLocalAndRemoteOutputStream("posDictionary", 0, 0) {
+            @Override
+            protected boolean resetExistingContents() {
+                return lastWrittenDictionaryTag == 0;
+            }
+        } : null;
         this.callsDictOs = writeCallsDictionary ?
-                new CompressedLocalAndRemoteOutputStream("callsDictionary", 0, 0 ) : null;
+                new CompressedLocalAndRemoteOutputStream("callsDictionary", 0, 0) : null;
         this.suspendOs = new CompressedLocalAndRemoteOutputStream("suspend", 0, 0) {
             @Override
             public void fileRotated() throws IOException {
                 getStream().writeLong(lastSuspendLogEntry);
             }
         };
-        this.gcOs = new CompressedLocalAndRemoteOutputStream("gc",0, 0);
+        this.gcOs = remoteConfigured ? new CompressedLocalAndRemoteOutputStream("gc", 0, 0) : null;
 
         this.paramInfoOs = new CompressedLocalAndRemoteOutputStream("params", 0, 0) {
             @Override
@@ -278,22 +308,26 @@ public class Dumper implements IDumper, DumperConstants {
 
         this.outputStreams = new ArrayList<>(Arrays.asList(
                 traceOs, callsOs, bigParamsOs, bigParamsDedupOs,
-                dictOs, suspendOs, gcOs, paramInfoOs
+                dictOs, suspendOs, paramInfoOs
         ));
-        if(writeCallRanges) {
+        if (writeCallRanges) {
             outputStreams.addAll(Arrays.asList(calls_100_500_Os, calls_500_3s_Os, calls_3s_60m_Os, calls_60mPlus_Os));
         }
-        if(writeCallsDictionary) {
+        if (writeCallsDictionary) {
             outputStreams.add(callsDictOs);
         }
+        if (remoteConfigured) {
+            outputStreams.add(gcOs);
+        }
 
-        this.remoteStreams = Arrays.asList(
+
+        this.remoteStreams = new ArrayList<>(Arrays.asList(
                 traceOs, callsOs, bigParamsOs, bigParamsDedupOs,
                 dictOs, suspendOs, gcOs, paramInfoOs
-        );
+        ));
     }
 
-    private void initializeCollectorClient(){
+    private void initializeCollectorClient() {
 
         for (ICompressedLocalAndRemoteOutputStream stream : this.outputStreams) {
             stream.setLocalDumpEnabled(localDumpEnabled);
@@ -301,22 +335,40 @@ public class Dumper implements IDumper, DumperConstants {
 
         String remotePortString = remotePortStringSSL;
         boolean ssl = !StringUtils.isBlank(remotePortString);
-        if(!ssl) {
+        if (!ssl) {
             remotePortString = remotePortStringPlain;
         }
 
-        if (remoteConfigured) {
+        if (remoteConfigured && !isBlacklistedNS) {
             int remotePort = ProtocolConst.PLAIN_SOCKET_PORT;
             try {
-                if(!StringUtils.isBlank(remotePortString)) {
+                if (!StringUtils.isBlank(remotePortString)) {
                     remotePort = Integer.parseInt(remotePortString);
                 }
             } catch (NumberFormatException e) {
                 log.debug("Failed to parse remote dump port, use default port {}", remotePort);
             }
-
+            log.debug("initializeCollectorClient: remotePortStringSSL {}, cloudNamespace: {} and remoteHost: {}", remotePortStringSSL, cloudNamespace, remoteHost);
             this.client = CollectorClientFactory.instance().newClient(remoteHost, remotePort, ssl, cloudNamespace, microserviceName, podName);
+
+            // Remove dictionary or posDictionary streams from remoteStreams and outputStreams by protocol version
+            if (this.client.getVersion() == PROTOCOL_VERSION_V3) {
+                this.removeDict = this.dictOs;
+                if (!outputStreams.contains(this.posDictOs)) this.outputStreams.add(this.posDictOs);
+                if (!remoteStreams.contains(this.posDictOs)) this.remoteStreams.add(this.posDictOs);
+            } else if (this.client.getVersion() == PROTOCOL_VERSION_V2) {
+                this.removeDict = this.posDictOs;
+                if (!outputStreams.contains(this.dictOs)) this.outputStreams.add(this.dictOs);
+                if (!remoteStreams.contains(this.dictOs)) this.remoteStreams.add(this.dictOs);
+            }
+
+            this.outputStreams.remove(this.removeDict);
+
             for (ICompressedLocalAndRemoteOutputStream stream : this.remoteStreams) {
+                if (stream == this.removeDict) {
+                    stream.setClient(null);
+                    continue;
+                }
                 stream.setClient(client);
             }
         }
@@ -337,7 +389,7 @@ public class Dumper implements IDumper, DumperConstants {
 
         for (ParameterInfo info : paramInfo.values()) {
             paramTypes.put(ProfilerData.resolveTag(info.name), info.combined);
-            if(info.list) {
+            if (info.list) {
                 listParams.add(info);
             }
         }
@@ -371,11 +423,11 @@ public class Dumper implements IDumper, DumperConstants {
         return null;
     }
 
-    public boolean isInitialized(){
+    public boolean isInitialized() {
         return initialized;
     }
 
-    public synchronized void close() throws IOException{
+    public synchronized void close() throws IOException {
         this.initialized = false;
 
         for (int i = 0, outputStreamsSize = outputStreams.size(); i < outputStreamsSize; i++) {
@@ -386,7 +438,7 @@ public class Dumper implements IDumper, DumperConstants {
             dumpFileManager.close();
             dumpFileManager = null;
         }
-        if(gcDumper != null) {
+        if (gcDumper != null) {
             gcDumper.close();
             gcDumper = null;
         }
@@ -438,7 +490,12 @@ public class Dumper implements IDumper, DumperConstants {
         final DumpFileManager fm = dumpFileManager;
         FileRotatedListener listener = fm.getFileRotatedListener();
 
-        initializeCollectorClient();
+        try {
+            initializeCollectorClient();
+        } catch (ProfilerProtocolBlacklistedException ble) {
+            isBlacklistedNS = true;
+            throw ble;
+        }
         gcDumper = new GCDumper(gcOs);
 
         for (int i = 0, outputStreamsSize = outputStreams.size(); i < outputStreamsSize; i++) {
@@ -453,12 +510,14 @@ public class Dumper implements IDumper, DumperConstants {
 
         compressedBytesWrittenBaseline = compressedBytes;
 
+        writeCallsDictionary(ProfilerData.resolveTag(PROFILER_TITLE));
+
         this.initialized = true;
     }
 
     private String calculateRelativeDumpRootFolder(String dumpRootPath) { //IN: /u02/qubership/instance/execution-statistics-collector/dump/clust1_1989/2020/11/26/1606401808022
         Path p = Paths.get(dumpRootPath);
-        return p.subpath(p.getNameCount()-5, p.getNameCount()).toString(); //OUT: clust1_1989/2020/11/26/1606401808022
+        return p.subpath(p.getNameCount() - 5, p.getNameCount()).toString(); //OUT: clust1_1989/2020/11/26/1606401808022
     }
 
     public void addEmptyBuffer(LocalBuffer buffer) {
@@ -889,34 +948,35 @@ public class Dumper implements IDumper, DumperConstants {
                 value = ThrowableHelper.throwableToString((Throwable) o);
             } else if (o instanceof CallInfo) {
                 CallInfo callInfo = (CallInfo) o;
-                ProfilerTitle profilerTitle = TitleFormatterFacade.formatTitle(thread.method, thread.params);
                 final long callDuration = curMillis - thread.time + callInfo.additionalReportedTime;
-                MetricsCollector.collectMetrics(metricsPlugin, thread, metricsConfiguration, callDuration, callInfo, thread, buffer.state.thread.getName());
                 writeParam(thread, id, "");
 
                 if (thread.calls > 1 ||
                         callDuration > 20 ||
-                        callInfo.isPersist > 0) {
+                        callInfo.isPersist > 0)) {
+                    ProfilerTitle profilerTitle = TitleFormatterFacade.formatTitle(thread.method, thread.params);
+                    MetricsCollector.collectMetrics(metricsPlugin, thread, metricsConfiguration, callDuration, callInfo, thread, buffer.state.thread.getName());
+
                     long startTimestamp = buffer.startTime + (int) (thread.time - (int) (buffer.startTime - TimerCache.startTime));
-                    if(dumperCallsExporter.isEnabled()) {
-                        int suspension = getSuspension(startTimestamp, startTimestamp+callDuration);
+                    if (dumperCallsExporter.isEnabled()) {
+                        int suspension = getSuspension(startTimestamp, startTimestamp + callDuration);
                         dumperCallsExporter.exportCall(startTimestamp, callDuration, suspension, callInfo, profilerTitle, thread, buffer.state.thread.getName(), relativeDumpRootPath);
                     }
                     traceOs.write(EVENT_TAG_RECORD);
                     writeParam(thread, PARAM_COMMON_STARTED, Long.toString(startTimestamp));
                     offs--;
 
-                    if(!profilerTitle.isDefault()) {
-                        traceOs.write(EVENT_TAG_RECORD);
-                        writeParam(thread, PARAM_PROFILER_TITLE, profilerTitle.getHtml());
-                        offs--;
-                    }
                     traceOs.write(EVENT_TAG_RECORD);
                     writeParam(thread, PARAM_NODE_NAME, ServerNameResolver.SERVER_NAME);
                     offs--;
                     traceOs.write(EVENT_TAG_RECORD);
                     writeParam(thread, PARAM_JAVA_THREAD, buffer.state.thread.getName());
                     offs--;
+                    if (callInfo.workManager != null) {
+                        traceOs.write(EVENT_TAG_RECORD);
+                        writeParam(thread, PARAM_WEBLOGIC_WORK_MANAGER, callInfo.workManager);
+                        offs--;
+                    }
                     offs = writeCallParams(traceOs, thread, callInfo, offs);
 
                     writeCall(callInfo, thread, callDuration, state.thread);
@@ -965,16 +1025,16 @@ public class Dumper implements IDumper, DumperConstants {
 
     private void writeCall(CallInfo callInfo, ThreadState threadState, long callDuration, Thread thread) throws IOException {
         writeCall(callInfo, threadState, callDuration, thread, this.callsOs);
-        if(!writeCallRanges) {
+        if (!writeCallRanges) {
             return;
         }
-        if(callDuration < 100) {
+        if (callDuration < 100) {
             //DoNothing
-        } else if(callDuration < 500) {
+        } else if (callDuration < 500) {
             writeCall(callInfo, threadState, callDuration, thread, this.calls_100_500_Os);
-        } else if(callDuration < 3000) {
+        } else if (callDuration < 3000) {
             writeCall(callInfo, threadState, callDuration, thread, this.calls_500_3s_Os);
-        } else if(callDuration < 60 * 60 * 1000) {
+        } else if (callDuration < 60 * 60 * 1000) {
             writeCall(callInfo, threadState, callDuration, thread, this.calls_3s_60m_Os);
         } else {
             writeCall(callInfo, threadState, callDuration, thread, this.calls_60mPlus_Os);
@@ -1026,7 +1086,7 @@ public class Dumper implements IDumper, DumperConstants {
             writeCallsDictionary(id);
             final int size = set.size();
             callsOs.writeVarInt(size);
-            for(String value : set) {
+            for (String value : set) {
                 callsOs.write(value);
             }
         }
@@ -1034,10 +1094,10 @@ public class Dumper implements IDumper, DumperConstants {
     }
 
     private void writeCallsDictionary(int idx) throws IOException {
-        if(!writeCallsDictionary) {
+        if (!writeCallsDictionary) {
             return;
         }
-        if(!callsDictionaryIds.contains(idx)) {
+        if (!callsDictionaryIds.contains(idx)) {
             callsDictionaryIds.add(idx);
             IDataOutputStreamEx stream = callsDictOs.getStream();
             stream.writeVarInt(idx);
@@ -1167,13 +1227,35 @@ public class Dumper implements IDumper, DumperConstants {
     }
 
     public void dumpDictionary() throws IOException {
+        final int trimSize = (ProfilerData.DICTIONARY_TAG_TRIM_SIZE > 100 && ProfilerData.DICTIONARY_TAG_TRIM_SIZE < 5100) ? ProfilerData.DICTIONARY_TAG_TRIM_SIZE : -1;
         final List<String> tags = dictionary;
         final int size = tags.size();
-        final IDataOutputStreamEx dictOs = this.dictOs.getStream();
-        for (int i = lastWrittenDictionaryTag; i < size; i++) {
-            dictOs.write(tags.get(i));
+        final boolean isProtocolV2;
+        final IDataOutputStreamEx dictOs;
+        if(remoteConfigured) {
+            isProtocolV2 = this.client.getVersion() == PROTOCOL_VERSION_V2;
+            dictOs = isProtocolV2 ? this.dictOs.getStream() : this.posDictOs.getStream();
+        } else {
+            isProtocolV2 = false;
+            dictOs = this.dictOs.getStream();
+        }
 
-            this.dictOs.writePhrase();
+        for (int i = lastWrittenDictionaryTag; i < size; i++) {
+            String s = tags.get(i);
+            // trim too long tags to prevent ProfilerProtocolException during sending
+            if (trimSize > 0 && s.length() > trimSize) {
+                log.debug("Warning! Potential invalid tag in batch [{}-{}]. Tag#{} has length {}: '{}...'",
+                        lastWrittenDictionaryTag, size, i, s.length(), s.substring(0, 100)); // print only first 100 chars
+                s = s.substring(0, trimSize);
+            }
+            if (!remoteConfigured || isProtocolV2) {
+                dictOs.write(s); // write [len][string] to output stream
+                this.dictOs.writePhrase(); // actually send buffered phrase if necessary (buffer is almost full)
+            } else {
+                dictOs.writeVarInt(i);
+                dictOs.write(s);
+                this.posDictOs.writePhrase(); // actually send buffered phrase if necessary (buffer is almost full)
+            }
         }
         lastWrittenDictionaryTag = size;
     }
