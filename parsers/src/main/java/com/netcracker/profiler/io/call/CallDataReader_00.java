@@ -2,6 +2,7 @@ package com.netcracker.profiler.io.call;
 
 import com.netcracker.profiler.dump.DataInputStreamEx;
 import com.netcracker.profiler.io.Call;
+import com.netcracker.profiler.tags.Dictionary;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -21,7 +22,7 @@ public class CallDataReader_00 extends CallDataReaderBase {
     }
 
     @Override
-    public void postCompute(ArrayList<Call> result, List<String> tags, BitSet requredIds) {
+    public void postCompute(ArrayList<Call> result, Dictionary tags, BitSet requredIds) {
         Integer j2eeXid = null;
         for (int i = -1; (i = requredIds.nextSetBit(i + 1)) >= 0; ) {
             String tag = tags.get(i);

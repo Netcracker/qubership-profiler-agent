@@ -5,6 +5,9 @@ public class HeapDumpInfo {
     long bytes;
     String handle;
 
+    public HeapDumpInfo() {
+    }
+
     public HeapDumpInfo(long date, long bytes, String handle) {
         this.date = date;
         this.bytes = bytes;
