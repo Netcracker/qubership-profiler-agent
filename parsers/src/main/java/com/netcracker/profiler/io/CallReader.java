@@ -11,8 +11,11 @@ import java.io.EOFException;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.Collection;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.zip.ZipException;
 
 public abstract class CallReader implements ICallReader {
     protected final CallFilterer cf;
@@ -96,6 +99,7 @@ public abstract class CallReader implements ICallReader {
             Call call = new Call();
             final long begin = this.begin;
             final long end = this.end;
+            final int callsLimit = getCallsCountLimit();
             while (true) {
                 if(Thread.interrupted()){
                     throw new ReadInterruptedException();
@@ -122,10 +126,22 @@ public abstract class CallReader implements ICallReader {
                 reader.readParams(call, calls, requiredIds);
                 call.callsStreamIndex = callsStreamIndex;
                 result.add(call);
+
+                if (callsLimit != -1 && result.size() >= callsLimit) {
+                    return true;
+                }
+
                 call = new Call();
             }
         } catch (EOFException e) {
             //it's ok to get EOF when reading current stream
+        } catch (ZipException e) {
+            if("invalid stored block lengths".equals(e.getMessage()) || "Corrupt GZIP trailer".equals(e.getMessage())) {
+                //DoNothing
+                //it's ok to get ZipException(invalid stored block lengths)/ZipException(Corrupt GZIP trailer) when reading current stream
+            } else {
+                exceptions.add(e);
+            }
         } catch (IOException e) {
             exceptions.add(e);
         }
@@ -150,5 +166,9 @@ public abstract class CallReader implements ICallReader {
 
     public String getRootReference(){
         return "unknown";
+    }
+
+    public int getCallsCountLimit() {
+        return -1;
     }
 }

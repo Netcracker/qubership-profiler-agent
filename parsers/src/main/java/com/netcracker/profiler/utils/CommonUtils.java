@@ -1,10 +1,73 @@
 package com.netcracker.profiler.utils;
 
-import com.netcracker.profiler.chart.UnaryFunction;
+import static com.netcracker.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
 
+import com.netcracker.profiler.chart.UnaryFunction;
+import com.netcracker.profiler.dump.DataInputStreamEx;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.EOFException;
+import java.io.File;
+import java.io.IOException;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.zip.ZipException;
 
 public class CommonUtils {
+    public static final Logger log = LoggerFactory.getLogger(CommonUtils.class);
+
+    public static long getCallsStartTimestamp(File file) {
+        try (DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(file, 16)) {
+            if (calls == null) {
+                return System.currentTimeMillis();
+            }
+            long time = calls.readLong();
+            if ((int) (time >>> 32) == CALL_HEADER_MAGIC) {
+                time = calls.readLong();
+            }
+            if (log.isTraceEnabled()) {
+                log.trace("Timestamp of {} is {} ({})", file.getAbsolutePath(), new Date(time), time);
+            }
+            return time;
+        } catch (EOFException e) {
+            return System.currentTimeMillis();
+        } catch (ZipException e) {
+            if(!"invalid stored block lengths".equals(e.getMessage())) {
+                //it's ok to get ZipException(invalid stored block lengths) when reading current stream
+                throw new RuntimeException(e);
+            }
+            return System.currentTimeMillis();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    };
+
+    public static long getTraceStartTimestamp(File file) {
+        try (DataInputStreamEx trace = DataInputStreamEx.openDataInputStream(file, 24)) {
+            if (trace == null) {
+                return System.currentTimeMillis();
+            }
+            trace.readLong(); // serverStart
+            trace.readLong(); // threadId
+            long realTime = trace.readLong();
+            if (log.isTraceEnabled()) {
+                log.trace("Timestamp of {} is {} ({})", file.getAbsolutePath(), new Date(realTime), realTime);
+            }
+            return realTime;
+        } catch (EOFException e) {
+            return System.currentTimeMillis();
+        } catch (ZipException e) {
+            if(!"invalid stored block lengths".equals(e.getMessage())) {
+                //it's ok to get ZipException(invalid stored block lengths) when reading current stream
+                throw new RuntimeException(e);
+            }
+            return System.currentTimeMillis();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    };
 
     /**
      * Taken from http://en.wikipedia.org/wiki/Binary_search_algorithm
