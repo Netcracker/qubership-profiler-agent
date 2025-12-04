@@ -65,11 +65,12 @@ public class ProfilerData {
     public static final int MAX_BUFFERS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".MAX_BUFFERS", Math.max(INITIAL_BUFFERS * 2, 4096));
     public static final boolean BLOCK_WHEN_DIRTY_BUFFERS_QUEUE_IS_FULL = Boolean.parseBoolean(PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".BLOCK_WHEN_DIRTY_BUFFERS_QUEUE_IS_FULL", "false"));
     public static final int PARAMS_TRIM_SIZE = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".PARAMS_TRIM_SIZE", 50000);
+    public static final int DICTIONARY_TAG_TRIM_SIZE = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".DICTIONARY_TAG_TRIM_SIZE", -1); // will be overridden in installer_cloud
 
     public static final boolean LOG_ORACLE_SID_FOR_EACH_SQL = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".LOG_ORACLE_SID_FOR_EACH_SQL", false);
 
     public static final boolean LOG_JMS_TEXT = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".LOG_JMS_TEXT", true);
-
+    public static final int LOG_OUTGOING_REQUEST_TRIM_SIZE = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".LOG_OUTGOING_REQUEST_TRIM_SIZE", 150);
     public static final boolean ADD_TRY_CATCH_BLOCKS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".ADD_TRY_CATCH_BLOCKS", true);
     public static final boolean ADD_PLAIN_TRY_CATCH_BLOCKS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".ADD_PLAIN_TRY_CATCH_BLOCKS", true);
     public static final boolean ADD_INDY_TRY_CATCH_BLOCKS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".ADD_INDY_TRY_CATCH_BLOCKS", true);
@@ -102,6 +103,8 @@ public class ProfilerData {
     public final static BlockingQueue<LocalBuffer> emptyBuffers = new ArrayBlockingQueue<LocalBuffer>(MAX_BUFFERS);
     final static MethodDictionary dictionary = new MethodDictionary(10000);
     public final static int PARAM_CALL_INFO = resolveTag("call.info") | DumperConstants.DATA_TAG_RECORD;
+    @SuppressWarnings("unused")
+    public final static int PARAM_PROFILER_TITLE = resolveTag("profiler.title") | DumperConstants.DATA_TAG_RECORD;
     public final static int PARAM_CALL_RED = resolveTag("call.red") | DumperConstants.DATA_TAG_RECORD;
     public final static int PARAM_CALL_IDLE = resolveTag("call.idle") | DumperConstants.DATA_TAG_RECORD;
     public final static int PARAM_EXCEPTION = resolveTag("exception") | DumperConstants.DATA_TAG_RECORD;
