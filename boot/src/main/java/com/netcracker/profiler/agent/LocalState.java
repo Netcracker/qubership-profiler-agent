@@ -328,19 +328,6 @@ public class LocalState {
     }
 
     private void callFinished() {
-        if (buffer.corrupted) {
-            //callInfo.corrupted = true;
-//            reset the buffer so it only contains corrupted callInfo after this method.
-            buffer.init(null);
-            buffer.corrupted = false;
-            if(logger.isFineEnabled()) {
-                logger.fine("ESCAGENTCORRUPTEDBUFFER: resetting corrupted state to false for active buffer of thread " + thread.getName());
-            }
-            additional = null;
-            callInfo = null; //to mark callInfo as isFirstInThread
-            callInfo = new CallInfo(this);
-            return;
-        }
         THREAD_INFO_PROVIDER.updateThreadCounters(this);
         CallInfo callInfo = this.callInfo;
         callInfo.cpuTime = cpuTime;

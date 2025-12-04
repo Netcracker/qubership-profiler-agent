@@ -148,6 +148,13 @@ public class Profiler {
         //if buffer is not corrupted, but state.isSystem=true, buffer is successfully put to dirty buffers. That's why we need to split the ifs in 2
         buffer.corrupted = !ProfilerData.addDirtyBuffer(buffer, ProfilerData.BLOCK_WHEN_DIRTY_BUFFERS_QUEUE_IS_FULL);
         if (buffer.corrupted) {
+            for (Object o : buffer.value) {
+                if (o instanceof CallInfo) {
+                    ((CallInfo) o).markCorrupted();
+                }
+            }
+
+            state.callInfo.markCorrupted();
             buffer.reset();
             newBuffer.reset();
 

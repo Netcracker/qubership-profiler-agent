@@ -65,11 +65,12 @@ public class ProfilerData {
     public static final int MAX_BUFFERS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".MAX_BUFFERS", Math.max(INITIAL_BUFFERS * 2, 4096));
     public static final boolean BLOCK_WHEN_DIRTY_BUFFERS_QUEUE_IS_FULL = Boolean.parseBoolean(PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".BLOCK_WHEN_DIRTY_BUFFERS_QUEUE_IS_FULL", "false"));
     public static final int PARAMS_TRIM_SIZE = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".PARAMS_TRIM_SIZE", 50000);
+    public static final int DICTIONARY_TAG_TRIM_SIZE = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".DICTIONARY_TAG_TRIM_SIZE", -1); // will be overridden in installer_cloud
 
     public static final boolean LOG_ORACLE_SID_FOR_EACH_SQL = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".LOG_ORACLE_SID_FOR_EACH_SQL", false);
 
     public static final boolean LOG_JMS_TEXT = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".LOG_JMS_TEXT", true);
-
+    public static final int LOG_OUTGOING_REQUEST_TRIM_SIZE = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".LOG_OUTGOING_REQUEST_TRIM_SIZE", 150);
     public static final boolean ADD_TRY_CATCH_BLOCKS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".ADD_TRY_CATCH_BLOCKS", true);
     public static final boolean ADD_PLAIN_TRY_CATCH_BLOCKS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".ADD_PLAIN_TRY_CATCH_BLOCKS", true);
     public static final boolean ADD_INDY_TRY_CATCH_BLOCKS = PropertyFacadeBoot.getProperty(Profiler.class.getName() + ".ADD_INDY_TRY_CATCH_BLOCKS", true);
@@ -100,8 +101,11 @@ public class ProfilerData {
     public final static AtomicLong largeEventsVolume = new AtomicLong();
     public final static BlockingQueue<LocalBuffer> dirtyBuffers = new ArrayBlockingQueue<LocalBuffer>(MAX_BUFFERS);
     public final static BlockingQueue<LocalBuffer> emptyBuffers = new ArrayBlockingQueue<LocalBuffer>(MAX_BUFFERS);
+    public final static AtomicLong corruptedCalls = new AtomicLong();
     final static MethodDictionary dictionary = new MethodDictionary(10000);
     public final static int PARAM_CALL_INFO = resolveTag("call.info") | DumperConstants.DATA_TAG_RECORD;
+    @SuppressWarnings("unused")
+    public final static int PARAM_PROFILER_TITLE = resolveTag("profiler.title") | DumperConstants.DATA_TAG_RECORD;
     public final static int PARAM_CALL_RED = resolveTag("call.red") | DumperConstants.DATA_TAG_RECORD;
     public final static int PARAM_CALL_IDLE = resolveTag("call.idle") | DumperConstants.DATA_TAG_RECORD;
     public final static int PARAM_EXCEPTION = resolveTag("exception") | DumperConstants.DATA_TAG_RECORD;
@@ -202,44 +206,23 @@ public class ProfilerData {
 
             return ;
         }
-        boolean added = false;
-        boolean dumperDead = ProfilerData.dumperDead;
-        boolean interrupted = false;
         int dirtySize = dirtyBuffers.size();
-        if (dumperDead) {
-            if (dirtySize < MAX_BUFFERS) {
-                added = dirtyBuffers.offer(buffer);
-            }
-        } else {
-            for (int i = 0; i < 9; i++) {
-                try {
-                    added = dirtyBuffers.offer(buffer, 1, TimeUnit.SECONDS);
-                    break;
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                    /* log below */
-                }
-            }
-        }
+        boolean added = dirtyBuffers.offer(buffer);
+
         if (!added) {
-            String message = "[Qubership Profiler] ESCAGENTCORRUPTEDBUFFER: Unable to add dirty buffer " + (dumperDead ? "" : "(timeout)")
-                    + buffer.toString()
+            String message = "[Qubership Profiler] ESCAGENTCORRUPTEDBUFFER: Unable to add dirty buffer " + buffer
                     + ". Action: check logs/execution-statistics-collector.log to see why Dumper failed. " +
-                    "Number of dirty buffers is " + dirtySize + ". Thread interrupts detected while recycling buffer: " + interrupted;
+                    "Number of dirty buffers is " + dirtySize;
             logger.corruptedBufferWarning(message);
             boolean addedEmpty = emptyBuffers.offer(new LocalBuffer());
             int emptySize = emptyBuffers.size();
             Thread thread = Thread.currentThread();
             String threadName = thread.getName() + "@" + thread.getId() + "@" + thread.hashCode();
-            logger.corruptedBufferWarning("[Qubershiop Profiler] ESCAGENTCORRUPTEDBUFFER: " + (addedEmpty ? "Added" : "Not added") +
+            logger.corruptedBufferWarning("[Qubership Profiler] ESCAGENTCORRUPTEDBUFFER: " + (addedEmpty ? "Added" : "Not added") +
                             " new buffer to empty queue." +
                             " dirtySize: " + dirtySize + ", emptySize: " + emptySize +
                             ", thread: " + threadName
             );
-        }
-        if (interrupted) { // reinterrupt, so subsequent code might notice the interrupt
-            // Technically it is not required in Thread.exit case, however it is here for completeness
-            Thread.currentThread().interrupt();
         }
     }
 
