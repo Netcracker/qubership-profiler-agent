@@ -166,6 +166,21 @@
     <input type="radio" name="thr-dmp-format" id="thr-dmp-jfr-cpu" value="jfr_cpu"><label for="thr-dmp-jfr-cpu" title="Cpu sample profiling from Java Flight Recorder">jfr CPU (*.jfr)</label>
     <input type="radio" name="thr-dmp-format" id="thr-dmp-hprof" value="dbms_hprof"><label for="thr-dmp-hprof" title="Oracle dbms_hprof profiling result">dbms_hprof (*.trc)</label>
     <input type="radio" name="thr-dmp-format" id="thr-dmp-stackcollapse" value="stackcollapse"><label for="thr-dmp-stackcollapse" title="Collapsed (semicolon delimited) thread dumps">stackcollapse dumps (*collapsed.log)</label><br>
+    <div id="thr-dump-params" style="display: none;">
+        <hr>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+                <td><label class="inline-block text-label" style="width:auto">Filter system threads:</label></td>
+                <td><input type="radio" name="thr-dmp-tdump-filter" id="thr-dmp-tdump-filter-yes" value="true" checked="checked"><label for="thr-dmp-tdump-filter-yes">Yes</label></td>
+                <td><input type="radio" name="thr-dmp-tdump-filter" id="thr-dmp-tdump-filter-no" value="false"><label for="thr-dmp-tdump-filter-no">No</label></td>
+            </tr>
+            <tr>
+                <td><label class="inline-block text-label" style="width:auto">Group by thread name:</label></td>
+                <td><input type="radio" name="thr-dmp-tdump-tgroup" id="thr-dmp-tdump-tgroup-yes" value="true"><label for="thr-dmp-tdump-tgroup-yes">Yes</label></td>
+                <td><input type="radio" name="thr-dmp-tdump-tgroup" id="thr-dmp-tdump-tgroup-no" value="false" checked="checked"><label for="thr-dmp-tdump-tgroup-no">No</label></td>
+            </tr>
+        </table>
+    </div>
     <div id="thr-dmp-part-controls" style="display: none;"><label class="inline-block text-label">Analyze:</label>
     <input type="radio" name="thr-dmp-part" id="thr-dmp-full" checked="checked"><label for="thr-dmp-full">full
     file</label>

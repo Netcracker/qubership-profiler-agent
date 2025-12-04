@@ -6,6 +6,7 @@ import com.netcracker.profiler.io.Call;
 import com.netcracker.profiler.io.CallFilterer;
 import com.netcracker.profiler.io.aggregate.Aggregator;
 import com.netcracker.profiler.io.aggregate.model.AggregateRow;
+import com.netcracker.profiler.tags.Dictionary;
 
 import com.google.inject.assistedinject.Assisted;
 
@@ -53,9 +54,9 @@ public class AggregateCallsToXLSXListener implements ICallsToXLSXListener {
     }
 
     @Override
-    public void processCalls(String rootReference, ArrayList<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requiredIds) {
+    public void processCalls(String rootReference, ArrayList<Call> calls, Dictionary tags, Map<String, ParameterInfoDto> paramInfo, BitSet requiredIds) {
         if (calls.isEmpty()) return;
-        Map<String, Integer> tagToIdMap = buildTagToIdMap(tags);
+        Map<String, Integer> tagToIdMap = buildTagToIdMap(tags.asList());
 
         for(Call call: calls) {
             if (cf != null && !cf.filter(call)) {

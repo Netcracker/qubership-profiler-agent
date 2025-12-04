@@ -21,8 +21,8 @@ public abstract class JaegerSpan implements Span {
             callInfo.setEndToEndId(traceId);
         }
         callInfo.setTraceId(traceId);
-
-        Profiler.event(traceId, "trace.id");
-        Profiler.event(context.toSpanId(), "span.id");
+        if (callInfo.traceIdChanged()) {
+            Profiler.event(traceId, "trace.id");
+        }
     }
 }

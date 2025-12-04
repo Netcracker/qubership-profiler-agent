@@ -10,6 +10,7 @@ import com.netcracker.profiler.sax.raw.*;
 import com.netcracker.profiler.sax.values.ClobValue;
 import com.netcracker.profiler.sax.values.StringValue;
 import com.netcracker.profiler.sax.values.ValueHolder;
+import com.netcracker.profiler.tags.Dictionary;
 import com.netcracker.profiler.timeout.ProfilerTimeoutException;
 import com.netcracker.profiler.timeout.ProfilerTimeoutHandler;
 
@@ -21,6 +22,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.*;
+import java.util.zip.ZipException;
 
 public abstract class ProfilerTraceReader {
     public static final String TRACE_STREAM_NAME = "trace";
@@ -85,6 +87,7 @@ public abstract class ProfilerTraceReader {
         TraceVisitor tv = null;
         BitSet ids = new BitSet();
         HashMap<ClobValue, ClobValue> uniqueClobs = new HashMap<ClobValue, ClobValue>();
+        long maxEventRealTime = 0;
         try {
             tv = rv.visitTrace();
 
@@ -220,6 +223,10 @@ public abstract class ProfilerTraceReader {
                             }
                         }
                     }
+                    long eventRealTime = eventTime + realTime;
+                    if(eventRealTime > maxEventRealTime) {
+                        maxEventRealTime = eventRealTime;
+                    }
                     if (ttv == null || (!started && idx < startIndex)) {
 //                        System.out.println("ttv == null :" + (ttv == null));
 //                        System.out.println("started && idx < startIndex" + (started && idx < startIndex) + " startIndex " + startIndex);
@@ -230,7 +237,6 @@ public abstract class ProfilerTraceReader {
                     }
                     started = true;
 
-                    long eventRealTime = eventTime + realTime;
                     if (tagId == 1042 && (eventRealTime == 1405085865470L
                             || eventRealTime == 1405086718993L))
                         break MEGALOOP;
@@ -288,7 +294,7 @@ public abstract class ProfilerTraceReader {
                     + ", rowids " + treeRowids.toString(), t);
         } finally {
             for (TreeTraceVisitor tree : threads.values()) {
-                tree.visitTimeAdvance(System.currentTimeMillis() - tree.getTime());
+                tree.visitTimeAdvance(maxEventRealTime - tree.getTime());
                 tree.visitLabel(DumperConstants.TAGS_CALL_ACTIVE, new StringValue("HERE"));
                 while (tree.getSp() > 0) {
                     tree.visitExit();
@@ -313,7 +319,7 @@ public abstract class ProfilerTraceReader {
 
         String dataFolderPath = file.getParentFile().getParent();
 
-        Set<ClobValue> uniqueClobIds = new LinkedHashSet<>();
+        Set<ClobValue> uniqueClobIds = new HashSet<ClobValue>();
         ClobValue lastClobId = null;
         boolean hasReadFirstValue = false;
         try (DataInputStreamEx trace = DataInputStreamEx.openDataInputStream(file)) {
@@ -375,6 +381,11 @@ public abstract class ProfilerTraceReader {
             }
         } catch (EOFException eof) {
             //DoNothing
+        } catch (ZipException e) {
+            if(!"invalid stored block lengths".equals(e.getMessage())) {
+                ErrorSupervisor.getInstance().warn("Error while reading clobIds from folder " + dataFolderPath, e);
+            }
+            //it's ok to get ZipException(invalid stored block lengths) when reading current stream
         } catch (Error e) {
             throw e;
         } catch (Throwable t) {
@@ -423,7 +434,7 @@ public abstract class ProfilerTraceReader {
         try {
             ParamReader paramReader = paramReader();
             Collection<Throwable> t = new ArrayList<Throwable>();
-            List<String> tags = paramReader.fillTags(ids, t);
+            Dictionary tags = paramReader.fillTags(ids, t);
 
             for (int i = -1; (i = ids.nextSetBit(i + 1)) >= 0; ) {
                 String s = tags.get(i);

@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Enumeration;
+import java.util.zip.ZipException;
 
 /**
  * Prototype-scoped class - create instances via {@code SuspendLogReaderFactory} or direct instantiation.
@@ -84,7 +85,9 @@ public class SuspendLogReader {
         try {
             new SuspendPhraseReader(is, sv).parsingPhrases(Integer.MAX_VALUE, true, begin, end);
         } catch (IOException e) {
-            if (!(e instanceof EOFException)) {
+            if (e instanceof EOFException || (e.getClass()==ZipException.class && "invalid stored block lengths".equals(e.getMessage()))) {
+                //it's ok to get EOFException/ZipException(invalid stored block lengths) when reading current stream
+            } else {
                 ErrorSupervisor.getInstance().warn("Unable to read suspend log ", e);
             }
         }

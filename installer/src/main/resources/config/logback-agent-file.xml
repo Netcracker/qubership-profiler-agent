@@ -1,0 +1,84 @@
+<included>
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/execution-statistics-collector-${com.netcracker.esc.serverName}.log</file>
+        <Append>true</Append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <FileNamePattern>logs/execution-statistics-collector-${com.netcracker.esc.serverName}.log.%i.zip</FileNamePattern>
+            <MinIndex>1</MinIndex>
+            <MaxIndex>5</MaxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <MaxFileSize>5MB</MaxFileSize>
+        </triggeringPolicy>
+        <layout class="ch.qos.logback.classic.PatternLayout">
+        <if condition='isDefined("NC_DIAGNOSTIC_MODE")'>
+            <then>
+                <if condition='isDefined("LOGBACK_CLOUD_AGENT_LOG_FORMAT")'>
+                    <then>
+                        <pattern>${LOGBACK_CLOUD_AGENT_LOG_FORMAT}</pattern>
+                    </then>
+                    <else>
+                        <pattern>[%d{"yyyy-MM-dd'T'HH:mm:ss.SSS"}] [%level] [request_id=-] [tenant_id=-] [thread=%thread] [class=%logger] %msg%n</pattern>
+                    </else>
+                </if>
+            </then>
+            <else>
+                <Pattern>[%d{YYYY-MM-dd HH:mm:ss.SSS}][%-5level][thread=%thread][class=%logger] - %msg%n</Pattern>
+            </else>
+        </if>
+        </layout>
+    </appender>
+
+    <appender name="PLUGIN_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/execution-statistics-collector-${com.netcracker.esc.serverName}-plugin.log</file>
+        <Append>true</Append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <FileNamePattern>logs/execution-statistics-collector-${com.netcracker.esc.serverName}-plugin.log.%i.zip</FileNamePattern>
+            <MinIndex>1</MinIndex>
+            <MaxIndex>5</MaxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <MaxFileSize>5MB</MaxFileSize>
+        </triggeringPolicy>
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <if condition='isDefined("NC_DIAGNOSTIC_MODE")'>
+                <then>
+                    <if condition='isDefined("LOGBACK_CLOUD_AGENT_LOG_FORMAT")'>
+                        <then>
+                            <pattern>${LOGBACK_CLOUD_AGENT_LOG_FORMAT}</pattern>
+                        </then>
+                        <else>
+                            <pattern>[%d{"yyyy-MM-dd'T'HH:mm:ss.SSS"}] [%level] [request_id=-] [tenant_id=-] [thread=%thread] [class=%logger] %msg%n</pattern>
+                        </else>
+                    </if>
+                </then>
+                <else>
+                    <Pattern>[%d{YYYY-MM-dd HH:mm:ss.SSS}][%-5level][thread=%thread] - %msg%n</Pattern>
+                </else>
+            </if>
+        </layout>
+    </appender>
+
+    <logger name="com.netcracker.profiler.agent.plugins.ProfilerPluginLoggerImpl" additivity="false" level="INFO">
+        <appender-ref ref="PLUGIN_FILE" />
+    </logger>
+
+    <root>
+        <if condition='isDefined("ESC_LOG_LEVEL") &amp;&amp; ("${ESC_LOG_LEVEL}".equalsIgnoreCase("trace") || "${ESC_LOG_LEVEL}".equalsIgnoreCase("debug") || "${ESC_LOG_LEVEL}".equalsIgnoreCase("info") || "${ESC_LOG_LEVEL}".equalsIgnoreCase("warn") || "${ESC_LOG_LEVEL}".equalsIgnoreCase("error") || "${ESC_LOG_LEVEL}".equalsIgnoreCase("off"))'>
+            <then>
+                <level value="${ESC_LOG_LEVEL:-warn}" />
+            </then>
+            <else>
+                <if condition='isDefined("NC_DIAGNOSTIC_MODE") &amp;&amp; isDefined("LOG_LEVEL") &amp;&amp; ("${LOG_LEVEL}".equalsIgnoreCase("info") || "${LOG_LEVEL}".equalsIgnoreCase("warn") || "${LOG_LEVEL}".equalsIgnoreCase("error") || "${LOG_LEVEL}".equalsIgnoreCase("off"))'>
+                    <then>
+                        <level value="${LOG_LEVEL:-warn}" />
+                    </then>
+                    <else>
+                        <level value="warn" />
+                    </else>
+                </if>
+            </else>
+        </if>
+        <appender-ref ref="FILE" />
+    </root>
+</included>

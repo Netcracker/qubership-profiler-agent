@@ -1,6 +1,5 @@
 package com.netcracker.profiler.io.exceptions;
 
-
 import com.fasterxml.jackson.core.JsonGenerator;
 
 import java.io.IOException;

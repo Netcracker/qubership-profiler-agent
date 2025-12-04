@@ -202,6 +202,10 @@ window.isDump = isDump;
         return date.toString().replace(" GMT", "." + lpad(date.getMilliseconds(), 3) + " GMT");
     }
 
+    function getServerTime() {
+        return $.ajax({type: "GET", url: "time", async: false}).responseText;
+    }
+
     function guid() {
         function s4() {
             return Math.floor((1 + Math.random()) * 0x10000)
@@ -959,7 +963,7 @@ window.isDump = isDump;
                 Loader_onLoadComplete(CallList_onLoadComplete);
 
                 var timeRange = getState('timerange');
-                var now = new Date().getTime();
+                var now = getServerTime();
                 var newState = {};
                 if (!/^esc\./.test(window.name)) {
                     window.name = 'esc.' + guid();
@@ -1247,7 +1251,7 @@ window.isDump = isDump;
                         setTimerangePending();
                         return;
                     }
-                    var now = new Date().getTime();
+                    var now = getServerTime();
                     var min = now - e.target.value * 60 * 1000;
                     var wid
                     filters_timerange_pending = {
@@ -2895,7 +2899,7 @@ window.isDump = isDump;
                     $('#thr-dmp').dialog({
                                 title: 'Analyze file',
                                 width: 650,
-                                height: 210,
+                                height: 265,
                                 resizable: true,
                                 buttons: {
                                     Analyze: ThreadDumps__analyze,
@@ -2912,6 +2916,14 @@ window.isDump = isDump;
                     ThreadDumps$initDone = true;
                     ThreadDumps__updateFileSize();
                 }
+                $('input[type=radio][name=thr-dmp-format]').change(function() {
+                    if (this.value == 'thread_dump') {
+                        $('#thr-dump-params').css('display', 'block');
+                    }
+                    else {
+                        $('#thr-dump-params').css('display', 'none');
+                    }
+                });
                 $('#thr-dmp').dialog('open');
                 return false;
             }
@@ -2969,7 +2981,9 @@ window.isDump = isDump;
                     app.notify.notify('create', 'jqn-error', {title: 'File analysis', text: 'Please specify file format.<br>File format is mandatory when parsing archived files.'}, {expires: 2000, custom:true});
                     return;
                 }
-                var params = {file:fileName, callback:'treedata', format: fileFormat};
+                var vFilterThreads = $('input[type=radio][name=thr-dmp-tdump-filter]:checked').val();
+                var vGroupThreads = $('input[type=radio][name=thr-dmp-tdump-tgroup]:checked').val();
+                var params = {file:fileName, callback:'treedata', format: fileFormat, filterThreads: vFilterThreads, groupThreads: vGroupThreads};
                 if ($('#thr-dmp-sub').attr('checked')) {
                     if ((params.firstByte = ThreadDumps__parseBytes('thr-dmp-fb', 'starting offset')) === undefined) return;
                     if ((params.lastByte = ThreadDumps__parseBytes('thr-dmp-lb', 'last byte to parse')) === undefined) return;
@@ -3767,7 +3781,11 @@ window.isDump = isDump;
                 }
 
                 function finalizeHotspots() {
-                    sortNode(all, orderCallsBySelfDuration);
+                    if (profiler_settings.hs_sort_mode == 'total') {
+                        sortNode(all, orderCallsByDuration);
+                    } else {
+                        sortNode(all, orderCallsBySelfDuration);
+                    }
                     for (var k in id2node) {
                         id2node[k][M_COLLAPSE_LEVELS] = 0;
                     }
@@ -5866,8 +5884,8 @@ window.isDump = isDump;
                     Tree__setupPersonal_init();
                     $('#setup-p').dialog({
                                 title: 'Personal settings',
-                                width: 390,
-                                height: 220,
+                                width: 520,
+                                height: 320,
                                 resizable: true,
                                 buttons: {
                                     OK: function() {
@@ -5898,16 +5916,17 @@ window.isDump = isDump;
                 $('#ps-thr-mode-' + profiler_settings.threaddump_format).attr('checked', true);
                 $('#ps-gc-mode-' + profiler_settings.gc_show_mode).attr('checked', true);
                 $('#ps-thr-stack-dur').val(profiler_settings.thr_stack_duration);
+                $('#ps-hs-sort-' + profiler_settings.hs_sort_mode).attr('checked', true);
             }
 
             function Tree__setupPersonal_apply() {
-                var $dialog = $('#setup-p');
-                profiler_settings.millis_format = $dialog.children('input[name=ps-millis]:checked').attr('id').substr(6);
+                profiler_settings.millis_format = $('#setup-p input[name=ps-millis]:checked').attr('id').substr(6);
                 profiler_settings.omit_ms = $('#ps-sm').val();
-                profiler_settings.int_format = $dialog.children('input[name=ps-ints]:checked').attr('id').substr(7);
-                profiler_settings.threaddump_format = $dialog.children('input[name=ps-thr-mode]:checked').attr('id').substr(12);
-                profiler_settings.gc_show_mode = $dialog.children('input[name=ps-gc-mode]:checked').attr('id').substr(11);
+                profiler_settings.int_format = $('#setup-p input[name=ps-ints]:checked').attr('id').substr(7);
+                profiler_settings.threaddump_format = $('#setup-p input[name=ps-thr-mode]:checked').attr('id').substr(12);
+                profiler_settings.gc_show_mode = $('#setup-p input[name=ps-gc-mode]:checked').attr('id').substr(11);
                 profiler_settings.thr_stack_duration = $('#ps-thr-stack-dur').val();
+                profiler_settings.hs_sort_mode=$('#setup-p input[name=ps-hs-sort]:checked').val();
                 ESCProfilerSettings.ProfilerSettings__save();
                 updateFormatFromPersonalSettings();
             }

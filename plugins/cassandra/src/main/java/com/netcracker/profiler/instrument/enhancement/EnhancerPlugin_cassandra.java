@@ -19,14 +19,14 @@ public class EnhancerPlugin_cassandra extends EnhancerPlugin {
     @Override
     public void init(Element e, Configuration_01 configuration) {
         super.init(e, configuration);
-        configuration.getParameterInfo("brave.trace_id").index(true);
-        configuration.getParameterInfo("brave.span_id").index(true);
+        configuration.getParameterInfo("binds").big(true);
+        configuration.getParameterInfo("sql").big(true).deduplicate(true);
     }
 
     @Override
     public boolean accept(ClassInfo info) {
         String jarName = info.getJarName();
-        log.info("Class name: {}, jar name: {}", info.getClassName(), jarName);
+        log.debug("Class name: {}, jar name: {}", info.getClassName(), jarName);
         if (jarName == null) {
             return false;
         }

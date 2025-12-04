@@ -1,6 +1,6 @@
 package com.netcracker.profiler.test.dump;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.netcracker.profiler.dump.*;
 import com.netcracker.profiler.io.listener.FileRotatedListener;
@@ -59,7 +59,7 @@ public class DumpFileManagerTest {
                 // no method invocations
 
                 try(DumpFileLog dumpFileLog = new DumpFileLog(new File(rootPath, DumpFileLog.DEFAULT_NAME))) { // one instance is expected
-                    dumpFileLog.cleanup(null, true);
+                    dumpFileLog.cleanup(null);
                     times = 1;
 
                     DumpFilesFinder dumpFilesFinder = new DumpFilesFinder(); // one instance creation is expected
@@ -210,13 +210,19 @@ public class DumpFileManagerTest {
                     dumpFileLog.parseIfPresent();
                     result = new LinkedList<DumpFile>();
 
+                    dumpFileLog.writeCreation(expected.get(0));
                     dumpFileLog.writeAddition(expected.get(0));
+                    dumpFileLog.writeCreation(expected.get(1));
                     dumpFileLog.writeAddition(expected.get(1));
+                    dumpFileLog.writeCreation(expected.get(2));
                     dumpFileLog.writeAddition(expected.get(2));
+                    dumpFileLog.writeCreation(expected.get(3));
                     dumpFileLog.writeAddition(expected.get(3));
+                    dumpFileLog.writeCreation(expected.get(4));
                     dumpFileLog.writeAddition(expected.get(4));
 
                     {
+                        dumpFileLog.writeCreation(expected.get(5));
                         dumpFileLog.writeAddition(expected.get(5));
                         DumpFile deletedFile = expected.get(0);
                         fileDeleter.deleteFile(deletedFile);
@@ -224,6 +230,7 @@ public class DumpFileManagerTest {
                         dumpFileLog.writeDeletion(deletedFile);
                     }
                     {
+                        dumpFileLog.writeCreation(expected.get(6));
                         dumpFileLog.writeAddition(expected.get(6));
                         DumpFile deletedFile = expected.get(1);
                         fileDeleter.deleteFile(deletedFile);
@@ -231,6 +238,7 @@ public class DumpFileManagerTest {
                         dumpFileLog.writeDeletion(deletedFile);
                     }
                     {
+                        dumpFileLog.writeCreation(expected.get(7));
                         dumpFileLog.writeAddition(expected.get(7));
                         DumpFile deletedFile = expected.get(2);
                         fileDeleter.deleteFile(deletedFile);
@@ -238,19 +246,14 @@ public class DumpFileManagerTest {
                         dumpFileLog.writeDeletion(deletedFile);
                     }
                     {
+                        dumpFileLog.writeCreation(expected.get(8));
                         dumpFileLog.writeAddition(expected.get(8));
                         DumpFile deletedFile = expected.get(3);
                         fileDeleter.deleteFile(deletedFile);
                         result = true;
                         dumpFileLog.writeDeletion(deletedFile);
                     }
-                    {
-                        dumpFileLog.writeAddition(expected.get(9));
-                        DumpFile deletedFile = expected.get(4);
-                        fileDeleter.deleteFile(deletedFile);
-                        result = true;
-                        dumpFileLog.writeDeletion(deletedFile);
-                    }
+                    dumpFileLog.writeCreation(expected.get(9));
                 }
             }
         };
@@ -262,8 +265,10 @@ public class DumpFileManagerTest {
                 , false /* read from file */
         )) {
             FileRotatedListener listener = dumpFileManager.getFileRotatedListener();
+            DumpFile prevFile = null;
             for (DumpFile dumpFile : expected) {
-                listener.fileRotated(dumpFile, null);
+                listener.fileRotated(prevFile, dumpFile);
+                prevFile = dumpFile;
             }
         }
     }

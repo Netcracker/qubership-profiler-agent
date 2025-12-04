@@ -3,6 +3,7 @@ package com.netcracker.profiler.io.xlsx;
 import com.netcracker.profiler.configuration.ParameterInfoDto;
 import com.netcracker.profiler.io.Call;
 import com.netcracker.profiler.io.CallFilterer;
+import com.netcracker.profiler.tags.Dictionary;
 
 import com.google.inject.assistedinject.Assisted;
 
@@ -71,7 +72,7 @@ public class CallsToXLSXListener implements ICallsToXLSXListener {
     }
 
     @Override
-    public void processCalls(String rootReference, ArrayList<Call> calls, List<String> tags, Map<String, ParameterInfoDto> paramInfo, BitSet requiredIds) {
+    public void processCalls(String rootReference, ArrayList<Call> calls, Dictionary tags, Map<String, ParameterInfoDto> paramInfo, BitSet requiredIds) {
         if (calls.isEmpty()) return;
 
         String serverName = rootReference;
@@ -110,7 +111,6 @@ public class CallsToXLSXListener implements ICallsToXLSXListener {
 
             createAdditionalCells(rootReference);
 
-            formatter.addText(serverName);
             String title = tags.get(call.method);
             if(call.params == null) {
                 formatter.addText(title);
