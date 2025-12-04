@@ -95,13 +95,12 @@ public class ProfilingTransformer implements ClassFileTransformer {
             }
 
             ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
-
             ClassVisitor cv = cw;
 
             // This will add $profiler methods and fields to the class
             if (!enhancers.isEmpty()) {
                 // Merge static initializers
-                cv = new StaticInitMerger("clinit$merger$profiler", cv);
+                cv = new StaticInitMerger(cv);
 
                 log.debug("Class {} will be updated by {} enhancers", name, enhancers.size());
 
