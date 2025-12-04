@@ -13,4 +13,5 @@ dependencies {
     implementation("net.sf.trove4j:trove4j")
     implementation("org.apache.httpcomponents:httpcore")
     implementation("org.hdrhistogram:HdrHistogram")
+    testImplementation("org.mockito:mockito-core")
 }
