@@ -107,6 +107,10 @@ public class ParsersModule extends AbstractModule {
                 .implement(ProfilerTraceReader.class, ProfilerTraceReaderFile.class)
                 .build(ProfilerTraceReaderFactory.class));
 
+        install(new FactoryModuleBuilder()
+                .implement(InFlightCallsFromTraceScanner.class, InFlightCallsFromTraceScanner.class)
+                .build(InFlightCallsFromTraceScannerFactory.class));
+
         // Map of file format versions to CallDataReader implementations
         MapBinder<Integer, CallDataReader> callDataReaderBinder =
                 MapBinder.newMapBinder(binder(), Integer.class, CallDataReader.class);
