@@ -2,14 +2,12 @@ package com.netcracker.profiler.cli;
 
 import static com.netcracker.profiler.cli.ExportDump.NUMBER_DIRECTORY_FILTER;
 import static com.netcracker.profiler.cli.ExportDump.YEAR_DIRECTORY_FILTER;
-import static com.netcracker.profiler.utils.CommonUtils.*;
 
-import com.netcracker.profiler.dump.DumpRootResolver;
 import com.netcracker.profiler.guice.DumpRootLocation;
 import com.netcracker.profiler.io.DurationParser;
 import com.netcracker.profiler.io.xlsx.CallToXLSX;
 import com.netcracker.profiler.sax.readers.InFlightCallsFromTraceScanner;
-import com.netcracker.profiler.servlet.SpringBootInitializer;
+import com.netcracker.profiler.sax.readers.InFlightCallsFromTraceScannerFactory;
 import com.netcracker.profiler.utils.CommonUtils;
 
 import net.sourceforge.argparse4j.inf.Namespace;
@@ -31,10 +29,12 @@ public class ExportInFlightCalls implements Command {
     private String fileName;
     private String nodeName;
     private final File dumpRoot;
+    private final InFlightCallsFromTraceScannerFactory scannerFactory;
 
     @Inject
-    public ExportInFlightCalls(@DumpRootLocation File dumpRoot) {
+    public ExportInFlightCalls(@DumpRootLocation File dumpRoot, InFlightCallsFromTraceScannerFactory scannerFactory) {
         this.dumpRoot = dumpRoot;
+        this.scannerFactory = scannerFactory;
     }
 
     public int accept(Namespace args) {
@@ -75,7 +75,7 @@ public class ExportInFlightCalls implements Command {
 
     private int runExport() throws IOException {
         if (dumpRoot == null) {
-            log.warn("No dump path found - {}. Please check path to ESC dump (--dump-root)", DumpRootResolver.dumpRoot);
+            log.warn("No dump path found - {}. Please check path to ESC dump (--dump-root)", dumpRoot);
             return -2;
         }
         File dumpRootNode = new File(dumpRoot, nodeName);
@@ -90,7 +90,7 @@ public class ExportInFlightCalls implements Command {
             String rootReference = getRelativePath(startTraceFile.getParentFile().getParentFile(), dumpRoot);
             int startFileIndex = Integer.parseInt(startTraceFile.getName().replace(".gz", ""));
             log.info("Will scan trace files starting from {}", startTraceFile);
-            InFlightCallsFromTraceScanner scanner = SpringBootInitializer.getApplicationContext().getBean(InFlightCallsFromTraceScanner.class, rootReference, startFileIndex);
+            InFlightCallsFromTraceScanner scanner = scannerFactory.create(rootReference, startFileIndex);
             List<InFlightCallsFromTraceScanner.CallInfo> calls = scanner.find();
             printCallsToXlsx(calls, rootReference, os);
         } catch (FileNotFoundException e) {
