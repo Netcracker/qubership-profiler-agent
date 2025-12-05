@@ -3,8 +3,6 @@
     <enhancer>jaeger</enhancer>
     <parameters>
         <parameter name="trace.id" index="true" list="true"/>
-        <parameter name="span.id" index="true" list="true" order="800"/>
-        <parameter name="parent.span.id" index="true" list="true" order="810"/>
     </parameters>
     <ruleset if-enhancer="jaeger">
         <rule>

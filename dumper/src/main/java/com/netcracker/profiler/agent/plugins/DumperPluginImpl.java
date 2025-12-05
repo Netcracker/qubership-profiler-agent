@@ -1,10 +1,14 @@
 package com.netcracker.profiler.agent.plugins;
 
-import static com.netcracker.profiler.Dumper.PROFILER_TITLE;
+import static com.netcracker.profiler.Dumper.*;
 import static com.netcracker.profiler.agent.ProfilerData.DISABLE_CALL_EXPORT;
 
 import com.netcracker.profiler.Dumper;
 import com.netcracker.profiler.agent.*;
+import com.netcracker.profiler.agent.DumperPlugin;
+import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.ProfilerData;
+import com.netcracker.profiler.agent.ProfilerTransformerPlugin;
 import com.netcracker.profiler.client.CollectorClientFactory;
 import com.netcracker.profiler.dump.DumpRootResolver;
 import com.netcracker.profiler.dump.DumperThread;
@@ -55,6 +59,9 @@ public class DumperPluginImpl implements DumperPlugin_10 {
         final Configuration_05 conf = (Configuration_05) transformer.getConfiguration();
 
         conf.getParameterInfo(PROFILER_TITLE).index(true);
+        conf.getParameterInfo(NODE_NAME).big(true).deduplicate(true);
+        conf.getParameterInfo(JAVA_THREAD).big(true).deduplicate(true);
+        conf.getParameterInfo(WEBLOGIC_WORKMANAGER).big(true).deduplicate(true);
 
         dumper.configure(conf.getParametersInfo(), conf.getLogMaxAge(), conf.getLogMaxSize(), conf.getMetricsConfig(), conf.getSystemMetricsConfig());
 

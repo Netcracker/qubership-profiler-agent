@@ -1,9 +1,6 @@
 package com.netcracker.profiler.cli;
 
-import static com.netcracker.profiler.util.ProfilerConstants.CALL_HEADER_MAGIC;
-
 import com.netcracker.profiler.chart.UnaryFunction;
-import com.netcracker.profiler.dump.DataInputStreamEx;
 import com.netcracker.profiler.guice.DumpRootLocation;
 import com.netcracker.profiler.io.DurationParser;
 import com.netcracker.profiler.sax.readers.ProfilerTraceReaderFile;
@@ -59,18 +56,6 @@ public class ExportDump implements Command {
 
     private final byte[] tmp = new byte[65536];
 
-    private final static Comparator<Long> LONG_COMPARATOR = new Comparator<Long>() {
-        public int compare(Long o1, Long o2) {
-            return o1.compareTo(o2);
-        }
-    };
-
-    private final static FileFilter DIRECTORY_FILTER = new FileFilter() {
-        public boolean accept(File pathname) {
-            return pathname.isDirectory();
-        }
-    };
-
     @Inject
     public ExportDump(@DumpRootLocation File dumpRoot) {
         this.dumpRoot = dumpRoot;
@@ -94,49 +79,6 @@ public class ExportDump implements Command {
     protected final static FileFilter NUMBER_DIRECTORY_FILTER = new FileFilter() {
         public boolean accept(File pathname) {
             return pathname.isDirectory() && containsOnlyDigits(pathname.getName());
-        }
-    };
-
-    private final static UnaryFunction<File, Long> CALLS_START_TIMESTAMP = new UnaryFunction<File, Long>() {
-        public Long evaluate(File file) {
-            try (DataInputStreamEx calls = DataInputStreamEx.openDataInputStream(file)) {
-                if (calls == null) {
-                    return System.currentTimeMillis();
-                }
-                long time = calls.readLong();
-                if ((int) (time >>> 32) == CALL_HEADER_MAGIC) {
-                    time = calls.readLong();
-                }
-                if (log.isTraceEnabled()) {
-                    log.trace("Timestamp of {} is {} ({})", file.getAbsolutePath(), new Date(time), time);
-                }
-                return time;
-            } catch (EOFException e) {
-                return System.currentTimeMillis();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    };
-
-    private final static UnaryFunction<File, Long> TRACE_START_TIMESTAMP = new UnaryFunction<File, Long>() {
-        public Long evaluate(File file) {
-            try (DataInputStreamEx trace = DataInputStreamEx.openDataInputStream(file)) {
-                if (trace == null) {
-                    return System.currentTimeMillis();
-                }
-                trace.readLong(); // serverStart
-                trace.readLong(); // threadId
-                long realTime = trace.readLong();
-                if (log.isTraceEnabled()) {
-                    log.trace("Timestamp of {} is {} ({})", file.getAbsolutePath(), new Date(realTime), realTime);
-                }
-                return realTime;
-            } catch (EOFException e) {
-                return System.currentTimeMillis();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
         }
     };
 
@@ -215,7 +157,7 @@ public class ExportDump implements Command {
             this.zos = zos;
             zos.setLevel(ZipOutputStream.STORED);
             log.info("Exporting data from {}", dumpRoot.getAbsolutePath());
-            File[] servers = dumpRoot.listFiles(DIRECTORY_FILTER);
+            File[] servers = dumpRoot.listFiles(File::isDirectory);
             if (servers == null || servers.length == 0) {
                 log.warn("No data found in {}. Ensure you set the right --dump-root.", dumpRoot.getAbsolutePath());
                 return -2;
@@ -251,19 +193,25 @@ public class ExportDump implements Command {
             log.info("Processing {}", root);
             /* We are at root/2010/04/24/123342342 */
             long bytesBefore = totalBytes;
-            if (processCalls(currentPath, root, "calls", CALLS_START_TIMESTAMP, dateUpperBound).isEmpty()) {
+
+            boolean addedCalls = false;
+            for (String folderName : getCallsFolders(root)) {
+                addedCalls = !processCalls(currentPath, root, folderName, CommonUtils::getCallsStartTimestamp, dateUpperBound).isEmpty() || addedCalls;
+            }
+            if (!addedCalls) {
                 log.debug("Ignoring folder {} since no data in calls sub-folder for the required time-frame is found"
                         , root
                 );
                 return;
             }
             appendFolder(currentPath, root, "dictionary");
+            appendFolder(currentPath, root, "callsDictionary");
             appendFolder(currentPath, root, "params");
             appendFolder(currentPath, root, "suspend");
             if (skipDetails) {
                 log.debug("Skipping exporting of trace, sql, and xml folders since --skip-details is used");
             } else {
-                List<File> addedTraceFiles = processCalls(currentPath, root, "trace", TRACE_START_TIMESTAMP, dateUpperBound);
+                List<File> addedTraceFiles = processCalls(currentPath, root, "trace", CommonUtils::getTraceStartTimestamp, dateUpperBound);
                 processXmlFiles(currentPath, root, addedTraceFiles);
                 appendFolder(currentPath, root, "sql");
             }
@@ -299,6 +247,16 @@ public class ExportDump implements Command {
         }
     }
 
+    private List<String> getCallsFolders(File root) throws IOException {
+        List<String> callsFolders = new ArrayList<>();
+        for (File folder : root.listFiles(File::isDirectory)) {
+            String folderName = folder.getName();
+            if ("calls".equals(folderName) || folderName.startsWith("calls[")) {
+                callsFolders.add(folderName);
+            }
+        }
+        return callsFolders;
+    }
 
     private void processXmlFiles(String folderInZip, File root, List<File> traceFilese)  throws IOException {
         File folder = new File(root, "xml");
@@ -431,11 +389,11 @@ public class ExportDump implements Command {
         }
 //   * The method is guaranteed to return the maximal index of the element that is
 //   * less or equal to the given key.
-        int from = CommonUtils.upperBound(files, startDate, 0, files.length - 1, keySelector, LONG_COMPARATOR);
+        int from = CommonUtils.upperBound(files, startDate, 0, files.length - 1, keySelector, Long::compare);
         if (from == files.length) {
             from--;
         }
-        int to = CommonUtils.upperBound(files, endDate, 0, files.length - 1, keySelector, LONG_COMPARATOR);
+        int to = CommonUtils.upperBound(files, endDate, 0, files.length - 1, keySelector, Long::compare);
         if (to == files.length) {
             to--;
         }
@@ -481,7 +439,7 @@ public class ExportDump implements Command {
                 zos.write(tmp, 0, read);
             zos.closeEntry();
         } catch (FileNotFoundException e) {
-            log.warn("Unable to open file " + file.getAbsolutePath(), e);
+            log.warn("Unable to open file {}", file.getAbsolutePath(), e);
         }
     }
 

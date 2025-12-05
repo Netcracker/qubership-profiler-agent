@@ -13,6 +13,7 @@ public class DumpFileManager implements Closeable {
 
     private final FileRotatedListener fileRotatedListener = new FileRotatedListener() {
         public void fileRotated(DumpFile oldFile, DumpFile newFile) {
+            registerFileCreation(newFile);
             if (oldFile == null) {
                 return;
             }
@@ -84,7 +85,7 @@ public class DumpFileManager implements Closeable {
                 log.info("DumpFileManager is forced to read dump directory");
             }
             log.info("Read dump root directory {}", root);
-            dumpFileLog.cleanup(null, true);
+            dumpFileLog.cleanup(null);
             DumpFilesFinder dumpFilesFinder = new DumpFilesFinder();
             Queue<DumpFile> dumpFiles = dumpFilesFinder.search(this.root);
             for (DumpFile dumpFile : dumpFiles) {
@@ -111,6 +112,10 @@ public class DumpFileManager implements Closeable {
         if (tryPrune) {
             tryPruneOldFiles();
         }
+    }
+
+    public void registerFileCreation(DumpFile file) {
+        dumpFileLog.writeCreation(file);
     }
 
     public long getCurrentSize() {
@@ -187,8 +192,8 @@ public class DumpFileManager implements Closeable {
     }
 
     /**
-     * Deletes the {@code file} completely from the corresponding {@link DumpRoot}
-     * @param file {@link DumpFile} to be deleted
+     * Deletes the {@code file} completely from the corresponding {@link com.netcracker.profiler.dump.DumpRoot}
+     * @param file {@link com.netcracker.profiler.dump.DumpFile} to be deleted
      * @return size of deleted files
      */
     private long deleteDumpFile(DumpFile file) {

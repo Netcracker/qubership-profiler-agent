@@ -39,7 +39,7 @@ public class SunThreadFormatParser implements ThreadFormatParser {
             String s2 = matcher.group(2);
             i = s2.indexOf(':');
             if (i == -1) {
-                if (s2.length() == 0)
+                if (s2.isEmpty())
                     method.locationClass = "Unknown";
                 else
                     method.locationClass = s2;
@@ -64,7 +64,7 @@ public class SunThreadFormatParser implements ThreadFormatParser {
     }
 
     private final Pattern threadPattern = Pattern.compile("\"(.*?)\" (?:#\\d+ )?(daemon )?(?:prio=(\\S+) )?(?:os_prio=\\d+ )?(?:cpu=[\\w/.]+ )?(?:elapsed=[\\w/.]+ )?tid=(\\S+) nid=\\S+ ([^\\[]+)");
-    private final Pattern methodPattern = Pattern.compile("\tat ([\\p{Alnum}$_.<>/]+)\\(([^\\)]*)\\)");
-    private final Pattern lockPattern = Pattern.compile("\t- (waiting to lock|waiting on|locked|parking to wait for|eliminated|waiting to re-lock in wait\\(\\))\\s+<(\\p{Alnum}+)> \\(a ([^\\)]+)\\)");
+    private final Pattern methodPattern = Pattern.compile("\tat ([\\p{Alnum}$_.<>/-]+)\\(([^)]*)\\)");
+    private final Pattern lockPattern = Pattern.compile("\t- (waiting to lock|waiting on|locked|parking to wait for|eliminated|waiting to re-lock in wait\\(\\))\\s+<(\\p{Alnum}+)> \\(a ([^)]+)\\)");
     private final String lockWithoutRef = "\t- waiting on <no object reference available>";
 }

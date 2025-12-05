@@ -303,22 +303,52 @@
     </table>
 </div>
 <div id="setup-p" class="ui-dialog-content" style="display:none">
-    <label class="inline-block large-text-label">Display milliseconds as</label>
-    <input type="radio" name="ps-millis" id="ps-ms-400ms" checked="checked"><label for="ps-ms-400ms">400ms</label>
-    <input type="radio" name="ps-millis" id="ps-ms-0_400s"><label for="ps-ms-0_400s">0.400s</label><br>
-    <label class="inline-block large-text-label" for="ps-sm">Omit milliseconds for calls faster than </label> <input type="number" id="ps-sm" size="8" value="12000" min="0" step="500" style="width:6em;">ms<br>
-    <label class="inline-block large-text-label">Display integers as</label>
-    <input type="radio" name="ps-ints" id="ps-int-1234K" checked="checked"><label for="ps-int-1234K">1234 K</label>
-    <input type="radio" name="ps-ints" id="ps-int-1_234"><label for="ps-int-1_234">1'234'567</label><br>
-    <label class="inline-block large-text-label">Threaddump duration as</label>
-    <input type="radio" name="ps-thr-mode" id="ps-thr-mode-pct" checked="checked"><label for="ps-thr-mode-pct">%</label>
-    <input type="radio" name="ps-thr-mode" id="ps-thr-mode-sec"><label for="ps-thr-mode-sec">seconds</label>
-    <input type="radio" name="ps-thr-mode" id="ps-thr-mode-cnt"><label for="ps-thr-mode-cnt">counts</label><br>
-    <label class="inline-block large-text-label" for="ps-thr-stack-dur">Milliseconds per threadstack</label>
-    <input type="number" name="ps-thr-stack-dur" id="ps-thr-stack-dur" size="5" style="width:6em" value="1000"><br>
-    <label class="inline-block large-text-label">Display suspension/gc</label>
-    <input type="radio" name="ps-gc-mode" id="ps-gc-mode-smart" checked="checked"><label for="ps-gc-mode-smart" title="gc will not be shown when it took less than 3% or 30ms">smart</label>
-    <input type="radio" name="ps-gc-mode" id="ps-gc-mode-never"><label for="ps-gc-mode-never">never</label><br>
+    <table width="100%" border="0">
+        <tr>
+            <td><label class="inline-block large-text-label">Display milliseconds as</label></td>
+            <td>
+                <input type="radio" name="ps-millis" id="ps-ms-400ms" checked="checked"><label for="ps-ms-400ms">400ms</label>
+                <input type="radio" name="ps-millis" id="ps-ms-0_400s"><label for="ps-ms-0_400s">0.400s</label>
+            </td>
+        </tr>
+        <tr>
+            <td><label class="inline-block large-text-label" for="ps-sm">Omit milliseconds for calls faster than </label></td>
+            <td><input type="number" id="ps-sm" size="8" value="12000" min="0" step="500" style="width:6em;">ms</td>
+        </tr>
+        <tr>
+            <td><label class="inline-block large-text-label">Display integers as</label></td>
+            <td>
+                <input type="radio" name="ps-ints" id="ps-int-1234K" checked="checked"><label for="ps-int-1234K">1234 K</label>
+                <input type="radio" name="ps-ints" id="ps-int-1_234"><label for="ps-int-1_234">1'234'567</label>
+            </td>
+        </tr>
+        <tr>
+            <td><label class="inline-block large-text-label">Threaddump duration as</label></td>
+            <td>
+                <input type="radio" name="ps-thr-mode" id="ps-thr-mode-pct" checked="checked"><label for="ps-thr-mode-pct">%</label>
+                <input type="radio" name="ps-thr-mode" id="ps-thr-mode-sec"><label for="ps-thr-mode-sec">seconds</label>
+                <input type="radio" name="ps-thr-mode" id="ps-thr-mode-cnt"><label for="ps-thr-mode-cnt">counts</label>
+            </td>
+        </tr>
+        <tr>
+            <td><label class="inline-block large-text-label" for="ps-thr-stack-dur">Milliseconds per threadstack</label></td>
+            <td><input type="number" name="ps-thr-stack-dur" id="ps-thr-stack-dur" size="5" style="width:6em" value="1000"></td>
+        </tr>
+        <tr>
+            <td><label class="inline-block large-text-label">Display suspension/gc</label></td>
+            <td>
+                <input type="radio" name="ps-gc-mode" id="ps-gc-mode-smart" checked="checked"><label for="ps-gc-mode-smart" title="gc will not be shown when it took less than 3% or 30ms">smart</label>
+                <input type="radio" name="ps-gc-mode" id="ps-gc-mode-never"><label for="ps-gc-mode-never">never</label>
+            </td>
+        </tr>
+        <tr>
+            <td><label class="inline-block large-text-label">Sort hotspots by</label></td>
+            <td>
+                <input type="radio" name="ps-hs-sort" id="ps-hs-sort-self" checked="checked" value="self"><label for="ps-hs-sort-self">self time</label>
+                <input type="radio" name="ps-hs-sort" id="ps-hs-sort-total" value="total"><label for="ps-hs-sort-total">total time</label>
+            </td>
+        </tr>
+    </table>
 </div>
 <div id="ide" class="ui-widget ui-widget-content" style="display:none"><a id="idea" href="" onclick="return CT.ide();"><span id="idep"></span><span id="idec"></span><b id="idem"></b><span id="idel"></span></a></div>
 <div id="vrs" class="widget-content" style="display:none;">%VITE_PROJECT_VERSION%</div>

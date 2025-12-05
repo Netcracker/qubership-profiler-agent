@@ -31,11 +31,21 @@ public class FindJMXImplementation {
         if (ProfilerData.THREAD_MEMORY) {
             Method getThreadAllocatedBytes;
             try {
-                getThreadAllocatedBytes = threadMXBean.getClass().getMethod("getThreadAllocatedBytes", long.class);
-                getThreadAllocatedBytes.setAccessible(true);
-                Long bytes = (Long) getThreadAllocatedBytes.invoke(threadMXBean, Thread.currentThread().getId());
-                if (bytes != null)
-                    memoryMonitoringClass = "com.netcracker.profiler.agent.ThreadJMXMemory";
+                if (threadMXBean instanceof com.sun.management.ThreadMXBean) {
+                    Long bytes = ((com.sun.management.ThreadMXBean) threadMXBean).getThreadAllocatedBytes(Thread.currentThread().getId());
+
+                    if (bytes != null) {
+                        memoryMonitoringClass = "com.netcracker.profiler.agent.ThreadJMXMemory";
+                    }
+                } else {
+                    getThreadAllocatedBytes = threadMXBean.getClass().getMethod("getThreadAllocatedBytes", long.class);
+                    getThreadAllocatedBytes.setAccessible(true);
+                    Long bytes = (Long) getThreadAllocatedBytes.invoke(threadMXBean, Thread.currentThread().getId());
+
+                    if (bytes != null) {
+                        memoryMonitoringClass = "com.netcracker.profiler.agent.ThreadJMXMemoryLegacy";
+                    }
+                }
             } catch (Throwable e) {
                 /* Ignore */
             }

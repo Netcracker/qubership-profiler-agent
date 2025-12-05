@@ -59,6 +59,7 @@ public class WebModule extends ServletModule {
         serve("/js/calls.js").with(CallFetcher.class);
         serve("/get_clob/*").with(RawData.class);
         serve("/tree/*").with(TreeFetcher.class);
+        serve("/time/*").with(Time.class);
         serve("/js/tree.js").with(TreeFetcher.class);
         serve("/metrics/*").with(Metrics.class);
         serve("/threaddump/*").with(ThreadDump.class);

@@ -8,26 +8,13 @@ import java.lang.reflect.Method;
 public class ServletRequestAdapter {
     private static final ESCLogger logger = ESCLogger.getLogger(ServletRequestAdapter.class);
     private Object servletRequest;
-    private Class javaxHttpServletRequestClass;
-    private Class jakartaHttpServletRequestClass;
+    private static final ClassValue<Boolean> IS_HTTP_REQUEST = new IsHttpRequestClassValue();
     private Method getRemoteAddr;
     private Method getRemoteHost;
     private Method setAttribute;
 
     public ServletRequestAdapter(Object servletRequest) throws ClassNotFoundException, NoSuchMethodException {
         this.servletRequest = servletRequest;
-
-        try {
-            javaxHttpServletRequestClass = Class.forName("javax.servlet.http.HttpServletRequest", false, servletRequest.getClass().getClassLoader());
-        } catch (ClassNotFoundException e) {
-            logger.fine("Package javax.servlet doesn't available. It seems that will use Jakarta EE.");
-        }
-
-        try {
-            jakartaHttpServletRequestClass = Class.forName("jakarta.servlet.http.HttpServletRequest", false, servletRequest.getClass().getClassLoader());
-        } catch (ClassNotFoundException e) {
-            logger.fine("Package jakarta.servlet doesn't available. It seems that will use Java EE.");
-        }
 
         try {
             getRemoteAddr = servletRequest.getClass().getMethod("getRemoteAddr");
@@ -53,15 +40,7 @@ public class ServletRequestAdapter {
     }
 
     public boolean isHttpServetRequest() {
-        if (javaxHttpServletRequestClass != null) {
-            return javaxHttpServletRequestClass.isAssignableFrom(servletRequest.getClass());
-        }
-
-        if (jakartaHttpServletRequestClass != null) {
-            return jakartaHttpServletRequestClass.isAssignableFrom(servletRequest.getClass());
-        }
-
-        return false;
+        return IS_HTTP_REQUEST.get(servletRequest.getClass());
     }
 
     public String getRemoteAddr() throws InvocationTargetException, IllegalAccessException {
@@ -83,5 +62,29 @@ public class ServletRequestAdapter {
             return;
         }
         setAttribute.invoke(servletRequest, name, value);
+    }
+
+    private static class IsHttpRequestClassValue extends ClassValue<Boolean> {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            try {
+                Class<?> httpServletRequestClass = Class.forName("javax.servlet.http.HttpServletRequest", false, type.getClassLoader());
+                if (httpServletRequestClass.isAssignableFrom(type)) {
+                    return true;
+                }
+            } catch (ClassNotFoundException e) {
+                logger.fine("Package javax.servlet doesn't available. It seems that will use Jakarta EE.");
+            }
+
+            try {
+                Class<?> httpServletRequestClass = Class.forName("jakarta.servlet.http.HttpServletRequest", false, type.getClassLoader());
+                if (httpServletRequestClass.isAssignableFrom(type)) {
+                    return true;
+                }
+            } catch (ClassNotFoundException e) {
+                logger.fine("Package jakarta.servlet doesn't available. It seems that will use Java EE.");
+            }
+            return false;
+        }
     }
 }

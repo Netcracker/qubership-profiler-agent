@@ -41,7 +41,7 @@ public class DumperThread extends Thread {
     public void shutdown() {
         shutdownRequested = true;
         final DumperPlugin dumper = Bootstrap.getPlugin(DumperPlugin.class);
-        if (dumper != null && dumper instanceof DumperPlugin_07){
+        if (dumper != null && dumper instanceof DumperPlugin_07) {
             ((DumperPlugin_07) dumper).gracefulShutdown();
             return;
         }
@@ -76,7 +76,7 @@ public class DumperThread extends Thread {
                 } catch (ProfilerProtocolException e) {
                     ProfilerData.dumperDead = true;
                     if (shouldReportRemoteException()) {
-                        notFatal("Unable to connect to remote collector", e);
+                        warn("Unable to connect to remote collector", e);
                         remoteExceptionReported = true;
                     }
                     continue;
@@ -97,10 +97,10 @@ public class DumperThread extends Thread {
                     fatal("Error while dumping records", t);
                 }
             } finally {
-                if(dumper != null) {
+                if (dumper != null) {
                     try {
                         dumper.close();
-                    } catch (Throwable t){
+                    } catch (Throwable t) {
                         fatal("Error when closing dumper", t);
                     }
                 }
@@ -114,8 +114,8 @@ public class DumperThread extends Thread {
         }
     }
 
-    private boolean shouldReportRemoteException(){
-        try{
+    private boolean shouldReportRemoteException() {
+        try {
             return !remoteExceptionReported || log.isDebugEnabled();
         } catch (Throwable t) {
             log.error("", t);
@@ -140,22 +140,40 @@ public class DumperThread extends Thread {
 
     public void notFatal(String message, Throwable t) {
         try {
-            if(t == null) {
-                log.info(message);
+            if (t == null) {
+                log.warn(message);
             } else {
-                if(log.isDebugEnabled()) {
+                if (log.isDebugEnabled()) {
                     log.debug(message, t);
                 } else {
-                    log.info(message + " " + t.getMessage());
+                    log.warn("{} {}", message, t.getMessage());
                 }
             }
         } catch (Throwable x) {
             try {
                 System.err.println("[Profiler.DumperThread] Error writing to profiler.log");
                 System.err.println(message);
-                if(t != null) {
+                if (t != null) {
                     t.printStackTrace();
                 }
+                x.printStackTrace();
+            } catch (Throwable impossible) {
+                /* should not get here */
+            }
+        }
+    }
+
+    public void warn(String message, Throwable t) {
+        try {
+            if (t == null) {
+                log.warn(message);
+            } else {
+                log.warn("{} {}", message, t.getMessage());
+            }
+        } catch (Throwable x) {
+            try {
+                System.err.println("[Profiler.DumperThread] Error writing to profiler.log");
+                System.err.println(message);
                 x.printStackTrace();
             } catch (Throwable impossible) {
                 /* should not get here */

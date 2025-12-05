@@ -2,21 +2,17 @@ package com.netcracker.profiler.io;
 
 import com.netcracker.profiler.configuration.ParameterInfoDto;
 import com.netcracker.profiler.dump.DataInputStreamEx;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.netcracker.profiler.tags.Dictionary;
 
 import java.io.*;
 import java.util.*;
 
 public abstract class ParamReader {
-    Logger logger = LoggerFactory.getLogger(ParamReader.class);
-
     public abstract Map<String, ParameterInfoDto> fillParamInfo(Collection<Throwable> exceptions, String rootReference);
 
-    public abstract List<String> fillTags(final BitSet requredIds, Collection<Throwable> exceptions);
-
-    public abstract List<String> fillCallsTags(Collection<Throwable> exceptions);
+    public abstract Dictionary fillTags(final BitSet requredIds, Collection<Throwable> exceptions);
+    public abstract Integer[] findTags(Collection<Throwable> exceptions, String ... tagNames);
+    public abstract Dictionary fillCallsTags(Collection<Throwable> exceptions);
 
     @SuppressWarnings("unchecked")
     public void readBig(File root, Map<Integer, Map<Integer, String>> result, String fileName, Collection<Throwable> exceptions, int paramsTrimSize) {

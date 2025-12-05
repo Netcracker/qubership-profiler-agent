@@ -33,6 +33,7 @@ const ESCProfilerSettings = new function() {
             , omit_ms: '12000'
             , threaddump_format: 'pct'
             , thr_stack_duration: '1000'
+            , hs_sort_mode: 'self'
         };
 
     if (!this.profiler_settings.gc_show_mode) {

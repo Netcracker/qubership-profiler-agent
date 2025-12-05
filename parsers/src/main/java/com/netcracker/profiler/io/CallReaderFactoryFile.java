@@ -1,6 +1,5 @@
 package com.netcracker.profiler.io;
 
-
 import java.io.IOException;
 import java.util.*;
 
@@ -34,8 +33,7 @@ public class CallReaderFactoryFile implements CallReaderFactory {
         }
 
         cr = callReaderFileFactory.create(listener, filterer, nodes, readDictionary, dumpDirs);
-        long clientServerTimeDiff = (long) (Math.abs(temporal.clientUTC - temporal.serverUTC) * 1.5);
-        cr.setTimeFilterCondition(temporal.timerangeFrom - clientServerTimeDiff, temporal.timerangeTo + clientServerTimeDiff);
+        cr.setTimeFilterCondition(temporal.timerangeFrom, temporal.timerangeTo);
         return Collections.singletonList(cr);
     }
 }

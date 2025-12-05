@@ -9,10 +9,7 @@ import com.netcracker.profiler.instrument.GatherRulesForMethodVisitor;
 import com.netcracker.profiler.instrument.ProfileClassAdapter;
 import com.netcracker.profiler.instrument.TypeUtils;
 import com.netcracker.profiler.instrument.custom.util.DefaultMethodAdder;
-import com.netcracker.profiler.instrument.enhancement.ClassInfo;
-import com.netcracker.profiler.instrument.enhancement.ClassInfoImpl;
-import com.netcracker.profiler.instrument.enhancement.EnhancerPlugin;
-import com.netcracker.profiler.instrument.enhancement.FilteredEnhancer;
+import com.netcracker.profiler.instrument.enhancement.*;
 import com.netcracker.profiler.util.MethodInstrumentationInfo;
 
 import org.objectweb.asm.*;
@@ -95,13 +92,12 @@ public class ProfilingTransformer implements ClassFileTransformer {
             }
 
             ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
-
             ClassVisitor cv = cw;
 
             // This will add $profiler methods and fields to the class
             if (!enhancers.isEmpty()) {
                 // Merge static initializers
-                cv = new StaticInitMerger("clinit$merger$profiler", cv);
+                cv = new StaticInitMerger(cv);
 
                 log.debug("Class {} will be updated by {} enhancers", name, enhancers.size());
 

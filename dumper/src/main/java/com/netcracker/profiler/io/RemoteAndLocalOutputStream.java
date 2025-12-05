@@ -21,13 +21,13 @@ public class RemoteAndLocalOutputStream extends OutputStream {
     private final DumperCollectorClient client;
     private final String streamName;
     private OutputStream local;
-    private OutputStream remoteBuffer;
+    private final OutputStream remoteBuffer;
     private int rollingSequenceId = -1;
-    private boolean remoteEnabled = true;
-    private boolean localEnabled;
+    private final boolean remoteEnabled = true;
+    private final boolean localEnabled;
     private long rotationPeriod;
     private long requiredRotationSize;
-    private boolean resetRequired;
+    private final boolean resetRequired;
 
     public RemoteAndLocalOutputStream(final DumperCollectorClient client,
                                       final String streamName,
@@ -53,9 +53,9 @@ public class RemoteAndLocalOutputStream extends OutputStream {
 
         OutputStream remote;
 
-        if ("dictionary".equals(streamName) || "suspend".equals(streamName) || "params".equals(streamName)) {
+        if ("dictionary".equals(streamName) || "suspend".equals(streamName) || "params".equals(streamName) || "posDictionary".equals(streamName)) {
             remote = new PhraseOutputStream(chunkStream.getOutputStream(), ProtocolConst.MAX_PHRASE_SIZE, ProtocolConst.DATA_BUFFER_SIZE);
-        }else {
+        } else {
             remote = new BufferedOutputStream(chunkStream.getOutputStream(), ProtocolConst.DATA_BUFFER_SIZE);
         }
 
@@ -82,8 +82,8 @@ public class RemoteAndLocalOutputStream extends OutputStream {
     }
 
     public void writePhrase() throws IOException {
-        if (remoteEnabled ) {
-            if(remoteBuffer instanceof PhraseOutputStream){
+        if (remoteEnabled) {
+            if (remoteBuffer instanceof PhraseOutputStream) {
                 ((PhraseOutputStream) remoteBuffer).writePhrase();
             }
         }
@@ -98,7 +98,7 @@ public class RemoteAndLocalOutputStream extends OutputStream {
             }
         } finally {
             if (remoteEnabled) {
-                if(log.isTraceEnabled()) {
+                if (log.isTraceEnabled()) {
                     log.trace("writing 1 byte to remote");
                 }
                 getRemote().write(word);
@@ -118,7 +118,7 @@ public class RemoteAndLocalOutputStream extends OutputStream {
         } finally { // we want to send data event if local data write failed
             if (remoteEnabled) {
                 // remote should be disabled after reinit until next iteration starts to prevent partial data sent
-                if(log.isTraceEnabled()) {
+                if (log.isTraceEnabled()) {
                     log.trace("writing {} bytes to remote", bytes.length);
                 }
                 getRemote().write(bytes);
@@ -138,7 +138,7 @@ public class RemoteAndLocalOutputStream extends OutputStream {
         } finally { // we want to send data even if local data write failed
             if (remoteEnabled) {
                 // remote should be disabled after reinit until next iteration starts to prevent partial data sent
-                if(log.isTraceEnabled()) {
+                if (log.isTraceEnabled()) {
                     log.trace("writing {} bytes to remote", length);
                 }
                 getRemote().write(bytes, offset, length);
@@ -158,10 +158,10 @@ public class RemoteAndLocalOutputStream extends OutputStream {
         } finally { // we want to flush even if local flush failed
             if (remoteEnabled) {
                 // remote should be disabled after reinit until next iteration starts to prevent partial data sent
-                if(log.isTraceEnabled()) {
+                if (log.isTraceEnabled()) {
                     log.trace("flushing remote");
                 }
-                if(client.isOnline()) {
+                if (client.isOnline()) {
                     getRemote().flush();
                 } else {
                     log.debug("not attempting to flush remote output stream {}:{}", streamName, rollingSequenceId);
@@ -187,10 +187,10 @@ public class RemoteAndLocalOutputStream extends OutputStream {
             if (remoteEnabled) {
                 // remote should be disabled after reinit until next iteration starts to prevent partial data sent
                 //closing implicitly flushes remote inside FilterOutputStream
-                if(log.isTraceEnabled()){
+                if (log.isTraceEnabled()) {
                     log.trace("closing remote");
                 }
-                if(client.isOnline()) {
+                if (client.isOnline()) {
                     getRemote().close();
                 } else {
                     log.debug("not attempting to close remote output stream {}:{}", streamName, rollingSequenceId);

@@ -11,4 +11,5 @@ public interface DumperCollectorClient extends AutoCloseable{
     String getPodName();
     void requestAckFlush(boolean doFlush) throws IOException;
     boolean validateWriteDataAcks(boolean sync) throws IOException;
+    long getVersion();
 }

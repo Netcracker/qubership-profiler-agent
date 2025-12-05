@@ -20,10 +20,7 @@ import org.junit.jupiter.api.Test;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 
 class MockCallReader extends CallReader {
     public MockCallReader(CallListener callback, CallFilterer cf) {
@@ -32,7 +29,7 @@ class MockCallReader extends CallReader {
 
     @Override
     protected CallDataReaderFactory getCallDataReaderFactory() {
-        HashMap<Integer, CallDataReader> readers = new HashMap<>();
+        Map<Integer, CallDataReader> readers = new HashMap<>();
         readers.put(3, new CallDataReader_03());
         readers.put(4, new CallDataReader_04());
         return new CallDataReaderFactory(readers);
@@ -43,7 +40,7 @@ class MockCallReader extends CallReader {
     }
 
     public boolean findCalls(DataInputStreamEx is,
-                             String callsStreamIndex,
+            String callsStreamIndex,
             SuspendLog suspendLog,
             ArrayList<Call> result,
             final BitSet requiredIds,

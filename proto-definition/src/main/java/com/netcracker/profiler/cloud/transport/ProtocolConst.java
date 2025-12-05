@@ -4,6 +4,7 @@ public interface ProtocolConst {
     int DATA_BUFFER_SIZE = 1024;
 
     int PLAIN_SOCKET_PORT = 1715;
+    int SSL_SOCKET_PORT = 1717;
 
     // TODO: Change this value
     int PLAIN_SOCKET_READ_TIMEOUT = 30000; //10 seconds

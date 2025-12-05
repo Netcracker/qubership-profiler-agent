@@ -11,7 +11,7 @@ import java.util.*;
 /**
  * Possible log file formats:
  * <table>
- *     <caption>Log file formats</caption>
+ *     <caption>Log formats</caption>
  *     <tr><td>"LOGFORMAT2"</td>
  *     <td>
  *         <ol>
@@ -27,11 +27,12 @@ import java.util.*;
 public class DumpFileLog implements Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(DumpFileLog.class);
-    public static final String CURRENT_LOG_FORMAT = "LOGFORMAT3";
+    public static final String CURRENT_LOG_FORMAT = "LOGFORMAT4";
 
     private static enum Operation {
         ADD("A"),
-        DELETE("D");
+        DELETE("D"),
+        CREATE("C");
 
         final String name;
 
@@ -46,7 +47,10 @@ public class DumpFileLog implements Closeable {
     private DataOutputStreamEx outputStream;
     private boolean justCreated;
     private int logEntryCount, deleteEntryCount;
-    private boolean hasDeletes;
+
+    private static int orderByLastModifiedAsc(DumpFile a, DumpFile b) {
+        return Long.compare(a.getTimestamp(), b.getTimestamp());
+    }
 
     public DumpFileLog(File fileList) {
         this.fileList = fileList;
@@ -114,6 +118,7 @@ public class DumpFileLog implements Closeable {
 
             Queue<DumpFile> dumpFiles = new LinkedList<DumpFile>();
             Set<DumpFile> deletedFiles = new HashSet<DumpFile>();
+            Set<DumpFile> createdFiles = new HashSet<DumpFile>();
             String dumpRootDir = fileList.getParent();
             try {
                 while (true) {
@@ -130,6 +135,8 @@ public class DumpFileLog implements Closeable {
                     // store all files. Filter later
                     if (Operation.DELETE.name.equals(operation)) {
                         deletedFiles.add(dumpFile);
+                    } else if (Operation.CREATE.name.equals(operation)) {
+                        createdFiles.add(dumpFile);
                     } else {
                         dumpFiles.add(dumpFile);
                     }
@@ -143,8 +150,10 @@ public class DumpFileLog implements Closeable {
                 return null;
             }
 
-            hasDeletes = !deletedFiles.isEmpty();
+            createdFiles.removeAll(dumpFiles);
             dumpFiles.removeAll(deletedFiles);
+            dumpFiles.addAll(fillAndSortCreatedFiles(createdFiles));
+
             result = dumpFiles;
         } catch (IOException e) {
             log.warn("Can't parse file {}. Will res", fileList, e);
@@ -152,16 +161,34 @@ public class DumpFileLog implements Closeable {
         return result;
     }
 
+    private List<DumpFile> fillAndSortCreatedFiles(Set<DumpFile> createdFiles) {
+        List<DumpFile> files = new ArrayList<>(createdFiles.size());
+        List<DumpFile> sqlFiles = new ArrayList<>(createdFiles.size());
+
+        for (DumpFile dumpFile : createdFiles) {
+            boolean isSql = "sql".equals(dumpFile.getParentDirName());
+            File file = new File(dumpFile.getPath());
+            DumpFile newDumpFile = new DumpFile(file.getPath(), file.length(), file.lastModified());
+            if (isSql) {
+                sqlFiles.add(newDumpFile);
+            } else {
+                files.add(newDumpFile);
+            }
+        }
+
+        files.sort(DumpFileLog::orderByLastModifiedAsc);
+        sqlFiles.sort(DumpFileLog::orderByLastModifiedAsc);
+        files.addAll(sqlFiles); //SQL Files should be placed at the end of the queue to be removed only after all currently existing trace files
+
+        return files;
+    }
+
     /**
      * Will write (<i>not append</i>) given {@link DumpFile}s to the log file
-     * @param dumpFiles {@link java.util.Queue} of {@link DumpFile} to be written.
+     * @param dumpFiles {@link java.util.Queue} of {@link com.netcracker.profiler.dump.DumpFile} to be written.
      *                  <br/> If {@code null} then log file will be erased and filled only with header
      */
-    public synchronized void cleanup(Queue<DumpFile> dumpFiles, boolean force) {
-        if (!hasDeletes && !force) {
-            // No need to rewrite the file
-            return;
-        }
+    public synchronized void cleanup(Queue<DumpFile> dumpFiles) {
         close();
         DataOutputStreamEx out;
         try {
@@ -175,14 +202,15 @@ public class DumpFileLog implements Closeable {
                     writeOperation(dumpFile, Operation.ADD.name, out);
                 }
             }
-            hasDeletes = false;
         } catch (IOException e) {
             log.warn("Error during file dump list log cleanup", e);
         }
     }
 
-    public void cleanup(Queue<DumpFile> dumpFiles) {
-        cleanup(dumpFiles, false);
+    public void writeCreation(DumpFile file) {
+        log.debug("Write creation of dump file {}", file);
+        String operation = Operation.CREATE.name;
+        writeOperation(file, operation, outputStream);
     }
 
     public void writeAddition(DumpFile file) {
@@ -195,7 +223,6 @@ public class DumpFileLog implements Closeable {
         log.debug("Write deletion of dump file {}", file);
         String operation = Operation.DELETE.name;
         writeOperation(file, operation, outputStream);
-        hasDeletes = true;
 
         deleteEntryCount++;
         if (deleteEntryCount > logEntryCount / 2) {

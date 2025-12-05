@@ -3,7 +3,6 @@
     <enhancer>ocelot</enhancer>
     <parameters>
         <parameter name="trace.id" index="true" list="true"/>
-        <parameter name="span.id" index="true" list="true" order="800"/>
     </parameters>
     <ruleset if-enhancer="ocelot">
         <rule>
