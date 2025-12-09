@@ -126,7 +126,6 @@ public class DumpRoot {
      * @param fileDeleter instance of {@link FileDeleter}
      * @return total size of <b>retained</b> files
      */
-    @SuppressWarnings("unchecked")
     public Collection<DumpFile> deleteFile(DumpFile file, FileDeleter fileDeleter) {
         boolean success;
         if(file.getDependentFile() != null) {
@@ -137,7 +136,7 @@ public class DumpRoot {
         }
         if (!success) {
             log.warn("Remove wrong dump file {} from DumpRoot {}", file, this);
-            return Collections.EMPTY_LIST;
+            return Collections.emptyList();
         }
         deleteFile(fileDeleter, file);
         Collection<DumpFile> result;
