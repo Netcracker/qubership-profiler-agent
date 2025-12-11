@@ -7,12 +7,13 @@ import java.util.regex.Pattern;
 import javax.transaction.xa.Xid;
 
 public class CallInfo {
-    public boolean corrupted;
+    private boolean corrupted;
     private String remoteAddress;
     private String requestURL;
     private String ncUser;
     private String endToEndId;
     private String traceId;
+    private transient boolean traceIdChanged;
     public long transactions;
     public int logWritten; // number of characters written to logfile
     public int logGenerated; // number of characters passed to .log calls
@@ -30,6 +31,7 @@ public class CallInfo {
     public int additionalReportedTime = 0; //number of milliseconds to add to call duration in the report to account for reactive requests such as reactive database queries
 
     public boolean isCallRed;
+    public String workManager;
     /**
      * Servlet:
      * module: ('G' | 'P') ' ' url
@@ -97,6 +99,17 @@ public class CallInfo {
     public CallInfo(LocalState state) {
         isFirstInThread = state.callInfo == null;
         setClientInfo(state.shortThreadName);
+    }
+
+    public boolean isCorrupted() {
+        return corrupted;
+    }
+
+    public void markCorrupted() {
+        if(!corrupted) {
+            corrupted = true;
+            ProfilerData.corruptedCalls.incrementAndGet();
+        }
     }
 
     public String getRemoteAddress() {
@@ -239,7 +252,12 @@ public class CallInfo {
     }
 
     public void setTraceId(String traceId) {
+        traceIdChanged |= StringUtils.stringDiffers(traceId, this.traceId);
         this.traceId = traceId;
+    }
+
+    public boolean traceIdChanged() {
+        return traceIdChanged && !(traceIdChanged = false);
     }
 
     public MediationCallInfo getMediationInfo() {
