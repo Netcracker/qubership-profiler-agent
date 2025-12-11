@@ -9,26 +9,54 @@ import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
-public class ESCLogger {
-    private static final String MESSAGE_FORMAT_STRING_DEFAULT = "{3,date,YYYY-MM-dd HH:mm:ss,SSS}  {1} [thread={2}] [class={0}]- {4}{5}";
-    private static final String MESSAGE_FORMAT_STRING = PropertyFacadeBoot.getProperty(ESCLogger.class.getName() + ".format", MESSAGE_FORMAT_STRING_DEFAULT);
-    private static final MessageFormat MESSAGE_FORMAT = new MessageFormat(MESSAGE_FORMAT_STRING);
-    public static Level ESC_LOG_LEVEL;
+class CustomLevel extends Level {
+    CustomLevel(String name, int value, String resourceBundleName){
+        super(name, value, resourceBundleName);
+    }
+}
 
+public class ESCLogger {
+    public static final Level TRACE = new CustomLevel("TRACE", 400, "sun.util.logging.resources.logging");
+    public static final Level DEBUG = new CustomLevel("DEBUG", 500, "sun.util.logging.resources.logging");
+    public static final Level ERROR = new CustomLevel("ERROR", 1000, "sun.util.logging.resources.logging");
+    public static final String ESC_LOG_FORMAT = "ESC_LOG_FORMAT";
+    private static final String MESSAGE_FORMAT_STRING_DEFAULT = "{3,date,YYYY-MM-dd HH:mm:ss,SSS} {1} [thread={2}] [class={0}]- {4}{5}";
+    private static final String CLOUD_MESSAGE_FORMAT_STRING_DEFAULT = "[{3,date,yyyy-MM-dd'T'HH:mm:ss.SSS}] [{1}] [request_id=-] [tenant_id=-] [thread={2}] [class={0}] {4}{5}";
+    private static final MessageFormat MESSAGE_FORMAT;
+    public static Level ESC_LOG_LEVEL;
     private String name;
     private final Level logLevel;
     private static boolean javaUtilLoggingEnabled;
+    private static Boolean cloudDeployment;
     //for testing purposes to calibrate load testing
     private static Runnable corruptedBufferCallback;
     private static AtomicInteger numCorruptions = new AtomicInteger(0);
 
     static {
+        String messageFormat;
         String logLevelProperty = PropertyFacadeBoot.getPropertyOrEnvVariable("ESC_LOG_LEVEL");
-        if(logLevelProperty == null ) {
+        boolean isEscLogLevelBlank = StringUtils.isBlank(logLevelProperty);
+        cloudDeployment = !StringUtils.isBlank(System.getenv("NC_DIAGNOSTIC_MODE"));
+        if (cloudDeployment) {
+            messageFormat = System.getenv(ESC_LOG_FORMAT);
+            if (StringUtils.isBlank(messageFormat)) {
+                messageFormat = CLOUD_MESSAGE_FORMAT_STRING_DEFAULT;
+            }
+            if (StringUtils.isBlank(logLevelProperty)) {
+                logLevelProperty = System.getenv("LOG_LEVEL");
+            }
+        } else {
+            messageFormat = PropertyFacadeBoot.getProperty(ESCLogger.class.getName() + ".format", MESSAGE_FORMAT_STRING_DEFAULT);
+        }
+        MESSAGE_FORMAT = new MessageFormat(messageFormat);
+
+        if (StringUtils.isBlank(logLevelProperty)) {
             ESC_LOG_LEVEL = WARNING;
         } else {
-            if("debug".equalsIgnoreCase(logLevelProperty.trim())){
-                ESC_LOG_LEVEL = FINE;
+            if("debug".equalsIgnoreCase(logLevelProperty.trim())) {
+                ESC_LOG_LEVEL = isEscLogLevelBlank ? WARNING : DEBUG;
+            } else if ("trace".equalsIgnoreCase(logLevelProperty.trim())) {
+                ESC_LOG_LEVEL = isEscLogLevelBlank ? WARNING : TRACE;
             } else {
                 try {
                     ESC_LOG_LEVEL = Level.parse(logLevelProperty);
@@ -74,11 +102,11 @@ public class ESCLogger {
     }
 
     public void severe(String message) {
-        log(SEVERE, message, null);
+        log(ERROR, message, null);
     }
 
     public void severe(String message, Throwable t) {
-        log(SEVERE, message, t);
+        log(ERROR, message, t);
     }
 
     public void info(String message) {
@@ -86,7 +114,7 @@ public class ESCLogger {
     }
 
     public void fine(String message) {
-        log(FINE, message, null);
+        log(DEBUG, message, null);
     }
 
     public void warning(String message) {
@@ -117,7 +145,7 @@ public class ESCLogger {
         if(ProfilerData.warnBufferQueueOverflow) {
             log(WARNING, message, t);
         } else {
-            log(FINE, message, t);
+            log(DEBUG, message, t);
         }
         if(corruptedBufferCallback != null) {
             corruptedBufferCallback.run();
@@ -129,7 +157,7 @@ public class ESCLogger {
     }
 
     public boolean isFineEnabled(){
-        return FINE.intValue() >= logLevel.intValue();
+        return DEBUG.intValue() >= logLevel.intValue();
     }
 
     public void log(Level level, String message, Throwable t) {
@@ -160,7 +188,7 @@ public class ESCLogger {
             toPrint = MESSAGE_FORMAT.format(arguments);
         }
 
-        if(SEVERE.equals(level) || WARNING.equals(level)) {
+        if (ERROR.equals(level) || SEVERE.equals(level) || WARNING.equals(level)) {
             System.err.println(toPrint);
         } else {
             System.out.println(toPrint);
