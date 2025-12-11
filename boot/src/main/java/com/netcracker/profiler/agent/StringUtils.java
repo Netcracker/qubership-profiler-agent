@@ -7,6 +7,10 @@ import java.util.Collection;
 import java.util.Map;
 
 public class StringUtils {
+    public static String truncateAndMark(String s, int len) {
+        return s == null || s.length() <= len ? s : s.substring(0, len) + "...";
+    }
+
     public static String left(String s, int len) {
         return s == null || s.length() < len ? s : s.substring(0, len);
     }
