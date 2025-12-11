@@ -101,6 +101,7 @@ public class ProfilerData {
     public final static AtomicLong largeEventsVolume = new AtomicLong();
     public final static BlockingQueue<LocalBuffer> dirtyBuffers = new ArrayBlockingQueue<LocalBuffer>(MAX_BUFFERS);
     public final static BlockingQueue<LocalBuffer> emptyBuffers = new ArrayBlockingQueue<LocalBuffer>(MAX_BUFFERS);
+    public final static AtomicLong corruptedCalls = new AtomicLong();
     final static MethodDictionary dictionary = new MethodDictionary(10000);
     public final static int PARAM_CALL_INFO = resolveTag("call.info") | DumperConstants.DATA_TAG_RECORD;
     @SuppressWarnings("unused")
@@ -205,44 +206,23 @@ public class ProfilerData {
 
             return ;
         }
-        boolean added = false;
-        boolean dumperDead = ProfilerData.dumperDead;
-        boolean interrupted = false;
         int dirtySize = dirtyBuffers.size();
-        if (dumperDead) {
-            if (dirtySize < MAX_BUFFERS) {
-                added = dirtyBuffers.offer(buffer);
-            }
-        } else {
-            for (int i = 0; i < 9; i++) {
-                try {
-                    added = dirtyBuffers.offer(buffer, 1, TimeUnit.SECONDS);
-                    break;
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                    /* log below */
-                }
-            }
-        }
+        boolean added = dirtyBuffers.offer(buffer);
+
         if (!added) {
-            String message = "[Qubership Profiler] ESCAGENTCORRUPTEDBUFFER: Unable to add dirty buffer " + (dumperDead ? "" : "(timeout)")
-                    + buffer.toString()
+            String message = "[Qubership Profiler] ESCAGENTCORRUPTEDBUFFER: Unable to add dirty buffer " + buffer
                     + ". Action: check logs/execution-statistics-collector.log to see why Dumper failed. " +
-                    "Number of dirty buffers is " + dirtySize + ". Thread interrupts detected while recycling buffer: " + interrupted;
+                    "Number of dirty buffers is " + dirtySize;
             logger.corruptedBufferWarning(message);
             boolean addedEmpty = emptyBuffers.offer(new LocalBuffer());
             int emptySize = emptyBuffers.size();
             Thread thread = Thread.currentThread();
             String threadName = thread.getName() + "@" + thread.getId() + "@" + thread.hashCode();
-            logger.corruptedBufferWarning("[Qubershiop Profiler] ESCAGENTCORRUPTEDBUFFER: " + (addedEmpty ? "Added" : "Not added") +
+            logger.corruptedBufferWarning("[Qubership Profiler] ESCAGENTCORRUPTEDBUFFER: " + (addedEmpty ? "Added" : "Not added") +
                             " new buffer to empty queue." +
                             " dirtySize: " + dirtySize + ", emptySize: " + emptySize +
                             ", thread: " + threadName
             );
-        }
-        if (interrupted) { // reinterrupt, so subsequent code might notice the interrupt
-            // Technically it is not required in Thread.exit case, however it is here for completeness
-            Thread.currentThread().interrupt();
         }
     }
 

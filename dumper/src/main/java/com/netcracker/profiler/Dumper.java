@@ -56,11 +56,14 @@ public class Dumper implements IDumper, DumperConstants {
     private final static int BUFFER_STEAL_INTERVAL = Integer.getInteger(Dumper.class.getName() + ".BUFFER_STEAL_INTERVAL", 5);
     private final static int STREAM_FLUSH_INTERVAL = Integer.getInteger(Dumper.class.getName() + ".STREAM_FLUSH_INTERVAL", 5);
     private final static int BUFFER_SCALE_INTERVAL = Integer.getInteger(Dumper.class.getName() + ".BUFFER_SCALE_INTERVAL", 5);
+    private final static int DUMP_CORRUPTED_CALLS_INTERVAL = Integer.getInteger(Dumper.class.getName() + ".DUMP_CORRUPTED_CALLS_INTERVAL", 60);
 
     private final static int MAX_VALUES_PER_INDEXED_PARAM = Integer.getInteger(Dumper.class.getName() + ".MAX_VALUES_PER_INDEXED_PARAM", 100);
 
     public static final String DUMP_ITERATION_METHOD_NAME = "void " + Dumper.class.getName() + ".dumpIteration() (Dumper.java:200) [profiler-runtime.jar]";
     public static final int DUMP_ITERATION_METHOD_ID = ProfilerData.resolveTag(DUMP_ITERATION_METHOD_NAME) | DumperConstants.DATA_ENTER_RECORD;
+    public static final int CORRUPTED_CALLS_METHOD_ID = ProfilerData.resolveTag("void com.netcracker.profiler.ESC_CORRUPTED_CALLS.log() (Dumper.java:200) [profiler-runtime.jar]") | DumperConstants.DATA_ENTER_RECORD;
+    public static final int PARAM_CALLS_CORRUPTED = ProfilerData.resolveTag("calls.corrupted") | DumperConstants.DATA_TAG_RECORD;
 
     public static final String PROFILER_TITLE = "profiler.title";
     public static final String NODE_NAME = "node.name";
@@ -152,6 +155,8 @@ public class Dumper implements IDumper, DumperConstants {
     int lastBufferStealTime;
     int lastStreamFlushTime;
     int lastBufferScaleTime;
+    long lastCorruptedCalls;
+    int lastDumpCorruptedCallsTime = TimerCache.timer;
     long recordsWritten = 0;
     int nextTimeWritePerformanceInfo = TimerCache.timer + 60 * 30;
     long nextIdleThreadWarningTime;
@@ -652,6 +657,10 @@ public class Dumper implements IDumper, DumperConstants {
                     nextTimeWritePerformanceInfo = TimerCache.timer + 30 * 1000;
                 }
 
+                if (TimerCache.timer - lastDumpCorruptedCallsTime > TimeUnit.SECONDS.toMillis(DUMP_CORRUPTED_CALLS_INTERVAL)) {
+                    dumpCorruptedCalls();
+                }
+
                 if (TimerCache.timer - lastBufferStealTime > TimeUnit.SECONDS.toMillis(BUFFER_STEAL_INTERVAL)) {
                     stealDataFromBuffers();
                 }
@@ -781,7 +790,7 @@ public class Dumper implements IDumper, DumperConstants {
         boolean idleThreadsDetected = false;
         for (LocalState state : buffers.values()) {
             LocalBuffer buffer = state.buffer;
-            if (buffer.corrupted) {
+            if (buffer.corrupted || state.callInfo.isCorrupted()) {
                 continue;
             }
             if (buffer == null || buffer.count == -1) continue;
@@ -951,7 +960,7 @@ public class Dumper implements IDumper, DumperConstants {
                 final long callDuration = curMillis - thread.time + callInfo.additionalReportedTime;
                 writeParam(thread, id, "");
 
-                if (thread.calls > 1 ||
+                if (!callInfo.isCorrupted() && (thread.calls > 1 ||
                         callDuration > 20 ||
                         callInfo.isPersist > 0)) {
                     ProfilerTitle profilerTitle = TitleFormatterFacade.formatTitle(thread.method, thread.params);
@@ -1021,6 +1030,30 @@ public class Dumper implements IDumper, DumperConstants {
     private int getSuspension(long begin, long end) {
         SuspendLog suspendLog = inMemorySuspendLogBuilder.get();
         return suspendLog.getSuspendDuration(begin, end);
+    }
+
+    private void dumpCorruptedCalls() throws IOException {
+        int timer = TimerCache.timer;
+        long newCorruptedCalls = ProfilerData.corruptedCalls.get();
+        if(newCorruptedCalls == lastCorruptedCalls) {
+            return;
+        }
+        int corruptedCalls = (int) (newCorruptedCalls - lastCorruptedCalls);
+        lastCorruptedCalls = newCorruptedCalls;
+
+        LocalState state = new LocalState();
+        LocalBuffer buffer = new LocalBuffer();
+        state.buffer = buffer;
+        buffer.state = state;
+        long methodAndTime = CORRUPTED_CALLS_METHOD_ID | ((long)lastDumpCorruptedCallsTime) << 32;
+
+        state.enter(methodAndTime);
+        state.event("1", ProfilerData.PARAM_CALL_RED);
+        state.event(corruptedCalls, PARAM_CALLS_CORRUPTED);
+        state.exit();
+
+        writeBufferToFS(buffer);
+        lastDumpCorruptedCallsTime = timer;
     }
 
     private void writeCall(CallInfo callInfo, ThreadState threadState, long callDuration, Thread thread) throws IOException {
