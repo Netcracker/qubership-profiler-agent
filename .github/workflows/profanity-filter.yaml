@@ -20,7 +20,7 @@ jobs:
     - name: Scan issue or pull request for profanity
       # Conditionally run the step if the actor isn't a bot
       if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]' }}
-      uses: IEvangelist/profanity-filter@9.07
+      uses: IEvangelist/profanity-filter@10.0
       id: profanity-filter
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
