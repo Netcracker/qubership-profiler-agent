@@ -1,0 +1,55 @@
+name: Spell Check
+
+on:
+  pull_request:
+    paths:
+      - '**.java'
+      - '**.kt'
+      - '**.kts'
+      - '**.md'
+      - '**.txt'
+      - '**.yaml'
+      - '**.yml'
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  misspell:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run misspell with reviewdog
+        uses: reviewdog/action-misspell@d6429416b12b09b4e2768307d53bef58d172e962 # v1.27.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          locale: "US"
+          level: "warning"
+          reporter: "github-pr-review"
+          filter_mode: "diff_context"
+          fail_level: "error"
+          exclude: |
+            ./.git/*
+            ./node_modules/*
+            ./.gradle/*
+            ./build/*
+            ./*/build/*
+            ./profiler-ui/node_modules/*
+          pattern: |
+            *.java
+            *.kt
+            *.kts
+            *.md
+            *.txt
+            *.yaml
+            *.yml
