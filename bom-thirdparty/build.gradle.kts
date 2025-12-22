@@ -10,7 +10,7 @@ javaPlatform {
 
 dependencies {
     api(platform("com.fasterxml.jackson:jackson-bom:2.20.1"))
-    api(platform("org.ow2.asm:asm-bom:9.9"))
+    api(platform("org.ow2.asm:asm-bom:9.9.1"))
     api(platform("com.google.inject:guice-bom:7.0.0"))
     constraints {
         api("at.yawk.lz4:lz4-java:1.10.2")
