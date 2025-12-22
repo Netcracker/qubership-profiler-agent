@@ -32,6 +32,20 @@ public class JavaBaseImageTest {
                     "system property qubership.profiler.java-base-image.tag");
 
     @Test
+    void diagtoolsExecutesSuccessfully() {
+        try (GenericContainer<?> container = new GenericContainer<>(CORE_BASE_IMAGE_TAG)
+                .withCommand("/app/diag/diagtools", "scan")
+                .withStartupAttempts(1)
+                .withStartupTimeout(Duration.ofSeconds(30))
+                .withLogConsumer(new LogToConsolePrinter("[diagtools-test] "))
+                .withStartupCheckStrategy(new OneShotStartupCheckStrategy())) {
+            container.start();
+        } catch (Exception e) {
+            fail("Failed to execute diagtools in container: " + e.getMessage(), e);
+        }
+    }
+
+    @Test
     void profilerSendsDataToMockCollector() {
         try (MockCollectorServer mockCollector =
                      new MockCollectorServer(0, ProtocolConst.PLAIN_SOCKET_BACKLOG)

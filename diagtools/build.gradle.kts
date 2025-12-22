@@ -1,5 +1,6 @@
 plugins {
     id("build-logic.java-published-library")
+    id("com.google.osdetector")
 }
 
 class TargetPlatform(val os: OperatingSystemFamily, val architecture: MachineArchitecture) {
@@ -11,11 +12,19 @@ fun targetPlatform(os: String, architecture: String): TargetPlatform =
 
 val platforms = mapOf(
     targetPlatform(OperatingSystemFamily.WINDOWS, MachineArchitecture.X86_64) to "windows-amd64",
-    targetPlatform(OperatingSystemFamily.MACOS, MachineArchitecture.X86_64) to "darwin-amd64",
     targetPlatform(OperatingSystemFamily.LINUX, MachineArchitecture.X86_64) to "linux-amd64",
-    targetPlatform(OperatingSystemFamily.MACOS, MachineArchitecture.ARM64) to "darwin-arm64",
     targetPlatform(OperatingSystemFamily.LINUX, MachineArchitecture.ARM64) to "linux-arm64",
-)
+) + when {
+    // Currently, diagtools depends on jattach that uses native code
+    // which is hard to build without mac toolchains. So we skip generating and publishing mac binaries
+    // when building on linux machines (e.g. GitHub Actions)
+    osdetector.os != "osx" -> emptyMap()
+    else ->
+        mapOf(
+            targetPlatform(OperatingSystemFamily.MACOS, MachineArchitecture.X86_64) to "darwin-amd64",
+            targetPlatform(OperatingSystemFamily.MACOS, MachineArchitecture.ARM64) to "darwin-arm64",
+        )
+}
 
 val binaries by configurations.creating {
     isCanBeConsumed = true
