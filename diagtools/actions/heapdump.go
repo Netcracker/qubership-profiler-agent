@@ -3,11 +3,13 @@ package actions
 import (
 	"context"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/constants"
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/log"
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/utils"
+	"github.com/vlsi/jattach/v2"
 )
 
 type JavaHeapDumpAction struct {
@@ -20,8 +22,6 @@ func CreateHeapDumpAction(ctx context.Context) (action JavaHeapDumpAction, err e
 			DcdEnabled: constants.IsDcdEnabled(),
 			DumpPath:   constants.DumpFolder(),
 			PidName:    "java",
-			Command:    "jmap",
-			CmdArgs:    []string{"-dump:format=b,file={{.DumpPath}}", "{{.Pid}}"},
 			CmdTimeout: 10 * time.Second,
 		},
 	}
@@ -44,16 +44,23 @@ func (action *JavaHeapDumpAction) GetHeapDump(ctx context.Context, heapDumpZip, 
 		return
 	}
 
-	err = action.GetParams()
+	log.Infof(ctx, "collecting heap dump from JAVA_PID #%v to %s", action.Pid, action.DumpPath)
+
+	// Convert PID string to int for jattach
+	var pid int
+	pid, err = strconv.Atoi(action.Pid)
 	if err != nil {
+		log.Errorf(ctx, err, "failed to parse PID: %s", action.Pid)
 		return
 	}
 
-	log.Infof(ctx, "collecting heap dump from JAVA_PID: %v to %s", action.Pid, action.DumpPath)
-	err = action.RunJCmd(ctx)
+	// Use jattach to get heap dump
+	err = jattach.HeapDump(pid, action.DumpPath)
 	if err != nil {
+		log.Errorf(ctx, err, "failed to get heap dump using jattach")
 		return
 	}
+
 	if fSize, e := utils.FileSize(ctx, action.DumpPath); e != nil {
 		return e
 	} else {
