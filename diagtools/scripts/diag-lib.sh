@@ -60,25 +60,12 @@ function apply_esc_configuration_to_X_JAVA_ARGS() {
     X_JAVA_ARGS=""
   fi
 
-  local javac_version
-  javac_version=$(get_javac_version)
-
-  # If Java version 11 or high we should use -xlog parameters
-  if version_ge "${javac_version}" "11.0.0"; then
-    X_JAVA_ARGS="${java_agent} $(gc_log_opts_for_jdk_11_and_high) ${prf_options} ${X_JAVA_ARGS}"
-  else
-    X_JAVA_ARGS="${java_agent} $(gc_log_opts_for_jdk_7_and_less) ${prf_options} ${X_JAVA_ARGS}"
-  fi
+  X_JAVA_ARGS="${java_agent} $(gc_log_opts_for_jdk_11_and_high) ${prf_options} ${X_JAVA_ARGS}"
 
   export X_JAVA_ARGS
   write_esc_log "resulting X_JAVA_ARGS ${X_JAVA_ARGS}"
 }
 export -f apply_esc_configuration_to_X_JAVA_ARGS
-
-function get_javac_version() {
-  printf '%s' "$(java -version 2>&1 | awk -F '\"' '/version/ {print $2}')"
-}
-export -f get_javac_version
 
 function current_timestamp() {
   TZ=UTC date +"%Y%m%dT%H%M%S"
@@ -91,22 +78,6 @@ function gc_log_file_size() {
 
 function gc_log_number_of_files() {
   printf '%s' "${GC_LOG_NUMBER_OF_FILES:-10}"
-}
-
-# Return JVM parameters for JDK < 11.x (usually JDK 1.7)
-function gc_log_opts_for_jdk_7_and_less() {
-  if check_option_not_disabled NC_DIAGNOSTIC_GC_ENABLED ; then
-    mkdir -p "$(diagnostic_logs_folder)/gclogs"
-    echo -n "-verbose:gc " \
-            "-XX:+PrintGCDetails " \
-            "-XX:+PrintGCDateStamps " \
-            "-Xloggc:$(diagnostic_logs_folder)/gclogs/gc.log " \
-            "-XX:+UseGCLogFileRotation " \
-            "-XX:GCLogFileSize=$(gc_log_file_size) " \
-            "-XX:-UseGCOverheadLimit " \
-            "-XX:NumberOfGCLogFiles=$(gc_log_number_of_files)" \
-            "-DESC_HARVEST_GCLOG=true"
-  fi
 }
 
 # Return JVM parameters for JDK >= 11.x (usually JDK 11.x and 17.x or high)
