@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "schedule": [
+    "every 3 weeks on Monday"
+  ],
+  "ignorePaths": [
+    "**/node_modules/**"
+  ],
+  "packageRules": [
+    {
+      "description": "Update Go version everywhere at once: build image, go.mod and GitHub Actions workflows",
+      "groupName": "Go",
+      "matchDatasources": [
+        "docker",
+        "golang-version",
+        "github-releases"
+      ],
+      "matchPackageNames": [
+        "go",
+        "golang",
+        "actions/go-versions"
+      ]
+    }
+  ]
+}
