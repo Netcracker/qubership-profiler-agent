@@ -39,12 +39,14 @@ build-all:
 
 # Internal helper to build for a specific platform using BuildKit
 # Args: $(1)=arch, $(2)=os (default: linux)
+# Note: For Windows cross-compilation, we use a Linux container with MinGW
 define build_platform
 	@echo "Building $(2)-$(1) binary..."
 	@DOCKER_BUILDKIT=1 docker buildx build \
-		--target export \
+		--platform linux/$(1) \
 		--build-arg TARGETOS=$(2) \
 		--build-arg TARGETARCH=$(1) \
+		--target export \
 		--output type=local,dest=$(BUILD_DIR)/tmp-$(2)-$(1) \
 		--load=false \
 		-f Dockerfile .

@@ -1,13 +1,16 @@
 # syntax=docker/dockerfile:1
 
 # Base image selection based on target OS
-ARG TARGETOS=linux
+# TARGETOS is automatically provided by BuildKit when using --platform
+ARG TARGETOS
 FROM golang:1.25.5-bookworm@sha256:09f53deea14d4019922334afe6258b7b776afc1d57952be2012f2c8c4076db05 AS builder-linux
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
     gcc-aarch64-linux-gnu \
     libc6-dev-arm64-cross \
+    gcc-x86-64-linux-gnu \
+    libc6-dev-amd64-cross \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 
@@ -32,9 +35,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY . .
 
 # Build with cache mounts
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-ARG BUILDARCH=amd64
+# These ARGs are automatically provided by BuildKit when using --platform
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILDARCH
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ "${TARGETOS}" = "windows" ]; then \
