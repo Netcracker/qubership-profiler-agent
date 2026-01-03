@@ -1,17 +1,20 @@
 # syntax=docker/dockerfile:1
 
 # Base image selection based on target OS
-ARG TARGETOS=linux
-FROM golang:1.25.5-bookworm@sha256:09f53deea14d4019922334afe6258b7b776afc1d57952be2012f2c8c4076db05 AS builder-linux
+# TARGETOS is automatically provided by BuildKit when using --platform
+ARG TARGETOS
+FROM golang:1.25.5-bookworm@sha256:2c7c65601b020ee79db4c1a32ebee0bf3d6b298969ec683e24fcbea29305f10e AS builder-linux
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
     gcc-aarch64-linux-gnu \
     libc6-dev-arm64-cross \
+    gcc-x86-64-linux-gnu \
+    libc6-dev-amd64-cross \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 
-FROM golang:1.25.5-bookworm@sha256:09f53deea14d4019922334afe6258b7b776afc1d57952be2012f2c8c4076db05 AS builder-windows
+FROM golang:1.25.5-bookworm@sha256:2c7c65601b020ee79db4c1a32ebee0bf3d6b298969ec683e24fcbea29305f10e AS builder-windows
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc-mingw-w64-x86-64 \
     && rm -rf /var/lib/apt/lists/*
@@ -32,9 +35,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY . .
 
 # Build with cache mounts
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-ARG BUILDARCH=amd64
+# BUILDARCH is automatically set by BuildKit to the build node's architecture.
+# TARGETOS and TARGETARCH are passed via --build-arg from the Makefile.
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILDARCH
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ "${TARGETOS}" = "windows" ]; then \
