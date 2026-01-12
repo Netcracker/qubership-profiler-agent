@@ -8,7 +8,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.11
 	github.com/stretchr/testify v1.11.1
 	github.com/vlsi/jattach/v2 v2.2.1
-	golang.org/x/sys v0.38.0
+	golang.org/x/sys v0.40.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
