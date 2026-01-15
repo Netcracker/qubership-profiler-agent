@@ -1,0 +1,137 @@
+# MODIFIED from template: https://github.com/Netcracker/.github/blob/main/workflow-templates/dev-docker-build.yml
+# Changes:
+#   - Added load-docker-build-components job to read config from .qubership/docker-build-config.cfg
+#   - Changed docker-build job to use matrix strategy for multi-component builds
+#   - Removed custom-image-name input (component names come from config)
+
+name: Dev Docker Build
+run-name: "Dev build repository: ${{ github.ref_name }} #${{ github.run_number }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Additional tags'
+        required: false
+        type: string
+        default: ''
+      dry-run:
+        description: 'Dry run'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - 'CODE-OF-CONDUCT.md'
+      - 'CONTRIBUTING.md'
+      - 'LICENSE'
+      - 'README.md'
+      - 'SECURITY.md'
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - 'CODE-OF-CONDUCT.md'
+      - 'CONTRIBUTING.md'
+      - 'LICENSE'
+      - 'README.md'
+      - 'SECURITY.md'
+
+permissions:
+  contents: read
+
+jobs:
+  # MODIFICATION: Added job to load components from config file (same as release workflow)
+  load-docker-build-components:
+    name: "Load Docker Build Components"
+    runs-on: ubuntu-latest
+    outputs:
+      component: ${{ steps.load_component.outputs.components }}
+      platforms: ${{ steps.load_component.outputs.platforms }}
+    env:
+      CONFIG_FILE: .qubership/docker-build-config.cfg
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Load Docker Configuration"
+        id: load_component
+        run: |
+          verify=$(cat "$GITHUB_WORKSPACE/${CONFIG_FILE}" | jq '
+          def verify_structure:
+          .components as $components
+          | .platforms as $platforms
+          | ($components | type == "array")
+          and (all($components[]; has("name") and has("file") and has("context")))
+          and ($platforms | type == "string");
+          verify_structure
+          | if . then true else false end
+          ')
+          if [ ${verify} == 'true' ]; then
+            echo "✅ $GITHUB_WORKSPACE/${CONFIG_FILE} file is valid"
+            components=$(jq -c ".components" "$GITHUB_WORKSPACE/${CONFIG_FILE}")
+            platforms=$(jq -c ".platforms" "$GITHUB_WORKSPACE/${CONFIG_FILE}")
+          else
+            echo "❗ $GITHUB_WORKSPACE/${CONFIG_FILE} file is invalid"
+            exit 1
+          fi
+          echo "components=${components}" >> $GITHUB_OUTPUT
+          echo "platforms=${platforms}" >> $GITHUB_OUTPUT
+
+  # MODIFICATION: Changed to matrix strategy for multi-component builds
+  docker-build:
+    name: "Build ${{ matrix.component.name }}"
+    needs: [load-docker-build-components]
+    permissions:
+      packages: write
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(needs.load-docker-build-components.outputs.component) }}
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Create metadata"
+        uses: netcracker/qubership-workflow-hub/actions/metadata-action@396774180000abdb825cbf150b56cc59c6913db8 # v1.0.7
+        id: metadata
+
+      - name: "Prepare tags"
+        id: prepare_tags
+        run: |
+          BASE_TAG="${{ steps.metadata.outputs.result }}"
+          EXTRA_TAG="${{ github.event.inputs.tags }}"
+          if [ -n "$EXTRA_TAG" ]; then
+            TAGS="${BASE_TAG}, ${EXTRA_TAG}"
+          else
+            TAGS="${BASE_TAG}"
+          fi
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+
+      - name: "Summary"
+        run: |
+          echo "**Component:** ${{ matrix.component.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ steps.prepare_tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: "Build and Publish Docker Image"
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@396774180000abdb825cbf150b56cc59c6913db8 # v1.0.7
+        with:
+          component: ${{ toJson(matrix.component) }}
+          platforms: ${{ needs.load-docker-build-components.outputs.platforms }}
+          checkout: "false"
+          tags: ${{ steps.prepare_tags.outputs.tags }}
+          dry-run: ${{ github.event.inputs.dry-run || 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
