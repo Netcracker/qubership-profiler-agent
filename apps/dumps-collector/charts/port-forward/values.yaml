@@ -1,0 +1,31 @@
+# Default values for port-forward chart
+# This chart is intentionally minimal and uses helmfile hooks for port-forwarding
+
+# This chart does not deploy any resources
+# All port-forwarding is managed via helmfile hooks
+
+# Port-forward configuration examples
+portForwards:
+  - name: dumps-collector-http
+    namespace: profiler
+    service: cloud-profiler-dumps-collector
+    localPort: 8080
+    remotePort: 8080
+    description: "dumps-collector HTTP/WebDAV endpoint"
+
+  - name: dumps-collector-api
+    namespace: profiler
+    service: cloud-profiler-dumps-collector
+    localPort: 8000
+    remotePort: 8000
+    description: "dumps-collector API endpoint"
+
+  - name: postgres
+    namespace: postgres
+    service: pg-patroni
+    localPort: 5432
+    remotePort: 5432
+    description: "PostgreSQL primary database"
+
+# Note: This values file is for documentation purposes only.
+# Actual port-forwarding is managed by helmfile hooks, not by this chart.

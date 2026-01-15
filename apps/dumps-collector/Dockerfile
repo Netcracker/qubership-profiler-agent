@@ -1,37 +1,50 @@
-FROM golang:1.24.5-alpine3.22 as builder
+# Build context: repository root
+# Usage: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector .
 
-ENV TOOLS_VERSION="9.3.3.2.2" \
-    INSTALLER_CLOUD="https://github.com/pd.saas.mvn/com/netcracker/execution-statistics-collector/installer-cloud" \
-    PERF_TOOL="https://github.com/pd.saas.mvn/com/netcracker/execution-statistics-collector/prf-tool" \
-    DIST="https://github.com/pd.saas.mvn/com/netcracker/execution-statistics-collector/dist"
+FROM golang:1.24.5-alpine3.22 AS builder
+
+# Multi-arch build support
+ARG TARGETOS=linux
+ARG TARGETARCH
+
+# renovate: datasource=maven depName=qubership-profiler-installer packageName=org.qubership.profiler:qubership-profiler-installer versioning=maven
+ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=3.1.1
+
+# renovate: datasource=maven depName=qubership-profiler-diagtools packageName=org.qubership.profiler:qubership-profiler-diagtools versioning=maven
+ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=3.1.1
+
+ENV INSTALLER_CLOUD="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip"
 
 RUN apk --no-cache add \
      unzip \
      curl \
     && rm -rf /var/cache/apk/*
 
-WORKDIR /dump_collector
-RUN mkdir tools
+# Use repository root structure to match Go module paths
+WORKDIR /workspace
+RUN mkdir -p tools
+
+# Copy go modules from repository root
 COPY go.mod go.sum ./
 RUN go mod download
 
-# copy go sources
-COPY cmd/ cmd/
-COPY pkg/ pkg/
-COPY main.go main.go
+# Copy go sources preserving the module structure
+COPY apps/dumps-collector/ apps/dumps-collector/
+COPY libs/ libs/
 
-RUN curl -o installer_cloud.zip "${INSTALLER_CLOUD}/${TOOLS_VERSION}/installer-cloud-${TOOLS_VERSION}.zip" \
-    && curl -o prf-tool.zip "${PERF_TOOL}/${TOOLS_VERSION}/prf-tool-${TOOLS_VERSION}.zip" \
-    && curl -o /dump_collector/tools/execution-statistics-collector_autoinstaller.zip "${DIST}/${TOOLS_VERSION}/dist-${TOOLS_VERSION}-autoinstaller.zip" \
-    && unzip installer_cloud.zip -d installer_cloud \
-    && unzip prf-tool.zip \
-    && cp /dump_collector/prf-tool/bin/prf /dump_collector/tools/ \
-    && cp /dump_collector/prf-tool/bin/prf.exe /dump_collector/tools/ \
-    && cp /dump_collector/prf-tool/bin/prf.mac /dump_collector/tools/ \
-    && cp /dump_collector/installer_cloud/nc-diagnostic-bootstrap.sh /dump_collector/tools/ \
-    && rm -rf prf-tool.zip installer_cloud prf_tool
+# Download installer
+RUN curl -o installer_cloud.zip "${INSTALLER_CLOUD}"
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o /dump_collector/tools/prf_dump_writer main.go
+# Download diagtools for the target architecture
+RUN DIAGTOOLS_URL="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-diagtools/${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}/qubership-profiler-diagtools-${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz" \
+    && curl -o diagtools.tar.gz "${DIAGTOOLS_URL}" \
+    && tar -xzf diagtools.tar.gz \
+    && cp diagtools-*/diag-bootstrap.sh /workspace/tools/ \
+    && rm -rf diagtools.tar.gz diagtools-*
+
+# Build from the app directory
+RUN cd apps/dumps-collector && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /workspace/tools/prf_dump_writer main.go
 
 FROM nginx:1.27.2-alpine3.20
 
@@ -47,16 +60,16 @@ ENV USER_UID=10001 \
     DOCROOT=/usr/share/docroot
 ENV DIAGNOSTIC_TOOLS_LOCATION=${DOCROOT}/api/v1/diagnostic/tools/
 
-COPY --from=builder --chown=${USER_UID} /dump_collector/tools ${DIAGNOSTIC_TOOLS_LOCATION}
+COPY --from=builder --chown=${USER_UID} /workspace/tools ${DIAGNOSTIC_TOOLS_LOCATION}
 
-COPY --from=builder --chown=${USER_UID} /dump_collector/installer_cloud.zip ${DOCROOT}/api/v1/diagnostic/agent/installer.zip
+COPY --from=builder --chown=${USER_UID} /workspace/installer_cloud.zip ${DOCROOT}/api/v1/diagnostic/agent/installer.zip
 
-COPY static/index.html ${DIAGNOSTIC_TOOLS_LOCATION}/index.html
+COPY apps/dumps-collector/static/index.html ${DIAGNOSTIC_TOOLS_LOCATION}/index.html
 
-COPY src/nginx/nginx.conf /scripts/nginx/
-COPY src/nginx/nginx-https.conf /scripts/nginx/
+COPY apps/dumps-collector/src/nginx/nginx.conf /scripts/nginx/
+COPY apps/dumps-collector/src/nginx/nginx-https.conf /scripts/nginx/
 
-COPY src/nginx/entrypoint.sh /scripts/
+COPY apps/dumps-collector/src/nginx/entrypoint.sh /scripts/
 
 RUN chown -R ${USER_UID} /scripts/ \
     && chmod -R a+rx /scripts/ \
@@ -78,4 +91,4 @@ RUN chown -R ${USER_UID} /scripts/ \
 
 USER ${USER_UID}
 
-CMD /scripts/entrypoint.sh
+CMD ["/scripts/entrypoint.sh"]

@@ -11,6 +11,10 @@ SAAS_MANIFEST_DIR := deployments
 DOCKER_IMAGE := $(ARTIFACT_NAME)
 BINARY_NAME := prf_dump_writer
 
+# Build settings - can be overridden for cross-compilation
+GOOS ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
+
 # Default target
 help:
 	@echo "Available targets:"
@@ -31,9 +35,9 @@ clean:
 
 # Build Go application
 build: clean
-	@echo "==> Building Go application..."
+	@echo "==> Building Go application for $(GOOS)/$(GOARCH)..."
 	@if command -v go >/dev/null 2>&1; then \
-		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o $(BINARY_NAME) main.go; \
+		CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -a -o $(BINARY_NAME) main.go; \
 	else \
 		echo "Go not found, skipping Go build. Use docker-build to build with Docker."; \
 	fi
@@ -59,14 +63,15 @@ setup:
 	mkdir -p $(SAAS_MANIFEST_DIR)
 	cp -R ../charts $(SAAS_MANIFEST_DIR)/
 
-# Build Docker image
+# Build Docker image (runs from repository root context)
 docker-build: setup
 	@echo "==> Building Docker image..."
 	docker build \
 		--pull \
 		-t $(DOCKER_IMAGE) \
 		--no-cache \
-		.
+		-f Dockerfile \
+		../..
 
 # Tag Docker image (requires DOCKER_NAMES environment variable)
 docker-tag:

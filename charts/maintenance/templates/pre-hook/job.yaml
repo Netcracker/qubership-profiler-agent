@@ -30,6 +30,7 @@ spec:
       containers:
         - name: {{ .Values.maintenanceJob.migrateSchema.name }}
           image: {{ include "maintenanceJob.migrateSchema.image" . }}
+          imagePullPolicy: {{ .Values.maintenanceJob.imagePullPolicy | default "IfNotPresent" }}
           args:
             {{- include "maintenanceJob.migrateSchema.args" . | nindent 10 }}
           env:

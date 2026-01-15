@@ -11,5 +11,9 @@ spec:
     port: {{ .Values.dumpsCollector.service.httpPort }}
     protocol: TCP
     targetPort: {{ .Values.dumpsCollector.service.httpPort }}
+  - name: api
+    port: {{ .Values.dumpsCollector.service.apiPort | default 8000 }}
+    protocol: TCP
+    targetPort: {{ .Values.dumpsCollector.service.apiPort | default 8000 }}
   selector:
     app.kubernetes.io/name: '{{ .Values.dumpsCollector.name }}'

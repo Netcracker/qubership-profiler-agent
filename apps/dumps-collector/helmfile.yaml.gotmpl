@@ -1,0 +1,475 @@
+# Helmfile for dumps-collector local deployment
+#
+# Quick Start:
+#   helmfile sync                           # Deploy PostgreSQL + dumps-collector
+#   helmfile -l type=port-forward sync      # Start port-forwards
+#   helmfile -l type=port-forward destroy   # Stop port-forwards
+#   helmfile destroy                        # Remove everything
+#
+# Skip PostgreSQL installation (if already deployed separately):
+#   INSTALL_POSTGRES=false helmfile sync    # Deploy only dumps-collector
+
+# Environment variables with defaults
+{{ $namespace := env "NAMESPACE" | default "profiler" }}
+{{ $pgNamespace := env "PG_NAMESPACE" | default "postgres" }}
+{{ $storageClass := env "STORAGE_CLASS" | default "local-path" }}
+{{ $installPostgres := env "INSTALL_POSTGRES" | default "true" }}
+
+# Path to charts
+{{ $pgskipperPath := env "PGSKIPPER_PATH" | default "../../../pgskipper-operator" }}
+{{ $dumpsCollectorChartPath := "../../charts/dumps-collector" }}
+
+helmDefaults:
+  wait: true
+  timeout: 600
+  createNamespace: true
+  cleanupOnFail: false
+  atomic: false
+
+repositories:
+  - name: incubator
+    url: https://charts.helm.sh/incubator
+
+releases:
+  #############################################################################
+  # PostgreSQL via pgskipper-operator
+  # To skip PostgreSQL installation: INSTALL_POSTGRES=false helmfile sync
+  #############################################################################
+
+{{- if eq $installPostgres "true" }}
+  # Patroni Core Operator - PostgreSQL cluster management
+  - name: patroni-core
+    namespace: {{ $pgNamespace }}
+    chart: {{ $pgskipperPath }}/charts/patroni-core
+    labels:
+      component: postgres
+      type: infrastructure
+    values:
+      # PostgreSQL credentials (change in production!)
+      - postgresUser: profiler
+        postgresPassword: profiler_password
+        replicatorPassword: replicator_password
+
+        # Disable cloud integration for local testing
+        global:
+          cloudIntegrationEnabled: false
+
+        serviceAccount:
+          create: true
+          name: "patroni-sa"
+
+        vaultRegistration:
+          enabled: false
+
+        tls:
+          enabled: false
+
+        # Patroni cluster configuration
+        patroni:
+          install: true
+          clusterName: patroni
+          replicas: 2
+          dockerImage: ghcr.io/netcracker/pgskipper-patroni-16:main
+          dcs:
+            type: kubernetes
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          postgreSQLParams:
+            - "password_encryption: md5"
+            - "max_connections: 200"
+            - "shared_preload_libraries: pg_stat_statements"
+            - "wal_level: logical"
+          storage:
+            type: provisioned
+            size: 10Gi
+            storageClass: {{ $storageClass }}
+            enableShmVolume: true
+          majorUpgrade:
+            enabled: false
+
+        operator:
+          image: ghcr.io/netcracker/pgskipper-operator:main
+          imagePullPolicy: IfNotPresent
+          waitTimeout: 10
+          resources:
+            limits:
+              cpu: 50m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+
+  # Patroni Services Operator - PostgreSQL services and HA
+  - name: patroni-services
+    namespace: {{ $pgNamespace }}
+    chart: {{ $pgskipperPath }}/charts/patroni-services
+    labels:
+      component: postgres
+      type: infrastructure
+    needs:
+      - {{ $pgNamespace }}/patroni-core
+    values:
+      - postgresUser: profiler
+        postgresPassword: profiler_password
+        replicatorPassword: replicator_password
+
+        global:
+          cloudIntegrationEnabled: false
+
+        serviceAccount:
+          create: true
+          name: "postgres-sa"
+
+        vaultRegistration:
+          enabled: false
+
+        tls:
+          enabled: false
+
+        patroni:
+          clusterName: patroni
+
+        operator:
+          image: ghcr.io/netcracker/pgskipper-operator:main
+          imagePullPolicy: IfNotPresent
+          waitTimeout: 10
+          resources:
+            limits:
+              cpu: 50m
+              memory: 50Mi
+            requests:
+              cpu: 50m
+              memory: 50Mi
+
+        metricCollector:
+          install: false
+
+        backupDaemon:
+          install: false
+    hooks:
+      - events: ["postsync"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Waiting for PostgreSQL cluster to initialize..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            sleep 20
+
+            echo "Waiting for primary PostgreSQL pod..."
+            timeout 300 bash -c 'until kubectl get pods -n {{ $pgNamespace }} --selector=pgtype=master 2>/dev/null | grep -q Running; do sleep 5; echo -n "."; done' || true
+            echo ""
+
+            echo "Waiting for all PostgreSQL pods to be ready..."
+            kubectl wait --for=condition=ready --timeout=300s \
+              pods -l app=postgres -n {{ $pgNamespace }} 2>/dev/null || true
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "✅ PostgreSQL cluster is ready!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Connection details:"
+            echo "  🔹 Primary (RW):  pg-patroni.{{ $pgNamespace }}.svc.cluster.local:5432"
+            echo "  🔹 Read-only:     pg-patroni-ro.{{ $pgNamespace }}.svc.cluster.local:5432"
+            echo "  🔹 Database:      postgres"
+            echo "  🔹 Username:      profiler"
+            echo "  🔹 Password:      profiler_password"
+            echo ""
+            echo "To connect via port-forward:"
+            echo "  kubectl port-forward -n {{ $pgNamespace }} svc/pg-patroni 5432:5432"
+            echo "  psql -h localhost -p 5432 -U profiler -d postgres"
+            echo ""
+{{- end }}
+
+  #############################################################################
+  # Database Schema Migration (via maintenance chart)
+  #############################################################################
+
+  - name: maintenance
+    namespace: {{ $namespace }}
+    chart: ../../charts/maintenance
+    labels:
+      component: migration
+      type: infrastructure
+{{- if eq $installPostgres "true" }}
+    needs:
+      - {{ $pgNamespace }}/patroni-services
+{{- end }}
+    values:
+      - maintenanceJob:
+          # Local image built with: docker build -f apps/maintenance/Dockerfile -t maintenance:local .
+          image: maintenance:local
+          imagePullPolicy: Never
+          migrateSchema:
+            enabled: true
+        cloud:
+          postgres:
+            host: pg-patroni.{{ $pgNamespace }}.svc.cluster.local
+            port: 5432
+            database: postgres
+            username: postgres
+            password: postgres
+            tls:
+              sslMode: disable
+    hooks:
+      - events: ["postsync"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Waiting for schema migration to complete..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            # Wait for migration job to complete
+            kubectl wait --for=condition=complete --timeout=120s \
+              job -l app.kubernetes.io/name=cloud-profiler-maintenance-job-migrate-schema -n {{ $namespace }} 2>/dev/null || true
+            echo "✅ Schema migration completed!"
+            echo ""
+
+  #############################################################################
+  # dumps-collector Application
+  #############################################################################
+
+  - name: dumps-collector
+    namespace: {{ $namespace }}
+    chart: {{ $dumpsCollectorChartPath }}
+    labels:
+      component: application
+      type: application
+    needs:
+      - {{ $namespace }}/maintenance
+    values:
+      - values-local.yaml
+    hooks:
+      - events: ["postsync"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Waiting for dumps-collector to be ready..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            kubectl wait --for=condition=ready --timeout=300s \
+              pods -l app.kubernetes.io/name=dumps-collector -n {{ $namespace }} 2>/dev/null || true
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "✅ dumps-collector is ready!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Service endpoints (inside cluster):"
+            echo "  🔹 HTTP/WebDAV:  cloud-profiler-dumps-collector.{{ $namespace }}.svc.cluster.local:8080"
+            echo "  🔹 API:          cloud-profiler-dumps-collector.{{ $namespace }}.svc.cluster.local:8000"
+            echo ""
+            echo "To access from localhost, run port-forwards:"
+            echo "  helmfile -l type=port-forward sync"
+            echo ""
+            echo "Or manually:"
+            echo "  kubectl port-forward -n {{ $namespace }} svc/cloud-profiler-dumps-collector 8080:8080 &"
+            echo "  kubectl port-forward -n {{ $namespace }} svc/cloud-profiler-dumps-collector 8000:8000 &"
+            echo ""
+
+  #############################################################################
+  # Port-Forward "Releases" (managed separately via labels)
+  #############################################################################
+
+  - name: port-forward-dumps-collector-http
+    namespace: {{ $namespace }}
+    chart: incubator/raw
+    version: 0.2.5
+    labels:
+      component: port-forward
+      type: port-forward
+    needs:
+      - {{ $namespace }}/dumps-collector
+    values:
+      - resources: []
+    hooks:
+      - events: ["presync"]
+        showlogs: false
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            # Stop existing port-forward if running
+            if [ -f /tmp/pf-dumps-collector-http.pid ]; then
+              OLD_PID=$(cat /tmp/pf-dumps-collector-http.pid 2>/dev/null)
+              if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+                echo "Stopping existing port-forward (PID: $OLD_PID)..."
+                kill "$OLD_PID" 2>/dev/null || true
+                sleep 1
+              fi
+              rm -f /tmp/pf-dumps-collector-http.pid
+            fi
+      - events: ["postsync"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            echo "Starting port-forward: localhost:8080 → dumps-collector HTTP/WebDAV"
+            nohup kubectl port-forward -n {{ $namespace }} svc/cloud-profiler-dumps-collector 8080:8080 \
+              > /tmp/pf-dumps-collector-http.log 2>&1 &
+            PID=$!
+            echo $PID > /tmp/pf-dumps-collector-http.pid
+            sleep 2
+            if kill -0 $PID 2>/dev/null; then
+              echo "✅ Port-forward started (PID: $PID)"
+              echo "   Access: http://localhost:8080"
+              echo "   Logs:   /tmp/pf-dumps-collector-http.log"
+            else
+              echo "❌ Failed to start port-forward"
+              exit 1
+            fi
+      - events: ["postuninstall"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            if [ -f /tmp/pf-dumps-collector-http.pid ]; then
+              PID=$(cat /tmp/pf-dumps-collector-http.pid 2>/dev/null)
+              if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+                echo "Stopping port-forward (PID: $PID)..."
+                kill "$PID" 2>/dev/null || true
+              fi
+              rm -f /tmp/pf-dumps-collector-http.pid
+              echo "✅ Port-forward stopped"
+            fi
+
+  - name: port-forward-dumps-collector-api
+    namespace: {{ $namespace }}
+    chart: incubator/raw
+    version: 0.2.5
+    labels:
+      component: port-forward
+      type: port-forward
+    needs:
+      - {{ $namespace }}/dumps-collector
+    values:
+      - resources: []
+    hooks:
+      - events: ["presync"]
+        showlogs: false
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            if [ -f /tmp/pf-dumps-collector-api.pid ]; then
+              OLD_PID=$(cat /tmp/pf-dumps-collector-api.pid 2>/dev/null)
+              if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+                kill "$OLD_PID" 2>/dev/null || true
+                sleep 1
+              fi
+              rm -f /tmp/pf-dumps-collector-api.pid
+            fi
+      - events: ["postsync"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            echo "Starting port-forward: localhost:8000 → dumps-collector API"
+            nohup kubectl port-forward -n {{ $namespace }} svc/cloud-profiler-dumps-collector 8000:8000 \
+              > /tmp/pf-dumps-collector-api.log 2>&1 &
+            PID=$!
+            echo $PID > /tmp/pf-dumps-collector-api.pid
+            sleep 2
+            if kill -0 $PID 2>/dev/null; then
+              echo "✅ Port-forward started (PID: $PID)"
+              echo "   Access: http://localhost:8000"
+              echo "   Logs:   /tmp/pf-dumps-collector-api.log"
+            else
+              echo "❌ Failed to start port-forward"
+              exit 1
+            fi
+      - events: ["postuninstall"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            if [ -f /tmp/pf-dumps-collector-api.pid ]; then
+              PID=$(cat /tmp/pf-dumps-collector-api.pid 2>/dev/null)
+              if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+                kill "$PID" 2>/dev/null || true
+              fi
+              rm -f /tmp/pf-dumps-collector-api.pid
+              echo "✅ Port-forward stopped"
+            fi
+
+{{- if eq $installPostgres "true" }}
+  - name: port-forward-postgres
+    namespace: {{ $pgNamespace }}
+    chart: incubator/raw
+    version: 0.2.5
+    labels:
+      component: port-forward
+      type: port-forward
+    needs:
+      - {{ $pgNamespace }}/patroni-services
+    values:
+      - resources: []
+    hooks:
+      - events: ["presync"]
+        showlogs: false
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            if [ -f /tmp/pf-postgres.pid ]; then
+              OLD_PID=$(cat /tmp/pf-postgres.pid 2>/dev/null)
+              if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+                kill "$OLD_PID" 2>/dev/null || true
+                sleep 1
+              fi
+              rm -f /tmp/pf-postgres.pid
+            fi
+      - events: ["postsync"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            echo "Starting port-forward: localhost:5432 → PostgreSQL"
+            nohup kubectl port-forward -n {{ $pgNamespace }} svc/pg-patroni 5432:5432 \
+              > /tmp/pf-postgres.log 2>&1 &
+            PID=$!
+            echo $PID > /tmp/pf-postgres.pid
+            sleep 2
+            if kill -0 $PID 2>/dev/null; then
+              echo "✅ Port-forward started (PID: $PID)"
+              echo "   Connection: postgresql://profiler:profiler_password@localhost:5432/postgres"
+              echo "   psql: psql -h localhost -p 5432 -U profiler -d postgres"
+              echo "   Logs: /tmp/pf-postgres.log"
+            else
+              echo "❌ Failed to start port-forward"
+              exit 1
+            fi
+      - events: ["postuninstall"]
+        showlogs: true
+        command: "bash"
+        args:
+          - "-c"
+          - |
+            if [ -f /tmp/pf-postgres.pid ]; then
+              PID=$(cat /tmp/pf-postgres.pid 2>/dev/null)
+              if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+                kill "$PID" 2>/dev/null || true
+              fi
+              rm -f /tmp/pf-postgres.pid
+              echo "✅ Port-forward stopped"
+            fi
+{{- end }}

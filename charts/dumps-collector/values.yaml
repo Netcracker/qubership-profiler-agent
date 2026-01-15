@@ -64,6 +64,7 @@ dumpsCollector:
   install: true
   name: cloud-profiler-dumps-collector
   image: ~
+  imagePullPolicy: IfNotPresent
 
   replicas: 1
 
@@ -84,6 +85,7 @@ dumpsCollector:
   service:
     name: cloud-profiler-dumps-collector
     httpPort: 8080
+    apiPort: 8000
 
   ingress:
     install: true

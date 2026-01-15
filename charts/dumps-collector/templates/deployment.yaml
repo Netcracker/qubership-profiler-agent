@@ -41,9 +41,13 @@ spec:
       containers:
         - name: '{{ .Values.dumpsCollector.name }}'
           image: {{ include "dumpsCollector.image" . }}
+          imagePullPolicy: {{ .Values.dumpsCollector.imagePullPolicy | default "IfNotPresent" }}
           ports:
             - name: http
               containerPort: {{ .Values.dumpsCollector.service.httpPort }}
+              protocol: TCP
+            - name: api
+              containerPort: {{ .Values.dumpsCollector.service.apiPort | default 8000 }}
               protocol: TCP
           resources:
             {{- include "dumpsCollector.resources" . | nindent 12 }}
