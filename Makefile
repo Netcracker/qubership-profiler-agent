@@ -22,7 +22,8 @@ DELIVERY_DIR := delivery
 export SKIP_FRONTEND
 
 # Application names (production components)
-APPS := collector dumps-collector maintenance query
+# collector and query are excluded for now
+APPS := dumps-collector maintenance
 
 # Tool names (development/support tools)
 TOOLS := data-generator load-generator migration
