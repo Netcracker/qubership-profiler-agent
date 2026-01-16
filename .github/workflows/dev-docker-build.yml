@@ -64,6 +64,7 @@ jobs:
 
       - name: "Load Docker Configuration"
         id: load_component
+        # language=bash
         run: |
           verify=$(cat "$GITHUB_WORKSPACE/${CONFIG_FILE}" | jq '
           def verify_structure:
@@ -110,6 +111,7 @@ jobs:
 
       - name: "Prepare tags"
         id: prepare_tags
+        # language=bash
         run: |
           BASE_TAG="${{ steps.metadata.outputs.result }}"
           EXTRA_TAG="${{ github.event.inputs.tags }}"
@@ -121,6 +123,7 @@ jobs:
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
       - name: "Summary"
+        # language=bash
         run: |
           echo "**Component:** ${{ matrix.component.name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:** ${{ steps.prepare_tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
@@ -132,6 +135,6 @@ jobs:
           platforms: ${{ needs.load-docker-build-components.outputs.platforms }}
           checkout: "false"
           tags: ${{ steps.prepare_tags.outputs.tags }}
-          dry-run: ${{ github.event.inputs.dry-run || 'false' }}
+          dry-run: ${{ github.event.inputs.dry-run || github.event_name == 'pull_request' || 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
