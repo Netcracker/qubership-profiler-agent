@@ -3,7 +3,10 @@ package com.netcracker.profiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Scanner;
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 
 public class ServerNameResolver {
     private static final Logger logger = LoggerFactory.getLogger(ServerNameResolver.class);
@@ -25,9 +28,12 @@ public class ServerNameResolver {
             return result;
         }
 
-        try (Scanner s = new Scanner(Runtime.getRuntime().exec("hostname").getInputStream()).useDelimiter("\\A");) {
-            if(s.hasNext()) {
-                return s.next().trim();
+        try (InputStream is = Runtime.getRuntime().exec("hostname").getInputStream();
+             InputStreamReader isr = new InputStreamReader(new BufferedInputStream(is));
+             BufferedReader br = new BufferedReader(isr);) {
+            String hostname = br.readLine();
+            if (hostname != null && !hostname.isEmpty()) {
+                return hostname;
             }
         } catch (Throwable t) {
             logger.warn("Exception in getting hostname", t);
