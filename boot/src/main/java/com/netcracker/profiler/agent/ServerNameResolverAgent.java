@@ -2,7 +2,10 @@ package com.netcracker.profiler.agent;
 
 import static com.netcracker.profiler.agent.PropertyFacadeBoot.getPropertyOrEnvVariable;
 
-import java.util.Scanner;
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.logging.Level;
 
 public class ServerNameResolverAgent {
@@ -25,9 +28,12 @@ public class ServerNameResolverAgent {
             return result;
         }
 
-        try (Scanner s = new Scanner(Runtime.getRuntime().exec("hostname").getInputStream()).useDelimiter("\\A");) {
-            if(s.hasNext()) {
-                return s.next().trim();
+        try (InputStream is = Runtime.getRuntime().exec("hostname").getInputStream();
+             InputStreamReader isr = new InputStreamReader(new BufferedInputStream(is));
+             BufferedReader br = new BufferedReader(isr);) {
+            String hostname = br.readLine();
+            if (hostname != null && !hostname.isEmpty()) {
+                return hostname;
             }
         } catch (Throwable t) {
             logger.log(Level.WARNING, "Exception in getting hostname", t);
