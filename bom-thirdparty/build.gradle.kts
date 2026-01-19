@@ -17,7 +17,7 @@ dependencies {
         api("backport-util-concurrent:backport-util-concurrent:3.1")
         api("ch.qos.logback:logback-classic:1.5.20")
         api("ch.qos.logback:logback-core:1.5.20")
-        api("com.github.ajalt.clikt:clikt:5.0.3")
+        api("com.github.ajalt.clikt:clikt:5.1.0")
         api("com.google.guava:guava:33.5.0-jre")
         api("com.google.guava:guava:33.5.0-jre")
         api("com.jcraft:jsch:0.1.55")
