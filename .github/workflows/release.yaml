@@ -62,7 +62,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Check if tag exists
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           VERSION: ${{ steps.release_version.outputs.version }}
         with:
@@ -109,7 +109,7 @@ jobs:
       # Publish to Central before generating a tag, so we don't need to drop the tag if
       # Central deployment fails.
       - name: Publish to Central Portal
-        uses: burrunan/gradle-cache-action@663fbad34e03c8f12b27f4999ac46e3d90f87eca # v3
+        uses: burrunan/gradle-cache-action@663fbad34e03c8f12b27f4999ac46e3d90f87eca # v3.0.1
         with:
           arguments: publishAggregationToCentralPortal
           # language=properties
@@ -123,7 +123,7 @@ jobs:
           SIGNING_PGP_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
       - name: Publish GitHub release
-        uses: release-drafter/release-drafter@b1476f6e6eb133afa41ed8589daba6dc69b4d3f5 # v6
+        uses: release-drafter/release-drafter@b1476f6e6eb133afa41ed8589daba6dc69b4d3f5 # v6.1.0
         id: publish_release
         with:
           disable-autolabeler: true
