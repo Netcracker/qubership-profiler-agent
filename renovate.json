@@ -19,13 +19,16 @@
       "groupName": "Go",
       "matchDatasources": [
         "docker",
+        "github-actions",
+        "github-releases",
         "golang-version",
-        "github-releases"
+        "gomod"
       ],
       "matchPackageNames": [
         "go",
         "golang",
-        "actions/go-versions"
+        "actions/go-versions",
+        "actions/setup-go"
       ]
     },
     {
