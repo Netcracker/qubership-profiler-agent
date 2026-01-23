@@ -94,7 +94,7 @@
         "@netcracker/ux-assets": "^1.1.0",
         "@netcracker/ux-react": "^4.5.0",
         "@reduxjs/toolkit": "^1.9.6",
-        "@types/react-grid-layout": "1.3.1",
+        "@types/react-grid-layout": "1.3.6",
         "@types/react-resizable": "^3.0.4",
         "antd": "4.20.7",
         "clsx": "1.2.1",
