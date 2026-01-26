@@ -13,7 +13,7 @@ dependencies {
     api(platform("org.ow2.asm:asm-bom:9.9.1"))
     api(platform("com.google.inject:guice-bom:7.0.0"))
     constraints {
-        api("at.yawk.lz4:lz4-java:1.10.2")
+        api("at.yawk.lz4:lz4-java:1.10.3")
         api("backport-util-concurrent:backport-util-concurrent:3.1")
         api("ch.qos.logback:logback-classic:1.5.20")
         api("ch.qos.logback:logback-core:1.5.20")
