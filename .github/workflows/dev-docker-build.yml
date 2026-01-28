@@ -21,8 +21,9 @@ on:
         type: boolean
         default: false
   push:
-    branches:
-      - '**'
+    # Can't use branches with branches-ignore
+    # branches:
+    #  - '**'
     branches-ignore:
       - 'renovate/**'
     paths-ignore:
