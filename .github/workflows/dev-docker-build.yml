@@ -23,6 +23,8 @@ on:
   push:
     branches:
       - '**'
+    branches-ignore:
+      - 'renovate/**'
     paths-ignore:
       - '.github/**'
       - 'docs/**'

@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - '**'
+    branches-ignore:
+      - 'renovate/**'
   pull_request:
     branches:
       - '**'
