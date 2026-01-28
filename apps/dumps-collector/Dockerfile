@@ -1,7 +1,7 @@
 # Build context: repository root
 # Usage: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector .
 
-FROM golang:1.24.5-alpine3.22 AS builder
+FROM golang:1.25.6-alpine3.22@sha256:2dcdadabb270f820015c81a92dea242504351af86f8baaa60d234685ba083015 AS builder
 
 # Multi-arch build support
 ARG TARGETOS=linux
