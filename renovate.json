@@ -94,6 +94,13 @@
       "matchPackageNames": [
         "org.slf4j{/,}**"
       ]
+    },
+    {
+      "description": "Stick with jQuery 3.x as jQuery 4 is not yet supported",
+      "allowedVersions": "< 4",
+      "matchPackageNames": [
+        "jquery"
+      ]
     }
   ]
 }
