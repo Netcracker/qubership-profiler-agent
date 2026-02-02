@@ -7,7 +7,7 @@
     "dependencies"
   ],
   "automerge": true,
-  "platformAutomerge": true,
+  "platformAutomerge": false,
   "schedule": [
     "every 3 weeks on Monday"
   ],
