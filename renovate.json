@@ -6,6 +6,8 @@
   "labels": [
     "dependencies"
   ],
+  "automerge": true,
+  "platformAutomerge": true,
   "schedule": [
     "every 3 weeks on Monday"
   ],
