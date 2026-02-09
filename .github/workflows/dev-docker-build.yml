@@ -109,7 +109,7 @@ jobs:
           persist-credentials: false
 
       - name: "Create metadata"
-        uses: netcracker/qubership-workflow-hub/actions/metadata-action@ac0b35120b940eaa644cdcfee7d4957038998ec2 # v2.0.9
+        uses: netcracker/qubership-workflow-hub/actions/metadata-action@8d542a426ce561c7dce745f6b9cee068d1d7e101 # v2.0.10
         id: metadata
 
       - name: "Prepare tags"
@@ -132,7 +132,7 @@ jobs:
           echo "**Tags:** ${{ steps.prepare_tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
 
       - name: "Build and Publish Docker Image"
-        uses: netcracker/qubership-workflow-hub/actions/docker-action@ac0b35120b940eaa644cdcfee7d4957038998ec2 # v2.0.9
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@8d542a426ce561c7dce745f6b9cee068d1d7e101 # v2.0.10
         with:
           component: ${{ toJson(matrix.component) }}
           platforms: ${{ needs.load-docker-build-components.outputs.platforms }}
