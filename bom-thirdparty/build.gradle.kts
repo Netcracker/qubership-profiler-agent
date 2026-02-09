@@ -21,7 +21,7 @@ dependencies {
         api("com.google.guava:guava:33.5.0-jre")
         api("com.google.guava:guava:33.5.0-jre")
         api("com.jcraft:jsch:0.1.55")
-        api("io.micrometer:micrometer-core:1.16.2")
+        api("io.micrometer:micrometer-core:1.16.3")
         api("jakarta.servlet:jakarta.servlet-api:6.1.0")
         api("javax:javaee-api:6.0")
         api("net.sf.trove4j:trove4j:3.0.3")
