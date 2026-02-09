@@ -5,6 +5,8 @@ import java.lang.instrument.Instrumentation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.util.*;
@@ -19,6 +21,18 @@ public class Bootstrap {
     private static Instrumentation inst;
     private static final Map<Class, Object> plugins = new HashMap<Class, Object>();
     private static final ESCLogger logger = ESCLogger.getLogger(Bootstrap.class, (DumpRootResolverAgent.VERBOSE ? Level.FINE : ESCLogger.ESC_LOG_LEVEL));
+
+    static class PluginJarInfo {
+        final String jarPath;
+        final List<String> pluginId;
+        final String version;
+
+        PluginJarInfo(String jarPath, List<String> pluginId, String version) {
+            this.jarPath = jarPath;
+            this.pluginId = pluginId;
+            this.version = version;
+        }
+    }
 
     private static int JAVA_VERSION;
     static  {
@@ -114,8 +128,118 @@ public class Bootstrap {
         return true;
     }
 
+    /**
+     * Extract Plugin-Id from JAR manifest attributes.
+     * Falls back to extracting from Entry-Points if Plugin-Id is not present.
+     */
+    static List<String> extractPluginId(Attributes attrs) {
+        if (attrs == null) {
+            return Collections.emptyList();
+        }
+        String pluginId = attrs.getValue("Plugin-Id");
+        if (pluginId != null) {
+            return Collections.singletonList(pluginId);
+        }
+        // Fallback: extract from Entry-Points (EnhancerPlugin_XXX -> XXX)
+        // Example: com.netcracker.profiler.instrument.enhancement.EnhancerPlugin_activemq
+        String entryPoints = attrs.getValue("Entry-Points");
+        List<String> result = new ArrayList<>();
+        if (entryPoints != null) {
+            for (String entry : entryPoints.split("\\s+")) {
+                int idx = entry.lastIndexOf("EnhancerPlugin_");
+                if (idx >= 0) {
+                    String suffix = entry.substring(idx + "EnhancerPlugin_".length());
+                    if (!suffix.isEmpty()) {
+                        result.add(suffix);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Read Plugin-Id and Implementation-Version from a JAR file.
+     */
+    private static PluginJarInfo readPluginJarInfo(String jarPath) {
+        try (JarInputStream jis = new JarInputStream(Files.newInputStream(Paths.get(jarPath)))) {
+            Manifest man = jis.getManifest();
+            if (man == null) {
+                return null;
+            }
+            Attributes attrs = man.getMainAttributes();
+            List<String> pluginId = extractPluginId(attrs);
+            if (pluginId.isEmpty()) {
+                return null;
+            }
+            String version = attrs.getValue("Implementation-Version");
+            return new PluginJarInfo(jarPath, pluginId, version);
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "Profiler: unable to read manifest from " + jarPath, e);
+            return null;
+        }
+    }
+
+    /**
+     * Check for duplicate Plugin-Ids and exclude all duplicates from loading.
+     * JARs with unique Plugin-Id are loaded normally.
+     * JARs with duplicate Plugin-Id are skipped and a warning is logged.
+     */
+    private static List<String> deduplicatePlugins(List<String> plugins) {
+        // Collect info for JAR files with Plugin-Id
+        Map<String, List<PluginJarInfo>> byPluginId = new LinkedHashMap<String, List<PluginJarInfo>>();
+
+        List<String> result = new ArrayList<String>();
+
+        for (String jarPath : plugins) {
+            PluginJarInfo info = readPluginJarInfo(jarPath);
+            if (info != null) {
+                for (String pluginId : info.pluginId) {
+                    byPluginId.computeIfAbsent(pluginId, k -> new ArrayList<>())
+                            .add(info);
+                }
+            } else if (!jarPath.endsWith(".jar")) {
+                // E.g. .class explicitly passed from the command line
+                result.add(jarPath);
+            }
+        }
+
+        Set<String> problematicJars = new HashSet<>();
+        // Detect problematic jars: they have plugins with overlapping ids
+        String lib = new File(DumpRootResolverAgent.PROFILER_HOME).getAbsolutePath();
+        for (Map.Entry<String, List<PluginJarInfo>> entry : byPluginId.entrySet()) {
+            List<PluginJarInfo> jars = entry.getValue();
+            if (jars.size() == 1) {
+                // If the plugin is included in a single jar only, add the jar to the resulting list
+                // It might be removed later if there's an overlap with another plugin id
+                if (!problematicJars.contains(jars.get(0).jarPath)) {
+                    result.add(jars.get(0).jarPath);
+                }
+            } else {
+                // Duplicate Plugin-Id found, skip ALL of them and log warning
+                StringBuilder sb = new StringBuilder();
+                sb.append("Profiler: Duplicate Plugin-Id '").append(entry.getKey()).append("' found in multiple JARs. ");
+                sb.append("None of them will be loaded. Please remove the duplicate JAR(s):\n");
+                for (PluginJarInfo jar : jars) {
+                    if (problematicJars.add(jar.jarPath)) {
+                        // If the jar was n
+                        result.remove(jar.jarPath);
+                    }
+                    sb.append("  - ").append(jar.jarPath.replace(lib, "$esc"));
+                    if (jar.version != null) {
+                        sb.append(" (version=").append(jar.version).append(")");
+                    }
+                    sb.append("\n");
+                }
+                logger.warning(sb.toString());
+            }
+        }
+        return result;
+    }
+
     private static void loadPlugins(List<String> plugins) {
-        List<String> ordered = sortPlugins(plugins);
+        List<String> deduplicated = deduplicatePlugins(plugins);
+        List<String> ordered = sortPlugins(deduplicated);
         List<Object> impls = new ArrayList<Object>();
         String lib = new File(DumpRootResolverAgent.PROFILER_HOME).getAbsolutePath();
 

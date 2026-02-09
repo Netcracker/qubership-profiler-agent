@@ -7,6 +7,7 @@ tasks.jar {
     manifest {
         attributes["Entry-Points"] = "com.netcracker.profiler.instrument.enhancement.EnhancerPlugin_${project.name}"
         attributes["Esc-Dependencies"] = "instrumenter"
+        attributes["Plugin-Id"] = project.name
     }
 }
 
