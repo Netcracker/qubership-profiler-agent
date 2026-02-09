@@ -1,5 +1,5 @@
 # build
-FROM golang:1.25.6-alpine3.22@sha256:2dcdadabb270f820015c81a92dea242504351af86f8baaa60d234685ba083015 as builder
+FROM golang:1.25.7-alpine3.22@sha256:20c8a94b529a9a127b6990c5e03537bd71ce3ebfdd744741e96168ac338bd862 as builder
 
 WORKDIR /generator
 
