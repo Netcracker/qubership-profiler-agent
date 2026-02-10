@@ -16,8 +16,8 @@ ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=3.1.1
 ENV INSTALLER_CLOUD="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip"
 
 RUN apk --no-cache add \
-     unzip \
-     curl \
+        unzip \
+        curl \
     && rm -rf /var/cache/apk/*
 
 # Use repository root structure to match Go module paths
