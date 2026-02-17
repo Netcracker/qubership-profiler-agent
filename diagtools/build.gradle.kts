@@ -1,6 +1,24 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+
 plugins {
     id("build-logic.java-published-library")
     id("com.google.osdetector")
+    kotlin("jvm")
+    id("build-logic.test-junit5")
+}
+
+tasks.withType<KotlinJvmCompile>().configureEach {
+    compilerOptions {
+        val jdkRelease = buildParameters.targetJavaVersion.let {
+            when {
+                it < 9 -> "1.8"
+                else -> it.toString()
+            }
+        }
+        freeCompilerArgs.add("-Xjdk-release=$jdkRelease")
+        jvmTarget = JvmTarget.fromTarget(jdkRelease)
+    }
 }
 
 class TargetPlatform(val os: OperatingSystemFamily, val architecture: MachineArchitecture) {
@@ -89,4 +107,24 @@ for ((platform, platformId) in platforms) {
             artifact(packageTask)
         }
     }
+}
+
+dependencies {
+    testImplementation(kotlin("stdlib"))
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation(projects.testkit)
+}
+
+val linuxPlatformId = when (osdetector.arch) {
+    "aarch_64" -> "linux-arm64"
+    else -> "linux-amd64"
+}
+
+tasks.test {
+    dependsOn(buildAll)
+    jvmArgumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf("-Ddiagtools.binary=${layout.buildDirectory.file("diagtools-$linuxPlatformId").get().asFile.absolutePath}")
+        }
+    )
 }
