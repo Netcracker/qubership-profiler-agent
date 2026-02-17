@@ -131,6 +131,7 @@ val installerZipFiles = configurations.resolvable("installerZipFiles") {
 dependencies {
     testAppJarElements(projects.testApp)
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation(projects.testkit)
     testImplementation(projects.mockCollector)
     testImplementation(projects.protoDefinition)
     installerZipElements(projects.boot)

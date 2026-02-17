@@ -7,7 +7,7 @@ require (
 	github.com/hashicorp/consul/api v1.33.2
 	github.com/shirou/gopsutil/v4 v4.26.1
 	github.com/stretchr/testify v1.11.1
-	github.com/vlsi/jattach/v2 v2.2.1
+	github.com/vlsi/jattach/v2 v2.2.2
 	golang.org/x/sys v0.40.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
