@@ -250,7 +250,13 @@ func TestDiagFolder(t *testing.T) {
 }
 
 func TestScanInterval(t *testing.T) {
+	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "")
+	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "")
 	assert.Equal(t, 1*time.Minute, ScanInterval(testCtx)) // default interval
+
+	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "20")
+	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "")
+	assert.Equal(t, 20*time.Second, ScanInterval(testCtx)) // fallback to dump interval (seconds without suffix)
 
 	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "10s")
 	assert.Equal(t, 10*time.Second, ScanInterval(testCtx))
@@ -267,6 +273,8 @@ func TestScanInterval(t *testing.T) {
 	os.Setenv(NcDiagScanInterval, "2m")
 	assert.Equal(t, 2*time.Minute, ScanInterval(testCtx))
 	assert.Equal(t, "DIAGNOSTIC_SCAN_INTERVAL", NcDiagScanInterval)
+	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "")
+	os.Setenv("DIAGNOSTIC_SCAN_INTERVAL", "")
 }
 
 func TestDumpFolder(t *testing.T) {
@@ -279,7 +287,11 @@ func TestDumpFolder(t *testing.T) {
 }
 
 func TestDumpInterval(t *testing.T) {
+	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "")
 	assert.Equal(t, 1*time.Minute, DumpInterval(testCtx)) // default interval
+
+	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "20")
+	assert.Equal(t, 20*time.Second, DumpInterval(testCtx)) // integer value means seconds
 
 	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "10s")
 	assert.Equal(t, 10*time.Second, DumpInterval(testCtx))
@@ -296,6 +308,7 @@ func TestDumpInterval(t *testing.T) {
 	os.Setenv(NcDiagDumpInterval, "6m")
 	assert.Equal(t, 6*time.Minute, DumpInterval(testCtx))
 	assert.Equal(t, "DIAGNOSTIC_DUMP_INTERVAL", NcDiagDumpInterval)
+	os.Setenv("DIAGNOSTIC_DUMP_INTERVAL", "")
 }
 
 func TestLogFolder(t *testing.T) {

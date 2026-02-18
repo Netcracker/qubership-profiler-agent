@@ -323,7 +323,7 @@ func DumpInterval(ctx context.Context) time.Duration {
 		dumpIntervalEnv = def
 	}
 
-	dumpInterval, err := time.ParseDuration(dumpIntervalEnv)
+	dumpInterval, err := parseDurationOrSeconds(dumpIntervalEnv)
 	if err != nil {
 		log.Error(ctx, err, "Parsing dump interval failed.  Will use default value: 2 minute")
 		dumpInterval = 2 * time.Minute
@@ -334,15 +334,35 @@ func DumpInterval(ctx context.Context) time.Duration {
 func ScanInterval(ctx context.Context) time.Duration {
 	scanIntervalEnv := os.Getenv(NcDiagScanInterval)
 	if scanIntervalEnv == "" {
-		def := DefaultNcDiagScanInterval
-		log.Infof(ctx, "%s is empty. Will use default value '%s'", NcDiagScanInterval, def)
-		scanIntervalEnv = DefaultNcDiagScanInterval
+		dumpIntervalEnv := os.Getenv(NcDiagDumpInterval)
+		if dumpIntervalEnv != "" {
+			log.Infof(ctx, "%s is empty. Will use '%s' value '%s'", NcDiagScanInterval, NcDiagDumpInterval, dumpIntervalEnv)
+			scanIntervalEnv = dumpIntervalEnv
+		} else {
+			def := DefaultNcDiagScanInterval
+			log.Infof(ctx, "%s is empty. Will use default value '%s'", NcDiagScanInterval, def)
+			scanIntervalEnv = DefaultNcDiagScanInterval
+		}
 	}
 
-	scanInterval, err := time.ParseDuration(scanIntervalEnv)
+	scanInterval, err := parseDurationOrSeconds(scanIntervalEnv)
 	if err != nil {
 		log.Error(ctx, err, "Parsing scan interval failed. Will use default value: 3 minutes")
 		scanInterval = 3 * time.Minute
 	}
 	return scanInterval
+}
+
+func parseDurationOrSeconds(interval string) (time.Duration, error) {
+	duration, err := time.ParseDuration(interval)
+	if err == nil {
+		return duration, nil
+	}
+
+	seconds, errSeconds := strconv.Atoi(interval)
+	if errSeconds == nil {
+		return time.Duration(seconds) * time.Second, nil
+	}
+
+	return 0, err
 }
