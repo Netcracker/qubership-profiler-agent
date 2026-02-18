@@ -91,7 +91,7 @@ fi
 
 if [[ -n "${NC_DIAGNOSTIC_CUSTOM_CONFIG}" ]]; then
   echo "${NC_DIAGNOSTIC_CUSTOM_CONFIG}" > "${NC_DIAGNOSTIC_FOLDER}/config/default/custom-config.xml"
-elif [ -n "${config}" ] ; then
+elif [ -n "${config}" ] && [ "${NC_DIAGNOSTIC_MODE}" != "off" ] ; then
   "${NC_DIAGNOSTIC_FOLDER}"/diagtools "${config}" "${NC_DIAGNOSTIC_FOLDER}/properties" \
       esc.config \
       NC_DIAGNOSTIC_ESC_ENABLED \
