@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <configuration scan="true" scanPeriod="30 seconds">
   <!--<appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">-->
-    <!--<file>logs/execution-statistics-collector-${com.netcracker.profier.serverName}.log</file>-->
+    <!--<file>logs/execution-statistics-collector-${com.netcracker.profiler.serverName}.log</file>-->
     <!--<Append>true</Append>-->
     <!--<rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">-->
-      <!--<FileNamePattern>logs/execution-statistics-collector-${com.netcracker.profier.serverName}.log.%i.zip</FileNamePattern>-->
+      <!--<FileNamePattern>logs/execution-statistics-collector-${com.netcracker.profiler.serverName}.log.%i.zip</FileNamePattern>-->
       <!--<MinIndex>1</MinIndex>-->
       <!--<MaxIndex>5</MaxIndex>-->
     <!--</rollingPolicy>-->
@@ -18,7 +18,14 @@
 
   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <layout class="ch.qos.logback.classic.PatternLayout">
-      <Pattern>%date %relative %logger{10} %msg%n</Pattern>
+      <if condition='isDefined("NC_DIAGNOSTIC_MODE")'>
+        <then>
+          <Pattern>[%d{"yyyy-MM-dd'T'HH:mm:ss.SSS"}] [%level] [request_id=-] [tenant_id=-] [thread=%thread] [class=%logger] %msg%n</Pattern>
+        </then>
+        <else>
+          <Pattern>%d{YYYY-MM-dd HH:mm:ss,SSS} %-5level [thread=%thread] [class=%logger]- %msg%n</Pattern>
+        </else>
+      </if>
     </layout>
   </appender>
 
