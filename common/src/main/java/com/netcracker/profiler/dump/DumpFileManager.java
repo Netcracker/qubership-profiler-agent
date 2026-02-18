@@ -84,7 +84,7 @@ public class DumpFileManager implements Closeable {
             if (forceScanFolder) {
                 log.info("DumpFileManager is forced to read dump directory");
             }
-            log.info("Read dump root directory {}", root);
+            log.debug("Read dump root directory {}", root);
             dumpFileLog.cleanup(null);
             DumpFilesFinder dumpFilesFinder = new DumpFilesFinder();
             Queue<DumpFile> dumpFiles = dumpFilesFinder.search(this.root);
@@ -156,10 +156,10 @@ public class DumpFileManager implements Closeable {
 
     public synchronized void tryPruneOldFiles() {
         if (dumpRootsOrdered.isEmpty()) {
-            log.info("No files registered. Nothing to delete on pruning. Will wait for the next rotating");
+            log.debug("No files registered. Nothing to delete on pruning. Will wait for the next rotating");
             return;
         }
-        log.info("Try prune dump files. Max age: {}; max size: {}", maxAgeMillis, maxSize);
+        log.debug("Try prune dump files. Max age: {}; max size: {}", maxAgeMillis, maxSize);
         // Try delete by modification date
         if (maxAgeMillis != 0L) {
             DumpFile elderFile = getFirstFile();
@@ -176,6 +176,7 @@ public class DumpFileManager implements Closeable {
         // Try delete by size
         long currentSize = getCurrentSize();
 
+        boolean hasDeletes = false;
         while (maxSize != 0L && currentSize > maxSize) {
             // TODO it should be possible to delete dir completely if there are no low priority files
             DumpFile fileToDelete = getFirstFile();
@@ -184,11 +185,16 @@ public class DumpFileManager implements Closeable {
                         , currentSize);
                 return;
             }
+            hasDeletes = true;
             long deletedSize = deleteDumpFile(fileToDelete);
             currentSize -= deletedSize;
         }
 
-        log.info("Dump files size after pruning is {}", currentSize);
+        if (hasDeletes) {
+            log.info("Dump files size after pruning is {}", currentSize);
+        } else {
+            log.debug("Dump files size after pruning is {}", currentSize);
+        }
     }
 
     /**
