@@ -718,8 +718,6 @@ window.isDump = isDump;
             /** @const */
             var C_DURATION  = ESCConstants.C_DURATION ;
             /** @const */
-            var C_NON_BLOCKING  = ESCConstants.C_NON_BLOCKING ;
-            /** @const */
             var C_CPU_TIME  = ESCConstants.C_CPU_TIME ;
             /** @const */
             var C_QUEUE_WAIT_TIME  = ESCConstants.C_QUEUE_WAIT_TIME ;
@@ -2104,7 +2102,6 @@ window.isDump = isDump;
                 gridColumns = [
                     {id:"date", name:"Start Timestamp", field:C_TIME, behavior:"select", width:135, resizable:true, formatter: format_date, sortable:true},
                     {id:"dur", name:"Duration", field:C_DURATION, width:90, resizable:true, cssClass:'nmbr', formatter: format_duration, sortable:true},
-                    //{id:"non_block", name:"Idle Time", field:C_NON_BLOCKING, width:90, resizable:true, cssClass:'nmbr', formatter: format_duration, sortable:true},
                     {id:"cpu", name:"CPU time", field:C_CPU_TIME, width:70, resizable:true, cssClass:'nmbr', formatter: format_cpu_time, sortable:true},
                     {id:"susp", name:"Suspension", field:C_SUSPENSION, width:60, resizable:true, cssClass:'nmbr', formatter: format_suspension, sortable:true},
                     {id:"que", name:"Queue wait time", field:C_QUEUE_WAIT_TIME, width:60, resizable:true, cssClass:'nmbr', formatter: format_queue_wait, sortable:true},
