@@ -20,7 +20,7 @@ RUN cd apps/maintenance && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /workspace/maintenance_job main.go
 
 # Use alpine tiny images as a base
-FROM alpine:3.22.1
+FROM alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1
 
 ENV USER_UID=2001 \
     USER_NAME=maintenance_job \

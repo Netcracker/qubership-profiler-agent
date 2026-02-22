@@ -4,7 +4,7 @@ services:
 
   # DATABASES
   postgres:
-    image: postgres:15.3-alpine
+    image: postgres:15.3-alpine@sha256:4ca65a9209f164bdb30f715ac2ed9182cc0737d0f0a549031b3c1b0b7e652f3a
     container_name: ${PG_CONTAINER_NAME:-postgres}
     hostname: postgres
     environment:
@@ -19,7 +19,7 @@ services:
      - ${PG_INIT_PATH:-./postgres/init}:/docker-entrypoint-initdb.d
 
   postgres_db:
-    image: postgres:latest
+    image: postgres:latest@sha256:b6b4d0b75c699a2c94dfc5a94fe09f38630f3b67ab0e1653ede1b7ac8e13c197
     hostname: postgres-db
     container_name: postgres
     expose:
@@ -35,7 +35,7 @@ services:
 
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     container_name: minio
     ports:
       - "9000:9000"  # MinIO API port
@@ -48,7 +48,7 @@ services:
   # OBSERVABILITY
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:latest@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702
     container_name: prometheus
     ports:
       - "9090:9090"
@@ -60,13 +60,13 @@ services:
       - "9100:9100"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:latest@sha256:9e1e77ade304069aee3196e9a4f210830e96e80ce9a2640891eccc324b152faf
     container_name: grafana
     ports:
       - "3000:3000"
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:latest@sha256:ab6f1a1f0fb49ea08bcd19f6b84f6081d0d44b364b6de148e1798eb5816bacac
     container_name: jaeger
     ports:
       - "4317:4317"
