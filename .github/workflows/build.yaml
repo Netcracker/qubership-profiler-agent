@@ -52,6 +52,18 @@ jobs:
         with:
           multi-cache-enabled: false
           arguments: --scan --no-parallel build
+      - name: Upload it-e2e diagnostics
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: ${{ failure() }}
+        with:
+          name: it-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            it-e2e/playwright-report/**
+            it-e2e/test-results/**
+            it-e2e/build/test-dump/**
+            it-e2e/config/**
       - name: Publish snapshots
         uses: burrunan/gradle-cache-action@663fbad34e03c8f12b27f4999ac46e3d90f87eca # v3.0.1
         if: ${{ env.CENTRAL_PORTAL_USERNAME != '' }}

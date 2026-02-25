@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiler-configuration>
+<!--    <store-transformed-classes/>-->
+    <ruleset>
+        <rule>
+            <class>com.netcracker.profilerTest.testapp.Main</class>
+            <method>main</method>
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>com.netcracker.profilerTest.testapp.Main</class>
+            <method>flushProfiler</method>
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>com.netcracker.profilerTest.testapp.Main</class>
+            <method>test</method>
+            <log-parameter name="main.test.arg" index="false">0</log-parameter>
+        </rule>
+        <rule>
+            <class>com.netcracker.profilerTest.testapp.Main</class>
+        </rule>
+    </ruleset>
+</profiler-configuration>

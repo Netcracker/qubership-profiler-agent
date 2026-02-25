@@ -6,22 +6,27 @@ import com.netcracker.profiler.io.ParamReader;
 import com.netcracker.profiler.io.ParamReaderFileFactory;
 import com.netcracker.profiler.sax.raw.ClobReaderFlyweight;
 import com.netcracker.profiler.sax.raw.ClobReaderFlyweightFile;
+import com.netcracker.profiler.sax.raw.RepositoryVisitor;
 import com.netcracker.profiler.sax.raw.SuspendLogVisitor;
+
+import com.google.inject.assistedinject.Assisted;
+import com.google.inject.assistedinject.AssistedInject;
 
 import java.io.File;
 import java.io.IOException;
-
-import jakarta.inject.Inject;
 
 public class ProfilerTraceReaderFile extends ProfilerTraceReader {
 
     private final File dumpRoot;
 
-    @Inject
+    @AssistedInject
+    @SuppressWarnings("UnnecessaryQualifier") // Qualifier IS needed: Guice injects File via @DumpRootLocation binding
     public ProfilerTraceReaderFile(
+            @Assisted("rv") RepositoryVisitor rv,
+            @Assisted("rootReference") String rootReference,
             @DumpRootLocation File dumpRoot,
             ParamReaderFileFactory paramReaderFileFactory) {
-        super(null, null, paramReaderFileFactory);
+        super(rv, rootReference, paramReaderFileFactory);
         this.dumpRoot = dumpRoot;
     }
 

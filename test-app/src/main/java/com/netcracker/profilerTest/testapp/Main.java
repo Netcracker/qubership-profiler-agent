@@ -1,5 +1,8 @@
 package com.netcracker.profilerTest.testapp;
 
+import com.netcracker.profiler.agent.*;
+
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 public class Main {
@@ -20,21 +23,50 @@ public class Main {
         return sb.toString();
     }
 
-    public static void main(String[] args) throws InterruptedException {
-        for (int i = 0; i < 5000; i++) {
-            test("Hello, world!");
-        }
-        System.out.println(test("Hello, world!"));
+    /**
+     * The actual profiled workload.  This method is large enough to be
+     * instrumented by the profiler (unlike {@code main} which is kept
+     * trivially small on purpose so the profiler skips it).
+     *
+     * <p>Because the profiler does not instrument {@code main}, this method
+     * becomes the top-level "request" in the call tree.  It completes
+     * normally, so by the time {@link #flushProfiler()} exchanges the
+     * buffer the call is fully recorded (enter + exit).
+     */
+    public static void doWork(int iterations) throws InterruptedException {
+        System.out.println("hello, world!");
         System.out.println("Waiting for profiler agent to initialize and send data...");
-        // Give profiler agent time to initialize and connect to collector
-        int delay = 5;
-        if (args.length > 0) {
-            try {
-                delay = Integer.parseInt(args[0]);
-            } catch (NumberFormatException e) {
-                throw new RuntimeException("The first argument should be a delay in seconds", e);
-            }
+        for (int i = 0; i < iterations; i++) {
+            test("Hello, world!");
+            // Sleep so this call has visible duration (>1s) in the profiler
+            Thread.sleep(TimeUnit.SECONDS.toMillis(1));
         }
-        Thread.sleep(TimeUnit.SECONDS.toMillis(delay));
+    }
+
+    /**
+     * Flushes the current thread's profiler buffer and waits for the
+     * dumper to write the data to disk.
+     */
+    public static void flushProfiler() throws InterruptedException {
+        LocalState state = Profiler.getState();
+        Profiler.exchangeBuffer(state.buffer);
+        DumperPlugin dumper = Bootstrap.getPlugin(DumperPlugin.class);
+        Duration timeout = Duration.ofSeconds(7);
+        if (dumper instanceof DumperPlugin_07) {
+            DumperPlugin_07 dumper7 = (DumperPlugin_07) dumper;
+            // Give the dumper thread time to write the flushed data.
+            // The dump interval defaults to 5s, so we need to wait at least that long.
+            dumper7.gracefulShutdown(timeout.toMillis());
+        } else {
+            Thread.sleep(timeout.toMillis());
+        }
+    }
+
+    // Keep main trivially small so the profiler does NOT instrument it.
+    // This makes doWork the top-level profiled call.
+    public static void main(String[] args) throws Exception {
+        int iterations = args.length > 0 ? Integer.parseInt(args[0]) : 10;
+        doWork(iterations);
+        flushProfiler();
     }
 }

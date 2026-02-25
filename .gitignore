@@ -20,6 +20,8 @@ node_modules/
 target/
 /build/
 /*/build/
+/.kotlin/
+/*/.kotlin/
 /out/
 /*/out/
 pom.xml.tag

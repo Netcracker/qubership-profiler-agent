@@ -7,6 +7,9 @@ const ESC_REGEX = {
 
 export function escapeHTML(s) {
     if (!s) return s;
+    if (typeof s !== 'string') {
+        s = String(s);
+    }
     return s.replace(ESC_REGEX.AMP, '&amp;').replace(ESC_REGEX.LT, '&lt;').replace(ESC_REGEX.GT, '&gt;');
 };
 

@@ -12,6 +12,7 @@ import com.netcracker.profiler.io.CallReader;
 import com.netcracker.profiler.io.SuspendLog;
 import com.netcracker.profiler.io.call.CallDataReader;
 import com.netcracker.profiler.io.call.CallDataReaderFactory;
+import com.netcracker.profiler.io.call.CallDataReader_00;
 import com.netcracker.profiler.io.call.CallDataReader_03;
 import com.netcracker.profiler.io.call.CallDataReader_04;
 
@@ -26,6 +27,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import jakarta.inject.Provider;
+
 class MockCallReader extends CallReader {
     public MockCallReader(CallListener callback, CallFilterer cf) {
         super(callback, cf);
@@ -33,10 +36,10 @@ class MockCallReader extends CallReader {
 
     @Override
     protected CallDataReaderFactory getCallDataReaderFactory() {
-        Map<Integer, CallDataReader> readers = new HashMap<>();
-        readers.put(3, new CallDataReader_03());
-        readers.put(4, new CallDataReader_04());
-        return new CallDataReaderFactory(readers);
+        Map<Integer, Provider<CallDataReader>> readers = new HashMap<>();
+        readers.put(3, CallDataReader_03::new);
+        readers.put(4, CallDataReader_04::new);
+        return new CallDataReaderFactory(readers, CallDataReader_00::new);
     }
 
     @Override
