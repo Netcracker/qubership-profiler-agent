@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  },
+  "scripts": {
+    "playwright": "playwright"
+  }
+}
