@@ -68,6 +68,19 @@ jobs:
           # We need to skip blank lines as GitHub Actions might fail to process them as well
           cat .github/linters/super-linter.env .github/super-linter.env | grep -v '^#' | grep -vE '^\s*$' >> "$GITHUB_ENV" || true
 
+      - name: Install node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: it-e2e/yarn.lock
+
+      - name: Install it-e2e dependencies
+        # SuperLiner doesn't install JS dependencies before executing linters, so we need to do it manually
+        shell: bash
+        # language=bash
+        run: yarn --cwd it-e2e install --fronzen-lockfile
+
       - name: Lint Code Base
         uses: super-linter/super-linter@61abc07d755095a68f4987d1c2c3d1d64408f1f9 # v8.5.0
         env:

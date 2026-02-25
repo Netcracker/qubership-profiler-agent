@@ -21,6 +21,7 @@ dependencies {
     runtimeOnly("at.yawk.lz4:lz4-java") {
         because("org.openjdk.jmc:common needs lz4 decompressor, and we use at.yawk.lz4:lz4-java to fix CVE-2025-12183")
     }
+    testImplementation("io.mockk:mockk")
     testImplementation("org.mockito:mockito-core")
     testImplementation(projects.testkit)
 }

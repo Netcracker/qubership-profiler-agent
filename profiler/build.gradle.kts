@@ -34,6 +34,15 @@ val jsSinglePageResources = configurations.resolvable("jsSinglePageResources") {
     }
 }
 
+val warElements = configurations.consumable("warElements") {
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, Usage.JAVA_RUNTIME)
+        attribute(Category.CATEGORY_ATTRIBUTE, Category.LIBRARY)
+        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, "war")
+    }
+    outgoing.artifact(tasks.war)
+}
+
 dependencies {
     implementation(projects.warLib) {
         attributes {
@@ -79,8 +88,4 @@ val runWar by tasks.registering(JavaExec::class) {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Runs this project as a WAR application"
     classpath = files(tasks.war)
-    // Tomcat needs this when running with Java 9+
-    jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED")
-    jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
-    jvmArgs("--add-opens=java.rmi/sun.rmi.transport=ALL-UNNAMED")
 }

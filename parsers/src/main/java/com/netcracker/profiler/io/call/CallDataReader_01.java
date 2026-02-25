@@ -6,9 +6,10 @@ import com.netcracker.profiler.io.Call;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.List;
 
 public class CallDataReader_01 extends CallDataReaderBase {
-    protected ArrayList<String> threadNames = new ArrayList<String>();
+    protected List<String> threadNames = new ArrayList<>();
 
     public void read(Call dst, DataInputStreamEx calls, BitSet requiredIds) throws IOException {
         dst.time = calls.readVarIntZigZag();

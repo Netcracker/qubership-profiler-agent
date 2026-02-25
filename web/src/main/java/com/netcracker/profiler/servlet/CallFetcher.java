@@ -8,9 +8,7 @@ import com.netcracker.profiler.util.TimeHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.URLEncoder;
 import java.util.*;
@@ -53,64 +51,65 @@ public class CallFetcher extends jakarta.servlet.http.HttpServlet {
         if (isExternalScript){
             response.setBufferSize(RESPONSE_BUFFER_SIZE);
             response.setContentType("application/x-javascript; charset=utf-8");
+            response.setCharacterEncoding("utf-8");
         }
 
-        final PrintWriter out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), "utf-8"), 10240), false);
         TemporalRequestParams temporal = TemporalUtils.parseTemporal(request);
 
-        String callback = request.getParameter("callback");
-        if (callback == null) callback = isExternalScript?"dataReceived":"callsdata";
-        callback = URLEncoder.encode(callback, "UTF-8");
-        out.print(callback);
-        out.print('(');
-        final String requestId = URLEncoder.encode(request.getParameter("id"), "UTF-8");
-        out.print(requestId);
-        out.print(", function(){");
-        printStartupInfo(requestId, out, temporal);
+        try (PrintWriter out = response.getWriter()) {
+            String callback = request.getParameter("callback");
+            if (callback == null) callback = isExternalScript?"dataReceived":"callsdata";
+            callback = URLEncoder.encode(callback, "UTF-8");
+            out.print(callback);
+            out.print('(');
+            final String requestId = URLEncoder.encode(request.getParameter("id"), "UTF-8");
+            out.print(requestId);
+            out.print(", function(){");
+            printStartupInfo(requestId, out, temporal);
 
-        List<Throwable> exceptions = new LinkedList<Throwable>();
-        try {
-            List<ICallReader> readers = collectCallReaders(request, out, temporal);
+            List<Throwable> exceptions = new LinkedList<Throwable>();
+            try {
+                List<ICallReader> readers = collectCallReaders(request, out, temporal);
 
-            out.print("var er=isDump.addProperty(\"");
-            out.print(isReadFromDump);
-            out.print("\"");
-            out.println(");");
+                out.print("var er=isDump.addProperty(\"");
+                out.print(isReadFromDump);
+                out.print("\"");
+                out.println(");");
 
-            for (ICallReader cr : readers) {
-                cr.find();
-                exceptions.addAll(cr.getExceptions());
+                for (ICallReader cr : readers) {
+                    cr.find();
+                    exceptions.addAll(cr.getExceptions());
+                }
+            } catch (Exception e){
+                exceptions.add(e);
+                log.error("Failed to read profiler calls: ", e);
             }
-        } catch (Exception e){
-            exceptions.add(e);
-            log.error("Failed to read profiler calls: ", e);
-        }
 
-        StringBuilder sb = new StringBuilder();
-        for(Throwable t: exceptions){
-            log.error("Reporting the following exception: ", t);
-            sb.append(t.getMessage());
-            sb.append("\n");
-        }
-        if(sb.length() > 0){
-            out.print("app.notify.notify('create', 'jqn-error', {title:'Errors occurred',text:\"");
-            JSHelper.escapeJS(out, sb.toString());
-            out.print("\"}, {expires:false, custom: true});\n");
-        }
+            StringBuilder sb = new StringBuilder();
+            for(Throwable t: exceptions){
+                log.error("Reporting the following exception: ", t);
+                sb.append(t.getMessage());
+                sb.append("\n");
+            }
+            if(sb.length() > 0){
+                out.print("app.notify.notify('create', 'jqn-error', {title:'Errors occurred',text:\"");
+                JSHelper.escapeJS(out, sb.toString());
+                out.print("\"}, {expires:false, custom: true});\n");
+            }
 
-        out.print("},{timerange:{");
-        out.print("min:"); out.print(temporal.timerangeFrom);
-        out.print(",max:"); out.print(temporal.timerangeTo);
-        out.print(",autoUpdate:"); out.print(temporal.autoUpdate);
-        out.print("}, duration:{");
-        out.print("min:"); out.print(temporal.durationFrom);
-        if (temporal.durationTo!=Long.MAX_VALUE){
-            out.print(",max:"); out.print(temporal.durationTo);
+            out.print("},{timerange:{");
+            out.print("min:"); out.print(temporal.timerangeFrom);
+            out.print(",max:"); out.print(temporal.timerangeTo);
+            out.print(",autoUpdate:"); out.print(temporal.autoUpdate);
+            out.print("}, duration:{");
+            out.print("min:"); out.print(temporal.durationFrom);
+            if (temporal.durationTo!=Long.MAX_VALUE){
+                out.print(",max:"); out.print(temporal.durationTo);
+            }
+            out.print("},availableServices:");
+            printAvailableServices(out);
+            out.print("});");
         }
-        out.print("},availableServices:");
-        printAvailableServices(out);
-        out.print("});");
-        out.flush();
     }
 
     protected void printStartupInfo(String requestId, PrintWriter out, TemporalRequestParams temporal) throws IOException {
