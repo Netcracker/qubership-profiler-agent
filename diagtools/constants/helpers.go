@@ -161,6 +161,11 @@ func LongListeningArgs() string {
 	return ""
 }
 
+// IsGcLogEnabled is GC log collection enabled? (every scan interval, by scheduler)
+func IsGcLogEnabled(ctx context.Context) bool {
+	return getProperty(ctx, NcDiagGcEnabled)
+}
+
 // IsTopDumpEnabled is top dump collection enabled?  (every minute, by scheduler)
 func IsTopDumpEnabled(ctx context.Context) bool {
 	return getProperty(ctx, NcDiagTopEnabled)

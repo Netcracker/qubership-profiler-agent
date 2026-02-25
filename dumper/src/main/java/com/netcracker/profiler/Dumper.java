@@ -176,7 +176,7 @@ public class Dumper implements IDumper, DumperConstants {
     private boolean localDumpEnabled;
     private boolean remoteConfigured;
     private boolean isBlacklistedNS = false;
-    private GCDumper gcDumper;
+
     private volatile boolean initialized = false;
 
     String cloudNamespace = VariableFinder.getNamespace();
@@ -443,10 +443,7 @@ public class Dumper implements IDumper, DumperConstants {
             dumpFileManager.close();
             dumpFileManager = null;
         }
-        if (gcDumper != null) {
-            gcDumper.close();
-            gcDumper = null;
-        }
+
         log.debug("Closed ESC dump files");
         if (client != null) {
             try {
@@ -501,7 +498,7 @@ public class Dumper implements IDumper, DumperConstants {
             isBlacklistedNS = true;
             throw ble;
         }
-        gcDumper = new GCDumper(gcOs);
+
 
         for (int i = 0, outputStreamsSize = outputStreams.size(); i < outputStreamsSize; i++) {
             ICompressedLocalAndRemoteOutputStream stream = outputStreams.get(i);
@@ -582,7 +579,7 @@ public class Dumper implements IDumper, DumperConstants {
                                 if (lastWrittenDictionaryTag < dictionary.size()) {
                                     dumpDictionary();
                                 }
-                                gcDumper.dumpGC();
+
                                 flushDumpFile();
                                 close();
                                 Object result = buffer.value[0];
@@ -615,8 +612,6 @@ public class Dumper implements IDumper, DumperConstants {
                 if (TimerCache.lastLoggedEvent != TimerCache.lastSuspendEvent) {
                     dumpSuspendLog();
                 }
-                gcDumper.dumpGC();
-
                 long t1 = System.nanoTime();
                 long t2 = System.nanoTime();
                 dumpTime += (t1 - t0) - (t2 - t1);

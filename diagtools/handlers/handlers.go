@@ -81,6 +81,17 @@ func HandleThreadDumpCmd(ctx context.Context) (err error) {
 	return
 }
 
+func HandleGcLogCmd(ctx context.Context, action *actions2.GcLogAction) (err error) {
+	if !constants.IsGcLogEnabled(ctx) {
+		log.Debug(ctx, "GC log collection is disabled")
+		return
+	}
+
+	log.Info(ctx, "start collecting GC logs")
+	err = action.CollectGcLogs(ctx)
+	return
+}
+
 func HandleScanCmd(ctx context.Context, args []string) (err error) {
 	// scan "${NC_DIAGNOSTIC_LOG_FOLDER}"/*.hprof* ./core* ./hs_err*
 	if len(args) == 0 {
@@ -113,6 +124,11 @@ func HandleScheduleCmd(baseCtx context.Context, logPath string) (err error) {
 	logIntervalTicker := time.NewTicker(logInterval)
 	defer logIntervalTicker.Stop()
 
+	gcLogAction, gcLogErr := actions2.CreateGcLogAction(baseCtx)
+	if gcLogErr != nil {
+		log.Error(baseCtx, gcLogErr, "failed to create GC log action, GC log collection will be skipped")
+	}
+
 	for {
 		select {
 		case <-dumpIntervalTicker.C:
@@ -140,6 +156,15 @@ func HandleScheduleCmd(baseCtx context.Context, logPath string) (err error) {
 				} else {
 					log.Info(ctx, "Scan request done")
 				}
+
+				if gcLogAction != nil {
+					gcErr := HandleGcLogCmd(ctx, gcLogAction)
+					if gcErr != nil {
+						log.Error(ctx, gcErr, "GC log collection failed")
+						err = errors.Join(err, gcErr)
+					}
+				}
+
 				return err
 			})
 		case <-logIntervalTicker.C:
