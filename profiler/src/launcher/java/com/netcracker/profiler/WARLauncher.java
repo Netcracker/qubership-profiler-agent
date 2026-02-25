@@ -210,14 +210,18 @@ public class WARLauncher {
             };
 
             URI uri = new URI("http://" + hostName + ":" + port);
-            try {
-                logger.info("Trying to open {} in default browser", uri.toString());
-                if(openWindowsNativeFailed(uri)){
-                    Class.forName("java.awt.Desktop");
-                    openBrowser(uri);
+            if (GraphicsEnvironment.isHeadless()) {
+                logger.info("Running in headless mode, please navigate your browser to {}", uri.toString());
+            } else {
+                try {
+                    logger.info("Trying to open {} in default browser", uri.toString());
+                    if(openWindowsNativeFailed(uri)){
+                        Class.forName("java.awt.Desktop");
+                        openBrowser(uri);
+                    }
+                } catch (ClassNotFoundException e) {
+                    logger.warn("Please, navigate your browser to {}", uri.toString());
                 }
-            } catch (ClassNotFoundException e) {
-                logger.warn("Please, navigate your browser to {}", uri.toString());
             }
 
             tomcat.getServer().await();
