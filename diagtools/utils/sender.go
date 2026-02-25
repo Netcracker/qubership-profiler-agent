@@ -234,6 +234,42 @@ func checkStatus(ctx context.Context, response *http.Response, fileName string) 
 	return fmt.Errorf("HTTP error while sending %s", fileName)
 }
 
+func DeleteRemoteFile(ctx context.Context, targetUrl string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, targetUrl, nil)
+	if err != nil {
+		log.Error(ctx, err, "failed to create DELETE request")
+		return err
+	}
+
+	client, err := FileClient(ctx)
+	if err != nil {
+		log.Error(ctx, err, "failed to initialize http client")
+		return err
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		log.Error(ctx, err, "failed to send DELETE request")
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	if response.StatusCode == http.StatusOK ||
+		response.StatusCode == http.StatusNoContent ||
+		response.StatusCode == http.StatusNotFound {
+		log.Infof(ctx, "DELETE %s → %d %s", targetUrl, response.StatusCode, http.StatusText(response.StatusCode))
+		return nil
+	}
+	if response.StatusCode == http.StatusMethodNotAllowed {
+		// Server does not support DELETE (e.g. dumps-collector with PUT-only config).
+		// This is not fatal — the new file was already uploaded successfully,
+		// the old one just won't be cleaned up.
+		log.Infof(ctx, "DELETE %s → 405 Method Not Allowed (server does not support DELETE, old file will not be removed)", targetUrl)
+		return nil
+	}
+	return fmt.Errorf("DELETE %s failed with %d %s", targetUrl, response.StatusCode, http.StatusText(response.StatusCode))
+}
+
 func FileClient(ctx context.Context) (*http.Client, error) {
 	client, err := HttpClient()
 	if err != nil {
