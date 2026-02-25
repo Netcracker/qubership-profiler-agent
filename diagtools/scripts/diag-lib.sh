@@ -86,8 +86,7 @@ function gc_log_opts_for_jdk_11_and_high() {
   if check_option_not_disabled NC_DIAGNOSTIC_GC_ENABLED ; then
     mkdir -p "$(diagnostic_logs_folder)/gclogs"
     echo -n "-XX:-UseGCOverheadLimit" \
-            "-Xlog:gc=trace:file=$(diagnostic_logs_folder)/gclogs/gc.log:tags,time,uptime,level:filecount=$(gc_log_number_of_files),filesize=$(gc_log_file_size)" \
-            "-DESC_HARVEST_GCLOG=true"
+            "-Xlog:gc=trace:file=$(diagnostic_logs_folder)/gclogs/gc.log:tags,time,uptime,level:filecount=$(gc_log_number_of_files),filesize=$(gc_log_file_size)"
   fi
 }
 

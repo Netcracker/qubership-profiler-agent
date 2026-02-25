@@ -53,6 +53,7 @@ public class JavaBaseImageTest {
              GenericContainer<?> profilerApp = new GenericContainer<>(CORE_BASE_IMAGE_TAG)
                      .withEnv("ESC_LOG_LEVEL", "debug")
                      .withEnv("PROFILER_ENABLED", "true")
+                     .withEnv("NC_DIAGNOSTIC_MODE", "prod")
                      .withEnv("REMOTE_DUMP_HOST", "host.testcontainers.internal")
                      .withEnv("REMOTE_DUMP_PORT_PLAIN", String.valueOf(mockCollector.getPort()))
                      .withEnv("CLOUD_NAMESPACE", "test-namespace")

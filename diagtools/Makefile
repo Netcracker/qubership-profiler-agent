@@ -134,7 +134,7 @@ vet:
 .PHONY: lint
 lint:
 	@echo "Linting code..."
-	golangci-lint run
+	golangci-lint run --config ../.github/linters/.golangci.yml
 
 # Download dependencies
 .PHONY: deps

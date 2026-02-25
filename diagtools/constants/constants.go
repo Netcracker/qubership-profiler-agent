@@ -42,6 +42,7 @@ const (
 	ServerAppPath           = "application"
 	ZkCustomConfig          = "esc.config"
 	CustomConfigXmlFilePath = "/config/default/00-custom-config.xml"
+	GcLogSubFolder          = "gclogs"
 	DumpFileSuffix          = ".hprof"
 	DumpFilePattern         = "*.hprof*"
 	ThreadDumpSuffix        = ".td.txt"

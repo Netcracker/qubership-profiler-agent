@@ -1,7 +1,24 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+
 plugins {
     id("build-logic.java-published-library")
     id("build-logic.test-junit5")
     id("com.google.osdetector")
+    kotlin("jvm")
+}
+
+tasks.withType<KotlinJvmCompile>().configureEach {
+    compilerOptions {
+        val jdkRelease = buildParameters.targetJavaVersion.let {
+            when {
+                it < 9 -> "1.8"
+                else -> it.toString()
+            }
+        }
+        freeCompilerArgs.add("-Xjdk-release=$jdkRelease")
+        jvmTarget = JvmTarget.fromTarget(jdkRelease)
+    }
 }
 
 // https://github.com/gradle/gradle/pull/16627
@@ -130,6 +147,7 @@ val installerZipFiles = configurations.resolvable("installerZipFiles") {
 
 dependencies {
     testAppJarElements(projects.testApp)
+    testImplementation(kotlin("stdlib"))
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation(projects.testkit)
     testImplementation(projects.mockCollector)

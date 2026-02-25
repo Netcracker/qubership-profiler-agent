@@ -23,6 +23,7 @@ const (
 	NcDiagLogFolder         = "NC_DIAGNOSTIC_LOGS_FOLDER"
 	NcDiagJStackLongEnabled = "NC_DIAGNOSTIC_JSTACK_LONG_LISTENING_ENABLED" // long listening option for jstack (performance hit) // ENABLED by default
 	NcDiagThreadDumpEnabled = "NC_DIAGNOSTIC_THREADDUMP_ENABLED"            // thread dump collection by scheduler in pod         // ENABLED by default
+	NcDiagGcEnabled         = "NC_DIAGNOSTIC_GC_ENABLED"                    // GC log collection by scheduler in pod              // ENABLED by default
 	NcDiagTopEnabled        = "NC_DIAGNOSTIC_TOP_ENABLED"                   // top collection by scheduler in pod                 // ENABLED by default
 	NcDiagCenterDumpEnabled = "DIAGNOSTIC_CENTER_DUMPS_ENABLED"             // heap dump collection after OOM                     // ENABLED by default
 	NcDiagDumpInterval      = "DIAGNOSTIC_DUMP_INTERVAL"
