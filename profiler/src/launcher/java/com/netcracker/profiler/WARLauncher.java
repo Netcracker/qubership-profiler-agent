@@ -203,6 +203,8 @@ public class WARLauncher {
             };
 
             context.addLifecycleListener(new WebappMountListener());
+            // Explicitly create the connector (required in Tomcat 11)
+            tomcat.getConnector();
             tomcat.start();
 
             if(!contextFile.exists()) {
