@@ -12,7 +12,7 @@ dependencies {
             val checkerframeworkVersion = it.get()
             "checkerFramework"("org.checkerframework:checker:$checkerframeworkVersion")
         } ?: run {
-            val checkerframeworkVersion = "3.53.1"
+            val checkerframeworkVersion = "3.54.0"
             "checkerFramework"("org.checkerframework:checker:$checkerframeworkVersion")
         }
 }
