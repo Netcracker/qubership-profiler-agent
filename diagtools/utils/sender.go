@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/diagtools/constants"
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/log"
 )
 
@@ -276,6 +277,6 @@ func FileClient(ctx context.Context) (*http.Client, error) {
 		log.Error(ctx, err, "err While creating http client with TLS configuration")
 		return nil, err
 	}
-	client.Timeout = time.Minute * 5
+	client.Timeout = constants.UploadTimeout(ctx)
 	return client, nil
 }

@@ -434,3 +434,28 @@ func TestGetLogLevelFromEnv(t *testing.T) {
 	os.Setenv("LOG_LEVEL", "TRACE")
 	assert.Equal(t, "info", GetLogLevelFromEnv())
 }
+
+func TestUploadTimeout(t *testing.T) {
+	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "")
+	assert.Equal(t, 5*time.Minute, UploadTimeout(testCtx)) // default timeout
+
+	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "600")
+	assert.Equal(t, 600*time.Second, UploadTimeout(testCtx)) // integer value means seconds
+
+	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "10s")
+	assert.Equal(t, 10*time.Second, UploadTimeout(testCtx))
+
+	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "30m")
+	assert.Equal(t, 30*time.Minute, UploadTimeout(testCtx))
+
+	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "1h")
+	assert.Equal(t, 1*time.Hour, UploadTimeout(testCtx))
+
+	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "bad")
+	assert.Equal(t, 5*time.Minute, UploadTimeout(testCtx)) // default timeout for invalid values
+
+	os.Setenv(NcDiagUploadTimeout, "15m")
+	assert.Equal(t, 15*time.Minute, UploadTimeout(testCtx))
+	assert.Equal(t, "DIAGNOSTIC_UPLOAD_TIMEOUT", NcDiagUploadTimeout)
+	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "")
+}
