@@ -2,7 +2,6 @@ package actions
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"time"
 
@@ -64,17 +63,15 @@ func (action *JavaThreadDumpAction) GetThreadDump(ctx context.Context) (err erro
 	output := []byte(outputStr)
 	log.Infof(ctx, "thread dump taken, size in bytes: %d", len(output))
 
-	err = os.WriteFile(action.DumpPath, output, 0644)
+	if len(output) == 0 {
+		return nil
+	}
+
+	err = action.GetTargetUrl(ctx)
 	if err != nil {
-		log.Errorf(ctx, err, "failed to write thread dump to %s", action.DumpPath)
 		return
 	}
 
-	if action.DcdEnabled && len(output) > 0 {
-		err = action.GetTargetUrl(ctx)
-		if err == nil {
-			err = action.UploadOutputToDiagnosticCenter(ctx, output)
-		}
-	}
+	err = action.UploadOutputToDiagnosticCenter(ctx, output)
 	return
 }
