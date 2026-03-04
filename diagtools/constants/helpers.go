@@ -371,3 +371,19 @@ func parseDurationOrSeconds(interval string) (time.Duration, error) {
 
 	return 0, err
 }
+
+// UploadTimeout returns the HTTP client timeout for sending dump files (e.g. to dumps-collector).
+// Configured via DIAGNOSTIC_UPLOAD_TIMEOUT; supports duration strings (e.g. "30m", "1h") or seconds as integer.
+// Default is 5 minutes.
+func UploadTimeout(ctx context.Context) time.Duration {
+	env := os.Getenv(NcDiagUploadTimeout)
+	if env == "" {
+		return 5 * time.Minute
+	}
+	d, err := parseDurationOrSeconds(env)
+	if err != nil {
+		log.Error(ctx, err, "Parsing upload timeout failed. Will use default: 5m")
+		return 5 * time.Minute
+	}
+	return d
+}
