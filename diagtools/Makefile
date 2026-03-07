@@ -42,6 +42,7 @@ build-all:
 define build_platform
 	@echo "Building $(2)-$(1) binary..."
 	@DOCKER_BUILDKIT=1 docker buildx build \
+		--platform $(2)/$(1) \
 		--target export \
 		--build-arg TARGETOS=$(2) \
 		--build-arg TARGETARCH=$(1) \

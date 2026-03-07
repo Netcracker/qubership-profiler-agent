@@ -1,17 +1,20 @@
 # syntax=docker/dockerfile:1@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6
 
 # Base image selection based on target OS
+ARG BUILDPLATFORM
 ARG TARGETOS=linux
-FROM golang:1.26.0-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c AS builder-linux
+FROM --platform=$BUILDPLATFORM golang:1.26.0-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c AS builder-linux
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
+    gcc-x86-64-linux-gnu \
+    libc6-dev-amd64-cross \
     gcc-aarch64-linux-gnu \
     libc6-dev-arm64-cross \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 
-FROM golang:1.26.0-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c AS builder-windows
+FROM --platform=$BUILDPLATFORM golang:1.26.0-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c AS builder-windows
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc-mingw-w64-x86-64 \
     && rm -rf /var/lib/apt/lists/*
@@ -32,9 +35,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY . .
 
 # Build with cache mounts
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-ARG BUILDARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILDPLATFORM
+ARG BUILDARCH
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ "${TARGETOS}" = "windows" ]; then \
