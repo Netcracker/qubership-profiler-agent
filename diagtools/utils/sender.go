@@ -280,3 +280,29 @@ func FileClient(ctx context.Context) (*http.Client, error) {
 	client.Timeout = constants.UploadTimeout(ctx)
 	return client, nil
 }
+
+// RetrySend runs sendFn up to 1 + SendRetryLimit(ctx) times. On failure it logs and waits 1s before retry.
+// Returns the last error if all attempts fail.
+func RetrySend(ctx context.Context, label string, sendFn func() error) error {
+	limit := constants.SendRetryLimit(ctx)
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		lastErr = sendFn()
+		if lastErr == nil {
+			if attempt > 0 {
+				log.Infof(ctx, "send succeeded on retry %d/%d: %s", attempt, limit, label)
+			}
+			return nil
+		}
+		if attempt >= limit {
+			log.Error(ctx, lastErr, "send failed after all retries", "label", label, "attempts", attempt+1)
+			return lastErr
+		}
+		log.Infof(ctx, "send failed, retrying (%d/%d): %s", attempt+1, limit, label)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}

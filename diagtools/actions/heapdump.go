@@ -79,8 +79,10 @@ func (action *JavaHeapDumpAction) GetHeapDump(ctx context.Context, heapDumpZip, 
 				return
 			}
 
-			// uploadToDiagnosticCenter
-			err = utils.SendMultiPart(ctx, action.TargetUrl, action.ZipDumpPath)
+			// uploadToDiagnosticCenter (with retries)
+			err = utils.RetrySend(ctx, action.ZipDumpPath, func() error {
+				return utils.SendMultiPart(ctx, action.TargetUrl, action.ZipDumpPath)
+			})
 			if err != nil {
 				return
 			}

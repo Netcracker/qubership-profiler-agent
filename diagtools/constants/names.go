@@ -28,7 +28,8 @@ const (
 	NcDiagCenterDumpEnabled = "DIAGNOSTIC_CENTER_DUMPS_ENABLED"             // heap dump collection after OOM                     // ENABLED by default
 	NcDiagDumpInterval      = "DIAGNOSTIC_DUMP_INTERVAL"
 	NcDiagScanInterval      = "DIAGNOSTIC_SCAN_INTERVAL"
-	NcDiagUploadTimeout     = "DIAGNOSTIC_UPLOAD_TIMEOUT" // HTTP client timeout for sending dump files (default 5m)
+	NcDiagUploadTimeout     = "DIAGNOSTIC_UPLOAD_TIMEOUT"     // HTTP client timeout for sending dump files (default 5m)
+	NcDiagSendRetryLimit    = "DIAGNOSTIC_SEND_RETRY_LIMIT"   // max retries after first failed send to diagnostic center (default 3)
 	NcProfilerFolder        = "PROFILER_FOLDER"
 	ZipCompressionLevel     = "NC_HEAP_DUMP_COMPRESSION_LEVEL"
 	NcCloudNamespace        = "CLOUD_NAMESPACE"

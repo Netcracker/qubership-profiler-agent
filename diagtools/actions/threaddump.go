@@ -8,6 +8,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/constants"
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/log"
+	"github.com/Netcracker/qubership-profiler-agent/diagtools/utils"
 	"github.com/vlsi/jattach/v2"
 )
 
@@ -73,7 +74,16 @@ func (action *JavaThreadDumpAction) GetThreadDump(ctx context.Context) (err erro
 	if action.DcdEnabled && len(output) > 0 {
 		err = action.GetTargetUrl(ctx)
 		if err == nil {
-			err = action.UploadOutputToDiagnosticCenter(ctx, output)
+			err = utils.RetrySend(ctx, action.DumpPath, func() error {
+				return action.UploadOutputToDiagnosticCenter(ctx, output)
+			})
+			if err == nil {
+				if removeErr := os.Remove(action.DumpPath); removeErr != nil {
+					log.Error(ctx, removeErr, "failed to delete thread dump file", "name", action.DumpPath)
+				} else {
+					log.Infof(ctx, "thread dump file removed after upload: %s", action.DumpPath)
+				}
+			}
 		}
 	}
 	return

@@ -85,7 +85,9 @@ func (action *GcLogAction) uploadRotatedLogs(ctx context.Context, gcLogFolder st
 			continue
 		}
 
-		if err := utils.SendSingleFile(fileCtx, action.TargetUrl, filePath); err != nil {
+		if err := utils.RetrySend(fileCtx, filepath.Base(filePath), func() error {
+			return utils.SendSingleFile(fileCtx, action.TargetUrl, filePath)
+		}); err != nil {
 			log.Errorf(fileCtx, err, "failed to upload %s", filePath)
 			continue
 		}
@@ -195,7 +197,9 @@ func (action *GcLogAction) uploadActiveLog(ctx context.Context, gcLogFolder stri
 	}
 	// else: reuse existing activeTargetUrl (overwrite)
 
-	if err := utils.SendSingleFile(fileCtx, action.activeTargetUrl, activeLogPath); err != nil {
+	if err := utils.RetrySend(fileCtx, gcLogFileName, func() error {
+		return utils.SendSingleFile(fileCtx, action.activeTargetUrl, activeLogPath)
+	}); err != nil {
 		log.Errorf(fileCtx, err, "failed to upload active GC log")
 		return
 	}

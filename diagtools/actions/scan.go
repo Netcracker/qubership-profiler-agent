@@ -86,9 +86,10 @@ func (action *ScanAction) RunScan(ctx context.Context, args []string) (err error
 				return
 			}
 
-			// uploadToDiagnosticCenter
-			err = utils.SendSingleFile(fileCtx, action.TargetUrl, filePath)
-			//err = utils.SendMultiPart(ctx, action.TargetUrl, filePath)
+			// uploadToDiagnosticCenter (with retries)
+			err = utils.RetrySend(fileCtx, filepath.Base(filePath), func() error {
+				return utils.SendSingleFile(fileCtx, action.TargetUrl, filePath)
+			})
 			if err != nil {
 				return
 			}

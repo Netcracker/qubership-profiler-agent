@@ -387,3 +387,22 @@ func UploadTimeout(ctx context.Context) time.Duration {
 	}
 	return d
 }
+
+// SendRetryLimit returns the maximum number of retries after a failed send to the diagnostic center.
+// Configured via DIAGNOSTIC_SEND_RETRY_LIMIT (integer). Default is 3 (i.e. 1 initial attempt + 3 retries = 4 total).
+func SendRetryLimit(ctx context.Context) int {
+	env := os.Getenv(NcDiagSendRetryLimit)
+	if env == "" {
+		return 3
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(env))
+	if err != nil {
+		log.Error(ctx, err, "Parsing send retry limit failed. Will use default: 3")
+		return 3
+	}
+	if n < 0 {
+		log.Error(ctx, nil, "Send retry limit must be >= 0. Will use default: 3")
+		return 3
+	}
+	return n
+}
