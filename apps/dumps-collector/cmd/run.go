@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"syscall"
 	"time"
 
 	db "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
+	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client/postgres"
+	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client/sqlite"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/server"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
@@ -42,6 +45,8 @@ func Run(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 
 	params := db.DBParams{
+		DBType:        envconfig.EnvConfig.DBType,
+		DBPath:        envconfig.EnvConfig.DBPath,
 		DBHost:        envconfig.EnvConfig.DBHost,
 		DBPort:        envconfig.EnvConfig.DBPort,
 		DBUser:        envconfig.EnvConfig.DBUser,
@@ -51,9 +56,9 @@ func Run(cmd *cobra.Command, args []string) {
 	}
 
 	// Create db client
-	dbClient, err := db.NewDumpDbClient(ctx, params)
+	dbClient, err := createDbClient(ctx, params)
 	if err != nil {
-		log.Error(ctx, err, "Error creating sqlite db client")
+		log.Error(ctx, err, "Error creating database client (type: %s)", params.DBType)
 		os.Exit(1)
 	}
 
@@ -212,4 +217,19 @@ func runServer(ctx context.Context, dbClient db.DumpDbClient, pvPath string, bin
 	}
 
 	return server.StartHttpServer(ctx, requestProcessor, bindAddress)
+}
+
+// createDbClient creates a database client based on the provided parameters
+func createDbClient(ctx context.Context, params db.DBParams) (db.DumpDbClient, error) {
+	switch params.DBType {
+	case "postgres", "":
+		// Default to postgres for backward compatibility
+		log.Info(ctx, "Initializing PostgreSQL database client")
+		return postgres.NewClient(ctx, params)
+	case "sqlite":
+		log.Info(ctx, "Initializing SQLite database client")
+		return sqlite.NewClient(ctx, params)
+	default:
+		return nil, fmt.Errorf("unsupported database type: %s (supported: postgres, sqlite)", params.DBType)
+	}
 }

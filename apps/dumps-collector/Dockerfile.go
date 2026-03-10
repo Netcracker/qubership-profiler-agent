@@ -1,7 +1,7 @@
 # Build context: repository root
 # Usage: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector .
 
-FROM golang:1.26.1-alpine3.22@sha256:07e91d24f6330432729082bb580983181809e0a48f0f38ecde26868d4568c6ac AS builder
+FROM golang:1.25.7-alpine3.22@sha256:20c8a94b529a9a127b6990c5e03537bd71ce3ebfdd744741e96168ac338bd862 AS builder
 
 # Multi-arch build support
 ARG TARGETOS=linux
@@ -13,10 +13,7 @@ ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=3.1.1
 # renovate: datasource=maven depName=qubership-profiler-diagtools packageName=org.qubership.profiler:qubership-profiler-diagtools versioning=maven
 ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=3.1.1
 
-ENV BASE_URL="https://repo1.maven.org/maven2/org/qubership/profiler/"
-
-ENV INSTALLER_CLOUD="${BASE_URL}/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip" \
-    DIAGTOOLS_URL="${BASE_URL}/qubership-profiler-diagtools/${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}/qubership-profiler-diagtools-${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz"
+ENV INSTALLER_CLOUD="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip"
 
 RUN apk --no-cache add \
         unzip \
@@ -27,8 +24,19 @@ RUN apk --no-cache add \
 WORKDIR /workspace
 RUN mkdir -p tools
 
+# Copy go modules from repository root
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy go sources preserving the module structure
+COPY apps/dumps-collector/ apps/dumps-collector/
+COPY libs/ libs/
+
 # Download installer
-RUN curl -o installer_cloud.zip "${INSTALLER_CLOUD}" \
+RUN curl -o installer_cloud.zip "${INSTALLER_CLOUD}"
+
+# Download diagtools for the target architecture
+RUN DIAGTOOLS_URL="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-diagtools/${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}/qubership-profiler-diagtools-${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz" \
     && curl -o diagtools.tar.gz "${DIAGTOOLS_URL}" \
     && tar -xzf diagtools.tar.gz \
     && cp diagtools-*/diag-bootstrap.sh /workspace/tools/ \
@@ -38,7 +46,7 @@ RUN curl -o installer_cloud.zip "${INSTALLER_CLOUD}" \
 RUN cd apps/dumps-collector && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /workspace/tools/prf_dump_writer main.go
 
-FROM nginx:1.27.3-alpine3.20@sha256:814a8e88df978ade80e584cc5b333144b9372a8e3c98872d07137dbf3b44d0e4
+FROM nginx:1.29.5-alpine3.23
 
 USER root
 
@@ -61,8 +69,7 @@ COPY apps/dumps-collector/static/index.html ${DIAGNOSTIC_TOOLS_LOCATION}/index.h
 COPY apps/dumps-collector/src/nginx/nginx.conf /scripts/nginx/
 COPY apps/dumps-collector/src/nginx/nginx-https.conf /scripts/nginx/
 
-COPY apps/dumps-collector/src/scripts/* /scripts/
-COPY apps/dumps-collector/src/nginx/entrypoint-script.sh /scripts/entrypoint.sh
+COPY apps/dumps-collector/src/nginx/entrypoint.sh /scripts/
 
 RUN chown -R ${USER_UID} /scripts/ \
     && chmod -R a+rx /scripts/ \

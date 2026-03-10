@@ -1,4 +1,4 @@
-package db
+package postgres
 
 import (
 	"context"
@@ -6,12 +6,65 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
-
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+func (db *Client) CreateTimelineIfNotExist(ctx context.Context, t time.Time) (*model.Timeline, bool, error) {
+	startTime := time.Now()
+	log.Debug(ctx, "[CreateTimelineIfNotExist] for time %v", t)
+
+	timeHour := t.Truncate(Granularity)
+	timeline := model.Timeline{}
+	isCreated := false
+
+	err := db.db.Transaction(func(tx *gorm.DB) error {
+		ttx := tx.Table(timelineTable).Where(model.Timeline{
+			TsHour: timeHour,
+		}).FirstOrCreate(&timeline, model.Timeline{
+			TsHour: timeHour,
+			Status: model.RawStatus,
+		})
+
+		if ttx.Error != nil {
+			log.Error(ctx, ttx.Error, "Error creating/getting timeline for time %v", t)
+			return ttx.Error
+		}
+
+		isCreated = ttx.RowsAffected > 0
+		if isCreated {
+			// Create partition table for this timeline
+			query := db.prepareSchemaQuery(db.dumpTableSchema, map[string]any{
+				"TimeStamp": GranularTs(t),
+				"From":      timeHour.Unix(),
+				"To":        timeHour.Add(Granularity).Unix(),
+			})
+			if query == "" {
+				log.Error(ctx, nil, "Error preparing schema query for timeline %v", t)
+				return gorm.ErrInvalidData
+			}
+
+			if err := tx.Exec(query).Error; err != nil {
+				log.Error(ctx, err, "Error executing schema query for timeline %v", t)
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	duration := time.Since(startTime)
+	metrics.AddPgOperationMetricValue(metrics.EntityTimelime, metrics.PgOperationInsertOne, duration, 1, err != nil)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	log.Debug(ctx, "[CreateTimelineIfNotExist] for time %v finished. Done in %v", t, duration)
+	return &timeline, isCreated, nil
+}
 
 func (db *Client) FindTimeline(ctx context.Context, t time.Time) (*model.Timeline, error) {
 	startTime := time.Now()
@@ -81,7 +134,6 @@ func (db *Client) UpdateTimelineStatus(ctx context.Context, t time.Time, status 
 	return &timeline, nil
 }
 
-// RemoveTimeline We need to remove it because we need to use a maintenance job
 func (db *Client) RemoveTimeline(ctx context.Context, t time.Time) (*model.Timeline, error) {
 	startTime := time.Now()
 	log.Debug(ctx, "[RemoveTimeline] time %v", t)

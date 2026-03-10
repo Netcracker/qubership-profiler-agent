@@ -1,4 +1,4 @@
-package db
+package postgres
 
 import (
 	"context"
@@ -8,38 +8,12 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
-
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-type dumpDbClientImpl struct {
-	Client
-}
-
-func (db *dumpDbClientImpl) Transaction(ctx context.Context, fn func(tx DumpDbClient) error) error {
-	startTime := time.Now()
-	log.Debug(ctx, "[Transaction] started")
-
-	err := db.db.Transaction(func(tx *gorm.DB) error {
-		txClient := &dumpDbClientImpl{
-			Client: Client{
-				db:            tx,
-				dumpTableName: db.dumpTableName,
-			},
-		}
-		return fn(txClient)
-	})
-
-	duration := time.Since(startTime)
-	metrics.AddPgOperationMetricValue(metrics.NoEntity, metrics.PgOperationTransaction, duration, 0, err != nil)
-
-	log.Debug(ctx, "[Transaction] finished. Done in %v", duration)
-	return err
-}
 
 func (db *dumpDbClientImpl) FindTdTopDump(ctx context.Context, podId uuid.UUID, creationTime time.Time, dumpType model.DumpType) (*model.DumpObject, error) {
 	startTime := time.Now()
@@ -150,7 +124,6 @@ func (db *dumpDbClientImpl) CalculateSummaryTdTopDumps(ctx context.Context, tHou
 	return summaries, nil
 }
 
-// RemoveOldTdTopDumps used only in tests
 func (db *dumpDbClientImpl) RemoveOldTdTopDumps(ctx context.Context, tHour time.Time, createdBefore time.Time) ([]model.DumpObject, error) {
 	startTime := time.Now()
 	tableName := db.dumpTableName
@@ -171,6 +144,83 @@ func (db *dumpDbClientImpl) RemoveOldTdTopDumps(ctx context.Context, tHour time.
 
 	log.Debug(ctx, "[RemoveOldTdTopDumps] from table %s created before %v, removed %d dumps. Done in %v", tableName, createdBefore, len(dumps), duration)
 	return dumps, nil
+}
+
+func (db *Client) CreateTdTopDumpIfNotExist(ctx context.Context, dump model.DumpInfo) (*model.DumpObject, bool, error) {
+	startTime := time.Now()
+	log.Debug(ctx, "[CreateTdTopDumpIfNotExist] pod id = %s, creation time = %v, dump type = %s",
+		dump.Pod.Id, dump.CreationTime, dump.DumpType)
+
+	tdTopDump := model.DumpObject{}
+	isCreated := false
+
+	tableName := db.DumpTable(dump.CreationTime)
+
+	err := db.db.Transaction(func(tx *gorm.DB) error {
+		ttx := tx.Table(tableName).Where(model.DumpObject{
+			PodId:        dump.Pod.Id,
+			CreationTime: dump.CreationTime,
+			DumpType:     dump.DumpType,
+		}).FirstOrCreate(&tdTopDump, model.DumpObject{
+			Id:           uuid.New(),
+			PodId:        dump.Pod.Id,
+			CreationTime: dump.CreationTime,
+			FileSize:     dump.FileSize,
+			DumpType:     dump.DumpType,
+		})
+
+		if ttx.Error != nil {
+			log.Error(ctx, ttx.Error, "Error creating/getting td/top dump: pod id = %s, creation time = %v, dump type = %s",
+				dump.Pod.Id, dump.CreationTime, dump.DumpType)
+			return ttx.Error
+		}
+
+		isCreated = ttx.RowsAffected > 0
+		return nil
+	})
+
+	duration := time.Since(startTime)
+	metrics.AddPgOperationMetricValue(metrics.EntityTdTopDump, metrics.PgOperationInsertOne, duration, 1, err != nil)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	log.Debug(ctx, "[CreateTdTopDumpIfNotExist] pod id = %s, creation time = %v, dump type = %s finished. Done in %v",
+		dump.Pod.Id, dump.CreationTime, dump.DumpType, duration)
+	return &tdTopDump, isCreated, nil
+}
+
+func (db *dumpDbClientImpl) InsertTdTopDumps(ctx context.Context, tHour time.Time, dumps []model.DumpInfo) ([]model.DumpObject, error) {
+	startTime := time.Now()
+	log.Debug(ctx, "[InsertTdTopDumps] %d dumps for timeline %v", len(dumps), tHour)
+
+	tableName := db.DumpTable(tHour)
+	tdTopDumps := make([]model.DumpObject, 0, len(dumps))
+	for _, dump := range dumps {
+		tdTopDumps = append(tdTopDumps, model.DumpObject{
+			Id:           uuid.New(),
+			PodId:        dump.Pod.Id,
+			CreationTime: dump.CreationTime,
+			FileSize:     dump.FileSize,
+			DumpType:     dump.DumpType,
+		})
+	}
+
+	tx := db.db.Table(tableName).Clauses(clause.OnConflict{
+		DoNothing: true,
+	}).Create(&tdTopDumps)
+
+	duration := time.Since(startTime)
+	metrics.AddPgOperationMetricValue(metrics.EntityTdTopDump, metrics.PgOperationInsertMany, duration, tx.RowsAffected, tx.Error != nil)
+
+	if tx.Error != nil {
+		log.Error(ctx, tx.Error, "Error inserting %d td/top dumps for timeline %v", len(dumps), tHour)
+		return nil, tx.Error
+	}
+
+	log.Debug(ctx, "[InsertTdTopDumps] %d dumps for timeline %v finished. Done in %v", len(dumps), tHour, duration)
+	return tdTopDumps, nil
 }
 
 func nullTimeToString(t *time.Time) string {

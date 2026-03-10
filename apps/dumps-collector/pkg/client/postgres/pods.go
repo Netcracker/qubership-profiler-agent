@@ -1,4 +1,4 @@
-package db
+package postgres
 
 import (
 	"context"
@@ -6,12 +6,56 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
-
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+func (db *Client) CreatePodIfNotExist(ctx context.Context, namespace string, serviceName string, podName string, restartTime time.Time) (*model.Pod, bool, error) {
+	startTime := time.Now()
+	log.Debug(ctx, "[CreatePodIfNotExist] namespace=%s, service name=%s, pod name=%s, restart time=%v",
+		namespace, serviceName, podName, restartTime)
+
+	pod := model.Pod{}
+	isCreated := false
+
+	err := db.db.Transaction(func(tx *gorm.DB) error {
+		ttx := tx.Table(podTable).Where(model.Pod{
+			Namespace:   namespace,
+			ServiceName: serviceName,
+			PodName:     podName,
+			RestartTime: restartTime,
+		}).FirstOrCreate(&pod, model.Pod{
+			Id:          uuid.New(),
+			Namespace:   namespace,
+			ServiceName: serviceName,
+			PodName:     podName,
+			RestartTime: restartTime,
+		})
+
+		if ttx.Error != nil {
+			log.Error(ctx, ttx.Error, "Error creating/getting pod: namespace=%s, service name=%s, pod name=%s, restart time=%v",
+				namespace, serviceName, podName, restartTime)
+			return ttx.Error
+		}
+
+		isCreated = ttx.RowsAffected > 0
+		return nil
+	})
+
+	duration := time.Since(startTime)
+	metrics.AddPgOperationMetricValue(metrics.EntityPod, metrics.PgOperationInsertOne, duration, 1, err != nil)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	log.Debug(ctx, "[CreatePodIfNotExist] namespace=%s, service name=%s, pod name=%s, restart time=%v finished. Done in %v",
+		namespace, serviceName, podName, restartTime, duration)
+	return &pod, isCreated, nil
+}
 
 func (db *Client) GetPodsCount(ctx context.Context) (int64, error) {
 	startTime := time.Now()
@@ -97,6 +141,34 @@ func (db *Client) SearchPods(ctx context.Context, podFilter model.PodFilter) ([]
 
 	log.Debug(ctx, "[SearchPods] with query=\"%s\" finished. found %d pods. Done in %v", query, len(pods), duration)
 	return pods, nil
+}
+
+func (db *Client) UpdatePodLastActive(ctx context.Context, namespace string, serviceName string, podName string, restartTime time.Time, lastActive time.Time) (*model.Pod, error) {
+	startTime := time.Now()
+	log.Debug(ctx, "[UpdatePodLastActive] namespace=%s, service name=%s, pod name=%s, restart time=%v, last active=%v",
+		namespace, serviceName, podName, restartTime, lastActive)
+
+	pod := model.Pod{}
+	tx := db.db.Table(podTable).Model(&pod).Clauses(clause.Returning{}).
+		Where(model.Pod{
+			Namespace:   namespace,
+			ServiceName: serviceName,
+			PodName:     podName,
+			RestartTime: restartTime,
+		}).Update("last_active", lastActive)
+
+	duration := time.Since(startTime)
+	metrics.AddPgOperationMetricValue(metrics.EntityPod, metrics.PgOperationUpdate, duration, tx.RowsAffected, tx.Error != nil)
+
+	if tx.Error != nil {
+		log.Error(ctx, tx.Error, "Error updating pod last active: namespace=%s, service name=%s, pod name=%s, restart time=%v, last active=%v",
+			namespace, serviceName, podName, restartTime, lastActive)
+		return nil, tx.Error
+	}
+
+	log.Debug(ctx, "[UpdatePodLastActive] namespace=%s, service name=%s, pod name=%s, restart time=%v, last active=%v finished. Done in %v",
+		namespace, serviceName, podName, restartTime, lastActive, duration)
+	return &pod, nil
 }
 
 func (db *Client) RemoveOldPods(ctx context.Context, activeBefore time.Time) ([]model.Pod, error) {
