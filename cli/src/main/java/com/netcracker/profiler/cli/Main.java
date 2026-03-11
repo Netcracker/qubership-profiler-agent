@@ -129,6 +129,69 @@ public class Main {
                 .help("exports inFlight calls from the specified node.");
         addDumpRootArg(exportInFlightCalls);
 
+        Subparser dumpCalls = subparsers
+                .addParser("dump-calls")
+                .help("Dump profiler calls to text (TSV)")
+                .defaultHelp(true)
+                .epilog(DATE_FORMATS_EPILOG)
+                .setDefault(COMMAND_ID, DumpCalls.class);
+        dumpCalls.addArgument("output_file").metavar("OUTPUT_FILE")
+                .help("target file path, or - for stdout")
+                .nargs("?")
+                .setDefault("-");
+        dumpCalls.addArgument("-s", "--start-date").metavar("DATE")
+                .help("specifies the start timestamp of the export time-frame")
+                .setDefault("1hour");
+        dumpCalls.addArgument("-e", "--end-date").metavar("DATE")
+                .help("specifies the end timestamp of the export time-frame")
+                .setDefault("now");
+        dumpCalls.addArgument("-z", "--time-zone").metavar("TIME_ZONE")
+                .help("specifies time zone to disambiguate timestamp arguments")
+                .setDefault(TimeZone.getDefault().getID());
+        dumpCalls.addArgument("-n", "--server").action(Arguments.append())
+                .metavar("SEVER_NAME")
+                .help("dump calls only for the specified server. Multiple -n arguments are possible");
+        dumpCalls.addArgument("-d", "--min-duration").metavar("DURATION")
+                .help("minimum call duration in ms")
+                .type(Integer.class)
+                .setDefault(0);
+        dumpCalls.addArgument("-D", "--max-duration").metavar("DURATION")
+                .help("maximum call duration in ms")
+                .type(Long.class)
+                .setDefault(Long.MAX_VALUE);
+        dumpCalls.addArgument("-m", "--method-contains").metavar("TEXT")
+                .help("only print calls whose method contains the specified substring");
+        dumpCalls.addArgument("-p", "--include-params")
+                .help("include call parameters in the output")
+                .action(Arguments.storeTrue());
+        addDumpRootArg(dumpCalls);
+
+        Subparser dumpTrace = subparsers
+                .addParser("dump-trace")
+                .help("Dump raw trace events to text (TSV)")
+                .defaultHelp(true)
+                .epilog(DATE_FORMATS_EPILOG)
+                .setDefault(COMMAND_ID, DumpTrace.class);
+        dumpTrace.addArgument("output_file").metavar("OUTPUT_FILE")
+                .help("target file path, or - for stdout")
+                .nargs("?")
+                .setDefault("-");
+        dumpTrace.addArgument("-s", "--start-date").metavar("DATE")
+                .help("specifies the start timestamp of the export time-frame")
+                .setDefault("1hour");
+        dumpTrace.addArgument("-e", "--end-date").metavar("DATE")
+                .help("specifies the end timestamp of the export time-frame")
+                .setDefault("now");
+        dumpTrace.addArgument("-z", "--time-zone").metavar("TIME_ZONE")
+                .help("specifies time zone to disambiguate timestamp arguments")
+                .setDefault(TimeZone.getDefault().getID());
+        dumpTrace.addArgument("-n", "--server").action(Arguments.append())
+                .metavar("SERVER_NAME")
+                .help("dump trace only for the specified server. Multiple -n arguments are possible");
+        dumpTrace.addArgument("-c", "--contains").metavar("TEXT")
+                .help("only print events whose tag or value contains the specified substring");
+        addDumpRootArg(dumpTrace);
+
         Subparser repairProfiler = subparsers
                 .addParser("repair-profiler")
                 .help("Repairs static content of anonymized profiler html page. Tree data won't be repaired if it's broken.")
