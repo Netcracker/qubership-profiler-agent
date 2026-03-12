@@ -19,6 +19,9 @@
     {
       "description": "Update Go version everywhere at once: build image, go.mod and GitHub Actions workflows",
       "groupName": "Go",
+      "schedule": [
+        "every week on Monday"
+      ],
       "matchDatasources": [
         "docker",
         "github-actions",
