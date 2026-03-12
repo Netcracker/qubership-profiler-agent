@@ -37,6 +37,13 @@
       ]
     },
     {
+      "groupName": "errorprone",
+      "matchPackageNames": [
+        "com.google.errorprone{/,}**",
+        "net.ltgt.errorprone{/,}**"
+      ]
+    },
+    {
       "description": "Stick with JavaEE API 6 to support running with older application servers",
       "groupName": "JavaEE",
       "allowedVersions": "< 7",
