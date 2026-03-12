@@ -2,7 +2,6 @@ package com.netcracker.profiler.security;
 
 import java.io.IOException;
 
-import jakarta.inject.Inject;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
@@ -16,8 +15,7 @@ public abstract class AbstractSecurityFilter implements Filter {
 
     protected final DummySecurityService securityService;
 
-    @Inject
-    public AbstractSecurityFilter(DummySecurityService securityService) {
+    protected AbstractSecurityFilter(DummySecurityService securityService) {
         this.securityService = securityService;
     }
 
