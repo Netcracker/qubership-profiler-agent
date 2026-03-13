@@ -16,15 +16,28 @@
     {
       "description": "Update Go version everywhere at once: build image, go.mod and GitHub Actions workflows",
       "groupName": "Go",
+      "schedule": [
+        "every 1 weeks on Monday"
+      ],
       "matchDatasources": [
         "docker",
+        "github-actions",
+        "github-releases",
         "golang-version",
-        "github-releases"
+        "gomod"
       ],
       "matchPackageNames": [
         "go",
         "golang",
-        "actions/go-versions"
+        "actions/go-versions",
+        "actions/setup-go"
+      ]
+    },
+    {
+      "description": "Group all GitHub Actions updates into a single PR",
+      "groupName": "GitHub Actions",
+      "matchManagers": [
+        "github-actions"
       ]
     }
   ]
