@@ -1,20 +1,6 @@
-############# Infra Passport #############
-
-INFRA_POSTGRES_HOST: ~
-INFRA_POSTGRES_PORT: ~
-INFRA_POSTGRES_ADMIN_USERNAME: ~
-INFRA_POSTGRES_ADMIN_PASSWORD: ~
-
 ############# Persistence #############
 
 cloud:
-  postgres:
-    host: ~      # default value is from INFRA_POSTGRES_HOST env
-    port: ~      # default value is from INFRA_POSTGRES_PORT env
-    username: ~  # default value is from INFRA_POSTGRES_ADMIN_USERNAME env
-    password: ~  # default value is from INFRA_POSTGRES_ADMIN_PASSWORD env
-    database: profiler_dumps
-
   dumpsStorage:
 
     # Deploy cloud-profiler-dumps-collector on ephemeral storage.

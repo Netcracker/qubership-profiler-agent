@@ -5,12 +5,12 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
-	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
+	client "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/glebarez/sqlite"
@@ -200,18 +200,57 @@ func NewClient(ctx context.Context, params client.DBParams) (client.DumpDbClient
 
 // initSchema initializes the database schema
 func (db *dumpDbClientImpl) initSchema(ctx context.Context) error {
-	// Read and execute main schema
 	schemaContent, err := schemaFS.ReadFile("resources/schema/schema.sql")
 	if err != nil {
 		return fmt.Errorf("failed to read schema file: %w", err)
 	}
 
-	if err := db.db.Exec(string(schemaContent)).Error; err != nil {
-		return fmt.Errorf("failed to execute schema: %w", err)
+	// Strip comment-only lines to avoid issues, then split into individual statements
+	var statements []string
+	for _, stmt := range splitSQLStatements(string(schemaContent)) {
+		stmt = strings.TrimSpace(stmt)
+		if stmt != "" {
+			statements = append(statements, stmt)
+		}
+	}
+
+	for _, stmt := range statements {
+		if err := db.db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("failed to execute schema statement [%s]: %w", stmt[:min(len(stmt), 60)], err)
+		}
 	}
 
 	log.Info(ctx, "SQLite schema initialized successfully")
 	return nil
+}
+
+// splitSQLStatements splits SQL text into individual statements, handling
+// comments and multi-line statements correctly.
+func splitSQLStatements(sql string) []string {
+	// First strip all comment lines (lines where first non-whitespace is --)
+	var cleanLines []string
+	for _, line := range strings.Split(sql, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "--") || trimmed == "" {
+			continue
+		}
+		// Strip inline comments (-- after SQL)
+		if idx := strings.Index(line, "--"); idx > 0 {
+			line = line[:idx]
+		}
+		cleanLines = append(cleanLines, line)
+	}
+	cleaned := strings.Join(cleanLines, "\n")
+
+	// Split by semicolons
+	var statements []string
+	for _, part := range strings.Split(cleaned, ";") {
+		stmt := strings.TrimSpace(part)
+		if stmt != "" {
+			statements = append(statements, stmt)
+		}
+	}
+	return statements
 }
 
 // dumpDbClientImpl implements DumpDbClient for SQLite

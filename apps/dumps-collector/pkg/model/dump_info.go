@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,10 @@ type DumpInfo struct {
 	CreationTime time.Time
 	FileSize     int64
 	DumpType     DumpType
+}
+
+func (d DumpInfo) GetHandle() string {
+	return fmt.Sprintf("%s-heap-%d", d.Pod.PodName, d.CreationTime.UnixMilli())
 }
 
 type DumpSummary struct {

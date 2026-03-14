@@ -112,7 +112,8 @@ Template to insert envs for ENVs for selected storage
   value: {{ .Values.cloud.dumpsStorage.daysDeleteAfter | default 14 | quote }}
 - name: DIAG_PV_MAX_HEAP_DUMPS_PER_POD
   value: {{ .Values.cloud.dumpsStorage.maxHeapDumpsPerPod | default 10 | quote }}
-{{- include "pg.envs" . | nindent 0 }}
+- name: DIAG_DB_PATH
+  value: '/diag/profiler_dumps.db'
 {{- else if .Values.cloud.dumpsStorage.host }}
 - name: DIAG_HTTP_STORAGE_HOST
   value: '{{ .Values.cloud.dumpsStorage.host }}'
@@ -121,59 +122,6 @@ Template to insert envs for ENVs for selected storage
 
 {{/******************************************************************************************************************/}}
 
-{{/*
-Template to insert envs for Postgres
-*/}}
-{{- define "pg.envs" -}}
-- name: DIAG_POSTGRES_HOST
-  {{- if .Values.cloud.postgres.host }}
-  value: {{ .Values.cloud.postgres.host }}
-  {{- else if .Values.INFRA_POSTGRES_HOST }}
-  value: {{ .Values.INFRA_POSTGRES_HOST }}
-  {{- end }}
-- name: DIAG_POSTGRES_PORT
-  {{- if .Values.cloud.postgres.port }}
-  value: {{ .Values.cloud.postgres.port | quote }}
-  {{- else if .Values.INFRA_POSTGRES_PORT }}
-  value: {{ .Values.INFRA_POSTGRES_PORT | quote}}
-  {{- end }}
-- name: DIAG_POSTGRES_USERNAME
-  valueFrom:
-    secretKeyRef: 
-      name: {{ .Values.dumpsCollector.name }}-pg-credentials
-      key: username
-- name: DIAG_POSTGRES_PASSWORD
-  valueFrom:
-    secretKeyRef: 
-      name: {{ .Values.dumpsCollector.name }}-pg-credentials
-      key: password
-  {{- if .Values.cloud.postgres.database }}
-- name: DIAG_DB_NAME
-  value: {{ .Values.cloud.postgres.database }}
-  {{- end }}
-{{- end -}}
-
-{{/*
-Template to insert pg credentials username
-*/}}
-{{- define "pg.creds.username" -}}
-{{- if .Values.cloud.postgres.username -}}
-{{ .Values.cloud.postgres.username }}
-{{- else if .Values.INFRA_POSTGRES_ADMIN_USERNAME -}}
-{{ .Values.INFRA_POSTGRES_ADMIN_USERNAME }}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Template to insert pg credentials password
-*/}}
-{{- define "pg.creds.password" -}}
-{{- if .Values.cloud.postgres.password -}}
-{{ .Values.cloud.postgres.password }}
-{{- else if .Values.INFRA_POSTGRES_ADMIN_PASSWORD -}}
-{{ .Values.INFRA_POSTGRES_ADMIN_PASSWORD }}
-{{- end -}}
-{{- end -}}
 
 {{/******************************************************************************************************************/}}
 

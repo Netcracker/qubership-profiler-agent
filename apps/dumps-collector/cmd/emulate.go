@@ -8,6 +8,7 @@ import (
 	"time"
 
 	db "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
+	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client/sqlite"
 	model "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/server"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
@@ -29,11 +30,7 @@ const (
 	bindAddress     = "localhost:8080"
 
 	// db params
-	dbHost     = "localhost"
-	dbPort     = 5432
-	dbUser     = "postgres"
-	dbPassword = "postgres"
-	dbName     = "postgres"
+	dbPath = "emulate.db"
 )
 
 // Time for data generation (14 days + 1 hour, that will be removed in first interation)
@@ -62,14 +59,10 @@ func Emulate(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 
 	params := db.DBParams{
-		DBHost:     dbHost,
-		DBPort:     dbPort,
-		DBUser:     dbUser,
-		DBPassword: dbPassword,
-		DBName:     dbName,
+		DBPath: dbPath,
 	}
 
-	dbClient, err := db.NewDumpDbClient(ctx, params)
+	dbClient, err := sqlite.NewClient(ctx, params)
 	if err != nil {
 		log.Error(ctx, err, "cannot create new DB client")
 		os.Exit(1)

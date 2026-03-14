@@ -28,9 +28,7 @@ require (
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
 	go.k6.io/k6 v1.6.1
 	gopkg.in/yaml.v3 v3.0.1
-	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
-	gorm.io/plugin/prometheus v0.1.0
 	k8s.io/apimachinery v0.35.2
 	k8s.io/client-go v0.35.2
 )

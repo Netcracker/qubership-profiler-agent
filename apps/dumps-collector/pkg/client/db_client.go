@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
@@ -56,10 +55,3 @@ type DumpDbClient interface {
 	StoreDumpsTransactionally(ctx context.Context, heapDumpsArray []model.DumpInfo, tdTopDumpsArray []model.DumpInfo, tMinute time.Time) (model.StoreDumpResult, error)
 }
 
-// NewDumpDbClient creates a new database client
-// This function is kept for backward compatibility and uses the factory in cmd package
-// Deprecated: This function exists for backward compatibility but cannot create clients directly
-// Use the factory in cmd/run.go instead
-func NewDumpDbClient(ctx context.Context, params DBParams) (DumpDbClient, error) {
-	return nil, fmt.Errorf("NewDumpDbClient is deprecated, use factory in cmd package")
-}

@@ -99,8 +99,8 @@ func (suite *RequestProcessorTestSuite) TestStatisticCalculationFromOneHourTable
 	require.Equal(t, "test-service-1", statistics[0].ServiceName)
 	require.Equal(t, "test-service-1-5cbcd847d-l2t7t_1719318147399", statistics[0].PodName)
 
-	// Verify that ActiveSinceMillis matches the restart time from the pod name (1719318147399), truncated to seconds
-	require.Equal(t, int64(1719318147000), statistics[0].ActiveSinceMillis)
+	// Verify that ActiveSinceMillis matches the restart time from the pod name (1719318147399)
+	require.Equal(t, int64(1719318147399), statistics[0].ActiveSinceMillis)
 
 	// The first top / thread dump for test-service-1 in the given time range is at 2024-07-31 23:58:00
 	require.Equal(t, time.Date(2024, 07, 31, 23, 58, 00, 00, time.UTC).UnixMilli(), statistics[0].FirstSamleMillis)
@@ -153,8 +153,8 @@ func (suite *RequestProcessorTestSuite) TestStatisticCalculationBetweenHourTable
 	require.Equal(t, "test-service-1", statistics[0].ServiceName)
 	require.Equal(t, "test-service-1-5cbcd847d-l2t7t_1719318147399", statistics[0].PodName)
 
-	// Verify that ActiveSinceMillis matches the restart time from the pod name (1719318147399), truncated to seconds
-	require.Equal(t, int64(1719318147000), statistics[0].ActiveSinceMillis)
+	// Verify that ActiveSinceMillis matches the restart time from the pod name (1719318147399)
+	require.Equal(t, int64(1719318147399), statistics[0].ActiveSinceMillis)
 
 	// The first top / thread dump for test-service-1 in the given time range is at 2024-07-31 22:59:00
 	require.Equal(t, time.Date(2024, 07, 31, 22, 59, 00, 00, time.UTC).UnixMilli(), statistics[0].FirstSamleMillis)
@@ -229,7 +229,7 @@ func (suite *RequestProcessorTestSuite) TestStatisticCalculationFull() {
 	require.NotNil(t, svc1)
 	require.Equal(t, "test-namespace-1", svc1.Namespace)
 	require.Equal(t, "test-service-1-5cbcd847d-l2t7t_1719318147399", svc1.PodName)
-	require.Equal(t, int64(1719318147000), svc1.ActiveSinceMillis)
+	require.Equal(t, int64(1719318147399), svc1.ActiveSinceMillis)
 	require.Equal(t, time.Date(2024, 07, 31, 22, 58, 00, 00, time.UTC).UnixMilli(), svc1.FirstSamleMillis)
 	require.Equal(t, time.Date(2024, 8, 01, 00, 01, 01, 00, time.UTC).UnixMilli(), svc1.LastSampleMillis)
 	require.Equal(t, int64(0), svc1.DataAtStart)
@@ -239,7 +239,7 @@ func (suite *RequestProcessorTestSuite) TestStatisticCalculationFull() {
 	require.NotNil(t, svc2)
 	require.Equal(t, "test-namespace-1", svc2.Namespace)
 	require.Equal(t, "test-service-2-5cbcd847d-l2t7t_1719318147399", svc2.PodName)
-	require.Equal(t, int64(1719318147000), svc2.ActiveSinceMillis)
+	require.Equal(t, int64(1719318147399), svc2.ActiveSinceMillis)
 	require.Equal(t, time.Date(2024, 07, 31, 22, 58, 59, 00, time.UTC).UnixMilli(), svc2.FirstSamleMillis)
 	require.Equal(t, time.Date(2024, 8, 01, 00, 01, 59, 00, time.UTC).UnixMilli(), svc2.LastSampleMillis)
 	require.Equal(t, int64(0), svc2.DataAtStart)

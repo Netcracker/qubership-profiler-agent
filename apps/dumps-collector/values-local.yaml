@@ -1,22 +1,8 @@
 # Local development values for dumps-collector
 # For use with OrbStack Kubernetes
 
-# Global environment variables referenced by the chart
-INFRA_POSTGRES_HOST: pg-patroni.postgres.svc.cluster.local
-INFRA_POSTGRES_PORT: "5432"
-INFRA_POSTGRES_ADMIN_USERNAME: postgres
-INFRA_POSTGRES_ADMIN_PASSWORD: postgres
-
 # Cloud configuration
 cloud:
-  # PostgreSQL connection
-  postgres:
-    host: pg-patroni.postgres.svc.cluster.local
-    port: 5432
-    username: postgres
-    password: postgres
-    database: postgres
-
   # Storage configuration for dumps
   dumpsStorage:
     # Use PersistentVolume with StorageClass for persistent storage
@@ -59,17 +45,10 @@ dumpsCollector:
   # Ingress disabled (using port-forward instead)
   ingress:
     install: false
-    # Uncomment and configure if you want to use Ingress
-    # host: dumps-collector.local
 
   # Monitoring disabled for local development
   monitoring:
     enabled: false
-    # Uncomment if you have Prometheus in your cluster
-    # port: http
-    # path: /esc/metrics
-    # scheme: http
-    # interval: 30s
 
   # Environment-specific settings
   env:
@@ -77,17 +56,9 @@ dumpsCollector:
     - name: DIAG_LOG_LEVEL
       value: "debug"
 
-    # Database configuration
-    - name: DIAG_POSTGRES_HOST
-      value: "pg-patroni.postgres.svc.cluster.local"
-    - name: DIAG_POSTGRES_PORT
-      value: "5432"
-    - name: DIAG_POSTGRES_USERNAME
-      value: "postgres"
-    - name: DIAG_POSTGRES_PASSWORD
-      value: "postgres"
-    - name: DIAG_DB_NAME
-      value: "postgres"
+    # SQLite database path (on the PV)
+    - name: DIAG_DB_PATH
+      value: "/diag/profiler_dumps.db"
 
     # Storage configuration
     - name: DIAG_PV_MOUNT_PATH
@@ -106,12 +77,6 @@ dumpsCollector:
     # Database metrics (disabled for local dev)
     - name: DIAG_DB_METRICS_ENABLED
       value: "false"
-
-  # Security context (optional, adjust for your needs)
-  # securityContext:
-  #   runAsUser: 10001
-  #   runAsNonRoot: true
-  #   fsGroup: 10001
 
   # Probes configuration
   livenessProbe:
@@ -137,45 +102,22 @@ dumpsCollector:
 # TLS configuration (disabled for local development)
 tlsConfig:
   enabled: false
-  # Uncomment and configure if you need TLS
-  # certDir: /etc/tls
-  # secretName: dumps-collector-tls
 
 # Service Account
 serviceAccount:
   create: true
-  # name: dumps-collector-sa
   annotations: {}
-
-# Pod annotations (optional)
-podAnnotations: {}
-  # prometheus.io/scrape: "true"
-  # prometheus.io/port: "8000"
-  # prometheus.io/path: "/esc/metrics"
-
-# Node selector (optional)
-nodeSelector: {}
-  # kubernetes.io/os: linux
-
-# Tolerations (optional)
-tolerations: []
-
-# Affinity (optional)
-affinity: {}
 
 ---
 # Additional configuration notes:
 #
-# 1. PostgreSQL Connection:
-#    The application connects to PostgreSQL using the service created by
-#    pgskipper-operator: pg-patroni.postgres.svc.cluster.local:5432
-#
-# 2. Storage:
+# 1. Storage:
+#    - Uses SQLite database stored on the PV at /diag/profiler_dumps.db
 #    - Uses local-path StorageClass (OrbStack default)
 #    - 5Gi should be sufficient for local testing
 #    - Data persists across pod restarts but not cluster deletion
 #
-# 3. Access:
+# 2. Access:
 #    After deployment, use port-forward to access:
 #    - kubectl port-forward -n profiler svc/cloud-profiler-dumps-collector 8080:8080
 #    - kubectl port-forward -n profiler svc/cloud-profiler-dumps-collector 8000:8000
@@ -183,21 +125,10 @@ affinity: {}
 #    Or use helmfile port-forwards:
 #    - helmfile -l type=port-forward sync
 #
-# 4. Endpoints:
+# 3. Endpoints:
 #    - http://localhost:8080/health          - Health check
 #    - http://localhost:8080/diagnostic      - WebDAV upload endpoint (PUT)
 #    - http://localhost:8000/esc/health      - Application health
 #    - http://localhost:8000/esc/metrics     - Prometheus metrics
 #    - http://localhost:8000/cdt/v2/download - Download thread/top dumps
 #    - http://localhost:8000/cdt/v2/heaps/download/:handle - Download heap dumps
-#
-# 5. Upload dumps via WebDAV:
-#    curl -X PUT \
-#      -H "Content-Type: application/octet-stream" \
-#      --data-binary @dump.hprof.zip \
-#      http://localhost:8080/diagnostic/my-namespace/2024/12/17/15/30/00/my-pod-123/dump.hprof.zip
-#
-# 6. Troubleshooting:
-#    - Check logs: kubectl logs -n profiler -l app.kubernetes.io/name=dumps-collector -f
-#    - Check PVC: kubectl get pvc -n profiler
-#    - Check PostgreSQL: kubectl logs -n postgres -l app=postgres

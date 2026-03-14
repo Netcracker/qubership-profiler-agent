@@ -20,6 +20,14 @@ func (db *Client) CreateTimelineIfNotExist(ctx context.Context, t time.Time) (*m
 	timeline := model.Timeline{}
 	isCreated := false
 
+	// Ensure partition exists outside the transaction to avoid SQLite shared-cache deadlock.
+	// ensurePartitionExists uses db.db (root connection), which would deadlock if called
+	// inside a transaction that holds a lock on the same shared-cache database.
+	if err := db.ensurePartitionExists(ctx, t); err != nil {
+		log.Error(ctx, err, "Error creating partition for timeline %v", t)
+		return nil, false, err
+	}
+
 	err := db.db.Transaction(func(tx *gorm.DB) error {
 		ttx := tx.Table(timelineTable).Where(model.Timeline{
 			TsHour: timeHour,
@@ -34,14 +42,6 @@ func (db *Client) CreateTimelineIfNotExist(ctx context.Context, t time.Time) (*m
 		}
 
 		isCreated = ttx.RowsAffected > 0
-		if isCreated {
-			// Create partition table for this timeline
-			if err := db.ensurePartitionExists(ctx, t); err != nil {
-				log.Error(ctx, err, "Error creating partition for timeline %v", t)
-				return err
-			}
-		}
-
 		return nil
 	})
 

@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/metrics"
@@ -138,14 +139,21 @@ func (db *dumpDbClientImpl) CalculateSummaryTdTopDumps(ctx context.Context, tHou
 	}
 
 	// Double filtering by creation_time is used to cut off data by the current timeline (1 hour) and time-range
-	summaries := make([]model.DumpSummary, 0)
+	// Use raw SQL to handle SQLite aggregate functions returning strings for time columns
+	type rawSummary struct {
+		PodId       string `gorm:"column:pod_id"`
+		DateFrom    string `gorm:"column:date_from"`
+		DateTo      string `gorm:"column:date_to"`
+		SumFileSize int64  `gorm:"column:sum_file_size"`
+	}
+	var rawSummaries []rawSummary
 	tx := db.db.Table(actualTableName).Select("pod_id",
 		"MIN(creation_time) AS date_from",
 		"MAX(creation_time) AS date_to",
 		"SUM(file_size) AS sum_file_size").
 		Where("pod_id IN ? AND creation_time BETWEEN ? AND ? AND creation_time BETWEEN ? AND ?",
 			podIdStrs, dateFrom, dateTo, tHour, tHour.Add(Granularity-1)).
-		Group("pod_id").Find(&summaries)
+		Group("pod_id").Find(&rawSummaries)
 
 	duration := time.Since(startTime)
 	metrics.AddPgOperationMetricValue(metrics.EntityTdTopDump, metrics.PgOperationStatistic, duration, tx.RowsAffected, tx.Error != nil)
@@ -153,6 +161,41 @@ func (db *dumpDbClientImpl) CalculateSummaryTdTopDumps(ctx context.Context, tHou
 	if tx.Error != nil {
 		log.Error(ctx, tx.Error, "Error calculating summary in table  %s: date from %v, date to %v, pod id = %s", actualTableName, dateFrom, dateTo, podIds)
 		return nil, tx.Error
+	}
+
+	// Convert raw summaries to model summaries, parsing time strings
+	summaries := make([]model.DumpSummary, 0, len(rawSummaries))
+	for _, raw := range rawSummaries {
+		podId, err := uuid.Parse(raw.PodId)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse pod_id %q: %w", raw.PodId, err)
+		}
+		df, err := time.Parse("2006-01-02 15:04:05-07:00", raw.DateFrom)
+		if err != nil {
+			df, err = time.Parse("2006-01-02 15:04:05", raw.DateFrom)
+			if err != nil {
+				df, err = time.Parse("2006-01-02T15:04:05Z", raw.DateFrom)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse date_from %q: %w", raw.DateFrom, err)
+				}
+			}
+		}
+		dt, err := time.Parse("2006-01-02 15:04:05-07:00", raw.DateTo)
+		if err != nil {
+			dt, err = time.Parse("2006-01-02 15:04:05", raw.DateTo)
+			if err != nil {
+				dt, err = time.Parse("2006-01-02T15:04:05Z", raw.DateTo)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse date_to %q: %w", raw.DateTo, err)
+				}
+			}
+		}
+		summaries = append(summaries, model.DumpSummary{
+			PodId:       podId,
+			DateFrom:    df,
+			DateTo:      dt,
+			SumFileSize: raw.SumFileSize,
+		})
 	}
 
 	log.Debug(ctx, "[CalculateSummaryTdTopDumps] in table %s: date from %v, date to %v, pod ids = %s finished, calculated %d summaries. Done in %v",
@@ -299,7 +342,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 		
 		// Create timeline for the hour if not exists
 		tHour := tMinute.Truncate(Granularity)
-		timeline, timelineCreated, err := txClient.CreateTimelineIfNotExist(ctx, tHour)
+		_, timelineCreated, err := txClient.CreateTimelineIfNotExist(ctx, tHour)
 		if err != nil {
 			return err
 		}

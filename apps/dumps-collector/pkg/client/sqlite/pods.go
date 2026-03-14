@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/metrics"
@@ -23,26 +22,36 @@ func (db *Client) CreatePodIfNotExist(ctx context.Context, namespace string, ser
 	isCreated := false
 
 	err := db.db.Transaction(func(tx *gorm.DB) error {
-		ttx := tx.Table(podTable).Where(model.Pod{
-			Namespace:   namespace,
-			ServiceName: serviceName,
-			PodName:     podName,
-			RestartTime: restartTime,
-		}).FirstOrCreate(&pod, model.Pod{
+		// Try to find existing pod by natural key
+		ttx := tx.Table(podTable).Where("namespace = ? AND service_name = ? AND pod_name = ? AND restart_time = ?",
+			namespace, serviceName, podName, restartTime).First(&pod)
+
+		if ttx.Error == nil {
+			// Pod already exists
+			isCreated = false
+			return nil
+		}
+
+		if ttx.Error != gorm.ErrRecordNotFound {
+			log.Error(ctx, ttx.Error, "Error finding pod: namespace=%s, service name=%s, pod name=%s, restart time=%v",
+				namespace, serviceName, podName, restartTime)
+			return ttx.Error
+		}
+
+		// Create new pod
+		pod = model.Pod{
 			Id:          uuid.New(),
 			Namespace:   namespace,
 			ServiceName: serviceName,
 			PodName:     podName,
 			RestartTime: restartTime,
-		})
-
-		if ttx.Error != nil {
-			log.Error(ctx, ttx.Error, "Error creating/getting pod: namespace=%s, service name=%s, pod name=%s, restart time=%v",
-				namespace, serviceName, podName, restartTime)
-			return ttx.Error
 		}
-
-		isCreated = ttx.RowsAffected > 0
+		if err := tx.Table(podTable).Create(&pod).Error; err != nil {
+			log.Error(ctx, err, "Error creating pod: namespace=%s, service name=%s, pod name=%s, restart time=%v",
+				namespace, serviceName, podName, restartTime)
+			return err
+		}
+		isCreated = true
 		return nil
 	})
 
@@ -184,44 +193,20 @@ func (db *Client) RemoveOldPods(ctx context.Context, activeBefore time.Time) ([]
 	return pods, nil
 }
 
-// Helper function to add dump type to pod's dump_type JSON array
+// addDumpTypeToPod atomically adds a dump type to the pod's dump_type JSON array
+// using a single SQL UPDATE with json functions, avoiding read-modify-write races.
 func (db *Client) addDumpTypeToPod(ctx context.Context, podID uuid.UUID, dumpType model.DumpType) error {
-	// Get current dump_type value
-	var dumpTypeJSON string
-	err := db.db.Table(podTable).Select("dump_type").Where("id = ?", podID.String()).Scan(&dumpTypeJSON).Error
-	if err != nil {
-		return err
-	}
-
-	// Parse existing dump types
-	var dumpTypes []string
-	if dumpTypeJSON != "" && dumpTypeJSON != "[]" {
-		if err := json.Unmarshal([]byte(dumpTypeJSON), &dumpTypes); err != nil {
-			log.Error(ctx, err, "Failed to parse dump_type JSON for pod %s", podID)
-			dumpTypes = []string{}
-		}
-	}
-
-	// Add new dump type if not already present
-	dumpTypeStr := string(dumpType)
-	found := false
-	for _, dt := range dumpTypes {
-		if dt == dumpTypeStr {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		dumpTypes = append(dumpTypes, dumpTypeStr)
-		dumpTypesJSON, err := json.Marshal(dumpTypes)
-		if err != nil {
-			return err
-		}
-
-		return db.db.Table(podTable).Where("id = ?", podID.String()).
-			Update("dump_type", string(dumpTypesJSON)).Error
-	}
-
-	return nil
+	// Single atomic UPDATE: only adds the type if not already present (via INSTR check)
+	return db.db.Exec(`UPDATE dump_pods
+		SET dump_type = CASE
+			WHEN INSTR(dump_type, ?) > 0 THEN dump_type
+			WHEN dump_type = '[]' THEN json_array(?)
+			ELSE json_insert(dump_type, '$[#]', ?)
+		END
+		WHERE id = ?`,
+		`"`+string(dumpType)+`"`,
+		string(dumpType),
+		string(dumpType),
+		podID.String(),
+	).Error
 }

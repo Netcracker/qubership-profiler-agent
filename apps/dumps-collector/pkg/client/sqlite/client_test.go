@@ -2,21 +2,27 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
+	client "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// testDBPath returns a unique shared-cache in-memory DB path per test,
+// ensuring all connections in the pool see the same schema.
+func testDBPath(t *testing.T) string {
+	return fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+}
+
 func TestNewClient(t *testing.T) {
 	ctx := context.Background()
 	params := client.DBParams{
-		DBType: "sqlite",
-		DBPath: ":memory:", // Use in-memory database for testing
+		DBPath: testDBPath(t), // Use in-memory database for testing
 	}
 
 	dbClient, err := NewClient(ctx, params)
@@ -35,8 +41,7 @@ func TestNewClient(t *testing.T) {
 func TestPodOperations(t *testing.T) {
 	ctx := context.Background()
 	params := client.DBParams{
-		DBType: "sqlite",
-		DBPath: ":memory:",
+		DBPath: testDBPath(t),
 	}
 
 	dbClient, err := NewClient(ctx, params)
@@ -72,15 +77,14 @@ func TestPodOperations(t *testing.T) {
 func TestTimelineOperations(t *testing.T) {
 	ctx := context.Background()
 	params := client.DBParams{
-		DBType: "sqlite",
-		DBPath: ":memory:",
+		DBPath: testDBPath(t),
 	}
 
 	dbClient, err := NewClient(ctx, params)
 	require.NoError(t, err)
 	defer dbClient.CloseConnection(ctx)
 
-	now := time.Now().Truncate(time.Hour)
+	now := time.Now().UTC().Truncate(time.Hour)
 
 	// Create timeline
 	timeline, created, err := dbClient.CreateTimelineIfNotExist(ctx, now)
@@ -93,7 +97,7 @@ func TestTimelineOperations(t *testing.T) {
 	timeline2, created2, err := dbClient.CreateTimelineIfNotExist(ctx, now)
 	require.NoError(t, err)
 	assert.False(t, created2)
-	assert.Equal(t, timeline.TsHour, timeline2.TsHour)
+	assert.True(t, timeline.TsHour.Equal(timeline2.TsHour))
 
 	// Update timeline status
 	updatedTimeline, err := dbClient.UpdateTimelineStatus(ctx, now, model.ZippedStatus)
@@ -109,8 +113,7 @@ func TestTimelineOperations(t *testing.T) {
 func TestHeapDumpOperations(t *testing.T) {
 	ctx := context.Background()
 	params := client.DBParams{
-		DBType: "sqlite",
-		DBPath: ":memory:",
+		DBPath: testDBPath(t),
 	}
 
 	dbClient, err := NewClient(ctx, params)
@@ -156,8 +159,7 @@ func TestHeapDumpOperations(t *testing.T) {
 func TestStoreDumpsTransactionally(t *testing.T) {
 	ctx := context.Background()
 	params := client.DBParams{
-		DBType: "sqlite",
-		DBPath: ":memory:",
+		DBPath: testDBPath(t),
 	}
 
 	dbClient, err := NewClient(ctx, params)

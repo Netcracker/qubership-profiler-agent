@@ -12,6 +12,7 @@ const (
 	// operation label for cloud_profiler_dumps_collector-go db client metrics
 	pgOperationLabelName   = "operation"
 	PgOperationCreateOne   = PgOperationLabelType("create-one")
+	PgOperationInsertOne   = PgOperationLabelType("insert-one")
 	PgOperationInsertMany  = PgOperationLabelType("insert-many")
 	PgOperationUpdate      = PgOperationLabelType("update")
 	PgOperationCount       = PgOperationLabelType("count")

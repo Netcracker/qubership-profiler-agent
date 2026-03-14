@@ -13,13 +13,8 @@ type Config struct {
 	PVMountPath string `envconfig:"DIAG_PV_MOUNT_PATH"`
 
 	// DB params
-	DBType           string `envconfig:"DIAG_DB_TYPE" default:"postgres"` // postgres or sqlite
 	DBPath           string `envconfig:"DIAG_DB_PATH" default:""`          // SQLite database file path (e.g., /data/profiler_dumps.db or :memory:)
-	DBHost           string `envconfig:"DIAG_POSTGRES_HOST" default:"localhost"`
-	DBPort           int    `envconfig:"DIAG_POSTGRES_PORT" default:"5432"`
-	DBUser           string `envconfig:"DIAG_POSTGRES_USERNAME" default:"postgres"`
-	DBPassword       string `envconfig:"DIAG_POSTGRES_PASSWORD" default:"postgres"`
-	DBName           string `envconfig:"DIAG_DB_NAME" default:"profiler_dumps"`
+	DBName           string `envconfig:"DIAG_DB_NAME" default:"profiler_dumps.db"`
 	DBMetricsEnabled bool   `envconfig:"DIAG_DB_METRICS_ENABLED" default:"false"`
 
 	// Server params
@@ -32,7 +27,7 @@ type Config struct {
 }
 
 func (c *Config) GetPathToDB() string {
-	if c.DBType == "sqlite" && c.DBPath != "" {
+	if c.DBPath != "" {
 		return c.DBPath
 	}
 	return filepath.Join(c.PVMountPath, c.DBName)
