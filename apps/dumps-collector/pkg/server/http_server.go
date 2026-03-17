@@ -16,7 +16,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-func StartHttpServer(ctx context.Context, requestProcessor *task.RequestProcessor, bindAddress string) error {
+func StartHttpServer(ctx context.Context, requestProcessor *task.RequestProcessor, bindAddress string, extraRoutes ...func(*echo.Echo)) error {
 	e := echo.New()
 	e.Server.BaseContext = func(_ net.Listener) context.Context {
 		return ctx
@@ -42,6 +42,10 @@ func StartHttpServer(ctx context.Context, requestProcessor *task.RequestProcesso
 	e.GET("/esc/metrics", echoprometheus.NewHandler())
 	e.GET("/cdt/v2/download", downloadTdTopDump(requestProcessor))
 	e.GET("/cdt/v2/heaps/download/:handle", downloadHeapDump(requestProcessor))
+
+	for _, configure := range extraRoutes {
+		configure(e)
+	}
 
 	return e.Start(bindAddress)
 }
