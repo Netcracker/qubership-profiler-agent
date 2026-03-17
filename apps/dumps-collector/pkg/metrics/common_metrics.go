@@ -21,25 +21,25 @@ const (
 
 func init() {
 	// PG metrics
-	prometheus.Register(pgOperationSeconds)
-	prometheus.Register(pgOperationAffectedEntitiesCount)
+	prometheus.MustRegister(pgOperationSeconds)
+	prometheus.MustRegister(pgOperationAffectedEntitiesCount)
 
 	// Task metrics
-	prometheus.Register(taskOperationSeconds)
-	prometheus.Register(taskEntitesCount)
+	prometheus.MustRegister(taskOperationSeconds)
+	prometheus.MustRegister(taskEntitesCount)
 
 	// Load metrics
-	prometheus.Register(affectedEntitiesCount)
+	prometheus.MustRegister(affectedEntitiesCount)
 
 	// Request metrics
-	prometheus.Register(statisticTime)
-	prometheus.Register(statisticTimelinesCount)
-	prometheus.Register(statisticPodsCount)
+	prometheus.MustRegister(statisticTime)
+	prometheus.MustRegister(statisticTimelinesCount)
+	prometheus.MustRegister(statisticPodsCount)
 
-	prometheus.Register(downloadDumpsTime)
-	prometheus.Register(downloadTimelinesCount)
-	prometheus.Register(downloadPodsCount)
-	prometheus.Register(downloadDumpsCount)
+	prometheus.MustRegister(downloadDumpsTime)
+	prometheus.MustRegister(downloadTimelinesCount)
+	prometheus.MustRegister(downloadPodsCount)
+	prometheus.MustRegister(downloadDumpsCount)
 }
 
 func resultLabel(isError bool) string {

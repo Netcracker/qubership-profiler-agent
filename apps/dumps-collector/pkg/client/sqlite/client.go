@@ -36,7 +36,7 @@ type Client struct {
 	dumpTableName    string
 	partitionSchema  string
 	usedParams       client.DBParams
-	partitionsMu     sync.RWMutex
+	partitionsMu     *sync.RWMutex
 	existingPartitions map[string]bool
 }
 
@@ -185,6 +185,7 @@ func NewClient(ctx context.Context, params client.DBParams) (client.DumpDbClient
 			dumpTableName:      "dump_objects",
 			partitionSchema:    "dump_objects_partition.sql",
 			usedParams:         params,
+			partitionsMu:       &sync.RWMutex{},
 			existingPartitions: make(map[string]bool),
 		},
 	}

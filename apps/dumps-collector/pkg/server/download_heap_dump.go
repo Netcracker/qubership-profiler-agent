@@ -30,10 +30,10 @@ func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c echo.Conte
 		} else {
 			zipReader, err := zip.OpenReader(fileLocation.PathToZip)
 			if err != nil {
-				log.Error(ctx, err, "Error openning zip %s to collect dumps", fileLocation.PathToZip)
+				log.Error(ctx, err, "Error opening zip %s to collect dumps", fileLocation.PathToZip)
 				return NewAPIError(500, err).ReturnWithError(c)
 			}
-			defer zipReader.Close()
+			defer func() { _ = zipReader.Close() }()
 
 			// Separator replacement is needed for windows run, because Open requires '/' separator
 			f, err := zipReader.Open(filepath.ToSlash(fileLocation.PathToFiles[0]))
@@ -41,7 +41,7 @@ func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c echo.Conte
 				log.Error(ctx, err, "Error opening file %s in zip %s", fileLocation.PathToFiles[0], fileLocation.PathToZip)
 				return NewAPIError(500, err).ReturnWithError(c)
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			fileName := filepath.Base(fileLocation.PathToFiles[0])
 			c.Response().Header().Set("Content-Disposition", "attachment; filename="+fileName+";")

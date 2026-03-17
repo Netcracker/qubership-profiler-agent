@@ -219,9 +219,10 @@ func (suite *RequestProcessorTestSuite) TestStatisticCalculationFull() {
 	var svc1 *model.StatisticItem
 	var svc2 *model.StatisticItem
 	for _, statistic := range statistics {
-		if statistic.ServiceName == "test-service-1" {
+		switch statistic.ServiceName {
+		case "test-service-1":
 			svc1 = statistic
-		} else if statistic.ServiceName == "test-service-2" {
+		case "test-service-2":
 			svc2 = statistic
 		}
 	}

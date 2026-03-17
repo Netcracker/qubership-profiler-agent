@@ -54,7 +54,7 @@ func downloadTdTopDump(requestProcessor *task.RequestProcessor) func(c echo.Cont
 		c.Response().Header().Add("Content-Disposition", "attachment; filename="+fileName+";")
 
 		z := zip.NewWriter(c.Response().Writer)
-		defer z.Close()
+		defer func() { _ = z.Close() }()
 
 		for _, fileLocation := range filesLocations {
 			if fileLocation.PathToZip == "" {
@@ -72,16 +72,16 @@ func downloadTdTopDump(requestProcessor *task.RequestProcessor) func(c echo.Cont
 						log.Error(ctx, err, "Error opening file %s", file)
 						continue
 					}
-					defer f.Close()
-					io.Copy(zf, f)
+					defer func() { _ = f.Close() }()
+					_, _ = io.Copy(zf, f)
 				}
 			} else {
 				zipReader, err := zip.OpenReader(fileLocation.PathToZip)
 				if err != nil {
-					log.Error(ctx, err, "Error openning zip %s to collect dumps", fileLocation.PathToZip)
+					log.Error(ctx, err, "Error opening zip %s to collect dumps", fileLocation.PathToZip)
 					continue
 				}
-				defer zipReader.Close()
+				defer func() { _ = zipReader.Close() }()
 
 				for _, file := range fileLocation.PathToFiles {
 					fileName := filepath.Base(file)
@@ -99,8 +99,8 @@ func downloadTdTopDump(requestProcessor *task.RequestProcessor) func(c echo.Cont
 						continue
 					}
 
-					defer f.Close()
-					io.Copy(zf, f)
+					defer func() { _ = f.Close() }()
+					_, _ = io.Copy(zf, f)
 				}
 			}
 		}

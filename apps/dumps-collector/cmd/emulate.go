@@ -33,7 +33,7 @@ const (
 	dbPath = "emulate.db"
 )
 
-// Time for data generation (14 days + 1 hour, that will be removed in first interation)
+// Time for data generation (14 days + 1 hour, that will be removed in first iteration)
 var (
 	startTime = time.Date(2024, 06, 30, 23, 00, 00, 00, time.UTC)
 	endTime   = time.Date(2024, 07, 15, 00, 00, 00, 00, time.UTC)
@@ -70,7 +70,7 @@ func Emulate(cmd *cobra.Command, args []string) {
 
 	requestProcessor, err := task.NewRequestProcessor("./tests/resources", dbClient, true)
 	if err != nil {
-		log.Fatal(ctx, err, "Error calculating request procesor")
+		log.Fatal(ctx, err, "Error calculating request processor")
 	}
 
 	podDist, heapDumpPods, err := GeneratePods(ctx, dbClient)

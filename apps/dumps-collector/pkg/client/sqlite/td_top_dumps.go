@@ -19,13 +19,13 @@ func (db *dumpDbClientImpl) FindTdTopDump(ctx context.Context, podId uuid.UUID, 
 	log.Debug(ctx, "[FindTdTopDump] pod id = %s, creation time = %v, dump type = %s", podId, creationTime, dumpType)
 
 	tableName := db.DumpTable(creationTime)
-	
+
 	// Ensure partition exists before querying
 	if err := db.ensurePartitionExists(ctx, creationTime); err != nil {
 		log.Error(ctx, err, "Error ensuring partition exists for time %v", creationTime)
 		return nil, err
 	}
-	
+
 	tdTopDump := model.DumpObject{}
 	tx := db.db.Table(tableName).
 		Where("pod_id = ? AND creation_time = ? AND dump_type = ?",
@@ -56,7 +56,7 @@ func (db *dumpDbClientImpl) GetTdTopDumpsCount(ctx context.Context, tHour time.T
 		log.Error(ctx, err, "Error ensuring partition exists for time %v", tHour)
 		return 0, err
 	}
-	
+
 	actualTableName := db.DumpTable(tHour)
 
 	// Double filtering by creation_time is used to cut off data by the current timeline (1 hour) and time-range
@@ -89,7 +89,7 @@ func (db *dumpDbClientImpl) SearchTdTopDumps(ctx context.Context, tHour time.Tim
 		log.Error(ctx, err, "Error ensuring partition exists for time %v", tHour)
 		return nil, err
 	}
-	
+
 	actualTableName := db.DumpTable(tHour)
 
 	// Convert UUIDs to strings for SQLite
@@ -129,7 +129,7 @@ func (db *dumpDbClientImpl) CalculateSummaryTdTopDumps(ctx context.Context, tHou
 		log.Error(ctx, err, "Error ensuring partition exists for time %v", tHour)
 		return nil, err
 	}
-	
+
 	actualTableName := db.DumpTable(tHour)
 
 	// Convert UUIDs to strings for SQLite
@@ -213,7 +213,7 @@ func (db *dumpDbClientImpl) RemoveOldTdTopDumps(ctx context.Context, tHour time.
 		log.Error(ctx, err, "Error ensuring partition exists for time %v", tHour)
 		return nil, err
 	}
-	
+
 	actualTableName := db.DumpTable(tHour)
 
 	dumps := make([]model.DumpObject, 0)
@@ -245,7 +245,7 @@ func (db *Client) CreateTdTopDumpIfNotExist(ctx context.Context, dump model.Dump
 	if err := db.ensurePartitionExists(ctx, dump.CreationTime); err != nil {
 		return nil, false, err
 	}
-	
+
 	tableName := db.DumpTable(dump.CreationTime)
 
 	err := db.db.Transaction(func(tx *gorm.DB) error {
@@ -296,7 +296,7 @@ func (db *dumpDbClientImpl) InsertTdTopDumps(ctx context.Context, tHour time.Tim
 	if err := db.ensurePartitionExists(ctx, tHour); err != nil {
 		return nil, err
 	}
-	
+
 	tableName := db.DumpTable(tHour)
 	tdTopDumps := make([]model.DumpObject, 0, len(dumps))
 	for _, dump := range dumps {
@@ -333,7 +333,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 		len(heapDumps), len(tdTopDumps), tMinute)
 
 	result := model.StoreDumpResult{}
-	
+
 	err := db.db.Transaction(func(tx *gorm.DB) error {
 		// Create a transactional client
 		txClient := &dumpDbClientImpl{
@@ -347,7 +347,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 				existingPartitions: db.existingPartitions,
 			},
 		}
-		
+
 		// Create timeline for the hour if not exists
 		tHour := tMinute.Truncate(Granularity)
 		_, timelineCreated, err := txClient.CreateTimelineIfNotExist(ctx, tHour)
@@ -357,15 +357,15 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 		if timelineCreated {
 			result.TimelinesCreated = 1
 		}
-		
+
 		// Ensure partition exists for this hour
 		if err := txClient.ensurePartitionExists(ctx, tHour); err != nil {
 			return err
 		}
-		
+
 		// Track unique pods created
 		createdPods := make(map[string]bool)
-		
+
 		// Process heap dumps
 		for _, dump := range heapDumps {
 			// Create or get pod
@@ -384,7 +384,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 					result.PodsCreated++
 				}
 			}
-			
+
 			// Update pod last active and dump type
 			_, err = txClient.UpdatePodLastActive(ctx,
 				dump.Pod.Namespace,
@@ -395,13 +395,13 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 			if err != nil {
 				return err
 			}
-			
+
 			// Add dump type to pod
 			if err := txClient.addDumpTypeToPod(ctx, pod.Id, dump.DumpType); err != nil {
 				log.Error(ctx, err, "Warning: failed to update dump_type for pod %s", pod.Id)
 				// Don't fail the transaction for this
 			}
-			
+
 			// Insert heap dump
 			handle := dump.GetHandle()
 			heapDump := model.HeapDump{
@@ -410,7 +410,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 				CreationTime: dump.CreationTime,
 				FileSize:     dump.FileSize,
 			}
-			
+
 			htx := tx.Table(heapDumpsTable).Clauses(clause.OnConflict{
 				DoNothing: true,
 			}).Create(&heapDump)
@@ -419,7 +419,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 			}
 			result.HeapDumpsInserted += htx.RowsAffected
 		}
-		
+
 		// Process td/top dumps
 		partitionTable := txClient.DumpTable(tHour)
 		for _, dump := range tdTopDumps {
@@ -439,7 +439,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 					result.PodsCreated++
 				}
 			}
-			
+
 			// Update pod last active and dump type
 			_, err = txClient.UpdatePodLastActive(ctx,
 				dump.Pod.Namespace,
@@ -450,13 +450,13 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 			if err != nil {
 				return err
 			}
-			
+
 			// Add dump type to pod
 			if err := txClient.addDumpTypeToPod(ctx, pod.Id, dump.DumpType); err != nil {
 				log.Error(ctx, err, "Warning: failed to update dump_type for pod %s", pod.Id)
 				// Don't fail the transaction for this
 			}
-			
+
 			// Insert td/top dump
 			tdTopDump := model.DumpObject{
 				Id:           uuid.New(),
@@ -465,7 +465,7 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 				FileSize:     dump.FileSize,
 				DumpType:     dump.DumpType,
 			}
-			
+
 			ttx := tx.Table(partitionTable).Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "pod_id"}, {Name: "creation_time"}, {Name: "dump_type"}},
 				DoNothing: true,
@@ -475,24 +475,24 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 			}
 			result.TdTopDumpsInserted += ttx.RowsAffected
 		}
-		
+
 		log.Info(ctx, "[StoreDumpsTransactionally] successfully stored: timelines=%d, pods=%d, heap_dumps=%d, td_top_dumps=%d",
 			result.TimelinesCreated, result.PodsCreated, result.HeapDumpsInserted, result.TdTopDumpsInserted)
-		
+
 		return nil
 	})
-	
+
 	duration := time.Since(startTime)
 	metrics.AddPgOperationMetricValue(metrics.EntityPod, metrics.PgOperationInsertMany, duration, result.PodsCreated, err != nil)
 	metrics.AddPgOperationMetricValue(metrics.EntityTimelime, metrics.PgOperationInsertMany, duration, result.TimelinesCreated, err != nil)
 	metrics.AddPgOperationMetricValue(metrics.EntityTdTopDump, metrics.PgOperationInsertMany, duration, result.TdTopDumpsInserted, err != nil)
 	metrics.AddPgOperationMetricValue(metrics.EntityHeapDump, metrics.PgOperationInsertMany, duration, result.HeapDumpsInserted, err != nil)
-	
+
 	if err != nil {
 		log.Error(ctx, err, "[StoreDumpsTransactionally] failed")
 		return model.StoreDumpResult{}, err
 	}
-	
+
 	log.Debug(ctx, "[StoreDumpsTransactionally] completed in %v", duration)
 	return result, nil
 }

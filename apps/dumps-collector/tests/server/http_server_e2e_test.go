@@ -64,7 +64,7 @@ func (s *E2ETestSuite) SetupSuite() {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(s.T(), err)
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	_ = listener.Close()
 
 	bindAddr := fmt.Sprintf("127.0.0.1:%d", port)
 	s.baseURL = fmt.Sprintf("http://%s", bindAddr)
@@ -144,7 +144,7 @@ func (s *E2ETestSuite) SetupSuite() {
 		if err != nil {
 			return false
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return resp.StatusCode == http.StatusNoContent
 	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
 }
@@ -155,7 +155,7 @@ func (s *E2ETestSuite) TearDownSuite() {
 		_ = s.dbClient.CloseConnection(s.ctx)
 	}
 	if s.baseDir != "" {
-		os.RemoveAll(s.baseDir)
+		_ = os.RemoveAll(s.baseDir)
 	}
 }
 
@@ -171,7 +171,7 @@ func (s *E2ETestSuite) createDumpFile(namespace string, t time.Time, podName str
 func (s *E2ETestSuite) rescan() {
 	resp, err := http.Post(s.baseURL+"/esc/rescan", "", nil)
 	require.NoError(s.T(), err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(s.T(), 200, resp.StatusCode)
 }
 
@@ -179,7 +179,7 @@ func (s *E2ETestSuite) insert(dateFrom, dateTo time.Time) {
 	url := fmt.Sprintf("%s/esc/insert?dateFrom=%d&dateTo=%d", s.baseURL, dateFrom.UnixMilli(), dateTo.UnixMilli())
 	resp, err := http.Post(url, "", nil)
 	require.NoError(s.T(), err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(s.T(), 200, resp.StatusCode)
 }
 
@@ -187,7 +187,7 @@ func (s *E2ETestSuite) pack(before time.Time) {
 	url := fmt.Sprintf("%s/esc/pack?before=%d", s.baseURL, before.UnixMilli())
 	resp, err := http.Post(url, "", nil)
 	require.NoError(s.T(), err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(s.T(), 200, resp.StatusCode)
 }
 
@@ -195,7 +195,7 @@ func (s *E2ETestSuite) getStatistics(dateFrom, dateTo time.Time) []*model.Statis
 	url := fmt.Sprintf("%s/esc/statistics?dateFrom=%d&dateTo=%d", s.baseURL, dateFrom.UnixMilli(), dateTo.UnixMilli())
 	resp, err := http.Get(url)
 	require.NoError(s.T(), err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(s.T(), 200, resp.StatusCode)
 
 	var stats []*model.StatisticItem
@@ -345,7 +345,7 @@ func (s *E2ETestSuite) TestDownloadTdTopDumps() {
 
 	resp, err := http.Get(url)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, 200, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Content-Type"), "application/zip")
 
@@ -362,7 +362,7 @@ func (s *E2ETestSuite) TestDownloadTdTopDumps() {
 
 	zf, err := zr.File[0].Open()
 	require.NoError(t, err)
-	defer zf.Close()
+	defer func() { _ = zf.Close() }()
 	fileContent, err := io.ReadAll(zf)
 	require.NoError(t, err)
 	require.Equal(t, content, fileContent)
@@ -395,7 +395,7 @@ func (s *E2ETestSuite) TestDownloadHeapDump() {
 
 	resp, err := http.Get(fmt.Sprintf("%s/cdt/v2/heaps/download/%s", s.baseURL, handle))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, 200, resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
@@ -521,7 +521,7 @@ func (s *E2ETestSuite) TestPackPreservesQueryability() {
 		ns)
 	resp, err := http.Get(url)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, 200, resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
@@ -533,7 +533,7 @@ func (s *E2ETestSuite) TestPackPreservesQueryability() {
 
 	zf, err := zr.File[0].Open()
 	require.NoError(t, err)
-	defer zf.Close()
+	defer func() { _ = zf.Close() }()
 	fileContent, err := io.ReadAll(zf)
 	require.NoError(t, err)
 	require.Equal(t, content, fileContent)

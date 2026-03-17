@@ -66,7 +66,7 @@ func Run(cmd *cobra.Command, args []string) {
 	}, func(err error) {
 		if err != nil {
 			// TODO: rescan should be rescheduled
-			log.Warning(ctx, "Rescan task interupted...")
+			log.Warning(ctx, "Rescan task interrupted...")
 			cancel()
 		}
 	})
@@ -75,7 +75,7 @@ func Run(cmd *cobra.Command, args []string) {
 		return runInsertTask(ctx, dbClient, envconfig.EnvConfig.GetBasePVDir())
 	}, func(err error) {
 		if err != nil {
-			log.Warning(ctx, "Insert task interupted...")
+			log.Warning(ctx, "Insert task interrupted...")
 			cancel()
 		}
 	})
@@ -84,7 +84,7 @@ func Run(cmd *cobra.Command, args []string) {
 		return runPackTask(ctx, dbClient, envconfig.EnvConfig.GetBasePVDir())
 	}, func(err error) {
 		if err != nil {
-			log.Warning(ctx, "Pack task interupted...")
+			log.Warning(ctx, "Pack task interrupted...")
 			cancel()
 		}
 	})
@@ -93,7 +93,7 @@ func Run(cmd *cobra.Command, args []string) {
 		return runRemoveTask(ctx, dbClient, envconfig.EnvConfig.GetBasePVDir())
 	}, func(err error) {
 		if err != nil {
-			log.Warning(ctx, "Remove task interupted...")
+			log.Warning(ctx, "Remove task interrupted...")
 			cancel()
 		}
 	})
@@ -102,7 +102,7 @@ func Run(cmd *cobra.Command, args []string) {
 		return runServer(ctx, dbClient, envconfig.EnvConfig.GetBasePVDir(), envconfig.EnvConfig.BindAddress)
 	}, func(err error) {
 		if err != nil {
-			log.Warning(ctx, "Http server interupted...")
+			log.Warning(ctx, "Http server interrupted...")
 			cancel()
 		}
 	})

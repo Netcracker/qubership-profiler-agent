@@ -29,7 +29,7 @@ func TestNewClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, dbClient)
 
-	defer dbClient.CloseConnection(ctx)
+	defer func() { _ = dbClient.CloseConnection(ctx) }()
 
 	// Verify tables were created
 	assert.True(t, dbClient.HasTable(ctx, "dump_pods"))
@@ -46,7 +46,7 @@ func TestPodOperations(t *testing.T) {
 
 	dbClient, err := NewClient(ctx, params)
 	require.NoError(t, err)
-	defer dbClient.CloseConnection(ctx)
+	defer func() { _ = dbClient.CloseConnection(ctx) }()
 
 	// Create pod
 	pod, created, err := dbClient.CreatePodIfNotExist(ctx,
@@ -82,7 +82,7 @@ func TestTimelineOperations(t *testing.T) {
 
 	dbClient, err := NewClient(ctx, params)
 	require.NoError(t, err)
-	defer dbClient.CloseConnection(ctx)
+	defer func() { _ = dbClient.CloseConnection(ctx) }()
 
 	now := time.Now().UTC().Truncate(time.Hour)
 
@@ -118,7 +118,7 @@ func TestHeapDumpOperations(t *testing.T) {
 
 	dbClient, err := NewClient(ctx, params)
 	require.NoError(t, err)
-	defer dbClient.CloseConnection(ctx)
+	defer func() { _ = dbClient.CloseConnection(ctx) }()
 
 	// Create a pod first
 	pod, _, err := dbClient.CreatePodIfNotExist(ctx,
@@ -164,7 +164,7 @@ func TestStoreDumpsTransactionally(t *testing.T) {
 
 	dbClient, err := NewClient(ctx, params)
 	require.NoError(t, err)
-	defer dbClient.CloseConnection(ctx)
+	defer func() { _ = dbClient.CloseConnection(ctx) }()
 
 	now := time.Now().Truncate(time.Hour)
 

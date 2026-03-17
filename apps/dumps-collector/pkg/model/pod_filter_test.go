@@ -10,6 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func toContainer(childFilter PodFilter) PodFilter {
+	return &PodFilterContainer{
+		child: childFilter,
+	}
+}
+
 func TestPodFilter(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		podFilterJson := "{}"
@@ -40,8 +46,8 @@ func TestPodFilter(t *testing.T) {
 		assert.ErrorContains(t, err, "lValue property error: not specified")
 
 		podFilterJson = `{
-		    "lValue": {}, 
-			"comparator": "=", 
+			"lValue": {},
+			"comparator": "=",
 			"rValues": [
 				{"word": "ns-0"}
 			]
@@ -55,11 +61,11 @@ func TestPodFilter(t *testing.T) {
 
 	t.Run("missed or unsupported comparator in comparator json", func(t *testing.T) {
 		podFilterJson := `{
-			    "lValue": {"word": "namespace"}, 
-				"rValues": [
-					{"word": "ns-0"}
-				]
-			}`
+			"lValue": {"word": "namespace"},
+			"rValues": [
+				{"word": "ns-0"}
+			]
+		}`
 		var podFilter1 PodFilter = &PodFilterContainer{}
 		err := json.Unmarshal([]byte(podFilterJson), podFilter1)
 		assert.NoError(t, err)
@@ -82,9 +88,9 @@ func TestPodFilter(t *testing.T) {
 
 	t.Run("missed empty rValue in comparator json", func(t *testing.T) {
 		podFilterJson := `{
-			    "lValue": {"word": "namespace"}, 
-				"comparator": "="
-			}`
+			"lValue": {"word": "namespace"},
+			"comparator": "="
+		}`
 		var podFilter1 PodFilter = &PodFilterContainer{}
 		err := json.Unmarshal([]byte(podFilterJson), podFilter1)
 		assert.NoError(t, err)
@@ -159,7 +165,7 @@ func TestPodFilter(t *testing.T) {
 		assert.Errorf(t, err, "operation property error: not specified")
 
 		podFilterJson = `{
-		    "operation": "some",
+			"operation": "some",
 			"conditions": []
 		}`
 		var podFilter2 PodFilter = &PodFilterContainer{}

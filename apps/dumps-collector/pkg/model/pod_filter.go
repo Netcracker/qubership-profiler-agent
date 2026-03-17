@@ -188,9 +188,3 @@ func NewPodFilterСondition(operation OperationType, conditions ...PodFilter) Po
 	}
 	return res
 }
-
-func toContainer(childFilter PodFilter) PodFilter {
-	return &PodFilterContainer{
-		child: childFilter,
-	}
-}
