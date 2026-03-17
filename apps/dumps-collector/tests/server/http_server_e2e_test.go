@@ -408,7 +408,7 @@ func (s *E2ETestSuite) TestIncrementalInsert() {
 	ns := "ns-incr"
 	pod := testPodName(testService1)
 
-	// Phase 1: rescan picks up initial dumps at minute 0
+	// Phase 1: rescan picks up initial dump at minute 0
 	t1 := time.Date(2024, 8, 1, 20, 0, 0, 0, time.UTC)
 	s.createDumpFile(ns, t1, pod, model.TdDumpType, []byte("initial")) // 7 bytes
 	s.rescan()
@@ -420,14 +420,14 @@ func (s *E2ETestSuite) TestIncrementalInsert() {
 	require.NotNil(t, stat)
 	require.Equal(t, int64(7), stat.DataAtEnd)
 
-	// Phase 2: write new dumps at minute 10 and use insert task to pick them up.
-	// The insert range starts at minute 8 to avoid re-scanning minute 0 (which was
-	// already processed by rescan and would create duplicate dump_objects rows).
-	t2 := time.Date(2024, 8, 1, 20, 10, 0, 0, time.UTC)
+	// Phase 2: write new dump at minute 3 and run insert over the FULL range 00-05.
+	// This deliberately overlaps with the already-rescanned minute 0.
+	// The unique constraint on (pod_id, creation_time, dump_type) prevents duplicates.
+	t2 := time.Date(2024, 8, 1, 20, 3, 0, 0, time.UTC)
 	s.createDumpFile(ns, t2, pod, model.TdDumpType, []byte("incremental-add")) // 15 bytes
 	s.insert(
-		time.Date(2024, 8, 1, 20, 8, 0, 0, time.UTC),
-		time.Date(2024, 8, 1, 20, 12, 0, 0, time.UTC))
+		time.Date(2024, 8, 1, 20, 0, 0, 0, time.UTC),
+		time.Date(2024, 8, 1, 20, 5, 0, 0, time.UTC))
 
 	stats2 := s.getStatistics(
 		time.Date(2024, 8, 1, 20, 0, 0, 0, time.UTC),

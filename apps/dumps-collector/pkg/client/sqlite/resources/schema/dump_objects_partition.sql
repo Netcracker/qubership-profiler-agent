@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS dump_objects_{{.TimeStamp}} (
     FOREIGN KEY (pod_id) REFERENCES dump_pods(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_dump_objects_{{.TimeStamp}}_composite 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dump_objects_{{.TimeStamp}}_composite
     ON dump_objects_{{.TimeStamp}}(pod_id, creation_time, dump_type);
 
 CREATE INDEX IF NOT EXISTS idx_dump_objects_{{.TimeStamp}}_creation_time 

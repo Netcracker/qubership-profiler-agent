@@ -249,23 +249,30 @@ func (db *Client) CreateTdTopDumpIfNotExist(ctx context.Context, dump model.Dump
 	tableName := db.DumpTable(dump.CreationTime)
 
 	err := db.db.Transaction(func(tx *gorm.DB) error {
-		ttx := tx.Table(tableName).Where("pod_id = ? AND creation_time = ? AND dump_type = ?",
-			dump.Pod.Id.String(), dump.CreationTime, string(dump.DumpType)).
-			FirstOrCreate(&tdTopDump, model.DumpObject{
-				Id:           uuid.New(),
-				PodId:        dump.Pod.Id,
-				CreationTime: dump.CreationTime,
-				FileSize:     dump.FileSize,
-				DumpType:     dump.DumpType,
-			})
-
+		newObj := model.DumpObject{
+			Id:           uuid.New(),
+			PodId:        dump.Pod.Id,
+			CreationTime: dump.CreationTime,
+			FileSize:     dump.FileSize,
+			DumpType:     dump.DumpType,
+		}
+		ttx := tx.Table(tableName).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "pod_id"}, {Name: "creation_time"}, {Name: "dump_type"}},
+			DoNothing: true,
+		}).Create(&newObj)
 		if ttx.Error != nil {
-			log.Error(ctx, ttx.Error, "Error creating/getting td/top dump: pod id = %s, creation time = %v, dump type = %s",
+			log.Error(ctx, ttx.Error, "Error creating td/top dump: pod id = %s, creation time = %v, dump type = %s",
 				dump.Pod.Id, dump.CreationTime, dump.DumpType)
 			return ttx.Error
 		}
-
 		isCreated = ttx.RowsAffected > 0
+
+		// Fetch the existing or newly created row
+		if err := tx.Table(tableName).Where("pod_id = ? AND creation_time = ? AND dump_type = ?",
+			dump.Pod.Id.String(), dump.CreationTime, string(dump.DumpType)).
+			First(&tdTopDump).Error; err != nil {
+			return err
+		}
 		return nil
 	})
 
@@ -303,6 +310,7 @@ func (db *dumpDbClientImpl) InsertTdTopDumps(ctx context.Context, tHour time.Tim
 	}
 
 	tx := db.db.Table(tableName).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "pod_id"}, {Name: "creation_time"}, {Name: "dump_type"}},
 		DoNothing: true,
 	}).Create(&tdTopDumps)
 
@@ -403,12 +411,13 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 				FileSize:     dump.FileSize,
 			}
 			
-			if err := tx.Table(heapDumpsTable).Clauses(clause.OnConflict{
+			htx := tx.Table(heapDumpsTable).Clauses(clause.OnConflict{
 				DoNothing: true,
-			}).Create(&heapDump).Error; err != nil {
-				return err
+			}).Create(&heapDump)
+			if htx.Error != nil {
+				return htx.Error
 			}
-			result.HeapDumpsInserted++
+			result.HeapDumpsInserted += htx.RowsAffected
 		}
 		
 		// Process td/top dumps
@@ -457,12 +466,14 @@ func (db *dumpDbClientImpl) StoreDumpsTransactionally(ctx context.Context, heapD
 				DumpType:     dump.DumpType,
 			}
 			
-			if err := tx.Table(partitionTable).Clauses(clause.OnConflict{
+			ttx := tx.Table(partitionTable).Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "pod_id"}, {Name: "creation_time"}, {Name: "dump_type"}},
 				DoNothing: true,
-			}).Create(&tdTopDump).Error; err != nil {
-				return err
+			}).Create(&tdTopDump)
+			if ttx.Error != nil {
+				return ttx.Error
 			}
-			result.TdTopDumpsInserted++
+			result.TdTopDumpsInserted += ttx.RowsAffected
 		}
 		
 		log.Info(ctx, "[StoreDumpsTransactionally] successfully stored: timelines=%d, pods=%d, heap_dumps=%d, td_top_dumps=%d",
