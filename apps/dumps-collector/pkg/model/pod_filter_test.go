@@ -33,8 +33,8 @@ func TestPodFilter(t *testing.T) {
 	})
 
 	t.Run("missed or empty lValue in comparator json", func(t *testing.T) {
-		podFilterJson := `{ 
-			"comparator": "=", 
+		podFilterJson := `{
+			"comparator": "=",
 			"rValues": [
 				{"word": "ns-0"}
 			]
@@ -73,8 +73,8 @@ func TestPodFilter(t *testing.T) {
 		assert.ErrorContains(t, err, "comparator property error: not specified")
 
 		podFilterJson = `{
-				"lValue": {"word": "namespace"}, 
-				"comparator": "!=", 
+				"lValue": {"word": "namespace"},
+				"comparator": "!=",
 				"rValues": [
 					{"word": "ns-0"}
 				]
@@ -98,7 +98,7 @@ func TestPodFilter(t *testing.T) {
 		assert.NoError(t, err)
 
 		podFilterJson = `{
-			"lValue": {"word": "namespace"}, 
+			"lValue": {"word": "namespace"},
 			"comparator": "=",
 			"rValues": [
 				{}
@@ -132,11 +132,11 @@ func TestPodFilter(t *testing.T) {
 
 	t.Run("valid multivalues comparator json", func(t *testing.T) {
 		podFilterJson := `{
-			"lValue": {"word": "namespace"}, 
-			"comparator": "=", 
+			"lValue": {"word": "namespace"},
+			"comparator": "=",
 			"rValues": [
-				{"word": "profiler1"}, 
-				{"word": "profiler2"}, 
+				{"word": "profiler1"},
+				{"word": "profiler2"},
 				{"word": "profiler3"}
 			]
 		}`

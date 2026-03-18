@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS timeline (
     status TEXT NOT NULL CHECK (status IN ('raw', 'zipping', 'zipped', 'removing'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_timeline_status ON timeline (status);
 CREATE INDEX IF NOT EXISTS idx_timeline_ts_hour ON timeline (ts_hour);
 
 -- ====================================================================================
@@ -44,7 +43,6 @@ CREATE TABLE IF NOT EXISTS heap_dumps (
     FOREIGN KEY (pod_id) REFERENCES dump_pods (id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_heap_dumps_pod_id ON heap_dumps (pod_id);
 CREATE INDEX IF NOT EXISTS idx_heap_dumps_creation_time ON heap_dumps (creation_time);
 CREATE INDEX IF NOT EXISTS idx_heap_dumps_composite ON heap_dumps (pod_id, creation_time);
 

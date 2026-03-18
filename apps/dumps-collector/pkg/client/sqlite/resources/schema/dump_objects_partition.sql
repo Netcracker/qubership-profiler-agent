@@ -15,6 +15,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_dump_objects_{{.TimeStamp}}_composite
 
 CREATE INDEX IF NOT EXISTS idx_dump_objects_{{.TimeStamp}}_creation_time
     ON dump_objects_{{.TimeStamp}}(creation_time);
-
-CREATE INDEX IF NOT EXISTS idx_dump_objects_{{.TimeStamp}}_pod_id
-    ON dump_objects_{{.TimeStamp}}(pod_id);
