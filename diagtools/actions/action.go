@@ -162,21 +162,29 @@ func (action *Action) RunJCmdWithOutput(ctx context.Context) (output []byte, err
 
 func (action *Action) UploadOutputToDiagnosticCenter(ctx context.Context, output []byte) error {
 	startTime := time.Now()
+	maxRetries := constants.UploadRetryCount(ctx)
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Infof(ctx, "retry sending to diagnostic center (attempt %d/%d)", attempt+1, maxRetries+1)
+		}
+		reader := bytes.NewReader(output)
+		request, err := http.NewRequestWithContext(ctx, http.MethodPut, action.TargetUrl, reader)
+		if err != nil {
+			log.Error(ctx, err, "failed to create http request")
+			return err
+		}
+		request.Header.Add("Content-Type", "application/octet-stream")
 
-	reader := bytes.NewReader(output)
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, action.TargetUrl, reader)
-	if err != nil {
-		log.Error(ctx, err, "failed to create http request")
-		return err
+		lastErr = utils.SendFileRequest(ctx, action.DumpPath, request)
+		if lastErr == nil {
+			log.Info(ctx, fmt.Sprintf("uploaded %s", action.DumpPath),
+				"bytes", len(output), "duration", time.Since(startTime))
+			return nil
+		}
+		log.Error(ctx, lastErr, "failed to send to diagnostic center", "attempt", attempt+1, "maxRetries", maxRetries)
 	}
-	request.Header.Add("Content-Type", "application/octet-stream")
-
-	err = utils.SendFileRequest(ctx, action.DumpPath, request)
-	if err == nil {
-		log.Info(ctx, fmt.Sprintf("uploaded %s", action.DumpPath),
-			"bytes", len(output), "duration", time.Since(startTime))
-	}
-	return err
+	return lastErr
 }
 
 func (action *Action) ZipDump(ctx context.Context) (err error) {
