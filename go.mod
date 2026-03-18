@@ -29,7 +29,7 @@ require (
 	go.k6.io/k6 v1.6.1
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.6.0
-	gorm.io/gorm v1.31.0
+	gorm.io/gorm v1.31.1
 	gorm.io/plugin/prometheus v0.1.0
 	k8s.io/apimachinery v0.35.2
 	k8s.io/client-go v0.35.2
