@@ -93,20 +93,32 @@ func HandleGcLogCmd(ctx context.Context, action *actions2.GcLogAction) (err erro
 }
 
 func HandleScanCmd(ctx context.Context, args []string) (err error) {
-	// scan "${NC_DIAGNOSTIC_LOG_FOLDER}"/*.hprof* ./core* ./hs_err*
+	action, err := createAndZipScan(ctx, args)
+	if err != nil {
+		return
+	}
+	return action.UploadFiles(ctx)
+}
+
+// createAndZipScan finds dump files and compresses any raw .hprof into .zip.
+// The returned action has FilesToSend populated but nothing uploaded yet.
+func createAndZipScan(ctx context.Context, args []string) (action actions2.ScanAction, err error) {
 	if len(args) == 0 {
-		log.Error(ctx, fmt.Errorf("no scan patterns"), "there are no file patterns as arguments")
+		err = fmt.Errorf("no scan patterns")
+		log.Error(ctx, err, "there are no file patterns as arguments")
 		return
 	}
 
-	action, err := actions2.CreateScanAction(ctx)
-	if err == nil {
-		startTime := time.Now()
-		log.Info(ctx, "start to scan files")
-		err = action.RunScan(ctx, args)
-		log.Info(ctx, "scanning is done",
-			"files", len(action.FilesToSend), "duration", time.Since(startTime))
+	action, err = actions2.CreateScanAction(ctx)
+	if err != nil {
+		return
 	}
+
+	startTime := time.Now()
+	log.Info(ctx, "start to scan files")
+	err = action.ZipScannedFiles(ctx, args)
+	log.Info(ctx, "scanning is done",
+		"files", len(action.FilesToSend), "duration", time.Since(startTime))
 	return
 }
 
@@ -129,6 +141,15 @@ func HandleScheduleCmd(baseCtx context.Context, logPath string) (err error) {
 		log.Error(baseCtx, gcLogErr, "failed to create GC log action, GC log collection will be skipped")
 	}
 
+	// Exponential backoff for scan upload failures.
+	// Zip phase always runs (to compress new .hprof files promptly).
+	// Upload phase is skipped while in backoff.
+	// On upload failure: double the delay (capped at 32x scanInterval).
+	// On upload success: reset.
+	var uploadResumeAt time.Time
+	uploadBackoff := time.Duration(0)
+	maxUploadBackoff := 32 * scanInterval
+
 	for {
 		select {
 		case <-dumpIntervalTicker.C:
@@ -146,13 +167,26 @@ func HandleScheduleCmd(baseCtx context.Context, logPath string) (err error) {
 		case <-scanIntervalTicker.C:
 			ctx := log.ChildCtx(baseCtx, "schedule:scan")
 			log.Info(ctx, "Scan request")
+			var uploadErr error
 			err = utils.InLock(ctx, func(ctx context.Context) error {
 				dumpFolder := constants.DumpFolder()
 				filePattern := filepath.Join(dumpFolder, constants.DumpFilePattern)
 
-				err = HandleScanCmd(ctx, []string{filePattern})
-				if err != nil {
-					log.Error(ctx, err, "Scan request failed")
+				action, zipErr := createAndZipScan(ctx, []string{filePattern})
+				if zipErr != nil {
+					log.Error(ctx, zipErr, "Scan zip failed")
+					return zipErr
+				}
+
+				if now := time.Now(); now.Before(uploadResumeAt) {
+					log.Infof(ctx, "Upload skipped due to backoff, next attempt in %s",
+						uploadResumeAt.Sub(now).Truncate(time.Second))
+					return nil
+				}
+
+				uploadErr = action.UploadFiles(ctx)
+				if uploadErr != nil {
+					log.Error(ctx, uploadErr, "Scan upload failed")
 				} else {
 					log.Info(ctx, "Scan request done")
 				}
@@ -165,8 +199,24 @@ func HandleScheduleCmd(baseCtx context.Context, logPath string) (err error) {
 					}
 				}
 
-				return err
+				return uploadErr
 			})
+			if uploadErr != nil {
+				if uploadBackoff == 0 {
+					uploadBackoff = scanInterval
+				} else {
+					uploadBackoff *= 2
+				}
+				if uploadBackoff > maxUploadBackoff {
+					uploadBackoff = maxUploadBackoff
+				}
+				uploadResumeAt = time.Now().Add(uploadBackoff)
+				log.Infof(ctx, "Upload failed, backing off for %s", uploadBackoff)
+			} else if uploadResumeAt.IsZero() || time.Now().After(uploadResumeAt) {
+				// Reset only when upload actually ran (not when skipped by backoff)
+				uploadBackoff = 0
+				uploadResumeAt = time.Time{}
+			}
 		case <-logIntervalTicker.C:
 			ctx := log.ChildCtx(baseCtx, "schedule:clean")
 			log.Info(ctx, "Clean log request")

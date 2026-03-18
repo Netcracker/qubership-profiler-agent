@@ -51,6 +51,16 @@ func (action *ScanAction) scanFiles(ctx context.Context, args []string) (fileNam
 }
 
 func (action *ScanAction) RunScan(ctx context.Context, args []string) (err error) {
+	if err = action.ZipScannedFiles(ctx, args); err != nil {
+		return
+	}
+	return action.UploadFiles(ctx)
+}
+
+// ZipScannedFiles finds files matching the given patterns, compresses any raw
+// .hprof files into .zip archives, and populates FilesToSend with paths ready
+// for upload. Already-zipped files (e.g. .hprof.zip) are added as-is.
+func (action *ScanAction) ZipScannedFiles(ctx context.Context, args []string) (err error) {
 	var fileNames []string
 	fileNames, err = action.scanFiles(ctx, args)
 	if err != nil {
@@ -76,28 +86,36 @@ func (action *ScanAction) RunScan(ctx context.Context, args []string) (err error
 		action.FilesToSend = append(action.FilesToSend, action.ZipDumpPath)
 	}
 
-	if action.DcdEnabled && len(action.FilesToSend) > 0 {
-		for i, filePath := range action.FilesToSend {
-			fileCtx := log.AppendCtx(ctx, fmt.Sprintf("send#%d", i))
-			action.ZipDumpPath = filePath
+	return
+}
 
-			err = action.GetTargetUrl(fileCtx)
-			if err != nil {
-				return
-			}
+// UploadFiles sends every file in FilesToSend to the diagnostic center
+// and removes each file after a successful upload.
+func (action *ScanAction) UploadFiles(ctx context.Context) (err error) {
+	if !action.DcdEnabled || len(action.FilesToSend) == 0 {
+		return
+	}
 
-			// uploadToDiagnosticCenter
-			err = utils.SendSingleFile(fileCtx, action.TargetUrl, filePath)
-			//err = utils.SendMultiPart(ctx, action.TargetUrl, filePath)
-			if err != nil {
-				return
-			}
+	for i, filePath := range action.FilesToSend {
+		fileCtx := log.AppendCtx(ctx, fmt.Sprintf("send#%d", i))
+		action.ZipDumpPath = filePath
 
-			err = os.Remove(filePath)
-			if err != nil {
-				log.Error(fileCtx, err, "failed to delete file", "name", filePath)
-				return
-			}
+		err = action.GetTargetUrl(fileCtx)
+		if err != nil {
+			return
+		}
+
+		// uploadToDiagnosticCenter
+		err = utils.SendSingleFile(fileCtx, action.TargetUrl, filePath)
+		//err = utils.SendMultiPart(ctx, action.TargetUrl, filePath)
+		if err != nil {
+			return
+		}
+
+		err = os.Remove(filePath)
+		if err != nil {
+			log.Error(fileCtx, err, "failed to delete file", "name", filePath)
+			return
 		}
 	}
 
