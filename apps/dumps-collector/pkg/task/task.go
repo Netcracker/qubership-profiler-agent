@@ -169,9 +169,11 @@ func (t *task) collectNamespaces(ctx context.Context) ([]string, error) {
 		log.Error(ctx, err, "Error reading namespaces from PV")
 		return nil, err
 	}
-	namespaces := make([]string, len(entries))
-	for i, entry := range entries {
-		namespaces[i] = entry.Name()
+	namespaces := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			namespaces = append(namespaces, entry.Name())
+		}
 	}
 	return namespaces, nil
 }

@@ -121,11 +121,17 @@ func (pt *PackTask) processTimeline(ctx context.Context, timeline model.Timeline
 func (pt *PackTask) processNamespace(ctx context.Context, tHour time.Time, namespace string) (tdTopDumpsCount int64, err error) {
 	log.Info(ctx, "Start packing %v hour for namespace %s...", tHour, namespace)
 
-	// e.g., output/test-namespace-1/2024/07/31
-	dayDir := filepath.Join(pt.baseDir, namespace, FileDayDirInPV(tHour))
-
 	// e.g., output/test-namespace-1/2024/07/31/23
 	hourDir := filepath.Join(pt.baseDir, namespace, FileHourDirInPV(tHour))
+
+	// Skip namespace if hour directory does not exist (namespace has no data for this hour)
+	if _, err := os.Stat(hourDir); os.IsNotExist(err) {
+		log.Info(ctx, "Hour directory %s does not exist, skipping namespace %s", hourDir, namespace)
+		return 0, nil
+	}
+
+	// e.g., output/test-namespace-1/2024/07/31
+	dayDir := filepath.Join(pt.baseDir, namespace, FileDayDirInPV(tHour))
 
 	// e.g., output/test-namespace-1/2024/07/31/23.zip
 	fullArchiveName := filepath.Join(dayDir, HourArchiveName(tHour))
@@ -195,6 +201,10 @@ func (pt *PackTask) clearNamespace(ctx context.Context, tHour time.Time, namespa
 	hourDir := filepath.Join(pt.baseDir, namespace, FileHourDirInPV(tHour))
 
 	info, err := os.Lstat(hourDir)
+	if os.IsNotExist(err) {
+		log.Info(ctx, "Hour directory %s does not exist, skipping cleanup for namespace %s", hourDir, namespace)
+		return nil
+	}
 	if err := pt.clearNamespaceWalker(hourDir, info, err); err != nil {
 		log.Error(ctx, err, "Error clearing directory %s", hourDir)
 		return err
