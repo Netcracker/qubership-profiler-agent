@@ -138,6 +138,88 @@ func (suite *RemoveTaskTestSuite) TestFullRun() {
 	require.Equal(t, int64(8), tdTopDumpsCount)
 }
 
+// TestRescanThenRemoveAtStartup simulates the application startup flow:
+// rescan populates the database from existing PV data, then initial remove
+// deletes everything older than the configured threshold.
+//
+// Test data has 3 hours on PV:
+//   - 2024-07-31 22:00 (zipped: 22.zip + raw heap dump in 22/)
+//   - 2024-07-31 23:00 (raw files in 23/)
+//   - 2024-08-01 00:00 (raw files in 00/)
+//
+// It verifies that after rescan + remove with cutoff 2024-07-31 23:30:
+//   - old zip archives and raw directories are deleted from PV
+//   - old month directory (07) is cleaned up entirely
+//   - new month directory (08) with hour 00:00 remains intact
+//   - only 1 timeline remains in the database
+func (suite *RemoveTaskTestSuite) TestRescanThenRemoveAtStartup() {
+	t := suite.T()
+
+	nsDir := filepath.Join(helpers.TestBaseDir, "test-namespace-1")
+	yearDir := filepath.Join(nsDir, "2024")
+
+	// Verify test data is in place before rescan
+	oldMonthDir := filepath.Join(yearDir, "07")
+	_, err := os.Stat(oldMonthDir)
+	require.NoError(t, err, "test data: old month directory 07 should exist before cleanup")
+
+	newMonthDir := filepath.Join(yearDir, "08")
+	_, err = os.Stat(newMonthDir)
+	require.NoError(t, err, "test data: new month directory 08 should exist before cleanup")
+
+	// Step 1: Rescan populates the database from PV (simulates startup)
+	rescanTask, err := task.NewRescanTask(helpers.TestBaseDir, suite.db)
+	require.NoError(t, err)
+
+	err = rescanTask.Execute(suite.ctx)
+	require.NoError(t, err)
+
+	// Verify rescan found all 3 timelines
+	timelines, err := suite.db.SearchTimelines(suite.ctx,
+		time.Date(2024, 07, 29, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 8, 01, 1, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.Equal(t, 3, len(timelines), "rescan should find 3 timelines (hours 22, 23, 00)")
+
+	// Step 2: Remove task runs right after rescan (simulates initial remove at startup)
+	// Cutoff 2024-07-31 23:30 removes hours 22:00 and 23:00 (SearchTimelines uses BETWEEN), keeps 00:00
+	removeTask, err := task.NewRemoveTask(helpers.TestBaseDir, suite.db)
+	require.NoError(t, err)
+
+	err = removeTask.Execute(suite.ctx,
+		time.Date(2024, 7, 31, 23, 30, 0, 0, time.UTC))
+	require.NoError(t, err)
+
+	// Verify old month directory (07) is completely removed from PV
+	_, err = os.Stat(oldMonthDir)
+	require.True(t, os.IsNotExist(err), "old month directory 07 should be removed")
+
+	// Verify new month directory (08) still exists with data
+	_, err = os.Stat(newMonthDir)
+	require.NoError(t, err, "new month directory 08 should still exist")
+
+	// Verify only month 08 remains under the year directory
+	entries, err := os.ReadDir(yearDir)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(entries))
+	require.Equal(t, "08", entries[0].Name())
+
+	// Verify only 1 timeline (2024-08-01 00:00) remains in the database
+	timelines, err = suite.db.SearchTimelines(suite.ctx,
+		time.Date(2024, 07, 29, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 8, 01, 1, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(timelines), "only hour 00:00 timeline should remain")
+	require.Equal(t, time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC), timelines[0].TsHour)
+
+	// Verify td/top dumps for the remaining hour are intact
+	tdTopDumpsCount, err := suite.db.GetTdTopDumpsCount(suite.ctx, timelines[0].TsHour,
+		time.Date(2024, 07, 29, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 8, 01, 1, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.Equal(t, int64(8), tdTopDumpsCount, "8 td/top dumps should remain for hour 00:00")
+}
+
 func TestRemoveTaskTestSuite(t *testing.T) {
 	suite.Run(t, new(RemoveTaskTestSuite))
 }

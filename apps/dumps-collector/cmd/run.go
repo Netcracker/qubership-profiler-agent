@@ -25,9 +25,7 @@ var runCmd = &cobra.Command{
 }
 
 const (
-	InsertTaskCron = "* * * * *"  // Every minute
-	PackTaskCron   = "6 * * * *"  // Every hour (6 is needed to avoid conflicts with insert task)
-	RemoveTaskCron = "30 0 * * *" // Every day at 00:30
+	InsertTaskCron = "* * * * *" // Every minute
 
 	InsertTaskPeriod = time.Minute * 5 // 5 mins
 
@@ -125,6 +123,20 @@ func runRescanTask(ctx context.Context, dbClient db.DumpDbClient, pvPath string)
 		return err
 	}
 	log.Info(ctx, "Rescan task finished successfully")
+
+	// Run initial remove task right after rescan to clean up old data immediately
+	removeTask, err := task.NewRemoveTask(pvPath, dbClient)
+	if err != nil {
+		log.Error(ctx, err, "Error running initial remove task")
+		return nil
+	}
+	tHour := time.Now().UTC().Add(-time.Duration(envconfig.EnvConfig.DeleteDays) * RemoveTaskRange)
+	if err := removeTask.Execute(ctx, tHour); err != nil {
+		log.Error(ctx, err, "Error executing initial remove task for hour %v", tHour)
+	} else {
+		log.Info(ctx, "Initial remove task finished successfully")
+	}
+
 	return nil
 }
 
@@ -161,7 +173,7 @@ func runPackTask(ctx context.Context, dbClient db.DumpDbClient, pvPath string) e
 	}
 
 	c := cron.NewCron(ctx)
-	if _, err := c.AddFunc(PackTaskCron, func() {
+	if _, err := c.AddFunc(envconfig.EnvConfig.ArchiveCron, func() {
 		tHour := time.Now().UTC().Add(-time.Duration(envconfig.EnvConfig.ArchiveHours) * PackTaskRange)
 		if err := packTask.Execute(ctx, tHour); err != nil {
 			log.Error(ctx, err, "Error executing pack task task for hour %v", tHour)
@@ -185,7 +197,7 @@ func runRemoveTask(ctx context.Context, dbClient db.DumpDbClient, pvPath string)
 	}
 
 	c := cron.NewCron(ctx)
-	if _, err := c.AddFunc(RemoveTaskCron, func() {
+	if _, err := c.AddFunc(envconfig.EnvConfig.DeleteCron, func() {
 		tHour := time.Now().UTC().Add(-time.Duration(envconfig.EnvConfig.DeleteDays) * RemoveTaskRange)
 		if err := removeTask.Execute(ctx, tHour); err != nil {
 			log.Error(ctx, err, "Error executing remove task task for hour %v", tHour)

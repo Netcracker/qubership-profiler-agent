@@ -21,9 +21,11 @@ type Config struct {
 	BindAddress string `envconfig:"DIAG_BIND_ADDRESS" default:":8000"`
 
 	// Tasks params
-	ArchiveHours int `envconfig:"DIAG_PV_HOURS_ARCHIVE_AFTER" default:"2"`
-	DeleteDays   int `envconfig:"DIAG_PV_DAYS_DELETE_AFTER" default:"14"`
-	MaxHeapDumps int `envconfig:"DIAG_PV_MAX_HEAP_DUMPS_PER_POD" default:"10"`
+	ArchiveHours int    `envconfig:"DIAG_PV_HOURS_ARCHIVE_AFTER" default:"2"`
+	ArchiveCron  string `envconfig:"DIAG_PV_ARCHIVE_CRON" default:"6 * * * *"`  // Cron schedule for archive/pack task
+	DeleteDays   int    `envconfig:"DIAG_PV_DAYS_DELETE_AFTER" default:"14"`
+	DeleteCron   string `envconfig:"DIAG_PV_DELETE_CRON" default:"30 * * * *"`  // Cron schedule for cleanup task
+	MaxHeapDumps int    `envconfig:"DIAG_PV_MAX_HEAP_DUMPS_PER_POD" default:"10"`
 }
 
 func (c *Config) GetPathToDB() string {
