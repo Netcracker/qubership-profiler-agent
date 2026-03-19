@@ -21,6 +21,7 @@ type Config struct {
 	BindAddress string `envconfig:"DIAG_BIND_ADDRESS" default:":8000"`
 
 	// Tasks params
+	InsertCron   string `envconfig:"DIAG_PV_INSERT_CRON" default:"* * * * *"`   // Cron schedule for insert/index task
 	ArchiveHours int    `envconfig:"DIAG_PV_HOURS_ARCHIVE_AFTER" default:"2"`
 	ArchiveCron  string `envconfig:"DIAG_PV_ARCHIVE_CRON" default:"6 * * * *"`  // Cron schedule for archive/pack task
 	DeleteDays   int    `envconfig:"DIAG_PV_DAYS_DELETE_AFTER" default:"14"`

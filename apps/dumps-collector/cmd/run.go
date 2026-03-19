@@ -25,8 +25,6 @@ var runCmd = &cobra.Command{
 }
 
 const (
-	InsertTaskCron = "* * * * *" // Every minute
-
 	InsertTaskPeriod = time.Minute * 5 // 5 mins
 
 	PackTaskRange   = time.Hour      // 1 hour (is multiplied with DIAG_PV_HOURS_ARCHIVE_AFTER)
@@ -148,7 +146,7 @@ func runInsertTask(ctx context.Context, dbClient db.DumpDbClient, pvPath string)
 	}
 
 	c := cron.NewCron(ctx)
-	if _, err := c.AddFunc(InsertTaskCron, func() {
+	if _, err := c.AddFunc(envconfig.EnvConfig.InsertCron, func() {
 		dateTo := time.Now().UTC()
 		dateFrom := dateTo.Add(-InsertTaskPeriod)
 		if err := insertTask.Execute(ctx, dateFrom, dateTo); err != nil {
