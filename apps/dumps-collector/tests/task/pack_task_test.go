@@ -240,6 +240,67 @@ func (suite *PackTaskTestSuite) TestProcessingZippingStatusWithExistArchive() {
 	require.Equal(t, 8, len(zipFiles))
 }
 
+// TestProcessingWithEmptyNamespaces verifies that the pack task correctly handles
+// the case when multiple namespace directories exist in baseDir, but only one
+// has data for the given hour. Empty namespaces (directories without hour data)
+// should not block packing and cleanup for namespaces that do have data.
+//
+// This reproduces a production issue where namespaces like "cse-toolset", "default"
+// existed as empty directories, causing processNamespace to fail and blocking
+// cleanup for all namespaces including the one with actual data ("profiler-agent").
+func (suite *PackTaskTestSuite) TestProcessingWithEmptyNamespaces() {
+	t := suite.T()
+
+	// Create extra empty namespace directories (no hour data inside)
+	for _, ns := range []string{"empty-namespace-1", "empty-namespace-2"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(helpers.TestBaseDir, ns), 0755))
+	}
+
+	packTask, err := task.NewPackTask(helpers.TestBaseDir, suite.db)
+	require.NoError(t, err)
+	require.NotNil(t, packTask)
+
+	curTimeline, _, err := suite.db.CreateTimelineIfNotExist(suite.ctx,
+		time.Date(2024, 7, 31, 23, 00, 00, 00, time.UTC))
+	require.NoError(t, err)
+
+	// Pack should succeed despite empty namespaces
+	err = packTask.Execute(suite.ctx, curTimeline.TsHour)
+	require.NoError(t, err)
+
+	// Timeline status should be set to ZippedStatus
+	timeline, err := suite.db.FindTimeline(suite.ctx,
+		time.Date(2024, 7, 31, 23, 00, 00, 00, time.UTC))
+	require.NoError(t, err)
+	require.Equal(t, model.ZippedStatus, timeline.Status)
+
+	// Archive should be created for the namespace that has data
+	dayDir := filepath.Join(helpers.TestBaseDir, "test-namespace-1", "2024", "07", "31")
+	_, err = os.Stat(filepath.Join(dayDir, "23.zip"))
+	require.NoError(t, err)
+
+	// After compressing, only the heap dump should remain in the hour folder
+	pattern := filepath.Join(dayDir, "23", "*", "*", "*", "*")
+	files, err := filepath.Glob(pattern)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(files))
+	require.Equal(t, filepath.Join(dayDir, "23", "59", "35",
+		"test-service-1-5cbcd847d-l2t7t_1719318147399", "20240731T235935.hprof.zip"), files[0])
+
+	// No archives should be created for empty namespaces
+	for _, ns := range []string{"empty-namespace-1", "empty-namespace-2"} {
+		nsEntries, err := os.ReadDir(filepath.Join(helpers.TestBaseDir, ns))
+		require.NoError(t, err)
+		require.Empty(t, nsEntries, "empty namespace %s should have no files after pack", ns)
+	}
+
+	hourZip, err := zip.OpenReader(filepath.Join(dayDir, "23.zip"))
+	require.NoError(t, err)
+	defer hourZip.Close()
+
+	require.Equal(t, 8, len(hourZip.File))
+}
+
 // TestProcessingUnexpectedStatus verifies that the pack task skips processing
 // timelines with statuses other than RawStatus or ZippingStatus.
 func (suite *PackTaskTestSuite) TestProcessingUnexpectedStatus() {
