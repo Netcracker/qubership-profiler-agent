@@ -121,17 +121,25 @@ func (pt *PackTask) processTimeline(ctx context.Context, timeline model.Timeline
 func (pt *PackTask) processNamespace(ctx context.Context, tHour time.Time, namespace string) (tdTopDumpsCount int64, err error) {
 	log.Info(ctx, "Start packing %v hour for namespace %s...", tHour, namespace)
 
+	// e.g., output/test-namespace-1/2024/07/31
+	dayDir := filepath.Join(pt.baseDir, namespace, FileDayDirInPV(tHour))
+
 	// e.g., output/test-namespace-1/2024/07/31/23
 	hourDir := filepath.Join(pt.baseDir, namespace, FileHourDirInPV(tHour))
 
-	// Skip namespace if hour directory does not exist (namespace has no data for this hour)
-	if _, err := os.Stat(hourDir); os.IsNotExist(err) {
-		log.Info(ctx, "Hour directory %s does not exist, skipping namespace %s", hourDir, namespace)
+	// Skip namespace if hour directory does not exist and no archive exists either
+	// (namespace has no data for this hour at all)
+	_, hourDirErr := os.Stat(hourDir)
+	_, archiveErr := os.Stat(filepath.Join(dayDir, HourArchiveName(tHour)))
+	if os.IsNotExist(hourDirErr) && os.IsNotExist(archiveErr) {
+		log.Info(ctx, "Hour directory %s and archive do not exist, skipping namespace %s", hourDir, namespace)
 		return 0, nil
 	}
-
-	// e.g., output/test-namespace-1/2024/07/31
-	dayDir := filepath.Join(pt.baseDir, namespace, FileDayDirInPV(tHour))
+	if os.IsNotExist(hourDirErr) {
+		// Archive exists but hour directory does not — already packed, nothing to do
+		log.Info(ctx, "Hour directory %s does not exist but archive exists, skipping namespace %s", hourDir, namespace)
+		return 0, nil
+	}
 
 	// e.g., output/test-namespace-1/2024/07/31/23.zip
 	fullArchiveName := filepath.Join(dayDir, HourArchiveName(tHour))
