@@ -112,18 +112,12 @@ Template to insert envs for ENVs for selected storage
   value: {{ .Values.cloud.dumpsStorage.daysDeleteAfter | default 14 | quote }}
 - name: DIAG_PV_MAX_HEAP_DUMPS_PER_POD
   value: {{ .Values.cloud.dumpsStorage.maxHeapDumpsPerPod | default 10 | quote }}
-{{- if .Values.cloud.dumpsStorage.insertCron }}
 - name: DIAG_PV_INSERT_CRON
-  value: {{ .Values.cloud.dumpsStorage.insertCron | quote }}
-{{- end }}
-{{- if .Values.cloud.dumpsStorage.archiveCron }}
+  value: {{ .Values.cloud.dumpsStorage.insertCron | default "* * * * *" | quote }}
 - name: DIAG_PV_ARCHIVE_CRON
-  value: {{ .Values.cloud.dumpsStorage.archiveCron | quote }}
-{{- end }}
-{{- if .Values.cloud.dumpsStorage.deleteCron }}
+  value: {{ .Values.cloud.dumpsStorage.archiveCron | default "6 * * * *" | quote }}
 - name: DIAG_PV_DELETE_CRON
-  value: {{ .Values.cloud.dumpsStorage.deleteCron | quote }}
-{{- end }}
+  value: {{ .Values.cloud.dumpsStorage.deleteCron | default "30 * * * *" | quote }}
 - name: DIAG_DB_PATH
   value: '/diag/profiler_dumps.db'
 {{- else if .Values.cloud.dumpsStorage.host }}
