@@ -9,7 +9,7 @@
   "automerge": true,
   "platformAutomerge": false,
   "schedule": [
-    "every 4 days"
+    "every 4 day"
   ],
   "ignorePaths": [
     "**/node_modules/**",
