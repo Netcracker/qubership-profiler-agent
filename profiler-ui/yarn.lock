@@ -531,10 +531,10 @@ url-search-params-polyfill@^8.2.5:
   resolved "https://registry.yarnpkg.com/url-search-params-polyfill/-/url-search-params-polyfill-8.2.5.tgz#2d31de6a2140c9b9cf6ee036fe0be07dd2644674"
   integrity sha512-FOEojW4XReTmtZOB7xqSHmJZhrNTmClhBriwLTmle4iA7bwuCo6ldSfbtsFSb8bTf3E0a3XpfonAdaur9vqq8A==
 
-vite-plugin-singlefile@2.3.0:
-  version "2.3.0"
-  resolved "https://registry.yarnpkg.com/vite-plugin-singlefile/-/vite-plugin-singlefile-2.3.0.tgz#71f7d8f8958cc019295e159355284ca3ecca97f1"
-  integrity sha512-DAcHzYypM0CasNLSz/WG0VdKOCxGHErfrjOoyIPiNxTPTGmO6rRD/te93n1YL/s+miXq66ipF1brMBikf99c6A==
+vite-plugin-singlefile@2.3.2:
+  version "2.3.2"
+  resolved "https://registry.yarnpkg.com/vite-plugin-singlefile/-/vite-plugin-singlefile-2.3.2.tgz#e0ff9e146fa3a63fecd53eade9ed33bd08d20da0"
+  integrity sha512-b8SxCi/gG7K298oJDcKOuZeU6gf6wIcCJAaEqUmmZXdjfuONlkyNyWZC3tEbN6QockRCNUd3it9eGTtpHGoYmg==
   dependencies:
     micromatch "^4.0.8"
 
