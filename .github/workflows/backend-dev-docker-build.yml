@@ -101,10 +101,11 @@ jobs:
 
       - name: "Prepare tags"
         id: prepare_tags
+        env:
+          BASE_TAG: ${{ steps.metadata.outputs.result }}
+          EXTRA_TAG: ${{ github.event.inputs.tags }}
         # language=bash
         run: |
-          BASE_TAG="${{ steps.metadata.outputs.result }}"
-          EXTRA_TAG="${{ github.event.inputs.tags }}"
           if [ -n "$EXTRA_TAG" ]; then
             TAGS="${BASE_TAG}, ${EXTRA_TAG}"
           else
@@ -113,10 +114,13 @@ jobs:
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
       - name: "Summary"
+        env:
+          COMPONENT_NAME: ${{ matrix.component.name }}
+          TAGS: ${{ steps.prepare_tags.outputs.tags }}
         # language=bash
         run: |
-          echo "**Component:** ${{ matrix.component.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags:** ${{ steps.prepare_tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Component:** ${COMPONENT_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${TAGS}" >> $GITHUB_STEP_SUMMARY
 
       - name: "Build and Publish Docker Image"
         uses: netcracker/qubership-workflow-hub/actions/docker-action@5a557213e92e3d22d0292330c4817c82af6704d2 # v2.1.2
