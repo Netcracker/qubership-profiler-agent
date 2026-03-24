@@ -47,7 +47,7 @@ the Cloud Maintenance Job locally.
 ### Cloud Maintenance Job Repository
 
 Clone `cloud-maintenance-job` repository with this git link to any location under WSL:
-[maintenance](/apps/maintenance/)
+[maintenance](../../apps/maintenance/)
 
 ### Postgres and Minio Local Setup
 

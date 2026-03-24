@@ -895,4 +895,4 @@ Fourth, you can check that ESC collected the calls. You need open ESC UI (see a 
 
 For example, you should see something like in the following screenshot:
 
-![Call Tree](/docs/images/user_guide/calls-list/calls_list.png)
+![Call Tree](images/user_guide/calls-list/calls_list.png)

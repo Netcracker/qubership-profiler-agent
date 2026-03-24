@@ -35,24 +35,24 @@ Need to find the slowest operation
 
 1. Reproduce the case and get `request-id`
 
-    ![img.png](/docs/images/user_guide/use-case/step1_request_id.png)
+    ![img.png](images/user_guide/use-case/step1_request_id.png)
 
 2. Find in Graylog all `trace-id`s  by `request-id`
 
-    ![img_1.png](/docs/images/user_guide/use-case/step2_trace_ids.png)
+    ![img_1.png](images/user_guide/use-case/step2_trace_ids.png)
 
 3. Analyze traces in Jaeger
    * find the longest service operation
 
-    ![img_2.png](/docs/images/user_guide/use-case/step3_trace_longest.png)
+    ![img_2.png](images/user_guide/use-case/step3_trace_longest.png)
 
 4. In CDT filter calls by service and `request-id`
 
-    ![img_3.png](/docs/images/user_guide/use-case/step4_cdt_request_id.png)
+    ![img_3.png](images/user_guide/use-case/step4_cdt_request_id.png)
 
 5. Check the call and find the longest method
 
-    ![img_4.png](/docs/images/user_guide/use-case/step_cdt_investigation.png)
+    ![img_4.png](images/user_guide/use-case/step_cdt_investigation.png)
 
 6. Export CDT data
 
@@ -64,19 +64,19 @@ Need to find the slowest operation
 
 1. In CDT filter calls by service and additional information (method name)
 
-    ![img.png](/docs/images/user_guide/use-case/perf_step1_calls_list.png)
+    ![img.png](images/user_guide/use-case/perf_step1_calls_list.png)
 
 2. Click on `Duration` link of found process and go to tree view of the call:
 
-    ![img.png](/docs/images/user_guide/use-case/perf_step2_call_tree.png)
+    ![img.png](images/user_guide/use-case/perf_step2_call_tree.png)
 
 3. Perform analyses investigating method duration, number of method invocations, number of calls and etc
 
-    ![img_1.png](/docs/images/user_guide/use-case/perf_step3_methods.png)
+    ![img_1.png](images/user_guide/use-case/perf_step3_methods.png)
 
 4. Perform analyses investigating SQL queries duration, ran query
 
-    ![img_2.png](/docs/images/user_guide/use-case/perf_step4_sql.png)
+    ![img_2.png](images/user_guide/use-case/perf_step4_sql.png)
 
 ### Find anomalies
 

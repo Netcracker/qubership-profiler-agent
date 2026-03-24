@@ -45,83 +45,83 @@ There are several useful extensions which can be installed too:
 
 For build and running project you need to install [Node.js and npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
 
-* [API](../../docs/internal/apis.md)
+* [API](apis.md)
 * [Typescript docs](https://www.typescriptlang.org/docs/)
 * [Redux](https://redux.js.org/)
 * [API mocking](https://mswjs.io/)
 
 ## Project structure
 
-`Note`: don't forget to update component-librarie's versions to the latest in the [package.json](../../package.json)
+`Note`: don't forget to update component-librarie's versions to the latest in the [package.json](../../apps/query/package.json)
 
-The main code is located in the directory [src](../../src).
+The main code is located in the directory [src](../../apps/query/src).
 There are some sub-directories.
 
-### [Assets](../../src/assets)
+### [Assets](../../apps/query/src/assets)
 
 This directory contains all necessary resources:
 
-* [fonts](../../src/assets/fonts)
-* [icons](../../src/assets/icons)
-* [illustrations](../../src/assets/illustrations)
-* [styles](../../src/assets/styles)
+* [fonts](../../apps/query/src/assets/fonts)
+* [icons](../../apps/query/src/assets/icons)
+* [illustrations](../../apps/query/src/assets/illustrations)
+* [styles](../../apps/query/src/assets/styles)
 
-### [Common](../../src/common)
+### [Common](../../apps/query/src/common)
 
 This directory contains a description of errors, utility types, user locale.
 
-### [Components](../../src/components)
+### [Components](../../apps/query/src/components)
 
 This directory contains components that can be reused in various places.
 There are next components:
 
-* [app-header](../../src/components/app-header) - the header for application
-* [highlight-cell](../../src/components/highlight-cell) - the cell with supported highlighting text
-* [html-ellipsis](../../src/components/html-ellipsis) - the component for shortening text in the form of `...`
-* [simple-select](../../src/components/simple-select) (no-usage).
-* [table-components](../../src/components/table-componentts) - contains the `ResizableTitle` for grid-columns
-* [app](../../src/components/app.tsx) includes [profiler.page](../../src/pages/profiler.page.tsx), which contains data about [Calls](#calls), [Calls-tree](#calls-tree), [Pods Info](#pods-info), [Heap Dumps](#heap-dumps), [Controls card](#controls) and [Sidebar](#sidebar)
-* [confirm](../../src/components/confirm.tsx) - the component which responsible for confirming actions
-* [page-layout](../../src/components/page-layout.tsx) - the component containing the title and content of the page via `<Outlet />`
+* [app-header](../../apps/query/src/components/app-header) - the header for application
+* [highlight-cell](../../apps/query/src/components/highlight-cell) - the cell with supported highlighting text
+* [html-ellipsis](../../apps/query/src/components/html-ellipsis) - the component for shortening text in the form of `...`
+* [simple-select](../../apps/query/src/components/simple-select) (no-usage).
+* [table-components](../../apps/query/src/components/table-componentts) - contains the `ResizableTitle` for grid-columns
+* [app](../../apps/query/src/components/app.tsx) includes [profiler.page](../../apps/query/src/pages/profiler.page.tsx), which contains data about [Calls](#calls), [Calls-tree](#calls-tree), [Pods Info](#pods-info), [Heap Dumps](#heap-dumps), [Controls card](#controls) and [Sidebar](#sidebar)
+* [confirm](../../apps/query/src/components/confirm.tsx) - the component which responsible for confirming actions
+* [page-layout](../../apps/query/src/components/page-layout.tsx) - the component containing the title and content of the page via `<Outlet />`
 
-### [Constants](../../src/constants)
+### [Constants](../../apps/query/src/constants)
 
-This directory contains constants [app.constants](../../src/constants/app.constants.ts) andparameters for URL [query-params](../../src/constants/query-params.ts)
+This directory contains constants [app.constants](../../apps/query/src/constants/app.constants.ts) andparameters for URL [query-params](../../apps/query/src/constants/query-params.ts)
 
-### [Hooks](../../src/hooks)
+### [Hooks](../../apps/query/src/hooks)
 
-* [navigateWithQuery](../../src/hooks/use-navigate-with-query.ts) - hook for navigating by current query
+* [navigateWithQuery](../../apps/query/src/hooks/use-navigate-with-query.ts) - hook for navigating by current query
 
-### [Models](../../src/models)
+### [Models](../../apps/query/src/models)
 
 This directory contains models which used in the application:
 
-* [be-errors](../../src/models/be-errors.ts)
-* [calls](../../src/models/calls.ts)
-* [containers](../../src/models/containers.ts)
-* [pods](../../src/models/pods.ts)
+* [be-errors](../../apps/query/src/models/be-errors.ts)
+* [calls](../../apps/query/src/models/calls.ts)
+* [containers](../../apps/query/src/models/containers.ts)
+* [pods](../../apps/query/src/models/pods.ts)
 
-### [Pages](../../src/pages)
+### [Pages](../../apps/query/src/pages)
 
 This directory contains the main application's pages:
 
-* [loading-page](../../src/pages/loading.page.tsx)
-* [profiler-page](../../src/pages/profiler.page.tsx)
-* [static-profiler-page](../../src/pages/static-profiler.page.tsx)
+* [loading-page](../../apps/query/src/pages/loading.page.tsx)
+* [profiler-page](../../apps/query/src/pages/profiler.page.tsx)
+* [static-profiler-page](../../apps/query/src/pages/static-profiler.page.tsx)
 
-### [Store](../../src/store)
+### [Store](../../apps/query/src/store)
 
 This directory describes application store:
 
-* [endpoints](../../src/store/endpoints) - used for `esc`
-* [slices](../../src/store/slices) - used for the application context (see [Redux](https://redux.js.org/))
-* [cdt-openapi](../../src/store/cdt-openapi.ts) - contains a description of REST API for the backend requests
+* [endpoints](../../apps/query/src/store/endpoints) - used for `esc`
+* [slices](../../apps/query/src/store/slices) - used for the application context (see [Redux](https://redux.js.org/))
+* [cdt-openapi](../../apps/query/src/store/cdt-openapi.ts) - contains a description of REST API for the backend requests
 
-### [Features](../../src/features)
+### [Features](../../apps/query/src/features)
 
 This is the main directory for development tasks. 
 
-#### [Calls](../../src/features/cdt/calls)
+#### [Calls](../../apps/query/src/features/cdt/calls)
 
 This feature describe view for the all calls:
 
@@ -136,26 +136,26 @@ This feature describe view for the all calls:
 
 ##### Components
 
-[Calls.container](../../src/features/cdt/calls/calls.container.tsx) includes:
+[Calls.container](../../apps/query/src/features/cdt/calls/calls.container.tsx) includes:
 
-* (`1`) [ContentCard with CallsControls](../../src/features/cdt/calls/calls-controls.tsx), 
-* (`2`), (`3`) - [CallsTable](../../src/features/cdt/calls/calls-table.tsx)
+* (`1`) [ContentCard with CallsControls](../../apps/query/src/features/cdt/calls/calls-controls.tsx), 
+* (`2`), (`3`) - [CallsTable](../../apps/query/src/features/cdt/calls/calls-table.tsx)
 
 During choosing call `CallsControl` creates a link for view this call.
 
-[CallsTable](../../src/features/cdt/calls/calls-table.tsx) component consist of two next elements:
+[CallsTable](../../apps/query/src/features/cdt/calls/calls-table.tsx) component consist of two next elements:
 
-* [ContentControls](../../src/features/cdt/calls/content-controls.tsx)(`3` on the picture) - this component is related to `Duration` and `Query` parameters 
-* [CallsTable](../../src/features/cdt/calls/calls-table.tsx) - the main table for calls. Some useful facts:
+* [ContentControls](../../apps/query/src/features/cdt/calls/content-controls.tsx)(`3` on the picture) - this component is related to `Duration` and `Query` parameters 
+* [CallsTable](../../apps/query/src/features/cdt/calls/calls-table.tsx) - the main table for calls. Some useful facts:
   * Setting any parameters before rendering by the browser occurs in `useLayoutEffect`
   * Data is coming from `useGetCallsByConditionQuery`
-  * The request's parameters are saved in `callRequest`, which get data from [useCallFetchArgs](../../src/features/cdt/calls/use-calls-fetch-arg.ts)
+  * The request's parameters are saved in `callRequest`, which get data from [useCallFetchArgs](../../apps/query/src/features/cdt/calls/use-calls-fetch-arg.ts)
   * `handleResize` and `handleResizeStop` are responsible for changing table's size
   * `resizableColumns` is responsible for changing columns size
   * `handleTableChange` is responsible for pagination, filtration and sorting data
-  * The variable `notReady` is responsible for cases of there are no any data or query's parameters there is a message `No Data` in the table. This variable get value from the [useCallFetchArgs](../../src/features/cdt/calls/use-calls-fetch-arg.ts).
+  * The variable `notReady` is responsible for cases of there are no any data or query's parameters there is a message `No Data` in the table. This variable get value from the [useCallFetchArgs](../../apps/query/src/features/cdt/calls/use-calls-fetch-arg.ts).
 
-[useCallsColumns](../../src/features/cdt/calls/hooks/use-calls-columns.tsx) hook is used for describing columns in the table.
+[useCallsColumns](../../apps/query/src/features/cdt/calls/hooks/use-calls-columns.tsx) hook is used for describing columns in the table.
 
 ##### Use-call-fetch-args hook
 
@@ -165,7 +165,7 @@ This hook is need to:
 * getting data for searching calls from URL `urlParams.get(...)`
 * creating query `CallsLoadRequest` with concrete parameters (`duration`,`timeTo`,`timeFrom`,`...`)
 
-#### [Calls-Tree](../../src/features/cdt/calls-tree)
+#### [Calls-Tree](../../apps/query/src/features/cdt/calls-tree)
 
 This feature describe view for the concrete calls:
 
@@ -175,32 +175,32 @@ This feature describe view for the concrete calls:
 
 | Query                 | REST API call                      | Description                                                | Mock                                                 |
 |-----------------------|------------------------------------|------------------------------------------------------------|------------------------------------------------------|
-| getCallsTreeData      | `POST` /cdt/v2/calls/tree          | Retrieve all information about call tree for selected pods | [CallsTreeInfo](../../mock-server/data/callstree.ts) |
+| getCallsTreeData      | `POST` /cdt/v2/calls/tree          | Retrieve all information about call tree for selected pods | [CallsTreeInfo](../../apps/query/mock-server/data/callstree.ts) |
 | downloadCallsTreeData | `POST` /cdt/v2/calls/tree/download | Retrieve static calls-tree page                            |                                                      |
 
 ##### Components
 
-[dashboard-entity](../../src/features/cdt/calls-tree/dashboard-entity) - components which describe main widgets on the page:
+[dashboard-entity](../../apps/query/src/features/cdt/calls-tree/dashboard-entity) - components which describe main widgets on the page:
 
-* [CallsTreeDashboardEntity](../../src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity.tsx) - main entity, which describes all widgets
-* [CallsTreeEntity](../../src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-calls-tree.tsx) - contentCard for main table
-* [DefaultEntityActions](../../src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-default-actions.tsx) - dropdown menu for the main actions with widgets - edit or remove
-* [FrameGraphEntity](../../src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-frame-graph.tsx) - widget for Frame Graph
-* [StatsEntity](../../src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-stats.tsx) - content card for table with stats data
+* [CallsTreeDashboardEntity](../../apps/query/src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity.tsx) - main entity, which describes all widgets
+* [CallsTreeEntity](../../apps/query/src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-calls-tree.tsx) - contentCard for main table
+* [DefaultEntityActions](../../apps/query/src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-default-actions.tsx) - dropdown menu for the main actions with widgets - edit or remove
+* [FrameGraphEntity](../../apps/query/src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-frame-graph.tsx) - widget for Frame Graph
+* [StatsEntity](../../apps/query/src/features/cdt/calls-tree/dashboard-entity/calls-tree-dashboard-entity-stats.tsx) - content card for table with stats data
 
-[call-tree-entity](../../src/features/cdt/calls-tree/call-tree-entity) - components which describe content of widgets on the page:
+[call-tree-entity](../../apps/query/src/features/cdt/calls-tree/call-tree-entity) - components which describe content of widgets on the page:
 
-* [call-tree-table](../../src/features/cdt/calls-tree/call-tree-entity/calls-tree-table) - the main table of the page, which contains call-tree. Also contains:
-    * [trace-button](../../src/features/cdt/calls-tree/call-tree-entity/calls-tree-table/trace-button) - the button for show popup with stacktrace of the call
-    * [params-button](../../src/features/cdt/calls-tree/call-tree-entity/calls-tree-table/params-button) - the button for show popup with parameters of the call
+* [call-tree-table](../../apps/query/src/features/cdt/calls-tree/call-tree-entity/calls-tree-table) - the main table of the page, which contains call-tree. Also contains:
+    * [trace-button](../../apps/query/src/features/cdt/calls-tree/call-tree-entity/calls-tree-table/trace-button) - the button for show popup with stacktrace of the call
+    * [params-button](../../apps/query/src/features/cdt/calls-tree/call-tree-entity/calls-tree-table/params-button) - the button for show popup with parameters of the call
 
 ![Call-parameters](images/Call-parameters.png)
 
-* [call-stats-table](../../src/features/cdt/calls-tree/call-tree-entity/calls-stats-table) - the table for call-statistics data
+* [call-stats-table](../../apps/query/src/features/cdt/calls-tree/call-tree-entity/calls-stats-table) - the table for call-statistics data
 
 ![Call-stats](images/Call-stats.png)
 
-* [common-stats-table](../../src/features/cdt/calls-tree/call-tree-entity/common-stats-table) - the table for common statistics data
+* [common-stats-table](../../apps/query/src/features/cdt/calls-tree/call-tree-entity/common-stats-table) - the table for common statistics data
 
 ##### Static page
 
@@ -280,7 +280,7 @@ To use it on backend you should do next steps:
 
 **Note**: it's not all placeholders, in future they can be more (e.g. desired calls info);
 
-#### [Controls](../../src/features/cdt/controls)
+#### [Controls](../../apps/query/src/features/cdt/controls)
 
 ![Controls card](images/Controls%20card.png)
 
@@ -291,7 +291,7 @@ This component describes next elements:
 * handleChangePicker - (`1`) changing time via choosing parameters `From` and `To`
 * footer contains tabs for  changing page (`3`)
 
-#### [Heap-dumps](../../src/features/cdt/heap-dumps)
+#### [Heap-dumps](../../apps/query/src/features/cdt/heap-dumps)
 
 ![Heap dumps](images/Heap%20dumps.png)
 
@@ -299,27 +299,27 @@ This component describes next elements:
 
 | Query        | REST API call        | Description                                                          | Mock                                             |
 |------------- |----------------------|----------------------------------------------------------------------|--------------------------------------------------|
-| getHeapDumps | `POST` /cdt/v2/heaps | Retrieve list of heap dumps for microservice in specified time range | [HeapDumps](../../mock-server/data/heaps.ts) |
+| getHeapDumps | `POST` /cdt/v2/heaps | Retrieve list of heap dumps for microservice in specified time range | [HeapDumps](../../apps/query/mock-server/data/heaps.ts) |
 
 ##### Components
 
-[Heap-dumps.container](../../src/features/cdt/heap-dumps/heap-dumps.container.tsx) contains [heap-dumps-table](../../src/features/cdt/heap-dumps/heap-dumps-table.tsx) which describes table colummns, getting data by `useGetHeapDumpsQuery` from [cdt-openapi](../../src/store/cdt-openapi.ts) with concrete service parameters
+[Heap-dumps.container](../../apps/query/src/features/cdt/heap-dumps/heap-dumps.container.tsx) contains [heap-dumps-table](../../apps/query/src/features/cdt/heap-dumps/heap-dumps-table.tsx) which describes table colummns, getting data by `useGetHeapDumpsQuery` from [cdt-openapi](../../apps/query/src/store/cdt-openapi.ts) with concrete service parameters
 
 ##### trow-actions
 
-[trow-actions](../../src/features/cdt/heap-dumps/trow-actions.tsx) describes buttons, which is needed for downloading and deleting dump.
-There is a `handleDeleteDump` for deleting and `getDownloadDumpUrl` queries for downloading from [cdt-openapi](../../src/store/cdt-openapi.ts)
+[trow-actions](../../apps/query/src/features/cdt/heap-dumps/trow-actions.tsx) describes buttons, which is needed for downloading and deleting dump.
+There is a `handleDeleteDump` for deleting and `getDownloadDumpUrl` queries for downloading from [cdt-openapi](../../apps/query/src/store/cdt-openapi.ts)
 
-#### [Hooks](../../src/features/cdt/hooks)
+#### [Hooks](../../apps/query/src/features/cdt/hooks)
 
-##### [Use-sidebar-api-args](../../src/features/cdt/hooks/use-sidebar-api-args.ts)
+##### [Use-sidebar-api-args](../../apps/query/src/features/cdt/hooks/use-sidebar-api-args.ts)
 
-This hook allows you to receive selected services/namespaces from [namespaces-tree](../../src/features/cdt/sidebar/namespaces-tree.tsx).
-URL getting services from parameter `services` in [query-params](../../src/constants/query-params.ts) and check for getting such services on the backend.
-The data for backend is getting from [useNamespacesTreeData](../../src/features/cdt/sidebar/use-namespaces-tree-data.ts).
+This hook allows you to receive selected services/namespaces from [namespaces-tree](../../apps/query/src/features/cdt/sidebar/namespaces-tree.tsx).
+URL getting services from parameter `services` in [query-params](../../apps/query/src/constants/query-params.ts) and check for getting such services on the backend.
+The data for backend is getting from [useNamespacesTreeData](../../apps/query/src/features/cdt/sidebar/use-namespaces-tree-data.ts).
 See also [Sidebar](#sidebar)
 
-#### [Pods info](../../src/features/cdt/pods-info)
+#### [Pods info](../../apps/query/src/features/cdt/pods-info)
 
 ![Pods info](images/Pods%20info.png)
 
@@ -327,23 +327,23 @@ See also [Sidebar](#sidebar)
 
 | Query                | REST API call            | Description                                                       | Mock                                               |
 |----------------------|--------------------------|-------------------------------------------------------------------|----------------------------------------------------|
-| getServices          | `POST` /cdt/v2/services  | Retrieve all active services in specified time range in one fetch | [Services](../../mock-server/data/services.ts)     |
-| getNamespacesByRange | `POST` cdt/v2/containers | Retrieve all active services in specified time range in one fetch | [Containers](../../mock-server/data/containers.ts) |
+| getServices          | `POST` /cdt/v2/services  | Retrieve all active services in specified time range in one fetch | [Services](../../apps/query/mock-server/data/services.ts)     |
+| getNamespacesByRange | `POST` cdt/v2/containers | Retrieve all active services in specified time range in one fetch | [Containers](../../apps/query/mock-server/data/containers.ts) |
 
 ##### Components 
 
-[Pods-info](../../src/features/cdt/pods-info/pods-info.tsx) consist of:
-* [pods-table](../../src/features/cdt/pods-info/pods-table.tsx) (`1`)
+[Pods-info](../../apps/query/src/features/cdt/pods-info/pods-info.tsx) consist of:
+* [pods-table](../../apps/query/src/features/cdt/pods-info/pods-table.tsx) (`1`)
 * `ContentCard`, which include the title and the search field (`2`)
 
 Search field with the value from URL.
 
-[Pods-table](../../src/features/cdt/pods-info/pods-table.tsx) with data about services from `useGetServicesQuery` and about namespaces from `useGetNamespacesByRangeQuery` ([cdt-openapi](../../src/store/cdt-openapi.ts)) with necessary parameters. After that services and namespaces getting into `createPodsInfoTableDataSource` from [tree-utils](../../src/features/cdt/pods-info/utils/tree-utils.tsx) and as a result it creates `dataSource` for the table.
+[Pods-table](../../apps/query/src/features/cdt/pods-info/pods-table.tsx) with data about services from `useGetServicesQuery` and about namespaces from `useGetNamespacesByRangeQuery` ([cdt-openapi](../../apps/query/src/store/cdt-openapi.ts)) with necessary parameters. After that services and namespaces getting into `createPodsInfoTableDataSource` from [tree-utils](../../apps/query/src/features/cdt/pods-info/utils/tree-utils.tsx) and as a result it creates `dataSource` for the table.
 
-[columns](../../src/features/cdt/pods-info/columns.tsx) contains description of table colums. 
-Also there is a button for downloading data about service - [dumps-download-opts](../../src/features/cdt/pods-info/dumps-download-opts.tsx).
+[columns](../../apps/query/src/features/cdt/pods-info/columns.tsx) contains description of table colums. 
+Also there is a button for downloading data about service - [dumps-download-opts](../../apps/query/src/features/cdt/pods-info/dumps-download-opts.tsx).
 
-#### [Sidebar](../../src/features/cdt/sidebar)
+#### [Sidebar](../../apps/query/src/features/cdt/sidebar)
 
 ![Sidebar](images/Sidebar.png)
 
@@ -351,30 +351,30 @@ Also there is a button for downloading data about service - [dumps-download-opts
 
 | Query         | REST API call           | Description                                                                          | Mock                                           |
 |---------------|-------------------------|--------------------------------------------------------------------------------------|------------------------------------------------|
-| getNamespaces | `GET` cdt/v2/containers | Retrieve all services saved in database in one fetch as tree (grouped by namespaces) | [Services](../../mock-server/data/services.ts) |
+| getNamespaces | `GET` cdt/v2/containers | Retrieve all services saved in database in one fetch as tree (grouped by namespaces) | [Services](../../apps/query/mock-server/data/services.ts) |
 
 ##### Components
 
-[Namespaces-tree](../../src/features/cdt/sidebar/namespaces-tree.tsx) is responsible for:
+[Namespaces-tree](../../apps/query/src/features/cdt/sidebar/namespaces-tree.tsx) is responsible for:
 
 * displaying namespaces and services received from the backend
 * searching by received namespaces
 
-on the pages [namespaces-tree](../../src/features/cdt/sidebar/namespaces-tree.tsx) and [profiler.page](../../src/pages/profiler.page.tsx).
+on the pages [namespaces-tree](../../apps/query/src/features/cdt/sidebar/namespaces-tree.tsx) and [profiler.page](../../apps/query/src/pages/profiler.page.tsx).
 
-The data for sidebar is getting from [useNamespacesTreeData](../../src/features/cdt/sidebar/use-namespaces-tree-data.ts), which uses query `useGetNamespacesQuery` from [cdt-openapi](../../src/store/cdt-openapi.ts).
+The data for sidebar is getting from [useNamespacesTreeData](../../apps/query/src/features/cdt/sidebar/use-namespaces-tree-data.ts), which uses query `useGetNamespacesQuery` from [cdt-openapi](../../apps/query/src/store/cdt-openapi.ts).
 
 When you select a tree element, data on the service/namespace is added to the URL, from it will be used for comparison with real data on the backend and search request.
 
-The hook [use-checked-keys](../../src/features/cdt/sidebar/use-checked-keys.tsx) is needed for getting data from URL.
+The hook [use-checked-keys](../../apps/query/src/features/cdt/sidebar/use-checked-keys.tsx) is needed for getting data from URL.
 
 ## How to
 
 ### Add REST api
 
-#### Describing call in [cdt-openapi.ts](../../src/store/cdt-openapi.ts)
+#### Describing call in [cdt-openapi.ts](../../apps/query/src/store/cdt-openapi.ts)
 
-The main file which contains all api-calls: [cdt-openapi.ts](../../src/store/cdt-openapi.ts)
+The main file which contains all api-calls: [cdt-openapi.ts](../../apps/query/src/store/cdt-openapi.ts)
 
 Const `cdtOpenapi` contains all `endpoints` which can be use in application.
 
@@ -409,10 +409,10 @@ The main points:
 * the `view`, a declarative description of the UI based on the current state
 * the `actions`, the events that occur in the app based on user input, and trigger updates in the state
 
-The `store` is the main source of your feature. For [example](../../src/features/cdt/calls/calls-store.tsx). 
+The `store` is the main source of your feature. For [example](../../apps/query/src/features/cdt/calls/calls-store.tsx). 
 
 There is a model for your feature, some constants and components description.
 
-After that this model can be used in the [application code](../../src/features/cdt/calls/calls.container.tsx)
+After that this model can be used in the [application code](../../apps/query/src/features/cdt/calls/calls.container.tsx)
 
 

@@ -21,7 +21,7 @@ It will provide step-by-step instructions to run the Cloud Profiler locally.
 - IntelliJ IDEA 2023.3.5
 - Wsl 2
 - VS Code
-- [Postgres and Minio Local Setup](/docs/cloud-maintance-job-local-setup.md#postgres-and-minio-local-setup)
+- [Postgres and Minio Local Setup](cloud-maintance-job-local-setup.md#postgres-and-minio-local-setup)
 
 ## Environment setup
 
