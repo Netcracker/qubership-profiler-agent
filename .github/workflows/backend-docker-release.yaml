@@ -2,7 +2,7 @@
 # Changes:
 #   - Removed github-release job (release-drafter not configured yet)
 
-name: "Docker Images Release"
+name: "Backend Docker Images Release"
 on:
   workflow_dispatch:
     inputs:
@@ -42,7 +42,7 @@ jobs:
       component: ${{ steps.load_component.outputs.components }}
       platforms: ${{ steps.load_component.outputs.platforms }}
     env:
-      CONFIG_FILE: .qubership/docker-build-config.cfg
+      CONFIG_FILE: backend/.qubership/docker-build-config.cfg
     steps:
       - name: "Checkout code"
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

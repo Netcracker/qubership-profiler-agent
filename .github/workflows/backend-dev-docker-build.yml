@@ -4,8 +4,8 @@
 #   - Changed docker-build job to use matrix strategy for multi-component builds
 #   - Removed custom-image-name input (component names come from config)
 
-name: Dev Docker Build
-run-name: "Dev build repository: ${{ github.ref_name }} #${{ github.run_number }}"
+name: Backend Dev Docker Build
+run-name: "Backend dev build: ${{ github.ref_name }} #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
@@ -21,30 +21,17 @@ on:
         type: boolean
         default: false
   push:
-    # Can't use branches with branches-ignore
-    # branches:
-    #  - '**'
     branches-ignore:
       - 'renovate/**'
-    paths-ignore:
-      - '.github/**'
-      - 'docs/**'
-      - 'CODE-OF-CONDUCT.md'
-      - 'CONTRIBUTING.md'
-      - 'LICENSE'
-      - 'README.md'
-      - 'SECURITY.md'
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-dev-docker-build.yml'
   pull_request:
     branches:
       - '**'
-    paths-ignore:
-      - '.github/**'
-      - 'docs/**'
-      - 'CODE-OF-CONDUCT.md'
-      - 'CONTRIBUTING.md'
-      - 'LICENSE'
-      - 'README.md'
-      - 'SECURITY.md'
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-dev-docker-build.yml'
 
 permissions:
   contents: read
@@ -58,7 +45,7 @@ jobs:
       component: ${{ steps.load_component.outputs.components }}
       platforms: ${{ steps.load_component.outputs.platforms }}
     env:
-      CONFIG_FILE: .qubership/docker-build-config.cfg
+      CONFIG_FILE: backend/.qubership/docker-build-config.cfg
     steps:
       - name: "Checkout code"
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
