@@ -1,0 +1,26 @@
+@startuml remove-dumps
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Dumps Collector (Dump Removing)
+
+box "CDT Server Namespace" #F5F5F5
+    participant "dumps-collector" as dumpCollector #E1D5E7
+    database "PV" as pv #white
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+loop Every day
+    dumpCollector -> postgreSQL: Check metadata for dumps older than TTL
+    
+    alt Old dumps found
+        dumpCollector -> postgreSQL: Set status to "removing"
+        dumpCollector -> pv: Delete dump files
+        dumpCollector -> postgreSQL: Remove metadata
+    end
+end
+
+@enduml

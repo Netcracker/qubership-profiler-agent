@@ -1,0 +1,5 @@
+dumpsCollector.replicas: 2
+dumpsCollector.resources.requests.cpu: 100m
+dumpsCollector.resources.limits.cpu: 1000m
+dumpsCollector.resources.requests.memory: 650Mi
+dumpsCollector.resources.limits.memory: 650Mi

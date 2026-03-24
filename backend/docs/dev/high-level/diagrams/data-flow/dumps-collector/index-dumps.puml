@@ -1,0 +1,24 @@
+@startuml index-dumps
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Dumps Collector (Dump Indexing)
+
+box "CDT Server Namespace" #F5F5F5
+    participant "dumps-collector" as dumpCollector #E1D5E7
+    database "PV" as pv #white
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+loop Every 1 minute
+    dumpCollector -> pv: Check for new dumps
+    
+    alt New dumps found
+        dumpCollector -> postgreSQL: Adding found dumps to metadata table
+    end
+end
+
+@enduml

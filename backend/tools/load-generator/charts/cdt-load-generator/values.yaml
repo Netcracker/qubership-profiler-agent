@@ -1,0 +1,33 @@
+global:
+  name: cdt-loader
+  metricsPort: 5656
+  prometheusRW: true
+
+deployment:
+  image: ""
+  
+  env:
+    COLLECTOR_HOST: esc-collector-service.profiler.svc
+    EMULATOR_NAMESPACE: test-load
+    EMULATOR_SERVICE_PREFIX: test-load-1
+    EMULATOR_POD_PREFIX: test-load-1-pod
+    PODS: "10"
+    DURATION: 10m
+
+  # Used only when prometheusRW = true
+  envRW:
+    K6_PROMETHEUS_RW_SERVER_URL: ""
+    K6_PROMETHEUS_RW_PUSH_INTERVAL: 10s
+    K6_PROMETHEUS_RW_TREND_STATS: min,max,avg,p(90),p(95)
+
+  # Used only when prometheusRW = true
+  secretEnvRW:
+    K6_PROMETHEUS_RW_USERNAME: admin
+    K6_PROMETHEUS_RW_PASSWORD: admin
+
+ingress:
+  enabled: true
+  host: ""
+
+grafanaDashboard:
+  enabled: true

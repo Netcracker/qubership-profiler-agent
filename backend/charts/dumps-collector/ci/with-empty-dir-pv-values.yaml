@@ -1,0 +1,4 @@
+cloud.dumpsStorage.emptydir: true
+cloud.dumpsStorage.hoursArchiveAfter: '2'
+cloud.dumpsStorage.daysDeleteAfter: '14'
+cloud.dumpsStorage.maxHeapDumpsPerPod: '10'

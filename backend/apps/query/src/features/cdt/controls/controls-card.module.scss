@@ -1,0 +1,58 @@
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    > :first-child,
+    :nth-child(2) {
+        flex: 1;
+    }
+}
+
+.card {
+    > :first-child {
+        grid-template-columns: 1fr;
+    }
+}
+
+.applyButton {
+    position: relative;
+    isolation: isolate;
+
+    &.pulse::before {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: -1;
+        width: 100%;
+        height: 100%;
+        background-color: inherit;
+        border-radius: inherit;
+        filter: blur(3px);
+        animation: pulseAnimation 2s ease-in-out infinite;
+        content: '';
+    }
+}
+
+@keyframes pulseAnimation {
+    0% {
+        transform: scale(1, 1);
+        opacity: 0.01;
+    }
+    25% {
+        opacity: 0.1;
+    }
+    50% {
+        transform: scale(1.125);
+        opacity: 0.4;
+    }
+
+    75% {
+        opacity: 0.4;
+    }
+
+    100% {
+        transform: scale(1, 1);
+        opacity: 0;
+    }
+}

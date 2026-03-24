@@ -1,0 +1,1330 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0.0.9
+  description: |
+    This document describes proposed REST API for Cloud Profiler UI.
+  license:
+    name: Netcracker
+    url: http://www.netcracker.com
+
+servers:
+  - url: https://localhost:8080
+    description: local @ dev env
+
+  - url: https://{CDT_UI_SERVICE_URL}
+    description: CDT UI Service
+    variables:
+      CDT_UI_SERVICE_URL:
+        description: CDT UI Backend DNS
+        default: CDT_UI_SERVICE_URL
+
+tags:
+  - name: cdt-controller
+    description: Common information about current CDT state (version, services)
+  - name: pods-info-controller
+    description: Retrieve information for Pods Info tab about microservice pods and their dump files
+  - name: dumps-controller
+    description: Download dumps
+  - name: calls-list-controller
+    description: Retrieve information for Calls List tab
+  - name: call-tree-controller
+    description: Retrieve information for Call Tree page
+  - name: export-controller
+    description: Export calls list
+  - name: collector
+    description: Communication between UI and collector
+
+paths:
+  /cdt/v2/containers:
+    get:
+      tags:
+        - cdt-controller
+      operationId: getNamespaces
+      summary: "Services tree: All services with namespaces in one fetch"
+      description: Retrieve all services saved in database in one fetch as tree (grouped by namespaces)
+      responses:
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/ContainerDto'
+    post:
+      tags:
+        - cdt-controller
+      operationId: getNamespacesByRange
+      summary:  "Services tree: Active services in specified time range"
+      description: Retrieve all active services in specified time range in one fetch
+      parameters:
+        - name: timeFrom
+          in: query
+          required: true
+          description: Start of the time range to search
+          schema:
+            $ref: '#/components/schemas/timeFrom'
+        - name: timeTo
+          in: query
+          required: true
+          description: End of the time range to search
+          schema:
+            $ref: '#/components/schemas/timeTo'
+        - name: limit
+          in: query
+          required: false
+          description: The numbers of items to return
+          schema:
+            $ref: '#/components/schemas/limit'
+        - name: page
+          in: query
+          required: false
+          description: Page (starting from 1) to show from the result set
+          schema:
+            $ref: '#/components/schemas/page'
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/ContainerDto'
+
+  /cdt/v2/services:
+    post:
+      tags:
+        - pods-info-controller
+      operationId: getServices
+      summary:  "Pods Info: Active services in time range"
+      description: Retrieve all active services in specified time range in one fetch
+      requestBody:
+        description: find pods by filters
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServicePodDto'
+  /cdt/v2/namespaces/{nid}/services/{sid}/dumps:
+    post:
+      tags:
+        - pods-info-controller
+      operationId: getServicesDumps
+      summary:  "Pods Info: find service's top/td dumps in  time range"
+      description: Retrieve list of TOP/TD dumps for microservice in specified time range
+      parameters:
+        - name: nid
+          description: Namespace id (name)
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/namespace'
+        - name: sid
+          description: Microservice id (name)
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/service'
+      requestBody:
+        description: find dumps for pods restarts found by filters
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ServicePodRequest'
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceDumpInfo'
+  /cdt/v2/heaps:
+    post:
+      tags:
+        - pods-info-controller
+      operationId: getHeapDumps
+      summary:  "Heap Dumps: find service's dumps in time range"
+      description: Retrieve list of heap dumps for microservice in specified time range
+      requestBody:
+        description: find heap dumps for pods restarts found by filters
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HeapDumpInfo'
+
+  /cdt/v2/dumps/download:
+    post:
+      tags:
+        - dumps-controller
+      operationId: downloadDumpsByRange
+      summary: Dumps of type in time range for pod
+      description: Retrieve all found dumps of specified type in time range for all pods of selected pod
+      requestBody:
+        description: find pod dumps for pods restarts found by filters
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DownloadRequest'
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            application/gzip:
+              schema:
+                $ref: '#/components/schemas/StreamingResponseBody'
+
+  /cdt/v2/dumps/download/{podId}/{type}:
+    get:
+      tags:
+        - dumps-controller
+      operationId: downloadDumpByType
+      summary: Dumps of type in time range for pod (2nd style)
+      description: Download archive with all found dumps of specified type in time range for selected pod restarts
+      parameters:
+        - name: podId
+          description: Pod id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/podId'
+        - name: type
+          description: Type of dump file
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/dumpType'
+        - name: timeFrom
+          description: Start of time range interval
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/timeFrom'
+        - name: timeTo
+          description: End of time range interval
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/timeTo'
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            application/gzip:
+              schema:
+                $ref: '#/components/schemas/StreamingResponseBody'
+
+  /cdt/v2/dumps/{podId}/{dumpType}/{dumpId}:
+    get:
+      tags:
+        - dumps-controller
+      operationId: downloadDumpById
+      summary: Download selected dump by id
+      description: Download archive of specified type for selected pod
+      parameters:
+        - name: podId
+          description: Pod id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/podId'
+        - name: dumpType
+          description: Type of dump file
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/dumpType'
+        - name: dumpId
+          description: Dump id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/dumpId'
+      responses:
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            application/gzip:
+              schema:
+                $ref: '#/components/schemas/StreamingResponseBody'
+    delete:
+      tags:
+        - dumps-controller
+      operationId: deleteDumpById
+      summary: Delete selected dump by id
+      description: Delete archive of specified type for selected pod
+      parameters:
+        - name: podId
+          description: Pod id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/podId'
+        - name: dumpType
+          description: Type of dump file
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/dumpType'
+        - name: dumpId
+          description: Dump id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/dumpId'
+      responses:
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+
+
+  /cdt/v2/calls/load:
+    post:
+      tags:
+        - calls-list-controller
+      operationId: getCallsByCondition
+      summary:  "Calls List: List of calls in specified time range"
+      description: Retrieve all found catched function calls for selected services in specified time range
+      requestBody:
+        description: find heap dumps for pods restarts found by filters
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/CallsLoadRequest'
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallsListResponse'
+
+
+  /cdt/v2/tree/**:
+    get:
+      tags:
+        - call-tree-controller
+      operationId: getCallTreeByCondition
+      summary:  "Call Tree: find information for selected microservice calls"
+      description: "Find and present Call Tree for selected calls in TOMS-style UI"
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+  /cdt/v2/js/tree.js:
+    get:
+      tags:
+        - call-tree-controller
+      operationId: getCallTreeTemplate
+      summary:  "Call Tree: find information for selected microservice calls"
+      description: Default template for call tree
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+
+  /cdt/v2/calls-tree/**:
+    get:
+      tags:
+        - call-tree-controller
+      operationId: getCallsTree
+      summary: "Call Tree: find information for selected microservice calls"
+      description: "Find and present Call Tree for selected calls in UI"
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/CallsTreeInfo'
+
+  /cdt/v2/export/csv:
+    post:
+      tags:
+        - export-controller
+      operationId: exportCallsToCsv
+      summary:  "Calls List: export found calls"
+      description: "Export selected calls as CSV-file"
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            format: enum
+          description: Format (aggregated or as is)
+        - name: nodes
+          in: query
+          required: false
+          schema:
+            type: string
+          description: List of nodes calls ?
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+
+  /cdt/v2/export/excel:
+    post:
+      deprecated: true
+      tags:
+        - export-controller
+      operationId: exportCallsToXls
+      summary:  "Calls List: export found calls"
+      description: "Export selected calls as XLS-file"
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            format: enum
+          description: Format (aggregated or as is)
+        - name: nodes
+          in: query
+          required: false
+          schema:
+            type: string
+          description: List of nodes calls ?
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+
+  /cdt/v2/export/dump:
+    get:
+      deprecated: true
+      tags:
+        - export-controller
+      operationId: exportDumpsByCondition
+      summary:  "Collector: export persisted data"
+      description: Export all dumps for pods by search condition
+      parameters:
+        - name: searchConditions
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: TimestampUTC
+          description: Search condition in ESC Classic format
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+
+
+  /cdt/v2/version:
+    get:
+      tags:
+        - cdt-controller
+      operationId: getCDTVersion
+      summary: "Collector: build version"
+      description: Retrieve current version info of CDT services
+      responses:
+        "200":
+          description: OK. Returns CDT version
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /cdt/v2/commands/status:
+    get:
+      deprecated: true
+      tags:
+        - collector
+      operationId: getCommandStatus
+      summary:  "Collector: command status"
+      description: Retrieve status of commands to Collector
+      parameters:
+        - name: podName
+          description: pod id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: commandId
+          description: actual command id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDto'
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: string
+components:
+  schemas:
+    dumpType:
+      type: string
+      description: Available types of dump files from services
+      example: gc
+      enum:
+        - gc
+        - top
+        - td   # thread dump
+        - heap # heap dump
+    #        - sql
+    #        - xml
+
+    serviceTags:
+      type: string
+      description: Known tag about microservice (type of microservice, etc.)
+      example: java
+      enum:
+        - java
+        - go
+
+    timeRange:
+      type: object
+      properties:
+        from:
+          $ref: '#/components/schemas/timeFrom'
+        to:
+          $ref: '#/components/schemas/timeTo'
+
+    durationRange:
+      type: object
+      description: Duration range for search
+      properties:
+        from:
+          type: integer
+          description: Start range (in ms)
+          format: int32
+          example: 5000
+        to:
+          type: integer
+          description: End range (in ms)
+          format: int32
+          example: 60000
+
+    queryString:
+      type: string
+      description: Additional query expression from UI
+      maxLength: 150
+      example: "+cdt-ui-service-84967fdd77-pwhw4 -go"
+
+    ContainerDto:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            $ref: '#/components/schemas/namespace'
+          services:
+            type: array
+            items:
+              type: object
+              properties:
+                name:
+                  $ref: '#/components/schemas/service'
+                lastAck:
+                  $ref: '#/components/schemas/lastAck'
+                activePods:
+                  type: integer
+                  description: count of currently active pods
+                  minimum: 0
+                  example: 2
+
+    ServiceRequest:
+      type: object
+      properties:
+        timeRange:
+          $ref: '#/components/schemas/timeRange'
+        query:
+          $ref: '#/components/schemas/queryString'
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/Service'
+    Service:
+      type: object
+      properties:
+        namespace:
+          $ref: '#/components/schemas/namespace'
+        service:
+          $ref: '#/components/schemas/service'
+
+    ServicePodRequest:
+      type: object
+      properties:
+        timeRange:
+          $ref: '#/components/schemas/timeRange'
+        query:
+          $ref: '#/components/schemas/queryString'
+        limit:
+          $ref: '#/components/schemas/limit'
+        page:
+          $ref: '#/components/schemas/page'
+    ServicePodDto:
+      type: object
+      properties:
+        namespace:
+          $ref: '#/components/schemas/namespace'
+        service:
+          $ref: '#/components/schemas/service'
+        pod:
+          $ref: '#/components/schemas/pod'
+        startTime:
+          $ref: '#/components/schemas/startTime'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/serviceTags'
+    ServiceDumpInfo:
+      type: object
+      properties:
+        namespace:
+          $ref: '#/components/schemas/namespace'
+        service:
+          $ref: '#/components/schemas/service'
+        pod:
+          $ref: '#/components/schemas/pod'
+        startTime:
+          $ref: '#/components/schemas/startTime'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/serviceTags'
+        lastAck:
+          $ref: '#/components/schemas/lastAck'
+        dataAvailableFrom:
+          type: integer
+          format: TimestampUTC
+          example: 1656583200000
+        dataAvailableTo:
+          type: integer
+          format: TimestampUTC
+          example: 1656586800000
+        podId:
+          $ref: '#/components/schemas/podId'
+        downloadOptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadOptions'
+        onlineNow:
+          $ref: '#/components/schemas/onlineNow'
+    DownloadOptions:
+      type: object
+      properties:
+        typeName:
+          $ref: '#/components/schemas/dumpType'
+        uri:
+          $ref: '#/components/schemas/link'
+
+    HeapDumpInfo:
+      type: object
+      properties:
+        namespace:
+          $ref: '#/components/schemas/namespace'
+        service:
+          $ref: '#/components/schemas/service'
+        pod:
+          $ref: '#/components/schemas/pod'
+        startTime:
+          $ref: '#/components/schemas/startTime'
+        dumpId:
+          $ref: '#/components/schemas/dumpId'
+        creationTime:
+          $ref: '#/components/schemas/startTime'
+        bytes:
+          description: Size in bytes of heap dump file (as archive)
+          type: integer
+          format: int64
+          example: 59768832
+
+    DownloadRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/dumpType'
+        timeRange:
+          $ref: '#/components/schemas/timeRange'
+        pods:
+          type: array
+          items:
+            $ref: '#/components/schemas/podId'
+
+    StreamingResponseBody:
+      type: object
+
+
+    CallsLoadRequest:
+      type: object
+      properties:
+        parameters:
+          type: object
+          required:
+            - windowId
+            - clientUTC
+          properties:
+            windowId:
+              description: "uniq id for client request"
+              type: string
+              example: "1694591982523"
+            clientUTC:
+              description: "current time at the moment of http request"
+              type: integer
+              format: int64
+              example: 1694595254000
+        filters:
+          type: object
+          properties:
+            timeRange:
+              $ref: '#/components/schemas/timeRange'
+            duration:
+              $ref: '#/components/schemas/durationRange'
+            query:
+              $ref: '#/components/schemas/queryString'
+            services:
+              type: array
+              items:
+                $ref: '#/components/schemas/Service'
+        view:
+          type: object
+          required:
+            - sortOrder
+          properties:
+            limit:
+              $ref: '#/components/schemas/limit'
+            page:
+              $ref: '#/components/schemas/page'
+            sortColumn:
+              type: string
+              description: "column name to sort"
+              example: "ts"
+            sortOrder:
+              type: boolean
+              description: "true if ascending"
+              example: true
+
+    CallsListResponse:
+      type: object
+      properties:
+        status:
+          type: object
+          properties:
+            finished:
+              description: should send additional request to retrieve new results after 2-5s if false
+              type: boolean
+              example: false
+            progress:
+              description: current progress send additional request to retrieve new results after 2-5s if false
+              type: integer
+              format: percent
+              example: 84
+            errorMessage:
+              type: string
+            filteredRecords:
+              type: integer
+              format: int32
+              example: 2100
+            processedRecords:
+              type: integer
+              format: int32
+              example: 45000
+        calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/CallInfo'
+    CallInfo:
+      type: object
+      description: "information about call"
+
+      properties:
+      
+        ts:
+          description: timestamp for call (UTC)
+          type: integer
+          format: TimestampUTC
+          example: 1690964141778
+        duration:
+          description: duration, in ms (wall-clock time)
+          type: integer
+          example: 26419
+        cpuTime:
+          description: cpu self time, in ms
+          type: integer
+          example: 5820
+        suspend:
+          description: system suspend time, in ms
+          type: integer
+          example: 45
+        queue:
+          description: waiting in queue time, in ms
+          type: integer
+          example: 12
+        calls:
+          description: count of internal method calls
+          type: integer
+          example: 18
+        transactions:
+          description: count of DB's and other external calls/transactions
+          type: integer
+          example: 3
+        diskBytes:
+          description: File system IO communication, in bytes
+          type: integer
+          example: 43605
+        netBytes:
+          description: Network IO communication, in bytes
+          type: integer
+          example: 122975
+        memoryUsed:
+          description: memory usage, in bytes
+          type: integer
+          example: 12297545
+        title:
+          type: string
+          description: short description for call (http endpoint, method name, etc)
+          example: "void org.apache.tomcat.util.net.SocketProcessorBase.run() (SocketProcessorBase.java:41) [BOOT-INF/lib/tomcat-embed-core-9.0.74.jar]"
+        traceId:
+          type: string
+          description: id for Call Tree link
+          example: "24_768331_0"
+        pod:
+          type: object
+          properties:
+              namespace:
+                $ref: '#/components/schemas/namespace'
+              service:
+                $ref: '#/components/schemas/service'
+              pod:
+                $ref: '#/components/schemas/pod'
+              startTime:              
+                $ref: '#/components/schemas/startTime'
+        params:
+          type: object
+          example: 
+            {          
+              "x-request-id":["a42210d20bc079a9efc5319fd6207218"],
+              "web.method":["GET"],
+              "web.remote.addr":["10.236.118.197"]
+            }
+
+    CallsTreeRow:
+      type: object
+      properties:
+        id:
+          description: unique identifier for call
+          type: integer
+          example: 0
+        info:
+          type: object
+          properties:
+            title:
+              description: title for the call
+              type: string
+              example: "org.apache.tomcat.util.net.SocketProcessorBase.run()"
+            hasStackTrace:
+              description: is call has stack trace?
+              type: boolean
+              example: true
+            trace:
+              description: stack trace for call
+              type: string
+            sourceJar:
+              description: the name of jar where call come from
+              type: string
+              example: "u32_c5_6900/lib/quartz.jar"
+            lineNumber:
+              description: the number of line where call come from
+              type: integer
+              example: 144
+            calls:
+              description: the number of calls
+              type: integer
+              example: 75
+
+    CallsTreeItem:
+      type: object
+      description: Information calls tree for particular call
+      properties:
+        info:
+          type: object
+          properties:
+            network:
+              description: time for network calls
+              type: number
+              format: double
+              example: 1.324
+            database:
+              description: time for database calls
+              type: number
+              format: double
+              example: 418.654
+            cpu:
+              description: time for cpu calls
+              type: number
+              format: double
+              example: 327.22
+        root:
+          $ref: '#/components/schemas/CallsTreeRow'
+        time:
+          $ref: '#/components/schemas/SelfTotalValues'
+        duration:
+          $ref: '#/components/schemas/SelfTotalValues'
+        suspension:
+          $ref: '#/components/schemas/SelfTotalValues'
+        invocations:
+          $ref: '#/components/schemas/SelfTotalValues'
+        avg:
+          $ref: '#/components/schemas/SelfTotalValues'
+        params:
+          $ref: '#/components/schemas/CallParams'
+        children:
+          $ref: '#/components/schemas/CallsTreeInfo'
+
+    CallsTreeInfo:
+      type: array
+      description: Information about calls tree for selected calls
+      items:
+        $ref: '#/components/schemas/CallsTreeItem'
+
+    namespace:
+      type: string
+      description: Cloud namespace
+      minLength: 3
+      example: cdt-profiler
+    service:
+      type: string
+      description: Microservice name
+      example: cdt-ui-service
+      minLength: 3
+    pod:
+      type: string
+      description: Deployed pod name of microservice
+      example: cdt-ui-service-55c6cccf75-dlg5x
+      minLength: 3
+    podId:
+      type: string
+      description: Unique id of pod restart
+      example: cdt-ui-service-55c6cccf75-dlg5x_1656583200000
+      minLength: 20
+    startTime:
+      type: integer
+      format: TimestampUTC
+      description: Time of pod's (re)start (unix time in milliseconds, UTC)
+      example: 1656583200000
+    lastAck:
+      type: integer
+      description: Last acknowledge from microservice (unix time in milliseconds, UTC)
+      example: 1656586800000
+    onlineNow:
+      description: Is service online? (Got acknowledge from it in last 5 min)
+      type: boolean
+
+    dumpId:
+      description: Unique id of dump for selected pod restart
+      example: 2
+      type: integer
+      minimum: 0
+      maximum: 1000
+
+    link:
+      type: string
+      description: URI link to resource
+      minLength: 3
+      example: /cdt/v2/dumps/cdt-ui-service-55c6cccf75-dlg5x_1656583200000/gc/download?timeFrom=1656583200000&timeTo=1656586800000
+
+    limit:
+      type: integer
+      default: 50
+      minimum: 0
+      maximum: 1000
+      description: The numbers of items to return
+    page:
+      default: 1
+      minimum: 1
+      maximum: 200
+      description: Page to show from the result set
+
+    timeFrom:
+      type: integer
+      format: TimestampUTC
+      description: Start of the time range to search (unix time in milliseconds, UTC)
+      example: 1656583200000
+    timeTo:
+      type: integer
+      format: TimestampUTC
+      description: End of the time range to search (unix time in milliseconds, UTC)
+      example: 1656586800000
+
+    SelfTotalValues:
+      type: object
+      properties:
+        self:
+          description: Self time for parameter
+          type: number
+          format: double
+          example: 25.6
+        total:
+          description: Total time for parameter (with children)
+          type: number
+          format: double
+          example: 175.4
+
+    CallParams:
+      type: array
+      items:
+        type: object
+        properties:
+          key:
+            description: parameter's name
+            type: string
+            example: "node.name"
+          value:
+            description: parameter's value
+            type: object
+            example: "clust1"
+          type:
+            description: parameter's type. Can have one of the next values - 'Byte' | 'Date' | 'Duration' | 'Number' | 'String'
+            type: string
+            example: "String"
+          isList:
+            description: is parameter the list of elements
+            type: boolean
+            example: true
+          isIndex:
+            description: is parameter the index
+            type: boolean
+            example: false
+
+    ErrorDto:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: ISODate
+          example: '2023-01-17T09:06:06Z'
+        errorCode:
+          type: integer
+          format: int32
+          example: 102034
+        status:
+          type: string
+          description: message error
+        userMessage:
+          type: string
+          description: message error
+        stackTrace:
+          type: string

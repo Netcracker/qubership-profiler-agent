@@ -1,0 +1,5 @@
+
+SELECT c.*
+FROM {{.TableName}} c
+WHERE c.namespace = $1 AND c.time < $2 AND c.time >= $3
+ORDER BY service_name ASC, pod_name ASC, time DESC

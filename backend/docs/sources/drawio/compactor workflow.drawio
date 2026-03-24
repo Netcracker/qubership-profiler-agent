@@ -1,0 +1,151 @@
+<mxfile host="Electron" modified="2024-03-12T11:33:04.702Z" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/23.1.5 Chrome/120.0.6099.109 Electron/28.1.0 Safari/537.36" etag="DS3xGslFDcNR1hYR6IVH" version="23.1.5" type="device">
+  <diagram name="Page-1" id="3y9cnpVgknhPc6paNWj0">
+    <mxGraphModel dx="2314" dy="1214" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-39" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-34" target="OQ3O1_zyoIY5fD7gFS0m-38" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-34" value="" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;" parent="1" vertex="1">
+          <mxGeometry x="10" y="780" width="470" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-6" target="OQ3O1_zyoIY5fD7gFS0m-7" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="200" y="190" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-6" value="Start cron with delay &lt;br&gt;[at 07 minute every hour]&lt;br&gt;&lt;br&gt;every run has separate &lt;br&gt;&lt;i&gt;filemap and&amp;nbsp;&lt;/i&gt;&lt;i&gt;index cache&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="30" y="112.25" width="170" height="107.75" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-7" target="OQ3O1_zyoIY5fD7gFS0m-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-7" value="&lt;b&gt;PG&lt;/b&gt;: get unique namespaces &lt;br&gt;(pods table)" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="275" y="160" width="195" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-8" value="run separate func for each namespace&amp;nbsp;&lt;br&gt;(in the future: in parallel &lt;br&gt;&lt;i&gt;goroutine/thread pool&lt;/i&gt;)&lt;br&gt;&lt;br&gt;&lt;i&gt;NB: start/stop log (prometheus metrics)&amp;nbsp;&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+          <mxGeometry x="540" y="130" width="230" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-9" value="&lt;b&gt;PG&lt;/b&gt;: get sorted list of &lt;br&gt;alive pods (pods table)&lt;br&gt;&lt;br&gt;ns/service/podname ASC&amp;nbsp;&lt;br&gt;(last active &amp;gt; previous hour)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="650" y="275" width="200" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="3" style="edgeStyle=none;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-10" target="OQ3O1_zyoIY5fD7gFS0m-17" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="350" y="350" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-10" value="run separate func for each pod&lt;br&gt;&lt;br&gt;&lt;i&gt;open 8 parquet files (by duration range)&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="350" y="320" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-8" target="OQ3O1_zyoIY5fD7gFS0m-9" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-9" target="OQ3O1_zyoIY5fD7gFS0m-10" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-17" target="OQ3O1_zyoIY5fD7gFS0m-23" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-17" value="write to Parquet file all calls &lt;br&gt;from 59 to 00 minute" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="70" y="315" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-18" target="OQ3O1_zyoIY5fD7gFS0m-20" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.35;entryY=-0.008;entryDx=0;entryDy=0;dashed=1;entryPerimeter=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-18" target="OQ3O1_zyoIY5fD7gFS0m-29" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-18" value="filemap should open file and create a record in postgres in s3 files table with status &quot;creating&quot; (should return file_id)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="345" y="470" width="230" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-20" value="Test cases&lt;br&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;1. empty file&lt;/span&gt;&lt;/div&gt;2. already exists file with data&lt;div&gt;&lt;br&gt;&lt;/div&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=center;" parent="1" vertex="1">
+          <mxGeometry x="610" y="570" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-10" target="OQ3O1_zyoIY5fD7gFS0m-18" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="325" y="550" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-23" target="OQ3O1_zyoIY5fD7gFS0m-25" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-23" value="&lt;b&gt;PG&lt;/b&gt;: get calls from calls tables &lt;br&gt;(for each 5m in selected hour)&lt;br&gt;&lt;br&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;several partitions:&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&amp;nbsp;from last one (59-55)&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;to oldest (05-00)&amp;nbsp;&lt;/span&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="65" y="425" width="210" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-28" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-25" target="OQ3O1_zyoIY5fD7gFS0m-27" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="105" y="737" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-25" value="&lt;b&gt;PG&lt;/b&gt;: &lt;br&gt;select for selected pod (ns/service), &lt;br&gt;sort by time DESC&lt;br&gt;&lt;br&gt;&lt;b&gt;test case&lt;/b&gt;&lt;br&gt;&lt;i&gt;check how postgres returns &lt;br&gt;more than 10к calls&lt;/i&gt;&lt;br&gt;&lt;br&gt;&lt;i&gt;NB: logs/metrics with execution time&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;" parent="1" vertex="1">
+          <mxGeometry x="55" y="547" width="225" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-33" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-27" target="OQ3O1_zyoIY5fD7gFS0m-29" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-27" value="each call is written to &lt;br&gt;one of opened parquet files &lt;br&gt;&lt;br&gt;&lt;i&gt;according to duration and namespace&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="20" y="820" width="180" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-29" value="&lt;br&gt;&lt;br&gt;update index map for each call &lt;br&gt;(if it has params in params fiield)&lt;br&gt;&lt;br&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="245" y="842.5" width="200" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-30" value="&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;* Index cache (batch for inverted index)&lt;/span&gt;&lt;/div&gt;&lt;i&gt;map from map for each parameter - request_id / trace.id&lt;/i&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="30" y="260" width="320" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-31" value="* file map (batch for &lt;b&gt;s3_files&lt;/b&gt;) - file_id (FK), file metadata" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="23.75" y="230" width="320" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-35" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="30" y="14.5" width="40" height="17" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-36" value="it&#39;s a separate workflow block" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="75" y="8" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-37" value="Send files to s3 storage&lt;br&gt;&lt;br&gt;&lt;ol&gt;&lt;li style=&quot;text-align: left;&quot;&gt;send 8 generated .parquet files&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: initial; text-align: left;&quot;&gt;update status in s3 files table in PG&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;/ol&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="561.25" y="1050.01" width="232.5" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-41" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-38" target="OQ3O1_zyoIY5fD7gFS0m-37" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-38" value="&lt;i&gt;(at the end of namespace func)&lt;/i&gt;&lt;br&gt;&lt;br&gt;Close all parquet files and update PG:&lt;br&gt;&lt;ol&gt;&lt;li style=&quot;text-align: left;&quot;&gt;update file status in&amp;nbsp; s3_files table&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;save index cache to PG&lt;/span&gt;&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;update table status in PG inventory&amp;nbsp; table&lt;/li&gt;&lt;/ol&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+          <mxGeometry x="560" y="792.5" width="235" height="175" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-44" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-42" target="OQ3O1_zyoIY5fD7gFS0m-37" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-42" value="&lt;div style=&quot;text-align: center;&quot;&gt;&lt;b style=&quot;background-color: initial;&quot;&gt;At the start:&lt;/b&gt;&lt;/div&gt;&lt;br&gt;&lt;div style=&quot;&quot;&gt;&lt;/div&gt;&lt;ol&gt;&lt;li&gt;&lt;span style=&quot;&quot;&gt;check s3 files table &lt;br&gt;(&lt;/span&gt;&lt;i style=&quot;background-color: initial;&quot;&gt;status = generated/transfering )&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;send it to s3 storage again&lt;/span&gt;&lt;/li&gt;&lt;/ol&gt;&lt;div style=&quot;&quot;&gt;&lt;/div&gt;&lt;div style=&quot;&quot;&gt;&lt;br&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;" parent="1" vertex="1">
+          <mxGeometry x="170" y="1037.19" width="280" height="135.63" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-45" value="&lt;i&gt;(deploy)&lt;/i&gt;&lt;br&gt;Need to have PV/PVC for storing parquet files locally" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="10" y="1160.01" width="140" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-46" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="280" y="13" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-47" value="Recovery (out of the scope now)" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="330" y="8" width="200" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-52" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" parent="1" source="OQ3O1_zyoIY5fD7gFS0m-48" target="OQ3O1_zyoIY5fD7gFS0m-6" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="243" y="170" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="340" y="88" />
+              <mxPoint x="340" y="90" />
+              <mxPoint x="158" y="90" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="OQ3O1_zyoIY5fD7gFS0m-48" value="At the start: &lt;br&gt;check calls/dumps in inventory table &lt;br&gt;where status is not &quot;ready&quot;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="240" y="70" width="210" height="70" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

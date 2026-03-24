@@ -1,0 +1,12 @@
+{{- if and (or .Values.cloud.dumpsStorage.name .Values.cloud.dumpsStorage.storageClassName .Values.cloud.dumpsStorage.emptydir ) (eq (lower (toString .Values.MONITORING_ENABLED)) "true") }}
+apiVersion: integreatly.org/v1alpha1
+kind: GrafanaDashboard
+metadata:
+  name: {{ .Values.dumpsCollector.name }}-grafana-dashboard
+  labels:
+    {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  json: >
+    {{ .Files.Get "monitoring/cloud-profiler-dumps-collector-dashboard.json" | nindent 4 }}
+{{- end }}

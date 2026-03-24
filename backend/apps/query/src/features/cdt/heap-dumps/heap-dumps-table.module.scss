@@ -1,0 +1,5 @@
+@import '@netcracker/ux-react/assets/styles/scss/colors';
+
+.pigeonButtons {
+    --ux-react-button-light-color: #{$pigeon};
+}

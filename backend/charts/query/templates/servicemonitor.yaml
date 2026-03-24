@@ -1,0 +1,19 @@
+{{- if .Values.ui.monitoring.install }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Values.ui.name }}-service-monitor
+  labels:
+    {{- include "common.namedLabels" (merge (dict "serviceMonitor" true) .Values.ui) | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  endpoints:
+    - interval: {{ .Values.ui.monitoring.interval }}
+      port: {{ .Values.ui.monitoring.port }}
+      path: {{ .Values.ui.monitoring.path }}
+      scheme: {{ .Values.ui.monitoring.scheme }}
+  jobLabel: k8s
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.ui.name }}
+{{- end }}

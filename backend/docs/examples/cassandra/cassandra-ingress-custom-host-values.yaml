@@ -1,0 +1,15 @@
+# Test values for cloud-profiler
+# This is a YAML-formatted file
+# Declare variables to be passed into your templates
+
+collector:
+  ingress:
+    install: true
+    # Custom Ingress host value
+    host: collector.kubernetes.test.org
+
+ui:
+  ingress:
+    install: true
+    # Custom Ingress host value
+    host: ui.kubernetes.test.org

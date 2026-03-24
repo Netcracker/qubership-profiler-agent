@@ -1,0 +1,26 @@
+@startuml list-heap-dumps
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title UI Service (List Heap Dumps)
+
+actor "User" as user #White
+
+box "CDT Server Namespace" #F5F5F5
+    participant "Ingress" as ingress #FFF2CC
+    participant "ui-service frontend" as uiFront #D5E8D4
+    participant "ui-service backend" as uiBack #D5E8D4
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+user -> ingress: Open heap dumps page
+ingress -> uiFront: Route to frontend
+uiFront -> uiBack: Request filtered heap dumps
+uiBack -> postgreSQL: Find matching heap dumps
+uiBack -> uiFront: Return list of heap dumps
+uiFront -> user: Display filtered heap dumps
+
+@enduml

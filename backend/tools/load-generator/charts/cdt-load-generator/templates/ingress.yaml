@@ -1,0 +1,19 @@
+{{- if .Values.grafanaDashboard.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.global.name }}-service
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ include "ingress.host" . }}
+      http:
+        paths:
+          - path: /metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.name }}-service
+                port:
+                  number: {{ .Values.global.metricsPort }}
+{{- end -}}

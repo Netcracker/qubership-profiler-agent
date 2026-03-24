@@ -1,0 +1,15 @@
+{{- if .Values.compactor.monitoring.enabled }}
+apiVersion: integreatly.org/v1alpha1
+kind: GrafanaDashboard
+metadata:
+  name: {{ .Values.compactor.name }}-grafana-dashbord
+  labels:
+    {{- include "common.namedLabels" (merge (dict "grafana-dashbord" true) .Values.compactor) | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+    app: grafana
+    app.kubernetes.io/component: monitoring
+spec:
+  name: dashboard-with-plugins.json
+  json: >
+{{ .Files.Get "monitoring/compactor-grafana-dashboard.json" | indent 4 }}
+{{- end }}

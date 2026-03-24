@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.collector.service.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.collector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  ports:
+    - name: binary
+      protocol: TCP
+      port: {{ .Values.collector.service.binaryPort }}
+      targetPort: {{ .Values.collector.service.binaryPort }}
+    - name: http
+      protocol: TCP
+      port: {{ .Values.collector.service.httpPort }}
+      targetPort: {{ .Values.collector.service.httpPort }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.collector.name }}
+  sessionAffinity: None
+  type: ClusterIP

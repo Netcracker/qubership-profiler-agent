@@ -1,0 +1,20 @@
+@startuml create-temp-tables
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Maintenance Job (Create Tables)
+
+box "CDT Server Namespace" #F5F5F5
+    participant "maintenance-job" as maintenanceJob #FFE6CC
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+loop Every 1 hour
+    'maintenanceJob -> postgreSQL: Create temporary tables for TTL
+    maintenanceJob -> postgreSQL: Create temporary tables for next 2 hours
+end
+
+@enduml

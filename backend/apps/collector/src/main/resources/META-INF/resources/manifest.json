@@ -1,0 +1,21 @@
+{
+  "files": {
+    "main.css": "/static/css/main.c13eaf3a.css",
+    "main.js": "/static/js/main.e0d7dda5.js",
+    "static/assets/Inter-Bold.woff": "/static/assets/1c3dfbb05cd4ae02710e.woff",
+    "static/assets/Inter-SemiBold.woff": "/static/assets/25b1ffc9587070462342.woff",
+    "static/assets/Inter-ExtraBold.woff": "/static/assets/30c3d891c030615a228a.woff",
+    "static/assets/Inter-Medium.woff": "/static/assets/f5549f68ca7db479bc7d.woff",
+    "static/assets/Inter-ExtraLight.woff": "/static/assets/7b7bd05c50e77a1dea5f.woff",
+    "static/assets/Inter-Light.woff": "/static/assets/c08cfeeb313675a65efc.woff",
+    "static/assets/Inter-Black.woff": "/static/assets/e258f99875304915b846.woff",
+    "static/assets/Inter-Thin.woff": "/static/assets/fcc912460dcaea1ee8d4.woff",
+    "static/assets/Inter-Regular.woff": "/static/assets/8398b3762d7b06fc3b8c.woff",
+    "favicon.ico": "/favicon.ico",
+    "index.html": "/index.html"
+  },
+  "entrypoints": [
+    "static/css/main.c13eaf3a.css",
+    "static/js/main.e0d7dda5.js"
+  ]
+}

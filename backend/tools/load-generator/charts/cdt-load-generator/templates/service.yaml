@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.name }}-service
+  labels:
+    app.kubernetes.io/name: {{ .Values.global.name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Values.global.name }}
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: {{ .Values.global.metricsPort }}
+      targetPort: {{ .Values.global.metricsPort }}
+  type: ClusterIP

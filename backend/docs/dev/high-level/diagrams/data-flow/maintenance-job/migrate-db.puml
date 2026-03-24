@@ -1,0 +1,25 @@
+@startuml migrate-db
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Maintenance Job (Migrate)
+
+box "CDT Server Namespace" #F5F5F5
+    participant "maintenance-job" as maintenanceJob #FFE6CC
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+note right of maintenanceJob
+    Runs before all other services
+end note
+
+maintenanceJob -> postgreSQL: Check the database structure
+
+alt Database structure is outdated
+maintenanceJob -> postgreSQL: Migrate the database to a new version
+end
+
+@enduml

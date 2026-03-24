@@ -1,0 +1,47 @@
+@startuml binary-data-flow
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Binary Data Flow
+
+box "Application Namespace" #F5F5F5
+    box "Microservice" #white
+        participant profilerAgent [
+            **profiler-agent**
+            ----
+            Java agent
+        ]
+    end box
+
+    participant "nc-diagnostic-agent" as ncDiagAgentApp #B1DDF0
+end box
+
+box "CDT Server Namespace" #F5F5F5
+    participant "nc-diagnostic-agent" as ncDiagAgentCDT #B1DDF0
+    collections "collectors" as collectors #E1D5E7
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+note right of profilerAgent
+    Uses a ring buffer to handle data
+end note
+
+loop Continuously
+    profilerAgent -> profilerAgent: Collect performance data 
+    profilerAgent -> ncDiagAgentApp: Send binary data via TCP
+    note bottom
+        Port: 1715 or 1717 (TLS)
+    end note
+
+end loop
+
+ncDiagAgentApp -> ncDiagAgentCDT: Proxy binary data via TCP
+ncDiagAgentCDT -> collectors: Proxy binary data via TCP
+
+
+collectors -> postgreSQL: Parse & store calls
+
+@enduml

@@ -1,0 +1,27 @@
+@startuml list-pods
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title UI Service (List Pods)
+
+actor "User" as user #White
+
+box "CDT Server Namespace" #F5F5F5
+    participant "Ingress" as ingress #FFF2CC
+    participant "ui-service frontend" as uiFront #D5E8D4
+    participant "ui-service backend" as uiBack #D5E8D4
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+user -> ingress: Expand service row in table
+ingress -> uiFront: Route request to frontend
+
+uiFront -> uiBack: Request filtered pods
+uiBack -> postgreSQL: Find matching pods
+uiBack -> uiFront: Return list of pods
+uiFront -> user: Display pods
+
+@enduml

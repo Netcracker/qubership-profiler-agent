@@ -1,0 +1,7 @@
+
+INSERT INTO {{.TableName}} (
+    time, cpu_time, wait_time, memory_used, duration, non_blocking, queue_wait_duration, suspend_duration,
+    calls, transactions, logs_generated, logs_written, file_read, file_written, net_read, net_written,
+    namespace, service_name, pod_name, restart_time,
+    method, params, trace_file_index, buffer_offset, record_index)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)

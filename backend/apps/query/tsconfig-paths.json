@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "paths": {
+            "*": [
+                "node_modules/*"
+            ],
+            "@mock-server/*": [
+                "./mock-server/*"
+            ],
+            "@assets/*": [
+                "./src/assets/*"
+            ],
+            "@api/*": [
+                "./src/api/*"
+            ],
+            "@app/*": [
+                "./src/*"
+            ],
+        }
+    }
+}

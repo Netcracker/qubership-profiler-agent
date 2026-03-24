@@ -1,0 +1,41 @@
+{{- if .Values.cleaner.enabled }}
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: {{ .Values.cleaner.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.cleaner | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+    {{- if .Values.cleaner.annotations }}
+    {{- toYaml .Values.cleaner.annotations | nindent 4 }}
+    {{- end }}
+spec:
+  activeDeadlineSeconds: 320
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "common.namedLabels" .Values.cleaner | nindent 8 }}
+        {{- include "common.commonLabels" . | nindent 8 }}
+    spec:
+      activeDeadlineSeconds: 320
+      serviceAccountName: {{ .Values.cleaner.serviceAccount.name }}
+      securityContext:
+        {{- include "cleaner.podSecurityContext" . | indent 2 }}
+      restartPolicy: "Never"
+      {{- if .Values.cleaner.priorityClassName }}
+      priorityClassName: {{ .Values.cleaner.priorityClassName | quote }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.cleaner.name }}
+          image: {{ include "cleaner.image" . }}
+          env:
+            {{- include "cleaner.envs" . | nindent 10 }}
+          resources: 
+            {{- .Values.cleaner.resources | toYaml | nindent 12 }}
+          securityContext:
+            {{- include "cleaner.containerSecurityContext" . | nindent 12 }}
+{{- end }}
