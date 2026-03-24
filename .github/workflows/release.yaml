@@ -16,6 +16,8 @@ jobs:
   publish-release:
     name: Publish release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release_version.outputs.version }}
     permissions:
       # write permission is required to create a GitHub release
       contents: write
@@ -150,3 +152,69 @@ jobs:
         with:
           token: ${{ steps.app_token.outputs.token }}
           version: ${{ steps.next_version.outputs.version }}
+
+  load-docker-components:
+    name: Load Docker Build Components
+    needs: [publish-release]
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.load.outputs.components }}
+      platforms: ${{ steps.load.outputs.platforms }}
+    env:
+      CONFIG_FILE: backend/.qubership/docker-build-config.cfg
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 'v${{ needs.publish-release.outputs.version }}'
+          persist-credentials: false
+
+      - name: Load Docker Configuration
+        id: load
+        env:
+          CONFIG_PATH: backend/.qubership/docker-build-config.cfg
+        # language=bash
+        run: |
+          verify=$(cat "$GITHUB_WORKSPACE/${CONFIG_PATH}" | jq '
+          def verify_structure:
+          .components as $components
+          | .platforms as $platforms
+          | ($components | type == "array")
+          and (all($components[]; has("name") and has("file") and has("context")))
+          and ($platforms | type == "string");
+          verify_structure
+          | if . then true else false end
+          ')
+          if [ "${verify}" == 'true' ]; then
+            echo "✅ Docker build config is valid"
+            components=$(jq -c ".components" "$GITHUB_WORKSPACE/${CONFIG_PATH}")
+            platforms=$(jq -c ".platforms" "$GITHUB_WORKSPACE/${CONFIG_PATH}")
+          else
+            echo "❗ Docker build config is invalid"
+            exit 1
+          fi
+          echo "components=${components}" >> $GITHUB_OUTPUT
+          echo "platforms=${platforms}" >> $GITHUB_OUTPUT
+
+  docker-build:
+    name: "Docker: ${{ matrix.component.name }}"
+    needs: [publish-release, load-docker-components]
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        component: ${{ fromJson(needs.load-docker-components.outputs.components) }}
+    steps:
+      - name: Docker build and publish
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@5a557213e92e3d22d0292330c4817c82af6704d2 # v2.1.2
+        with:
+          ref: 'v${{ needs.publish-release.outputs.version }}'
+          download-artifact: false
+          dry-run: false
+          component: ${{ toJson(matrix.component) }}
+          platforms: ${{ needs.load-docker-components.outputs.platforms }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
