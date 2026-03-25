@@ -9,8 +9,8 @@ on:
         default: ''
         description: Release version number (without v, defaults to gradle.properties)
 
-# Declare default permissions as read-only.
-permissions: read-all
+permissions:
+  contents: read
 
 jobs:
   publish-release:
