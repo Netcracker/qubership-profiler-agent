@@ -1,0 +1,2 @@
+
+UPDATE {{.TableName}} SET status=$1, rows_count=$2, table_size=$3, table_total_size=$4 WHERE uuid=$5

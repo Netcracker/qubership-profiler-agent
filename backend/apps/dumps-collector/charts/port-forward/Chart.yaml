@@ -1,0 +1,13 @@
+apiVersion: v2
+name: port-forward
+description: Minimal Helm chart for managing kubectl port-forward processes
+type: application
+version: 1.0.0
+appVersion: "1.0"
+keywords:
+  - port-forward
+  - kubectl
+  - development
+home: https://github.com/Netcracker/qubership-profiler-backend
+maintainers:
+  - name: Qubership Profiler Team

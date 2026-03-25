@@ -1,0 +1,35 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`should match snapshot 1`] = `
+<div>
+  <div
+    class="container"
+  >
+    <div
+      aria-busy="true"
+      aria-live="polite"
+      class="ant-spin ant-spin-spinning ant-spin-show-text loader-module_loader__fc32e5 taLoader taActive"
+    >
+      <svg
+        aria-label="loading icon"
+        class="loader-module_circleLoader__fc32e5 ant-spin-dot"
+        focusable="false"
+        role="img"
+        style="font-size: 48px;"
+        viewBox="0 0 50 50"
+      >
+        <circle
+          cx="25"
+          cy="25"
+          r="20"
+        />
+      </svg>
+      <div
+        class="ant-spin-text"
+      >
+        text of loading
+      </div>
+    </div>
+  </div>
+</div>
+`;

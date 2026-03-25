@@ -1,0 +1,23 @@
+{{- if .Values.collector.backwardCompatibility.collectorService.install -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.collector.backwardCompatibility.collectorService.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.collector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  ports:
+    - name: binary
+      port: {{ .Values.collector.backwardCompatibility.collectorService.binaryPort }}
+      protocol: TCP
+      targetPort: {{ .Values.collector.backwardCompatibility.collectorService.binaryPort }}
+    - name: http
+      port: {{ .Values.collector.backwardCompatibility.collectorService.httpPort }}
+      protocol: TCP
+      targetPort: {{ .Values.collector.backwardCompatibility.collectorService.httpPort }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.collector.name }}
+  sessionAffinity: None
+  type: ClusterIP
+{{- end -}}

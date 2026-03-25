@@ -1,0 +1,134 @@
+# Local development values for dumps-collector
+# For use with OrbStack Kubernetes
+
+# Cloud configuration
+cloud:
+  # Storage configuration for dumps
+  dumpsStorage:
+    # Use PersistentVolume with StorageClass for persistent storage
+    storageClassName: local-path  # OrbStack default storage class
+    size: 5Gi
+    accessMode: ReadWriteOnce
+    mountPath: /diag
+
+    # Storage lifecycle management
+    hoursArchiveAfter: 2    # Archive dumps after 2 hours
+    daysDeleteAfter: 7      # Delete dumps after 7 days (shorter for local dev)
+    maxHeapDumpsPerPod: 5   # Max heap dumps per pod (lower for local dev)
+
+# dumps-collector application configuration
+dumpsCollector:
+  install: true
+  name: cloud-profiler-dumps-collector
+  replicas: 1
+
+  # Local image built with: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector:local .
+  image: dumps-collector:local
+  imagePullPolicy: Never  # Use local image, don't try to pull
+
+  # Service configuration
+  service:
+    name: cloud-profiler-dumps-collector
+    type: ClusterIP
+    httpPort: 8080  # Nginx + WebDAV endpoint
+    # API port 8000 is also exposed
+
+  # Resource limits optimized for local development
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Ingress disabled (using port-forward instead)
+  ingress:
+    install: false
+
+  # Monitoring disabled for local development
+  monitoring:
+    enabled: false
+
+  # Environment-specific settings
+  env:
+    # Log level (trace, debug, info, warn, error)
+    - name: DIAG_LOG_LEVEL
+      value: "debug"
+
+    # SQLite database path (on the PV)
+    - name: DIAG_DB_PATH
+      value: "/diag/profiler_dumps.db"
+
+    # Storage configuration
+    - name: DIAG_PV_MOUNT_PATH
+      value: "/diag"
+    - name: DIAG_PV_HOURS_ARCHIVE_AFTER
+      value: "2"
+    - name: DIAG_PV_DAYS_DELETE_AFTER
+      value: "7"
+    - name: DIAG_PV_MAX_HEAP_DUMPS_PER_POD
+      value: "5"
+
+    # Server bind address
+    - name: DIAG_BIND_ADDRESS
+      value: ":8000"
+
+    # Database metrics (disabled for local dev)
+    - name: DIAG_DB_METRICS_ENABLED
+      value: "false"
+
+  # Probes configuration
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /probes/live
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /probes/ready
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# TLS configuration (disabled for local development)
+tlsConfig:
+  enabled: false
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+
+---
+# Additional configuration notes:
+#
+# 1. Storage:
+#    - Uses SQLite database stored on the PV at /diag/profiler_dumps.db
+#    - Uses local-path StorageClass (OrbStack default)
+#    - 5Gi should be sufficient for local testing
+#    - Data persists across pod restarts but not cluster deletion
+#
+# 2. Access:
+#    After deployment, use port-forward to access:
+#    - kubectl port-forward -n profiler svc/cloud-profiler-dumps-collector 8080:8080
+#    - kubectl port-forward -n profiler svc/cloud-profiler-dumps-collector 8000:8000
+#
+#    Or use helmfile port-forwards:
+#    - helmfile -l type=port-forward sync
+#
+# 3. Endpoints:
+#    - http://localhost:8080/health          - Health check
+#    - http://localhost:8080/diagnostic      - WebDAV upload endpoint (PUT)
+#    - http://localhost:8000/esc/health      - Application health
+#    - http://localhost:8000/esc/metrics     - Prometheus metrics
+#    - http://localhost:8000/cdt/v2/download - Download thread/top dumps
+#    - http://localhost:8000/cdt/v2/heaps/download/:handle - Download heap dumps

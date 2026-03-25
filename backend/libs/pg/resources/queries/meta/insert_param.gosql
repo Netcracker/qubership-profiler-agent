@@ -1,0 +1,4 @@
+
+INSERT INTO %s
+    (pod_id, pod_name, restart_time, param_name, param_index, param_list, param_order, signature)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

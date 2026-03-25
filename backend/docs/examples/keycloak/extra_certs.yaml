@@ -1,0 +1,13 @@
+extra_certs:
+  tls.cer: |-
+    -----BEGIN CERTIFICATE-----
+    MIIHAjCCBeqgAwIBAgITbwAMOpX9zxyFb9GM8AACAAw6lTANBgkqhkiG9w0BAQsF
+    ...
+    lFDGtpLiYGEC928y9LTxv9naa8q+dw==
+    -----END CERTIFICATE-----
+  keycloak.cer: |-
+    -----BEGIN CERTIFICATE-----
+    MIIHOTCCBiGgAwIBAgITbwAMAylcAyS3wFSlmQACAAwDKTANBgkqhkiG9w0BAQsF
+    ...
+    lo9eNcIONj5VBfN5Zv0C6+QCW5jeCcuhhdQzdhQ=
+    -----END CERTIFICATE-----

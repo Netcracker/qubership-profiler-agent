@@ -1,0 +1,18 @@
+.entity {
+    width: 100%;
+    height: 100%;
+    padding: 20px 20px !important;
+}
+
+.heading {
+    color: #353c4e;
+    text-align: left;
+    cursor: grab;
+    user-select: none;
+}
+
+.content {
+    display: grid;
+    height: 100%;
+    overflow: hidden;
+}

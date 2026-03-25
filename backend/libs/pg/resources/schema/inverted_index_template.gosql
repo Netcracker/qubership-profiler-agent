@@ -1,0 +1,16 @@
+{{- /*
+-- create inverted index tables
+-- Postgres uses B-tree by default when index type is not specified.
+-- This fits column `value` well, as it enables efficient exact-match
+-- (e.g. value = 'user-agent', value = 'x-request-id')
+-- and range queries (e.g. value LIKE 'x-%', value >= 'abc')
+*/ -}}
+
+
+CREATE TABLE IF NOT EXISTS {{.TableName}}
+(
+    value   text,
+    file_id uuid,
+    PRIMARY KEY (value, file_id)
+);
+CREATE INDEX IF NOT EXISTS {{.TableName}}_value_idx ON {{.TableName}} (value);

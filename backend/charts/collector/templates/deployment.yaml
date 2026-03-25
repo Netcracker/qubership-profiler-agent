@@ -1,0 +1,62 @@
+kind: Deployment
+apiVersion: {{ include "deployment.apiVersion" . }}
+metadata:
+  name: {{ .Values.collector.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.collector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.collector.name }}
+  replicas: {{ .Values.collector.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        {{- include "common.namedLabels" .Values.collector | nindent 8 }}
+        {{- include "common.commonLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.collector.serviceAccount.name }}
+      securityContext:
+        {{- include "collector.podSecurityContext" . | nindent 8 }}
+      {{- if .Values.collector.priorityClassName }}
+      priorityClassName: {{ .Values.collector.priorityClassName | quote }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.collector.name }}
+          image: {{ include "collector.image" . }}
+          args:
+            {{- include "collector.args" . | nindent 12 }}
+          ports:
+            - name: binary
+              containerPort: 1715
+              protocol: TCP
+            {{- include "common.ports" . | nindent 12 }}
+          env:
+            {{- include "collector.envs" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.collector.resources | nindent 12 }}
+          securityContext:
+            {{- include "collector.containerSecurityContext" . | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 30

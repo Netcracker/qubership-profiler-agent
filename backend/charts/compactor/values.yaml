@@ -1,0 +1,94 @@
+############# General #############
+
+profile: small
+
+############# Infra Passport #############
+
+INFRA_S3_MINIO_ENDPOINT: ~
+INFRA_S3_MINIO_ACCESSKEY: ~
+INFRA_S3_MINIO_SECRETKEY: ~
+INFRA_POSTGRES_HOST: ~
+INFRA_POSTGRES_PORT: ~
+INFRA_POSTGRES_ADMIN_USERNAME: ~
+INFRA_POSTGRES_ADMIN_PASSWORD: ~
+
+############# Persistence #############
+
+cloud:
+  postgres:
+    host: ~               # default value is from INFRA_POSTGRES_HOST env
+    port: ~               # default value is from INFRA_POSTGRES_PORT env
+    database: ~
+    username: ~           # default value is from INFRA_POSTGRES_ADMIN_USERNAME env
+    password: ~           # default value is from INFRA_POSTGRES_ADMIN_PASSWORD env
+    tls:
+      sslMode: "prefer"
+      ca: ~
+      # ca: |
+      #  -----BEGIN CERTIFICATE-----
+      #  ...
+      #  -----END CERTIFICATE-----
+  s3:
+    endpoint: ~           # default value is from INFRA_S3_MINIO_ENDPOINT env
+    accessKey: ~          # default value is from INFRA_S3_MINIO_ACCESSKEY env
+    secretKey: ~          # default value is from INFRA_S3_MINIO_SECRETKEY env
+    bucket: "profiler"
+    tls:
+      insecure: false
+      useSSL: true
+      ca: ~
+      # ca: |
+      #  -----BEGIN CERTIFICATE-----
+      #  ...
+      #  -----END CERTIFICATE-----
+  cdt:
+    invertedIndex:
+      granularity: "1h"
+      lifetime: "14d"
+      params:
+        - request.id
+        - trace.id
+
+############# Compactor Service #############
+
+compactor:
+  name: cloud-profiler-compactor
+  image: ~
+  cron: "0 * * * *"
+  log:
+    level: info
+
+  replicas: 1
+
+  securityContext: {}
+  containerSecurityContext: {}
+  priorityClassName: ~
+
+  resources: {}
+  annotations: {}
+  labels: {}
+
+  serviceAccount:
+    name: cloud-profiler-compactor
+    install: true
+
+    annotations: {}
+    labels: {}
+
+  monitoring:
+    enabled: true
+    interval: 30s
+
+  pvc:
+    name: cloud-profiler-compactor-pvc
+    labels: {}
+    annotations: {}
+    install: true
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: ~
+      volumeMode: Filesystem

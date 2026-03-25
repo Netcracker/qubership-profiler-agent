@@ -1,0 +1,2 @@
+
+SELECT DISTINCT pod_id, namespace, service_name, pod_name, active_since, last_restart, last_active, tags FROM %s WHERE namespace=$1 AND last_active > $2 ORDER BY service_name ASC, pod_name ASC

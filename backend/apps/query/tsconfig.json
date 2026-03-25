@@ -1,0 +1,48 @@
+{
+    "extends": "./tsconfig-paths.json",
+    "ts-node": {
+        "compilerOptions": {
+            "verbatimModuleSyntax": false
+        }
+    },
+    "compilerOptions": {
+        "jsx": "react-jsx",
+        "allowJs": true,
+        "target": "ES6",
+        "module": "ESNext",
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "noImplicitAny": true,
+        "sourceMap": true,
+        "baseUrl": ".",
+        "outDir": "build",
+        "moduleResolution": "node",
+        "useDefineForClassFields": true,
+        "lib": [
+            "DOM",
+            "DOM.Iterable",
+            "ESNext"
+        ],
+        "noUncheckedIndexedAccess": true,
+        "verbatimModuleSyntax": true,
+        "allowSyntheticDefaultImports": true,
+        "strict": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "noEmit": true,
+        "plugins": [
+            {
+                "name": "typescript-plugin-css-modules",
+            }
+        ],
+    },
+    "exclude": [
+        "node_modules"
+    ],
+    "include": [
+        "mock-server/**/*",
+        "src/**/*",
+        "configs/**/*",
+        "index.d.ts"
+    ]
+}

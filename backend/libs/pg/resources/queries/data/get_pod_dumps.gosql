@@ -1,0 +1,5 @@
+
+SELECT * FROM {{.TableName}}
+WHERE namespace = $1 AND service_name = $2 AND pod_name = $3
+	AND created_time < $4 AND created_time >= $5
+ORDER BY service_name ASC, pod_name ASC, created_time DESC

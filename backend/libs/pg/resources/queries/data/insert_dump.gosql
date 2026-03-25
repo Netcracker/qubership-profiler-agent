@@ -1,0 +1,6 @@
+
+INSERT INTO {{.TableName}} (
+		uuid, created_time,
+		namespace, service_name, pod_name, restart_time, pod_type,
+		dump_type, bytes_size, info, binary_data)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)

@@ -113,6 +113,13 @@
       "matchPackageNames": [
         "jquery"
       ]
+    },
+    {
+      "description": "Group all GitHub Actions updates into a single PR",
+      "groupName": "GitHub Actions",
+      "matchManagers": [
+        "github-actions"
+      ]
     }
   ]
 }

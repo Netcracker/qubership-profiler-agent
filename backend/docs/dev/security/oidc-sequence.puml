@@ -1,0 +1,68 @@
+@startuml
+'https://plantuml.com/sequence-diagram
+
+box Client
+participant User as u
+participant Browser as b
+end box
+participant "Pre-app nginx" as n
+participant App as a
+participant Keycloak as k
+
+== Build time ==
+
+autonumber 10
+
+a -> a: Quarkus build (build time settings are baked in, oidc is disabled)
+
+== Start-up ==
+
+autonumber 20
+
+a -> a ++: Docker starts
+note right a: Re-augmentation:\n\nbuild time settings are re-evaluated\noidc is enabled\n[oidc/reaugmentation]
+a -> k ++: Quarkus gets keycloak information\n[oidc/certificates, oidc/main-functionality]
+k --> a --:
+note right a: Ready to handle requests
+deactivate a
+
+== Request without valid session ==
+
+autonumber 30
+
+u -> b: Opens app's URL
+b -> n: App's URL request
+n -> a ++: App's URL request
+note right a: Quarkus doesn't see token in cookies\n[oidc/main-functionality]
+a --> n --: Redirect to keycloak with origin link as a parameter\n\nSince we are behind proxy protocol is\nalways http except when force-https is enabled\n[oidc/main-functionality, oidc/force-https]
+n --> b: Redirect to keycloak
+b -> k ++: Handle redirect
+note right k:  Keycloak doesn't have session
+k --> b --: Login page
+b --> u: Login page
+u -> b: Enters credentials
+b -> k ++: Credentials
+note right k: Validate credentials\nEstablish session
+k --> b --: Redirect back to the app as part of oidc flow (with authorization-code-and-such)
+b -> n: Handle redirect
+n -> a ++: Request to the app with authorization-code-and-such
+note right a: Quarkus uses authorization-code-and-such from parameters\nto generate request to keycloak for a token [oidc/main-functionality]
+a -> k ++: Token request [oidc/main-functionality, oidc/client-credentials, oidc/certificates]
+k --> a --: Token
+a --> n --: Redirect to the origin link with token in cookies.\nCookies has security-related flags.\n[oidc/main-functionality, oidc/force-secure-cookies, oidc/force-https]
+n --> b: Nginx passes cookie header [oidc/nginx]
+note right b: Now browser has cookies\nand ready to execute\nredirect to original link (from step #30).\n\nGo to step #51 (request\nwith a valid session after user's request)
+
+== Request with valid session ==
+
+autonumber 50
+
+u -> b: Opens app's URL
+b -> n: URL request + token in cookies
+n -> a ++: Nginx passes cookie header [oidc/nginx]
+note right a: Quarkus checks token from cookies\n[oidc/main-functionality]
+a --> n --: Page content
+n --> b: Nginx passes cookie header [oidc/nginx]
+b --> u: Page content
+
+@enduml

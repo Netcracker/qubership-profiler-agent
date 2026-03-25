@@ -1,0 +1,193 @@
+############# Infra Passport #############
+
+INFRA_S3_MINIO_ENDPOINT: ~
+INFRA_S3_MINIO_ACCESSKEY: ~
+INFRA_S3_MINIO_SECRETKEY: ~
+INFRA_POSTGRES_HOST: ~
+INFRA_POSTGRES_PORT: ~
+INFRA_POSTGRES_ADMIN_USERNAME: ~
+INFRA_POSTGRES_ADMIN_PASSWORD: ~
+
+############# Persistence #############
+
+storage: cloud  # cloud
+
+cloud:
+  postgres:
+    host: ~
+    port: ~
+    database: ~
+    username: ~
+    password: ~
+  s3:
+    endpoint: ~
+    accessKey: ~
+    secretKey: ~
+    bucket: profiler
+    tls:
+      insecure: true
+  cdt:
+    invertedIndex:
+      granularity: "1h"
+      lifetime: "14d"
+      params:
+        - request.id
+        - trace.id
+
+############# Self Profiling #############
+
+NC_DIAGNOSTIC_MODE: prod  # Enable or disable profiler agent inside the container
+NC_DIAGNOSTIC_AGENT_SERVICE: esc-collector-service  # Specifying the service where the profiler agent will send collected calls
+
+############# Collector Service #############
+
+collector:
+  install: true
+
+  name: collector
+  replicas: 1
+
+  imagePullPolicy:
+  imagePullSecret:
+
+  extraEnv: {}
+  extraCmdParam: {}
+
+  labels: {}
+  annotations: {}
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1024Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+
+  securityContext: {}
+  containerSecurityContext: {}
+
+  nodeSelector: {}
+  affinity: {}
+  tolerations: {}
+
+  # priorityClassName: "priority-class"
+
+  service:
+    name: collector
+    binaryPort: 1715
+    httpPort: 8080
+
+  backwardCompatibility:
+    collectorService:
+      install: true
+      name: esc-collector-service
+      binaryPort: 1715
+      httpPort: 8080
+    dumpsCollector:
+      install: true
+      name: cloud-profiler-dumps-collector
+      port: 8080
+
+  serviceAccount:
+    install: true
+    name: cloud-profiler-collector
+
+    annotations: {}
+    labels: {}
+
+  monitoring:
+    install: true
+    port: http
+    path: /q/metrics
+    scheme: http
+    interval: 30s
+
+  ingress:
+    install: true
+
+############# UI Service #############
+
+# Basic auth settings
+SECRET_UI_CREDENTIALS: "ui-credentials"
+
+ui:
+  install: true
+
+  name: ui
+  replicas: 1
+
+  imagePullPolicy:
+  imagePullSecret:
+
+  security:
+    oidc:
+      idp_url: ""
+      idp_client_id: ""
+      idp_client_secret: ""
+    basic:
+      credentialsSecretName: "ui-credentials"
+      username: ""
+      password: ""
+
+  s3:
+    downloadCacheDir: "output"
+
+  pvc:
+    name: cloud-profiler-ui-s3-pvc
+    labels: {}
+    annotations: {}
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: ~
+      volumeMode: Filesystem
+
+  extraEnv: {}
+  extraCmdParam: {}
+
+  labels: {}
+  annotations: {}
+  resources: {}
+
+  podSecurityContext: {}
+  containerSecurityContext: {}
+
+  nodeSelector: {}
+  affinity: {}
+  tolerations: {}
+
+  # priorityClassName: "priority-class"
+
+  serviceAccount:
+    install: true
+    name: cloud-profiler-ui
+
+    annotations: {}
+    labels: {}
+
+  service:
+    name: ui
+    port: 8080
+
+  monitoring:
+    install: true
+    port: http
+    path: /q/metrics
+    scheme: http
+    interval: 30s
+
+  ingress:
+    install: true
+
+# This parameter allows specifying a list of certificates which should to include into JVM keystore.
+# Certificates should be specified in format:
+#  extra_certs:
+#    <certificate_file_name_1>.[cer|pem]: |-
+#      <certificate_content_1>
+#    <certificate_file_name_N>.[cer|pem]: |-
+#      <certificate_content_N>
+#  extra_certs: {}

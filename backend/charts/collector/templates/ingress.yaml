@@ -1,0 +1,34 @@
+{{- if and .Values.collector.install .Values.collector.ingress.install -}}
+apiVersion: {{ include "ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ .Values.collector.name }}-query
+  labels:
+    {{- include "common.namedLabels" .Values.collector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  {{- if .Values.collector.ingress.className -}}
+  ingressClassName: {{ .Values.collector.ingress.className }}
+  {{- end }}
+  rules:
+    - host: {{ include "collector.ingress" . }}
+      http:
+        paths:
+          - path: /
+            {{- if semverCompare "<1.21-0" .Capabilities.KubeVersion.GitVersion }}
+            backend:
+              serviceName: {{ .Values.collector.name }}
+              servicePort: "http"
+            {{- else }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.collector.name }}
+                port:
+                  name: "http"
+            {{- end }}
+  {{- if .Values.collector.ingress.tls }}
+  tls:
+    {{- toYaml .Values.collector.ingress.tls | nindent 4 }}
+  {{- end }}
+{{- end }}

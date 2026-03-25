@@ -1,0 +1,26 @@
+@startuml clean
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Maintenance Job (Clean)
+
+box "CDT Server Namespace" #F5F5F5
+    participant "maintenance-job" as maintenanceJob #FFE6CC
+end box
+
+database "PostgreSQL" as postgreSQL #White
+database "S3 Compatible Storage" as s3 #E05243
+
+loop Every 1 hour
+    maintenanceJob -> postgreSQL: Delete temporary tables older than TTL
+    maintenanceJob -> postgreSQL: Delete metadata older than TTL
+    
+    maintenanceJob -> s3: Delete parquet files older than TTL
+    note bottom
+        Age depends on the duration of calls
+    end note
+end
+
+@enduml

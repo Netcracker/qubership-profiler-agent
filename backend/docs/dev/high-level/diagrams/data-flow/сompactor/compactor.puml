@@ -1,0 +1,51 @@
+@startuml compactor
+
+'TODO: Add parquet file status changes in the DB to the diagram
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Compactor
+
+box "CDT Server Namespace" #F5F5F5
+    participant "compactor" as compactor #FFF2CC
+end box
+
+database "PostgreSQL" as postgreSQL #white
+database "S3 Compatible Storage" as s3 #E05243
+
+loop Every 1 hour
+    compactor -> postgreSQL: Get namespaces
+    loop#FFE072 #FFE072 For every namespace
+        compactor -> postgreSQL: Get active pods for last hour
+        loop#92C5F9 #92C5F9 For every pod
+            compactor -> compactor: Create and open 8 parquet files for writing
+            note bottom
+                For different call durations
+            end note
+
+            compactor -> postgreSQL: Set parquet files status to "**creating**"
+
+            loop#AFDC8F #AFDC8F For every call
+                compactor -> compactor: Start writing the call to the parquet file
+
+                compactor -> postgreSQL: Get corresponding trace & dictionaries
+                compactor -> compactor: Parse trace & prepare enriched call
+                compactor -> compactor: Write the enriched call to corresponding parquet file
+                note bottom
+                    Choose parquet file depending on the call's duration
+                end note
+            end
+
+        end
+
+        compactor -> postgreSQL: Set parquet files status to "**created**"
+
+        compactor -> postgreSQL: Set parquet files status to "**transferring**"
+        compactor -> s3: Save ready parquet files
+        compactor -> postgreSQL: Set parquet files status to "**completed**"
+    end
+end
+
+@enduml

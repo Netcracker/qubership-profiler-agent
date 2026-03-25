@@ -1,0 +1,31 @@
+privilegedRights: true
+
+cleaner:
+  enabled: true
+  name: cloud-profiler-migration-cleaner
+  image: ~
+  log:
+    level: info
+
+  escLabelSelector: app.kubernetes.io/part-of=esc
+
+  securityContext: {}
+  containerSecurityContext: {}
+  priorityClassName: ~
+
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "160Mi"
+    requests:
+      cpu: "100m"
+      memory: "75Mi"
+
+  annotations: {}
+  labels: {}
+
+  serviceAccount:
+    name: cloud-profiler-migration-cleaner
+
+    annotations: {}
+    labels: {}

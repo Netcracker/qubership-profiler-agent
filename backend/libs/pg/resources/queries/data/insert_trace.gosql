@@ -1,0 +1,6 @@
+
+INSERT INTO {{.TableName}} (
+                pod_name, restart_time,
+                trace_file_index, buffer_offset, record_index,
+                trace)
+VALUES ($1, $2, $3, $4, $5, $6)

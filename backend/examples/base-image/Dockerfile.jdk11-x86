@@ -1,0 +1,18 @@
+FROM centos7/openjdk11-x86:11.0.20.01
+
+### Star update agent inside the image
+ENV APP_UID=10001
+
+USER root
+
+COPY target/*.zip /tmp/installer-cloud.zip
+
+# Replace in-built archive with profiler agent to latest version
+RUN rm -rf /app/volumes/ncdiag/config/* \
+    && unzip -oq /tmp/installer-cloud.zip -d /app/volumes/ncdiag \
+    && rm -rf /tmp/installer-cloud.zip \
+    && chmod a+rwx -R /app/volumes/ncdiag \
+    && chown -R ${APP_UID} /app/volumes/ncdiag
+
+USER ${APP_UID}
+### End

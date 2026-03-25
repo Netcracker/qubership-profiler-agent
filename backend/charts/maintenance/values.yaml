@@ -1,0 +1,90 @@
+############# General #############
+
+profile: small
+
+############# Infra Passport #############
+
+INFRA_S3_MINIO_ENDPOINT: ~
+INFRA_S3_MINIO_ACCESSKEY: ~
+INFRA_S3_MINIO_SECRETKEY: ~
+INFRA_POSTGRES_HOST: ~
+INFRA_POSTGRES_PORT: ~
+INFRA_POSTGRES_ADMIN_USERNAME: ~
+INFRA_POSTGRES_ADMIN_PASSWORD: ~
+
+############# Persistence #############
+
+cloud:
+  postgres:
+    host: ~               # default value is from INFRA_POSTGRES_HOST env
+    port: ~               # default value is from INFRA_POSTGRES_PORT env
+    database: ~
+    username: ~           # default value is from INFRA_POSTGRES_ADMIN_USERNAME env
+    password: ~           # default value is from INFRA_POSTGRES_ADMIN_PASSWORD env
+    tls:
+      sslMode: "prefer"
+      ca: ~
+      # ca: |
+      #  -----BEGIN CERTIFICATE-----
+      #  ...
+      #  -----END CERTIFICATE-----
+  s3:
+    endpoint: ~           # default value is from INFRA_S3_MINIO_ENDPOINT env
+    accessKey: ~          # default value is from INFRA_S3_MINIO_ACCESSKEY env
+    secretKey: ~          # default value is from INFRA_S3_MINIO_SECRETKEY env
+    bucket: "profiler"
+    tls:
+      insecure: false
+      useSSL: true
+      ca: ~
+      # ca: |
+      #  -----BEGIN CERTIFICATE-----
+      #  ...
+      #  -----END CERTIFICATE-----
+  cdt:
+    invertedIndex:
+      granularity: "1h"
+      lifetime: "14d"
+      params:
+        - request.id
+        - trace.id
+
+############# Maintenance Job Service #############
+
+maintenanceJob:
+  name: cloud-profiler-maintenance-job
+  image: ~
+  cron: "0 * * * *"
+  log:
+    level: info
+
+  securityContext: {}
+  containerSecurityContext: {}
+  priorityClassName: ~
+
+  resources: {}
+  annotations: {}
+  labels: {}
+
+  serviceAccount:
+    name: cloud-profiler-maintenance-job
+    install: true
+
+    annotations: {}
+    labels: {}
+
+  migrateSchema:
+    enabled: true
+    name: cloud-profiler-maintenance-job-migrate-schema
+    image: ~
+    log:
+      level: info
+    jobConfig: {}
+    resources: {}
+    annotations: {}
+    labels: {}
+    serviceAccount:
+      name: cloud-profiler-maintenance-job-migrate-schema
+      install: true
+      annotations: {}
+      labels: {}

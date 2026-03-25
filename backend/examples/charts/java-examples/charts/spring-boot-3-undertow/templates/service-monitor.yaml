@@ -1,0 +1,18 @@
+{{- if and .Values.serviceMonitor }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app.kubernetes.io/name: {{ .Values.name }}
+    app.kubernetes.io/component: monitoring
+  name: {{ .Values.name }}-service-monitor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.name }}
+  endpoints:
+    - interval: 30s
+      port: web
+      scheme: http
+  jobLabel: {{ .Values.name }}
+{{- end }}

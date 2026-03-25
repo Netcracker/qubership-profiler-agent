@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.ui.pvc.name }}
+  labels:
+    {{- include "common.namedLabels" .Values.ui | nindent 4 }}
+      {{- include "common.commonLabels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ui.pvc.annotations | nindent 4 }}
+spec:
+  {{- toYaml .Values.ui.pvc.spec | nindent 2 }}

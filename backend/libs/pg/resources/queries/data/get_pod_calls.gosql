@@ -1,0 +1,9 @@
+
+SELECT c.*, t.trace
+	FROM {{.TableName}} c
+	LEFT JOIN {{.TraceTableName}} t
+		ON c.pod_name = t.pod_name AND c.restart_time = t.restart_time
+		    AND c.trace_file_index = t.trace_file_index AND c.buffer_offset = t.buffer_offset AND c.record_index = t.record_index
+	WHERE c.namespace = $1 AND c.service_name = $2 AND c.pod_name = $3
+	    AND c.time < $4 AND c.time >= $5
+	ORDER BY service_name ASC, pod_name ASC, time DESC

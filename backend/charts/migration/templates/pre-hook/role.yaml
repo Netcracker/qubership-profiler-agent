@@ -1,0 +1,68 @@
+{{- if .Values.cleaner.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.cleaner.serviceAccount.name }}-role
+  labels:
+    {{- if .Values.cleaner.serviceAccount.annotations }}
+    {{- toYaml .Values.cleaner.serviceAccount.annotations | nindent 4 }}
+    {{- end }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - secrets
+      - services
+      - serviceaccounts
+    verbs:
+      - list
+      - delete
+  - apiGroups:
+      - "integreatly.org"
+    resources:
+      - grafanadashboards
+    verbs:
+      - list
+      - delete
+  - apiGroups:
+      - "monitoring.coreos.com"
+    resources:
+      - servicemonitors
+    verbs:
+      - list
+      - delete
+  - apiGroups:
+      - "networking.k8s.io"
+    resources:
+      - ingresses
+    verbs:
+      - list
+      - delete
+  - apiGroups:
+      - "apps"
+    resources:
+      - deployments
+    verbs:
+      - list
+      - delete
+  - apiGroups:
+      - "rbac.authorization.k8s.io"
+    resources:
+      - rolebindings
+      - roles
+    verbs:
+      - list
+      - delete
+  - apiGroups:
+      - cert-manager.io
+    resources:
+      - certificates
+    verbs:
+      - list
+      - delete
+{{- end }}

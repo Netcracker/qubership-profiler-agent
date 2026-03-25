@@ -1,0 +1,32 @@
+global:
+  image:
+    repository: personal
+    tag: build4
+
+quarkus_2_vertx:
+  install: true
+  # image: personal/micrometer-quarkus-2:build2
+quarkus_3_vertx:
+  install: true
+  # image: personal/micrometer-quarkus-3:build5
+quarkus_3_vertx_resteasy:
+  install: true
+  # image: personal/micrometer-quarkus-3:build5
+spring_boot_2_jetty:
+  install: true
+  # image: personal/alka0114/micrometer-spring-boot-2:build3
+spring_boot_2_tomcat:
+  install: true
+  # image: personal/micrometer-spring-boot-2:build3
+spring_boot_2_undertow:
+  install: true
+  # image: personal/micrometer-spring-boot-2:build3
+spring_boot_3_jetty:
+  install: true
+  # image: personal/micrometer-spring-boot-3:build6
+spring_boot_3_tomcat:
+  install: true
+  # image: personal/micrometer-spring-boot-3:build6
+spring_boot_3_undertow:
+  install: true
+  # image: personal/micrometer-spring-boot-3:build6

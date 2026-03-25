@@ -1,0 +1,114 @@
+
+GET http://{{CDT_UI_SERVICE_URL}}/cdt/v2/version
+Content-Type: application/json
+
+###
+GET http://{{CDT_UI_SERVICE_URL}}/cdt/v2/containers
+Content-Type: application/json
+
+###
+
+POST http://{{CDT_UI_SERVICE_URL}}/cdt/v2/services
+Content-Type: application/json
+
+{
+  "timeRange": {
+    "from": 1694590900000,
+    "to":   1694599999999
+  },
+  "query": "",
+  "services": [
+    {
+      "namespace": "profiler",
+      "service": "TestLoadService-0"
+    }
+  ]
+}
+
+###
+
+POST http://{{CDT_UI_SERVICE_URL}}/cdt/v2/namespaces/profiler/services/TestLoadService-0/dumps
+Content-Type: application/json
+
+{
+  "timeRange": {
+    "from": 1694590000000,
+    "to": 1694591900000
+  },
+  "query": "",
+  "limit": 50,
+  "page": 1
+}
+###
+
+POST http://{{CDT_UI_SERVICE_URL}}/cdt/v2/heaps
+Content-Type: application/json
+
+{
+  "timeRange": {
+    "from": 1693900000000,
+    "to":   1694592910000
+  },
+  "query": "",
+  "services": [
+    {
+      "namespace": "profiler",
+      "service": "TestLoadService-0"
+    }
+  ]
+}
+
+###
+GET http://{{CDT_UI_SERVICE_URL}}/cdt/v2/dumps/TestLoadPod-f01-abc7v-0_1694591376573/td/0/download
+
+
+###
+GET http://{{CDT_UI_SERVICE_URL}}/cdt/v2/dumps/TestLoadPod-f01-abc7v-0_1694591376573/top/download?timeFrom=1694591870000&timeTo=1694591880000
+
+###
+#GET http://{{CDT_UI_SERVICE_URL}}/cdt/v2/dumps/TestLoadPod-f01-abc7v-0_1694591376573/td/download?timeFrom=1694591879999&timeTo=1694591880001
+
+###
+# GET http://{{CDT_UI_SERVICE_URL}}/cdt/v2/dumps/TestLoadPod03-f0050990bd-abc7v-2_1694424590393/top/download?timeFrom=1693900000000&timeTo=1694429999999
+###
+# GET http://{{CDT_UI_SERVICE_URL}}/cdt/v2/dumps/TestLoadPod03-f0050990bd-abc7v-2_1694424590393/td/download?timeFrom=1694424240000&timeTo=1694424240000
+
+###
+
+POST http://{{CDT_UI_SERVICE_URL}}/cdt/v2/calls/load
+Content-Type: application/json
+
+{
+  "parameters": {
+    "windowId": "1694591982523"
+  },
+  "filters": {
+    "timeRange": {
+      "from": 1694593814000,
+      "to": 1694595254000
+    },
+    "duration": {
+      "from": 10,
+      "to": 30879000
+    },
+    "query": "",
+    "services": [
+      {
+        "namespace": "profiler",
+        "service": "TestLoadService-0"
+      },{
+        "namespace": "profiler",
+        "service": "TestLoadService-1"
+      },{
+        "namespace": "profiler",
+        "service": "TestLoadService-2"
+      }
+    ]
+  },
+  "view": {
+    "limit": 100,
+    "page": 1,
+    "sortColumn": "ts",
+    "sortOrder": true
+  }
+}

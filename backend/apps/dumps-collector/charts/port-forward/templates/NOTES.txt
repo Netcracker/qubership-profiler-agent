@@ -1,0 +1,27 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Port-Forward Management
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This chart manages kubectl port-forward processes via helmfile hooks.
+
+ℹ️  Port-forwards are running in the background with PID files in /tmp/
+
+Active Port-Forwards:
+  🔹 localhost:8080 → dumps-collector HTTP/WebDAV
+  🔹 localhost:8000 → dumps-collector API
+  🔹 localhost:5432 → PostgreSQL
+
+To check if port-forwards are running:
+  ps aux | grep "port-forward"
+
+To view port-forward logs:
+  tail -f /tmp/pf-*.log
+
+To stop port-forwards:
+  helmfile -l type=port-forward destroy
+
+To restart port-forwards:
+  helmfile -l type=port-forward destroy
+  helmfile -l type=port-forward sync
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

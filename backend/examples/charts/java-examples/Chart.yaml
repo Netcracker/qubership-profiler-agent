@@ -1,0 +1,52 @@
+apiVersion: v2
+name: profiler-java-examples
+description: A Helm chart for profiler-java-examples
+
+# A chart can be either an 'application' or a 'library' chart.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+version: 0.0.1
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application.
+appVersion: 0.0.1
+
+dependencies:
+  - name: quarkus_2_vertx
+    condition: quarkus_2_vertx.install
+    version: 0.0.1
+    repository: "file://charts/quarkus-2-vertx"
+  - name: quarkus_3_vertx
+    condition: quarkus_3_vertx.install
+    version: 0.0.1
+    repository: "file://charts/quarkus-3-vertx"
+  - name: quarkus_3_vertx_resteasy
+    condition: quarkus_3_vertx_resteasy.install
+    version: 0.0.1
+    repository: "file://charts/quarkus-3-vertx-resteasy"
+  - name: spring_boot_2_jetty
+    condition: spring_boot_2_jetty.install
+    version: 0.0.1
+    repository: "file://charts/spring-boot-2-jetty"
+  - name: spring_boot_2_tomcat
+    condition: spring_boot_2_tomcat.install
+    version: 0.0.1
+    repository: "file://charts/spring-boot-2-tomcat"
+  - name: spring_boot_2_undertow
+    condition: spring_boot_2_undertow.install
+    version: 0.0.1
+    repository: "file://charts/spring-boot-2-undertow"
+  - name: spring_boot_3_jetty
+    condition: spring_boot_3_jetty.install
+    version: 0.0.1
+    repository: "file://charts/spring-boot-3-jetty"
+  - name: spring_boot_3_tomcat
+    condition: spring_boot_3_tomcat.install
+    version: 0.0.1
+    repository: "file://charts/spring-boot-3-tomcat"
+  - name: spring_boot_3_undertow
+    condition: spring_boot_3_undertow.install
+    version: 0.0.1
+    repository: "file://charts/spring-boot-3-undertow"

@@ -1,0 +1,22 @@
+@startuml zip-dumps
+
+!pragma teoz true
+autonumber
+hide footbox
+
+title Dumps Collector (Zip Dumps)
+
+box "CDT Server Namespace" #F5F5F5
+    participant "dumps-collector" as dumpCollector #E1D5E7
+    database "PV" as pv #white
+end box
+
+database "PostgreSQL" as postgreSQL #white
+
+loop Every 1 hour
+    dumpCollector -> pv: Look for folders with top & thread dumps older than 2 hours
+    dumpCollector -> pv: Zip the found folders with dumps
+    dumpCollector -> postgreSQL: Update metadata
+end
+
+@enduml
