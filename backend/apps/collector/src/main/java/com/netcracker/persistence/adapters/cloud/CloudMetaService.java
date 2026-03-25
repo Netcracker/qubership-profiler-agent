@@ -25,7 +25,7 @@ import java.util.List;
  * 99%* of the time, it's a ridiculous micro-optimization that people have some vague idea makes things 'better'.
  * This completely ignores the fact that, unless you're in an extremely tight and busy loop over millions of SQL
  * results all the time, which is hopefully rare, you'll never notice it. For everyone who's not doing that,
- * the developer time cost of maintaing, updating, and fixing bugs in the column indexing are far greater
+ * the developer time cost of maintaining, updating, and fixing bugs in the column indexing are far greater
  * than the incremental cost of hardware for your infinitesimally-worse-performing application.
  * <p>
  * Don't code optimizations like this in. Code for the person maintaining it. Then observe, measure, analyse, and

@@ -317,7 +317,7 @@ These tables will be created by k8s job 3 hours in advance
 #### Calls temp table
 
 Collector has to store each call from agent for 5 minutes in Postgres tables and compactor will work with that data.
-That table contains a reference to Trace table for futher combine all call data and save it to .parquet file.
+That table contains a reference to Trace table for further combine all call data and save it to .parquet file.
 
 | Field name          | Type        | Description                                  |
 | ------------------- | ----------- | -------------------------------------------- |

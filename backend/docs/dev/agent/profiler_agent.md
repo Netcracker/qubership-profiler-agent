@@ -621,7 +621,7 @@ header=1 etime= - tagId= -
 
 ### SQL
 
-SQL represent to store the actual database (e.g. Postgres) queries which is executed during the execution of teh
+SQL represent to store the actual database (e.g. Postgres) queries which is executed during the execution of the
 function call.
 
 #### Binary Representation of Trace

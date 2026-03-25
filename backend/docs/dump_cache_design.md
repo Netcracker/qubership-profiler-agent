@@ -235,7 +235,7 @@ and then:
 ### Cleanup operation
 
 Application should know, when hour information is removed, so cleanup algorithm
-should be moved to this application. Aplication has special cron task, that
+should be moved to this application. Application has special cron task, that
 runs every day. During this task, application calculates hours, that should be
 removed and then for every hour:
 
@@ -282,7 +282,7 @@ Application should do following steps:
 4. Sum all summaries per pod for hours;
 5. Find heap dumps information from heap_dumps table for needed pods;
 
-Expected reponse: list of objects:
+Expected response: list of objects:
 
 * `namespace`;
 * `serviceName`;
@@ -402,10 +402,10 @@ Process:
 2. Calculate hour from `creation_time`;
 3. Check if hour is zipped (from `timeline` table):
     * If yes:
-      3.1. Caluclate path inside zip archive from `creation_time` and pod;
+      3.1. Calculate path inside zip archive from `creation_time` and pod;
       3.2. Open file in archive;
     * If no:
-      3.3. Caluclate path in PV from `creation_time` and pod;
+      3.3. Calculate path in PV from `creation_time` and pod;
       3.4. Open file;
 4. Return to user;
 

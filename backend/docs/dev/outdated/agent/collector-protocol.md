@@ -21,7 +21,7 @@
 ### Chunks
 
 * forbidden to send chunk with length more than `DATA_BUFFER_SIZE`
-* due to compression chunk size in DB ~`250-350` bytes (at least `80` bytes for other columsn: `podName`, `seqId`)
+* due to compression chunk size in DB ~`250-350` bytes (at least `80` bytes for other columns: `podName`, `seqId`)
 
 ```java
 int COMPRESSOR_BUFFER_SIZE = getPropertyOrEnvVariable(ENV_STREAM_CHUNK_SIZE, 3072);
