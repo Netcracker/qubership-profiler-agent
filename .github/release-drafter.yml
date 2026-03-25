@@ -5,30 +5,30 @@ categories:
   - title: "💥 Breaking Changes"
     labels:
       - breaking-change
-  # Component-scoped categories (PRs labeled with component + type)
+  # Component-scoped categories (PRs labeled with "component: X" + type)
   - title: "Agent - New Features"
     labels:
-      - agent
+      - "component: agent"
       - enhancement
   - title: "Agent - Bug Fixes"
     labels:
-      - agent
+      - "component: agent"
       - fix
-  - title: "Backend - New Features"
+  - title: "Dumps Collector - New Features"
     labels:
-      - backend
+      - "component: dumps-collector"
       - enhancement
-  - title: "Backend - Bug Fixes"
+  - title: "Dumps Collector - Bug Fixes"
     labels:
-      - backend
+      - "component: dumps-collector"
       - fix
   - title: "Diagtools - New Features"
     labels:
-      - diagtools
+      - "component: diagtools"
       - enhancement
   - title: "Diagtools - Bug Fixes"
     labels:
-      - diagtools
+      - "component: diagtools"
       - fix
   # Catch-all for PRs without component labels
   - title: "💡 New Features"
