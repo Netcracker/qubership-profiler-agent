@@ -2,7 +2,7 @@
 # yarn lockfile v1
 
 
-"@playwright/test@^1.50.0":
+"@playwright/test@1.58.2":
   version "1.58.2"
   resolved "https://registry.yarnpkg.com/@playwright/test/-/test-1.58.2.tgz#b0ad585d2e950d690ef52424967a42f40c6d2cbd"
   integrity sha512-akea+6bHYBBfA9uQqSYmlJXn61cTa+jbO87xVLCWbTqbWadRVmhxlXATaOjOgcBaWU4ePo0wB41KMFv3o35IXA==
