@@ -1,6 +1,6 @@
 services:
   profiler:
-    image: eclipse-temurin:21-jre@sha256:9d4453b48613404e1fa6e5e7eabc687ea57edfb8a1ad413956c5168f84b66af9
+    image: eclipse-temurin:21.0.10_7-jre@sha256:9d4453b48613404e1fa6e5e7eabc687ea57edfb8a1ad413956c5168f84b66af9
     ports:
       - "${PROFILER_HTTP_PORT:-18090}:8080"
     volumes:
