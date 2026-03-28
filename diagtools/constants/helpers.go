@@ -387,3 +387,18 @@ func UploadTimeout(ctx context.Context) time.Duration {
 	}
 	return d
 }
+
+// UploadRetryCount returns the maximum number of retries when sending files to the diagnostic center fails.
+// Configured via DIAGNOSTIC_UPLOAD_RETRY_COUNT. Default is 3.
+func UploadRetryCount(ctx context.Context) int {
+	env := os.Getenv(NcDiagUploadRetryCount)
+	if env == "" {
+		return 3
+	}
+	n, err := strconv.Atoi(env)
+	if err != nil || n < 0 {
+		log.Error(ctx, err, "Parsing upload retry count failed. Will use default: 3")
+		return 3
+	}
+	return n
+}
