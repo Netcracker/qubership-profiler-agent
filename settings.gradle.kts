@@ -8,7 +8,7 @@ pluginManagement {
         id("com.github.node-gradle.node") version "7.1.0"
         id("com.google.osdetector") version "1.7.3"
         kotlin("jvm") version "2.3.20"
-        kotlin("kapt") version "2.3.10"
+        kotlin("kapt") version "2.3.20"
         id("me.champeau.jmh") version "0.7.3"
     }
 }
