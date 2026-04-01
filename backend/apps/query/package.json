@@ -20,7 +20,7 @@
     ],
     "devDependencies": {
         "@marshallofsound/webpack-asset-relocator-loader": "0.5.0",
-        "@pmmmwh/react-refresh-webpack-plugin": "0.5.17",
+        "@pmmmwh/react-refresh-webpack-plugin": "0.6.2",
         "@rtk-query/codegen-openapi": "1.2.0",
         "@statoscope/webpack-plugin": "5.29.0",
         "@svgr/webpack": "7.0.0",
