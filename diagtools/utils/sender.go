@@ -16,6 +16,23 @@ import (
 )
 
 func SendMultiPart(ctx context.Context, endpoint string, files ...string) (err error) {
+	fName := fmt.Sprintf("%d files", len(files))
+	maxRetries := constants.UploadRetryCount(ctx)
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Infof(ctx, "retry sending to diagnostic center (attempt %d/%d)", attempt+1, maxRetries+1)
+		}
+		lastErr = sendMultiPartOnce(ctx, endpoint, fName, files)
+		if lastErr == nil {
+			return nil
+		}
+		log.Error(ctx, lastErr, "failed to send files to diagnostic center", "attempt", attempt+1, "maxRetries", maxRetries)
+	}
+	return lastErr
+}
+
+func sendMultiPartOnce(ctx context.Context, endpoint, fName string, files []string) (err error) {
 	pipeReader, pipeWriter := io.Pipe()
 	defer func(pipeReader *io.PipeReader) {
 		errClose := pipeReader.Close()
@@ -69,16 +86,28 @@ func SendMultiPart(ctx context.Context, endpoint string, files ...string) (err e
 	}
 	request.Header.Add("Content-Type", bodyWriter.FormDataContentType())
 
-	fName := fmt.Sprintf("%d files", len(files))
-	//fName := strings.Join(files, ";")
-	err = SendFileRequest(ctx, fName, request)
-	return
-
+	return SendFileRequest(ctx, fName, request)
 }
 
 func SendSingleFile(ctx context.Context, targetUrl, fileName string) (err error) {
 	startTime := time.Now()
+	maxRetries := constants.UploadRetryCount(ctx)
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Infof(ctx, "retry sending to diagnostic center (attempt %d/%d)", attempt+1, maxRetries+1)
+		}
+		lastErr = sendSingleFileOnce(ctx, targetUrl, fileName)
+		if lastErr == nil {
+			log.Info(ctx, fmt.Sprintf("uploaded %s", fileName), "duration", time.Since(startTime))
+			return nil
+		}
+		log.Error(ctx, lastErr, "failed to send file to diagnostic center", "file", fileName, "attempt", attempt+1, "maxRetries", maxRetries)
+	}
+	return lastErr
+}
 
+func sendSingleFileOnce(ctx context.Context, targetUrl, fileName string) (err error) {
 	pipeReader, pipeWriter := io.Pipe()
 
 	defer func(pipeReader *io.PipeReader) {
@@ -112,11 +141,7 @@ func SendSingleFile(ctx context.Context, targetUrl, fileName string) (err error)
 	}
 	request.Header.Add("Content-Type", "application/octet-stream")
 
-	err = SendFileRequest(ctx, fileName, request)
-	if err == nil {
-		log.Info(ctx, fmt.Sprintf("uploaded %s", fileName), "duration", time.Since(startTime))
-	}
-	return err
+	return SendFileRequest(ctx, fileName, request)
 }
 
 func SendFileRequest(ctx context.Context, fileName string, request *http.Request) (err error) {
