@@ -10,7 +10,7 @@ RUN xk6 build master \
     --with github.com/Netcracker/qubership-profiler-backend/apps/load-generator=/tmp/project \
     --with github.com/Netcracker/qubership-profiler-backend/apps/load-generator/go-metrics=/tmp/project/go-metrics
 
-FROM alpine:3.18.2@sha256:82d1e9d7ed48a7523bdebc18cf6290bdb97b82302a8a9c27d4fe885949ea94d1 AS release
+FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS release
 
 COPY --from=build /tmp/project/k6      /xk6/k6
 COPY              scripts              /xk6/scripts
