@@ -62,7 +62,7 @@
         "jest-environment-jsdom": "29.7.0",
         "jest-junit": "16.0.0",
         "jest-watch-typeahead": "2.2.2",
-        "less": "4.5.1",
+        "less": "4.6.4",
         "less-loader": "11.1.4",
         "lint-staged": "13.3.0",
         "mini-css-extract-plugin": "2.10.2",
