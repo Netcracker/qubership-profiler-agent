@@ -8,7 +8,7 @@
   <version>1.0.0-SNAPSHOT</version>
 
   <properties>
-    <compiler-plugin.version>3.12.1</compiler-plugin.version>
+    <compiler-plugin.version>3.15.0</compiler-plugin.version>
     <jvm.args>-Dquarkus.analytics.disabled=true -Djava.net.preferIPv4Stack=true -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=9089 -Dcom.sun.management.jmxremote.rmi.port=9089 -Djava.rmi.server.hostname=127.0.0.1 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.local.only=false</jvm.args>
 
     <maven.compiler.release>21</maven.compiler.release>
