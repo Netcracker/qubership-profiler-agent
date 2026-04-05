@@ -44,7 +44,7 @@
         "dotenv": "16.6.1",
         "echarts": "5.4.3",
         "echarts-for-react": "3.0.6",
-        "esbuild-loader": "4.4.2",
+        "esbuild-loader": "4.4.3",
         "eslint": "8.57.1",
         "eslint-config-prettier": "8.10.2",
         "eslint-import-resolver-typescript": "3.10.1",
