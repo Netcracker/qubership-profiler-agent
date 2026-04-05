@@ -17,7 +17,7 @@
 # docker run -i --rm -p 8080:8080 quarkus/micrometer-quickstart
 #
 ###
-FROM quay.io/quarkus/quarkus-micro-image:2.0@sha256:9e5cf55fb6346e94e38581bfa5741b0517b81c9c10fb4d66dfb1f1a766312174
+FROM quay.io/quarkus/quarkus-micro-image:2.0@sha256:18b52a4d8be607fc1b0770f2739716b24595661bb01d6adda0f5718f278224f5
 WORKDIR /work/
 RUN chown 1001 /work \
     && chmod "g+rwX" /work \
