@@ -1,4 +1,4 @@
-FROM grafana/xk6:1.2.5@sha256:f25a37ed80c913ce42fdba176b19d497bc1803596a1ce76b22d096f1529fcfdb as build
+FROM grafana/xk6:1.3.7@sha256:a5543f005b660458843738a1b571d490ac1ea3d2b9a58375fec8553b196ac011 as build
 COPY --chmod=0777 . /tmp/proj
 
 RUN mkdir -p /tmp/project
