@@ -13,7 +13,7 @@ version: 0.0.1
 # incremented each time you make changes to the application.
 appVersion: 1.1.0
 
-home: https://github.com/Netcracker/qubership-profiler-backend/charts/maintenance
+home: https://github.com/Netcracker/qubership-profiler-agent/
 maintainers:
   - name: NetCracker
     email: opensourcegroup@netcracker.com

@@ -13,7 +13,7 @@ version: 0.0.1
 # incremented each time you make changes to the application.
 appVersion: 1.1.0
 
-home: https://github.com/Netcracker/qubership-profiler-backend/charts/profiler-stack
+home: https://github.com/Netcracker/qubership-profiler-agent/
 maintainers:
   - name: NetCracker
     email: opensourcegroup@netcracker.com
@@ -21,19 +21,19 @@ maintainers:
 dependencies:
   - name: collector
     version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-backend/charts/collector
+    repository: https://github.com/Netcracker/qubership-profiler-agent/
   - name: compactor
     version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-backend/charts/compactor
+    repository: https://github.com/Netcracker/qubership-profiler-agent/
   - name: dumps-collector
     version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-backend/charts/dumps-collector
+    repository: https://github.com/Netcracker/qubership-profiler-agent/
   - name: maintenance
     version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-backend/charts/maintenance
+    repository: https://github.com/Netcracker/qubership-profiler-agent/
   - name: migration
     version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-backend/charts/migration
+    repository: https://github.com/Netcracker/qubership-profiler-agent/
   - name: query
     version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-backend/charts/query
+    repository: https://github.com/Netcracker/qubership-profiler-agent/
