@@ -1,4 +1,4 @@
-{{- if or .Values.cloud.dumpsStorage.name .Values.cloud.dumpsStorage.storageClassName }}
+{{- if or .Values.cloud.dumpsStorage.name (include "dumpsStorage.storageClassName" .) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -14,9 +14,9 @@ spec:
     - {{ .Values.cloud.dumpsStorage.accessMode }}
   {{- if .Values.cloud.dumpsStorage.name }}
   # Empty string must be explicitly set otherwise default storageClassName will be set
-  storageClassName: {{ .Values.cloud.dumpsStorage.storageClassName | default "" | quote}}
+  storageClassName: {{ include "dumpsStorage.storageClassName" . | default "" | quote}}
   volumeName: {{ .Values.cloud.dumpsStorage.name }}
-  {{- else if .Values.cloud.dumpsStorage.storageClassName }}
-  storageClassName: {{ .Values.cloud.dumpsStorage.storageClassName | quote}}
+  {{- else if include "dumpsStorage.storageClassName" . }}
+  storageClassName: {{ include "dumpsStorage.storageClassName" . | quote}}
   {{- end }}
 {{- end }}

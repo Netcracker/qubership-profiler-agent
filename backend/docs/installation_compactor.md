@@ -119,3 +119,10 @@ but it can be changed in deploy parameters or using resource-profiles in deploy 
 | INFRA_S3_MINIO_ENDPOINT       | MinIO S3 storage endpoint                             | string  |
 | INFRA_S3_MINIO_ACCESSKEY      | The MinIO access key                                  | string  |
 | INFRA_S3_MINIO_SECRETKEY      | The MinIO secret key                                  | string  |
+
+### Cloud integration parameters
+
+| Field                          | Description                                                                                                                                                                              | Scheme  |
+|--------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| STORAGE_RWX_CLASS              | Storage class name for the compactor output PVC. Takes precedence over `compactor.pvc.spec.storageClassName` when `global.cloudIntegrationEnabled` is `true`. Default: none              | string  |
+| global.cloudIntegrationEnabled | Enables cloud integration mode. When `true`, `STORAGE_RWX_CLASS` takes precedence over `compactor.pvc.spec.storageClassName`. Default: `false`                                           | boolean |

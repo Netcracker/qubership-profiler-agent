@@ -55,7 +55,7 @@ spec:
             {{ include "dumpsCollector.containerSecurityContext" . }}
           env:
             {{- include "dumpsCollector.envs" . | nindent 12 }}
-          {{- if or .Values.cloud.dumpsStorage.name .Values.cloud.dumpsStorage.storageClassName }}
+          {{- if or .Values.cloud.dumpsStorage.name (include "dumpsStorage.storageClassName" .) }}
           volumeMounts:
             - name: diag-pv
               mountPath: '/diag'

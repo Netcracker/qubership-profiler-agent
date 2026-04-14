@@ -1,0 +1,23 @@
+# Example: dumps-collector with cloud integration storage class (STORAGE_RWX_CLASS)
+#
+# When deploying via cloud platform (App Deployer / cloud integration),
+# set STORAGE_RWX_CLASS and global.cloudIntegrationEnabled to provision
+# the dumps PVC using the platform-managed shared storage class.
+#
+# STORAGE_RWX_CLASS takes precedence over cloud.dumpsStorage.storageClassName
+# when global.cloudIntegrationEnabled is true.
+
+STORAGE_RWX_CLASS: "nfs-storage"
+
+global:
+  cloudIntegrationEnabled: true
+
+cloud:
+  dumpsStorage:
+    # Size of the shared PVC for diagnostic dumps
+    size: 10Gi
+    # Use ReadWriteMany when multiple replicas share the same PVC
+    accessMode: ReadWriteMany
+    hoursArchiveAfter: 2
+    daysDeleteAfter: 14
+    maxHeapDumpsPerPod: 10
