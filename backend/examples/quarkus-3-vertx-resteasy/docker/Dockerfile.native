@@ -14,7 +14,7 @@
 # docker run -i --rm -p 8080:8080 quarkus/micrometer-quickstart
 #
 ###
-FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1775152441@sha256:815d4b55a154d9863c84f37298f4ebd2ae131bb244824996824138fc6c4b4b7d
+FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1776104706@sha256:cf6d4fe800e3a6b9af0eb4dccb95c33289939cae9893c4338d51c5ae326d0c3e
 WORKDIR /work/
 RUN chown 1001 /work \
     && chmod "g+rwX" /work \
