@@ -1,5 +1,5 @@
 apiVersion: v2
-name: cloud-profiler-maintenance-job
+name: maintenance
 description: A Helm chart for  cloud-profiler-maintenance-job
 
 # A chart can be either an 'application' or a 'library' chart.
