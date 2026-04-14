@@ -167,11 +167,6 @@ Image can be found from:
 Template to insert common envs
 */}}
 {{- define "agent.envs" -}}
-- name: PERSISTENCE
-  value: {{ .Values.storage }}
-- name: QUARKUS_PROFILE
-  value: {{ .Values.storage }}
-
 - name: NC_DIAGNOSTIC_MODE
   value: '{{ .Values.NC_DIAGNOSTIC_MODE }}'
 - name: NC_DIAGNOSTIC_AGENT_SERVICE
