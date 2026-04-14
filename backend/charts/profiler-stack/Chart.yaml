@@ -18,28 +18,4 @@ maintainers:
   - name: NetCracker
     email: opensourcegroup@netcracker.com
 
-dependencies:
-  - name: collector
-    version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-agent/
-    condition: collector.install
-  - name: compactor
-    version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-agent/
-    condition: compactor.install
-  - name: dumps-collector
-    version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-agent/
-    condition: dumps-collector.install
-  - name: maintenance
-    version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-agent/
-    condition: maintenance.install
-  - name: migration
-    version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-agent/
-    condition: migration.install
-  - name: query
-    version: ~0
-    repository: https://github.com/Netcracker/qubership-profiler-agent/
-    condition: query.install
+dependencies: []
