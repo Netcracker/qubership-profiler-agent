@@ -1,0 +1,14 @@
+apiVersion: v2
+name: collector
+description: A Helm chart for the cloud-profiler-collector application
+
+type: application
+
+version: 0.0.1
+
+appVersion: 1.1.0
+
+home: https://github.com/Netcracker/qubership-profiler-agent/
+maintainers:
+  - name: NetCracker
+    email: opensourcegroup@netcracker.com
