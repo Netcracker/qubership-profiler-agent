@@ -1,3 +1,23 @@
+############# Sub-chart install toggles #############
+
+collector:
+  install: true
+
+query:
+  install: true
+
+compactor:
+  install: true
+
+dumps-collector:
+  install: true
+
+maintenance:
+  install: true
+
+migration:
+  install: true
+
 ############# Infra Passport #############
 
 INFRA_S3_MINIO_ENDPOINT: ~
