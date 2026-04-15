@@ -89,7 +89,7 @@ Image can be found from:
 Dumps storage class from various places.
 */}}
 {{- define "dumpsStorage.storageClassName" -}}
-  {{- if and (ne (.Values.STORAGE_RWX_CLASS | toString) "<nil>") .Values.global.cloudIntegrationEnabled -}}
+  {{- if and .Values.STORAGE_RWX_CLASS .Values.global.cloudIntegrationEnabled -}}
     {{- .Values.STORAGE_RWX_CLASS -}}
   {{- else -}}
     {{- .Values.cloud.dumpsStorage.storageClassName -}}

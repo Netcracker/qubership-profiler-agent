@@ -50,7 +50,8 @@
 
 ### Cloud integration parameters
 
-| Field                              | Description                                                                                                                                                        | Scheme  |
-|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
-| STORAGE_RWX_CLASS                  | Shared (ReadWriteMany) storage class name for the dumps PVC. Takes precedence over `cloud.dumpsStorage.storageClassName` when `global.cloudIntegrationEnabled` is `true`. Default: none | string  |
-| global.cloudIntegrationEnabled     | Enables cloud integration mode. When `true`, `STORAGE_RWX_CLASS` takes precedence over `cloud.dumpsStorage.storageClassName`. Default: `false`                    | boolean |
+| Field                              | Description                                                                                                                                                                                                                                                                                             | Scheme  |
+|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| `STORAGE_RWX_CLASS`                | Shared (ReadWriteMany) storage class name for the dumps PVC. Takes precedence over `cloud.dumpsStorage.storageClassName` when `global.cloudIntegrationEnabled` is `true`. Default: none                                                                                                                 | string  |
+| `global.cloudIntegrationEnabled`   | The parameter specifies whether to apply global cloud parameters instead of parameters described in the service in accordance with Cloud Passport and CLoud Infra Passport. If it is set to `false` or global parameter is absent, corresponding parameter from the service is applied. Default: `true` | boolean |
+

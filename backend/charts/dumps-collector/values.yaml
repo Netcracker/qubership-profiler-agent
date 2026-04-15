@@ -5,7 +5,7 @@
 STORAGE_RWX_CLASS: ~
 
 global:
-  cloudIntegrationEnabled: false
+  cloudIntegrationEnabled: true
 
 ############# Persistence #############
 
@@ -85,6 +85,7 @@ dumpsCollector:
   ingress:
     install: true
     host: ~
+    className: ~
 
   monitoring:
     enabled: true

@@ -10,7 +10,7 @@ metadata:
     {{- toYaml .Values.compactor.pvc.annotations | nindent 4 }}
 spec:
   {{- $spec := deepCopy .Values.compactor.pvc.spec }}
-  {{- if and (ne (.Values.STORAGE_RWX_CLASS | toString) "<nil>") .Values.global.cloudIntegrationEnabled }}
+  {{- if and .Values.STORAGE_RWX_CLASS .Values.global.cloudIntegrationEnabled }}
     {{- $_ := set $spec "storageClassName" .Values.STORAGE_RWX_CLASS }}
   {{- end }}
   {{- toYaml $spec | nindent 2 }}
