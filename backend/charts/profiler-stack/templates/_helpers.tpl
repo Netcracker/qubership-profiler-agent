@@ -131,7 +131,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-collector:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
@@ -155,7 +155,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-collector:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}

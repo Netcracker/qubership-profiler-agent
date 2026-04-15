@@ -48,7 +48,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler-compactor" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler-compactor:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-compactor:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}

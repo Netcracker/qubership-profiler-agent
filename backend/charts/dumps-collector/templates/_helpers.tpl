@@ -78,7 +78,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.deployDescriptor "cloud-profiler-dumps-collector" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler-dumps-collector:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-dumps-collector:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
