@@ -167,6 +167,11 @@ Image can be found from:
 Template to insert common envs
 */}}
 {{- define "agent.envs" -}}
+- name: PERSISTENCE
+  value: {{ .Values.storage }}
+- name: QUARKUS_PROFILE
+  value: {{ .Values.storage }}
+
 - name: NC_DIAGNOSTIC_MODE
   value: '{{ .Values.NC_DIAGNOSTIC_MODE }}'
 - name: NC_DIAGNOSTIC_AGENT_SERVICE
@@ -179,10 +184,6 @@ Template to insert common envs
 Template to insert envs for Postgres+S3 (cloud) storage
 */}}
 {{- define "cloud.envs" -}}
-- name: PERSISTENCE
-  value: {{ .Values.storage }}
-- name: QUARKUS_PROFILE
-  value: {{ .Values.storage }}
 - name: POSTGRES_HOST
   {{- if .Values.cloud.postgres.host }}
   value: {{ .Values.cloud.postgres.host }}
