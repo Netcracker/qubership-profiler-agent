@@ -34,3 +34,9 @@ buildNumber.properties
 
 # Ignore folders used to build binaries for old Java
 /eclipsebin/
+
+# Helm dependency directories (generated, set up via symlinks for local dev)
+backend/charts/profiler-stack/charts/
+backend/charts/profiler-stack/templates/collector
+backend/charts/profiler-stack/templates/query
+

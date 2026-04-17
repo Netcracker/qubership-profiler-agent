@@ -1,3 +1,12 @@
+############# Cloud Integration Parameters #############
+
+# This parameter specifies the name of shared storage class to store diagnostic dumps.
+# Takes precedence over cloud.dumpsStorage.storageClassName when set.
+STORAGE_RWX_CLASS: ~
+
+global:
+  cloudIntegrationEnabled: true
+
 ############# Persistence #############
 
 cloud:
@@ -76,6 +85,7 @@ dumpsCollector:
   ingress:
     install: true
     host: ~
+    className: ~
 
   monitoring:
     enabled: true

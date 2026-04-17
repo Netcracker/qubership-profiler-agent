@@ -1,5 +1,5 @@
 apiVersion: v2
-name: cloud-profiler-migration-cleaner
+name: migration
 description: A Helm chart for cloud-profiler-migration-cleaner
 
 # A chart can be either an 'application' or a 'library' chart.
@@ -13,7 +13,7 @@ version: 0.0.1
 # incremented each time you make changes to the application.
 appVersion: 0.1.0
 
-home: https://github.com/Netcracker/qubership-profiler-backend/charts/migration
+home: https://github.com/Netcracker/qubership-profiler-agent/
 maintainers:
   - name: NetCracker
     email: opensourcegroup@netcracker.com

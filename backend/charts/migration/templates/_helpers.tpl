@@ -41,7 +41,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler-migration-cleaner" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler-migration-cleaner:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-migration:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}

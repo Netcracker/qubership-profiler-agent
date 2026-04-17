@@ -11,6 +11,9 @@ metadata:
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
   {{- end }}
 spec:
+  {{- if .Values.dumpsCollector.ingress.className }}
+  ingressClassName: {{ .Values.dumpsCollector.ingress.className }}
+  {{- end }}
   rules:
     - host: {{ include "dumpsCollector.ingress" . }}
       http:

@@ -2,6 +2,15 @@
 
 profile: small
 
+############# Cloud Integration Parameters #############
+
+# This parameter specifies the name of shared storage class for the compactor PVC.
+# Takes precedence over compactor.pvc.spec.storageClassName when set.
+STORAGE_RWX_CLASS: ~
+
+global:
+  cloudIntegrationEnabled: false
+
 ############# Infra Passport #############
 
 INFRA_S3_MINIO_ENDPOINT: ~

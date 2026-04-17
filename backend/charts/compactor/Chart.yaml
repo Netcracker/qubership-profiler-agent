@@ -1,5 +1,5 @@
 apiVersion: v2
-name: cloud-profiler-compactor
+name: compactor
 description: A Helm chart for  cloud-profiler-compactor
 
 # A chart can be either an 'application' or a 'library' chart.
@@ -13,7 +13,7 @@ version: 0.0.1
 # incremented each time you make changes to the application.
 appVersion: 1.1.0
 
-home: https://github.com/Netcracker/qubership-profiler-backend-compactor
+home: https://github.com/Netcracker/qubership-profiler-agent/
 maintainers:
   - name: NetCracker
     email: opensourcegroup@netcracker.com

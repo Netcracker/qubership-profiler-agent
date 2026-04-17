@@ -131,7 +131,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-collector:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
@@ -155,7 +155,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-collector:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
@@ -184,10 +184,6 @@ Template to insert common envs
 Template to insert envs for Postgres+S3 (cloud) storage
 */}}
 {{- define "cloud.envs" -}}
-- name: PERSISTENCE
-  value: {{ .Values.storage }}
-- name: QUARKUS_PROFILE
-  value: {{ .Values.storage }}
 - name: POSTGRES_HOST
   {{- if .Values.cloud.postgres.host }}
   value: {{ .Values.cloud.postgres.host }}

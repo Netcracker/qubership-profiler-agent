@@ -41,7 +41,7 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler-maintenance-job" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler-maintenance-job:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-maintenance:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
@@ -70,7 +70,7 @@ Image can be found from:
         {{- if .Values.deployDescriptor -}}
           {{- printf "%s" (index .Values.global.deployDescriptor "cloud-profiler-maintenance-job" "image") -}}
         {{- else -}}
-          {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler-maintenance-job:master_latest" -}}
+          {{- print "ghcr.io/netcracker/qubership-profiler-maintenance:latest" -}}
         {{- end -}}
       {{- end -}}
     {{- end -}}

@@ -78,12 +78,23 @@ Image can be found from:
       {{- if .Values.deployDescriptor -}}
         {{- printf "%s" (index .Values.deployDescriptor "cloud-profiler-dumps-collector" "image") -}}
       {{- else -}}
-        {{- print "product/prod.platform.cloud.infra_profiler_cdt-cloud-profiler-dumps-collector:master_latest" -}}
+        {{- print "ghcr.io/netcracker/qubership-profiler-dumps-collector:latest" -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
 {{- end -}}
 
+
+{{/*
+Dumps storage class from various places.
+*/}}
+{{- define "dumpsStorage.storageClassName" -}}
+  {{- if and .Values.STORAGE_RWX_CLASS .Values.global.cloudIntegrationEnabled -}}
+    {{- .Values.STORAGE_RWX_CLASS -}}
+  {{- else -}}
+    {{- .Values.cloud.dumpsStorage.storageClassName -}}
+  {{- end -}}
+{{- end -}}
 
 {{/*
 Template to insert envs for ENVs for selected storage
@@ -103,7 +114,7 @@ Template to insert envs for ENVs for selected storage
 - name: TLS_CERT_DIR
   value: /tmp/cert/cloud-profiler-tls
 {{- end }}
-{{- if or .Values.cloud.dumpsStorage.name .Values.cloud.dumpsStorage.storageClassName .Values.cloud.dumpsStorage.emptydir }}
+{{- if or .Values.cloud.dumpsStorage.name (include "dumpsStorage.storageClassName" .) .Values.cloud.dumpsStorage.emptydir }}
 - name: DIAG_PV_MOUNT_PATH
   value: '/diag'
 - name: DIAG_PV_HOURS_ARCHIVE_AFTER

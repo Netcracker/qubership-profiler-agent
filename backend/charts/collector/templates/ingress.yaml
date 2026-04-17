@@ -7,7 +7,7 @@ metadata:
     {{- include "common.namedLabels" .Values.collector | nindent 4 }}
     {{- include "common.commonLabels" . | nindent 4 }}
 spec:
-  {{- if .Values.collector.ingress.className -}}
+  {{- if .Values.collector.ingress.className }}
   ingressClassName: {{ .Values.collector.ingress.className }}
   {{- end }}
   rules:
