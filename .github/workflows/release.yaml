@@ -108,6 +108,28 @@ jobs:
           java-version: 21
           server-id: central
 
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: diagtools/go.mod
+          # Disable Go build cache in the release workflow to avoid a
+          # cache-poisoning vector (zizmor cache-poisoning): cached Go
+          # modules/build outputs could influence the binaries shipped
+          # by release-drafter below.
+          cache: false
+
+      - name: Setup Zig
+        # Zig is used as the cgo C compiler for cross-compiling diagtools
+        # (linux/amd64, linux/arm64, windows/amd64) — see diagtools/Makefile.
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+          # Disable the zig-cache in the release workflow for the same
+          # cache-poisoning reason as actions/setup-go above — cached
+          # lazy-built musl/compiler-rt artifacts could influence the
+          # binaries shipped by release-drafter.
+          use-cache: false
+
       # Publish to Central before generating a tag, so we don't need to drop the tag if
       # Central deployment fails.
       - name: Publish to Central Portal

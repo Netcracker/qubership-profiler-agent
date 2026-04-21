@@ -1,88 +1,109 @@
 # Makefile for diagtool Go application
+#
+# Cross-compilation is performed via zig cc (https://ziglang.org) — it bundles
+# clang + libc headers + linker for all supported targets, so there is no need
+# for Docker or platform-specific gcc/mingw toolchains.
 
 # Variables
 BINARY_NAME=diagtools
 BUILD_DIR=build
 
+# Zig cross-compiler (used as CC/CXX when cross-compiling cgo code)
+ZIG ?= zig
+
+# Strip Go symbol table (-s) and DWARF (-w) from release artifacts.
+# On Linux/Windows via zig this is critical: zig ships musl/compiler-rt
+# with DWARF by default, which would bloat the binary by ~8 MiB. On
+# darwin the effect is smaller (~1-2 MiB) but kept for consistency.
+# Go panics/stack traces rely on .gopclntab, not DWARF, so stripping
+# costs nothing in practice. Omitted from the plain `build` target so
+# local dev builds remain debuggable with delve.
+STRIP_LDFLAGS := -s -w
+
+# Static linkage via external linker — produces a self-contained binary
+# that does not require a matching libc on the target system.
+STATIC_LDFLAGS := -ldflags '$(STRIP_LDFLAGS) -linkmode external -extldflags "-static"'
+
 # Default target
 .PHONY: all
 all: fmt vet build
 
-# Build the application
-.PHONY: fmt build
+# Build the application for the current platform (native toolchain)
+.PHONY: build
 build:
-	@echo "Building $(BINARY_NAME)..."
+	@echo "Building $(BINARY_NAME) for current platform..."
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 go build -o $(BUILD_DIR)/$(BINARY_NAME) .
 
-# Build for multiple platforms (Linux, Windows, macOS)
-.PHONY: build-all
-build-all:
-	@echo "Building $(BINARY_NAME) for all platforms..."
+# Cross-compile using `zig cc` as the C compiler.
+# Args: $(1)=GOOS, $(2)=GOARCH, $(3)=zig target triple, $(4)=binary suffix (e.g. .exe)
+define build_zig
+	@echo "Building $(1)/$(2) via zig cc (target: $(3))..."
 	@mkdir -p $(BUILD_DIR)
-	@# Build Linux binaries using Docker (amd64 and arm64)
-	$(call build_platform,amd64,linux)
-	$(call build_platform,arm64,linux)
-	@# Build Windows binary using Docker (amd64)
-	$(call build_platform,amd64,windows)
-	@# Build macOS binaries only on macOS (requires CGO and native toolchain)
+	CGO_ENABLED=1 GOOS=$(1) GOARCH=$(2) \
+	  CC="$(ZIG) cc -target $(3)" \
+	  CXX="$(ZIG) c++ -target $(3)" \
+	  go build $(STATIC_LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-$(1)-$(2)$(4) .
+endef
+
+# Verify that the zig toolchain is available before attempting a cross build.
+# Without this the failure surfaces deep inside cgo as a confusing
+# "exec: <ZIG> cc: executable file not found" from the Go driver.
+.PHONY: check-zig
+check-zig:
+	@command -v $(ZIG) >/dev/null 2>&1 || { \
+	  echo "ERROR: '$(ZIG)' not found in PATH."; \
+	  echo "Install zig from https://ziglang.org/download/ (tested with 0.15.x),"; \
+	  echo "or point make at an existing binary:  make ZIG=/path/to/zig <target>"; \
+	  exit 1; }
+
+# Linux and Windows targets via zig (work from any host: macOS / Linux / Windows)
+.PHONY: build-linux-amd64
+build-linux-amd64: check-zig
+	$(call build_zig,linux,amd64,x86_64-linux-musl,)
+
+.PHONY: build-linux-arm64
+build-linux-arm64: check-zig
+	$(call build_zig,linux,arm64,aarch64-linux-musl,)
+
+.PHONY: build-windows-amd64
+build-windows-amd64: check-zig
+	$(call build_zig,windows,amd64,x86_64-windows-gnu,.exe)
+
+# Darwin targets — native toolchain (only valid on macOS host).
+# Cross-compiling to darwin from Linux/Windows would require Apple SDK.
+.PHONY: build-darwin-amd64
+build-darwin-amd64:
+	@echo "Building darwin/amd64 (native)..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
+	  go build -ldflags '$(STRIP_LDFLAGS)' -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
+
+.PHONY: build-darwin-arm64
+build-darwin-arm64:
+	@echo "Building darwin/arm64 (native)..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+	  go build -ldflags '$(STRIP_LDFLAGS)' -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
+
+# Cross-platform builds that work from any host
+.PHONY: build-cross
+build-cross: build-linux-amd64 build-linux-arm64 build-windows-amd64
+
+# Build for every platform the host can produce.
+# On macOS adds darwin-amd64/arm64 (native); on other hosts darwin is skipped.
+.PHONY: build-all
+build-all: build-cross
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
-		echo "Building darwin-amd64 binary..."; \
-		CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .; \
-		echo "Building darwin-arm64 binary..."; \
-		CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .; \
+	  $(MAKE) build-darwin-amd64 build-darwin-arm64; \
 	else \
-		echo "Skipping darwin builds (not running on macOS)"; \
+	  echo "Skipping darwin builds (host is not macOS)"; \
 	fi
 	@echo "All platform binaries built successfully:"
 	@ls -lh $(BUILD_DIR)/$(BINARY_NAME)-*
 
-# Internal helper to build for a specific platform using BuildKit
-# Args: $(1)=arch, $(2)=os (default: linux)
-define build_platform
-	@echo "Building $(2)-$(1) binary..."
-	@DOCKER_BUILDKIT=1 docker buildx build \
-		--platform $(2)/$(1) \
-		--target export \
-		--build-arg TARGETOS=$(2) \
-		--build-arg TARGETARCH=$(1) \
-		--output type=local,dest=$(BUILD_DIR)/tmp-$(2)-$(1) \
-		--load=false \
-		-f Dockerfile .
-	@if [ "$(2)" = "windows" ]; then \
-		mv $(BUILD_DIR)/tmp-$(2)-$(1)/out/diagtools.exe $(BUILD_DIR)/$(BINARY_NAME)-$(2)-$(1).exe; \
-	else \
-		mv $(BUILD_DIR)/tmp-$(2)-$(1)/out/diagtools $(BUILD_DIR)/$(BINARY_NAME)-$(2)-$(1); \
-	fi
-	@rm -rf $(BUILD_DIR)/tmp-$(2)-$(1)
-endef
-
-# Build Linux binaries using Docker with musl (works from any platform)
-.PHONY: build-linux-docker
-build-linux-docker:
-	@echo "Building $(BINARY_NAME) for Linux (amd64/arm64) with musl using Docker..."
-	@mkdir -p $(BUILD_DIR)
-	$(call build_platform,amd64,linux)
-	$(call build_platform,arm64,linux)
-	@echo "Linux binaries built successfully with musl (static linking)"
-
-# Build only Linux amd64 using Docker with musl (faster for development)
-.PHONY: build-linux-amd64-docker
-build-linux-amd64-docker:
-	@echo "Building $(BINARY_NAME) for Linux amd64 with musl using Docker..."
-	@mkdir -p $(BUILD_DIR)
-	$(call build_platform,amd64,linux)
-	@echo "Linux amd64 binary built successfully with musl (static linking)"
-
-# Build Windows amd64 binary using Docker (cross-compilation with MinGW)
-.PHONY: build-windows-docker
-build-windows-docker:
-	@echo "Building $(BINARY_NAME) for Windows amd64 using Docker..."
-	@mkdir -p $(BUILD_DIR)
-	$(call build_platform,amd64,windows)
-	@echo "Windows amd64 binary built successfully (static linking)"
-
-# Build for specific architecture (usage: make build-arch GOOS=linux GOARCH=amd64)
+# Build for specific architecture using the native toolchain
+# (usage: make build-arch GOOS=linux GOARCH=amd64)
 .PHONY: build-arch
 build-arch:
 	@echo "Building $(BINARY_NAME) for $(GOOS)/$(GOARCH)..."
@@ -90,8 +111,8 @@ build-arch:
 	@if [ -z "$(GOOS)" ] || [ -z "$(GOARCH)" ]; then \
 		echo "Error: GOOS and GOARCH must be specified"; \
 		echo "Usage: make build-arch GOOS=linux GOARCH=amd64"; \
-		echo "Available GOOS: linux, windows, darwin, freebsd, openbsd, netbsd, plan9, solaris"; \
-		echo "Available GOARCH: amd64, 386, arm, arm64, mips, mips64, mips64le, mipsle, ppc64, ppc64le, s390x, wasm"; \
+		echo "For cross-compilation prefer dedicated zig-based targets"; \
+		echo "  build-linux-amd64 / build-linux-arm64 / build-windows-amd64"; \
 		exit 1; \
 	fi
 	@if [ "$(GOOS)" = "windows" ]; then \
@@ -160,16 +181,22 @@ run: build
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  build                       - Build the application for current platform"
-	@echo "  build-all                   - Build for all platforms (Linux, Windows, macOS)"
+	@echo "  build                       - Build for current platform (native toolchain)"
+	@echo "  build-all                   - Build every platform supported by the host"
+	@echo "                                (Linux/Windows always, darwin only on macOS hosts)"
+	@echo "  build-cross                 - Linux (amd64/arm64) + Windows amd64 via zig cc"
 	@echo ""
-	@echo "Docker builds (BuildKit with static linking):"
-	@echo "  build-linux-docker          - Build for Linux (amd64 & arm64) with musl (static)"
-	@echo "  build-linux-amd64-docker    - Build for Linux amd64 with musl (static, faster)"
-	@echo "  build-windows-docker        - Build for Windows amd64 with MinGW (static)"
+	@echo "Per-platform cross builds (zig cc, no Docker required):"
+	@echo "  build-linux-amd64           - Linux amd64 (static, musl)"
+	@echo "  build-linux-arm64           - Linux arm64 (static, musl)"
+	@echo "  build-windows-amd64         - Windows amd64 (static, MinGW ABI)"
+	@echo ""
+	@echo "Native builds:"
+	@echo "  build-darwin-amd64          - macOS amd64 (requires macOS host)"
+	@echo "  build-darwin-arm64          - macOS arm64 (requires macOS host)"
 	@echo ""
 	@echo "Other targets:"
-	@echo "  build-arch                  - Build for specific architecture (GOOS=linux GOARCH=amd64)"
+	@echo "  build-arch                  - Build for specific GOOS/GOARCH using native CC"
 	@echo "  clean                       - Clean build artifacts"
 	@echo "  test                        - Run tests"
 	@echo "  test-coverage               - Run tests with coverage report"
@@ -180,3 +207,6 @@ help:
 	@echo "  install                     - Install the binary to /usr/local/bin"
 	@echo "  run                         - Build and run the application with --help"
 	@echo "  help                        - Show this help message"
+	@echo ""
+	@echo "Variables:"
+	@echo "  ZIG=<path>                  - Path to zig executable (default: 'zig' from PATH)"
