@@ -47,6 +47,12 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version-file: diagtools/go.mod
+      - name: Setup Zig
+        # Zig is used as the cgo C compiler for cross-compiling diagtools
+        # (linux/amd64, linux/arm64, windows/amd64) — see diagtools/Makefile.
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
       - name: Test
         uses: burrunan/gradle-cache-action@663fbad34e03c8f12b27f4999ac46e3d90f87eca # v3.0.1
         with:

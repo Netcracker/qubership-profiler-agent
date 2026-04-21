@@ -41,6 +41,21 @@ Supported features:
     The first parameter is a path to zookeeper property file.
     The second and further ones are the zookeeper properties which are to be changed.
 
+Building from source:
+
+- Requires Go (see `go.mod` for the minimum version).
+- Cross-compilation of Linux/Windows binaries (`make build-linux-amd64`,
+  `make build-linux-arm64`, `make build-windows-amd64`, `make build-cross`)
+  uses [`zig cc`](https://ziglang.org/download/) as the C toolchain, so
+  `zig` must be available in `PATH` (tested with 0.15.x). The Makefile
+  fails early with a clear hint if it is not; override with
+  `make ZIG=/path/to/zig <target>` when needed.
+- Native `make build` and darwin targets (`build-darwin-amd64`,
+  `build-darwin-arm64`) use the host toolchain and do not require zig;
+  darwin builds additionally require a macOS host.
+- `make build-all` builds every platform the host can produce (darwin
+  is skipped automatically on non-macOS hosts).
+
 Environment variables used by tool:
 
 - NC_DIAGNOSTIC_FOLDER path - to diagnostic folder. Default is `/tmp/diagnostic`.
