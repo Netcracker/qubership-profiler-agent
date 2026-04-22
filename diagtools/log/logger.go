@@ -128,6 +128,14 @@ func Error(ctx context.Context, err error, msg string, args ...any) {
 	Log(ctx).ErrorContext(ctx, msg, args...)
 }
 
+func Warnf(ctx context.Context, msg string, args ...any) {
+	Log(ctx).WarnContext(ctx, fmt.Sprintf(msg, args...))
+}
+
+func Warn(ctx context.Context, msg string, args ...any) {
+	Log(ctx).WarnContext(ctx, msg, args...)
+}
+
 func IsInfoEnabled(ctx context.Context) bool {
 	return logger.Enabled(ctx, slog.LevelInfo)
 }

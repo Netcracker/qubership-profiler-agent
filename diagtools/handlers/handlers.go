@@ -102,12 +102,25 @@ func HandleScanCmd(ctx context.Context, args []string) (err error) {
 
 // createAndZipScan finds dump files and compresses any raw .hprof into .zip.
 // The returned action has FilesToSend populated but nothing uploaded yet.
+//
+// Before scanning, enforces retention on the same patterns (max age and
+// combined-size quota) so that crash artifacts the collector never accepted
+// don't pile up forever on disk — see DIAGNOSTIC_UPLOAD_MAX_AGE and
+// DIAGNOSTIC_PENDING_MAX_BYTES. Applies to every scan path, including
+// ad-hoc `diagtools scan *.hprof* ./core* ./hs_err*` and the scheduled scan.
 func createAndZipScan(ctx context.Context, args []string) (action actions2.ScanAction, err error) {
 	if len(args) == 0 {
 		err = fmt.Errorf("no scan patterns")
 		log.Error(ctx, err, "there are no file patterns as arguments")
 		return
 	}
+
+	actions2.CleanupStaleDumps(
+		ctx,
+		args,
+		constants.UploadMaxAge(ctx),
+		constants.PendingMaxBytes(ctx),
+	)
 
 	action, err = actions2.CreateScanAction(ctx)
 	if err != nil {

@@ -20,6 +20,63 @@ func init() {
 	isTest = true
 }
 
+func TestParseByteSize(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int64
+	}{
+		{"0", 0},
+		{"1024", 1024},
+		{"10K", 10 * 1000},
+		{"10k", 10 * 1000},
+		{"10Ki", 10 * 1024},
+		{"10KiB", 10 * 1024},
+		{"5M", 5 * 1000 * 1000},
+		{"5Mi", 5 * 1024 * 1024},
+		{"10G", 10 * 1000 * 1000 * 1000},
+		{"10Gi", 10 * 1024 * 1024 * 1024},
+		{"1T", 1000 * 1000 * 1000 * 1000},
+		{"  2Gi  ", 2 * 1024 * 1024 * 1024},
+	}
+	for _, c := range cases {
+		got, err := parseByteSize(c.in)
+		assert.NoError(t, err, c.in)
+		assert.Equal(t, c.want, got, c.in)
+	}
+}
+
+func TestParseByteSize_Invalid(t *testing.T) {
+	for _, s := range []string{"", "abc", "10XY", "-5G", "1.5G"} {
+		_, err := parseByteSize(s)
+		assert.Error(t, err, s)
+	}
+}
+
+func TestUploadMaxAge(t *testing.T) {
+	t.Setenv(DiagnosticUploadMaxAge, "")
+	assert.Equal(t, DefaultDiagnosticUploadMaxAge, UploadMaxAge(testCtx))
+
+	t.Setenv(DiagnosticUploadMaxAge, "72h")
+	assert.Equal(t, 72*time.Hour, UploadMaxAge(testCtx))
+
+	t.Setenv(DiagnosticUploadMaxAge, "not-a-duration")
+	assert.Equal(t, DefaultDiagnosticUploadMaxAge, UploadMaxAge(testCtx))
+}
+
+func TestPendingMaxBytes(t *testing.T) {
+	t.Setenv(DiagnosticPendingMaxBytes, "")
+	assert.Equal(t, DefaultDiagnosticPendingMaxBytes, PendingMaxBytes(testCtx))
+
+	t.Setenv(DiagnosticPendingMaxBytes, "5G")
+	assert.Equal(t, int64(5*1000*1000*1000), PendingMaxBytes(testCtx))
+
+	t.Setenv(DiagnosticPendingMaxBytes, "5Gi")
+	assert.Equal(t, int64(5*1024*1024*1024), PendingMaxBytes(testCtx))
+
+	t.Setenv(DiagnosticPendingMaxBytes, "garbage")
+	assert.Equal(t, DefaultDiagnosticPendingMaxBytes, PendingMaxBytes(testCtx))
+}
+
 func saveFile(property string, val []byte) error {
 	if val == nil {
 		return nil
