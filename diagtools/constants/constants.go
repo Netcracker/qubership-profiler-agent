@@ -1,6 +1,9 @@
 package constants
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"time"
+)
 
 // datetime formats
 const (
@@ -15,6 +18,9 @@ const (
 	DefaultNumberOfLogFileBackups  = 5
 	DefaultNcDiagDumpInterval      = "1m"
 	DefaultNcDiagScanInterval      = "1m"
+
+	DefaultDiagnosticUploadMaxAge    = 48 * time.Hour
+	DefaultDiagnosticPendingMaxBytes = int64(10 * 1024 * 1024 * 1024) // 10 GiB
 )
 
 // default external services

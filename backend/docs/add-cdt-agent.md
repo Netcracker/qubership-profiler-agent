@@ -200,6 +200,8 @@ Environment variables that allow you to configure the behavior of bash scripts:
 | NC_DIAGNOSTIC_LOGS_FOLDER        | /tmp/diagnostic     | no        | Allow to specify directory which will use to save                                                                                  |
 | CDT_LOG_LEVEL                    | `WARN`              | no        | Allow to specify log level for cdt-agent (`DEBUG`, `INFO`, `WARN` (default), `ERROR`, `OFF`) and for bash scripts (no log / debug) |
 | DIAGNOSTIC_DUMP_INTERVAL         | 60                  | no        | Allow to specify interval which will use to make thread dump and collect TOP                                                       |
+| DIAGNOSTIC_UPLOAD_MAX_AGE        | 48h                 | no        | Pending heap dump / core / hs_err files (`*.hprof*` in `NC_DIAGNOSTIC_LOGS_FOLDER`) older than this are deleted on each scan tick. Accepts Go duration syntax (e.g. `48h`, `30m`). |
+| DIAGNOSTIC_PENDING_MAX_BYTES     | 10Gi                | no        | Safety net against disk buildup: if combined size of pending `*.hprof*` exceeds this, oldest files are deleted (by mtime) until total is at or below the limit, always keeping at least the newest file. Accepts K/M/G/T (×1000) or Ki/Mi/Gi/Ti (×1024) suffixes; bare integer = bytes. |
 <!-- markdownlint-enable line-length -->
 
 Environment variables that can be used to configure the CDT agent when the cloud core image is not

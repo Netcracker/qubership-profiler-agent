@@ -29,6 +29,13 @@ const (
 	NcDiagDumpInterval      = "DIAGNOSTIC_DUMP_INTERVAL"
 	NcDiagScanInterval      = "DIAGNOSTIC_SCAN_INTERVAL"
 	NcDiagUploadTimeout     = "DIAGNOSTIC_UPLOAD_TIMEOUT" // HTTP client timeout for sending dump files (default 5m)
+	// DiagnosticUploadMaxAge deletes any pending *.hprof* file with mtime older than this
+	// from NC_DIAGNOSTIC_LOGS_FOLDER on every scan tick. Accepts Go duration syntax (e.g. "48h").
+	DiagnosticUploadMaxAge = "DIAGNOSTIC_UPLOAD_MAX_AGE"
+	// DiagnosticPendingMaxBytes caps combined size of pending *.hprof* in NC_DIAGNOSTIC_LOGS_FOLDER.
+	// When exceeded, oldest files are deleted (by mtime) until total is at or below the limit,
+	// keeping at least the newest file. Accepts K/M/G/T (×1000) and Ki/Mi/Gi/Ti (×1024) suffixes.
+	DiagnosticPendingMaxBytes = "DIAGNOSTIC_PENDING_MAX_BYTES"
 	NcProfilerFolder        = "PROFILER_FOLDER"
 	ZipCompressionLevel     = "NC_HEAP_DUMP_COMPRESSION_LEVEL"
 	NcCloudNamespace        = "CLOUD_NAMESPACE"

@@ -387,3 +387,79 @@ func UploadTimeout(ctx context.Context) time.Duration {
 	}
 	return d
 }
+
+// UploadMaxAge returns how long a pending dump file is allowed to sit on disk
+// before the scheduled cleanup removes it. Configured via DIAGNOSTIC_UPLOAD_MAX_AGE
+// using Go duration syntax (e.g. "48h", "30m"). Default is 48 hours.
+func UploadMaxAge(ctx context.Context) time.Duration {
+	env := os.Getenv(DiagnosticUploadMaxAge)
+	if env == "" {
+		return DefaultDiagnosticUploadMaxAge
+	}
+	d, err := parseDurationOrSeconds(env)
+	if err != nil {
+		log.Errorf(ctx, err, "Parsing %s=%q failed. Will use default: %s",
+			DiagnosticUploadMaxAge, env, DefaultDiagnosticUploadMaxAge)
+		return DefaultDiagnosticUploadMaxAge
+	}
+	return d
+}
+
+// PendingMaxBytes returns the cap on combined size of pending dump files.
+// Configured via DIAGNOSTIC_PENDING_MAX_BYTES; accepts SI suffixes K/M/G/T (×1000)
+// and binary suffixes Ki/Mi/Gi/Ti (×1024). A bare integer is interpreted as bytes.
+// Default is 10 GiB.
+func PendingMaxBytes(ctx context.Context) int64 {
+	env := os.Getenv(DiagnosticPendingMaxBytes)
+	if env == "" {
+		return DefaultDiagnosticPendingMaxBytes
+	}
+	n, err := parseByteSize(env)
+	if err != nil {
+		log.Errorf(ctx, err, "Parsing %s=%q failed. Will use default: %d bytes",
+			DiagnosticPendingMaxBytes, env, DefaultDiagnosticPendingMaxBytes)
+		return DefaultDiagnosticPendingMaxBytes
+	}
+	return n
+}
+
+var byteSizeRE = regexp.MustCompile(`^\s*([0-9]+)\s*([KkMmGgTt][Ii]?[Bb]?)?\s*$`)
+
+func parseByteSize(s string) (int64, error) {
+	m := byteSizeRE.FindStringSubmatch(s)
+	if m == nil {
+		return 0, fmt.Errorf("invalid byte size: %q", s)
+	}
+	n, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid byte size number in %q: %w", s, err)
+	}
+	suffix := strings.TrimSuffix(strings.ToUpper(m[2]), "B")
+	var mult int64
+	switch suffix {
+	case "":
+		mult = 1
+	case "K":
+		mult = 1000
+	case "M":
+		mult = 1000 * 1000
+	case "G":
+		mult = 1000 * 1000 * 1000
+	case "T":
+		mult = 1000 * 1000 * 1000 * 1000
+	case "KI":
+		mult = 1024
+	case "MI":
+		mult = 1024 * 1024
+	case "GI":
+		mult = 1024 * 1024 * 1024
+	case "TI":
+		mult = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unsupported byte size suffix in %q", s)
+	}
+	if n > 0 && mult > 0 && n > (1<<62)/mult {
+		return 0, fmt.Errorf("byte size overflow: %q", s)
+	}
+	return n * mult, nil
+}
