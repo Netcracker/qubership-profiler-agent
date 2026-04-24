@@ -42,7 +42,7 @@
     * can download one dump (by link)
     * can delete the selected dump too
   * Call Tree
-    * can see дерево показывается (direct + reverse - hotspot)
+    * can see the tree is shown (direct + reverse - hotspot)
     * TBD: no Gantt / database tabs (no data in CDT)
     * TBD: Download page as single page archive
     * TBD: Can open merged tree for several selected calls

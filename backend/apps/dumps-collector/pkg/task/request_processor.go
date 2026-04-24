@@ -168,7 +168,7 @@ func (p *RequestProcessor) TdTopDumpDownloadFiles(ctx context.Context, dateFrom 
 	if podName != "" {
 		internalFilters = append(internalFilters, model.NewPodFilterComparator("pod_name", model.ComparatorEqual, podName))
 	}
-	podFilter := model.NewPodFilterСondition(model.OperationAnd, internalFilters...)
+	podFilter := model.NewPodFilterCondition(model.OperationAnd, internalFilters...)
 
 	pods, err := p.dbClient.SearchPods(ctx, podFilter)
 	if err != nil {

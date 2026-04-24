@@ -197,7 +197,7 @@ func TestPodFilter(t *testing.T) {
 		err := json.Unmarshal([]byte(podFilterJson), podFilter)
 		require.NoError(t, err)
 
-		ns0PodFilter := toContainer(NewPodFilterСondition(
+		ns0PodFilter := toContainer(NewPodFilterCondition(
 			OperationAnd,
 			NewPodFilterComparator("service_name", ComparatorEqual, "esc-collector-service"),
 			NewPodFilterComparator("namespace", ComparatorEqual, "profiler"),

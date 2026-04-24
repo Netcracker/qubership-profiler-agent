@@ -53,8 +53,8 @@ END $$;
 CREATE TABLE IF NOT EXISTS temp_table_inventory
 (
     uuid             text,
-    start_time       timestamptz, -- (start of the time range) time range for which it contains data 
-    end_time         timestamptz, -- (end of the time range) time range for which it contains data 
+    start_time       timestamptz, -- (start of the time range) time range for which it contains data
+    end_time         timestamptz, -- (end of the time range) time range for which it contains data
     status           table_status,
     table_type       table_type,
     table_name       text,        -- full table name to use
@@ -71,8 +71,8 @@ CREATE INDEX IF NOT EXISTS temps_time_idx ON temp_table_inventory (status, start
 CREATE TABLE IF NOT EXISTS s3_files
 (
     uuid                text,
-    start_time          timestamptz, -- (start of the time range) time range for which it contains data 
-    end_time            timestamptz, -- (end of the time range) time range for which it contains data 
+    start_time          timestamptz, -- (start of the time range) time range for which it contains data
+    end_time            timestamptz, -- (end of the time range) time range for which it contains data
     file_type           file_type,
     dump_type           text,        -- only for dumps (java: top, td, ... | go: cpu, allocs, ...)
     namespace           text,
@@ -123,10 +123,10 @@ CREATE TABLE IF NOT EXISTS pod_restarts
     PRIMARY KEY (namespace, service_name, pod_name, restart_time)
     -- PRIMARY KEY (pod_id)
 );
-CREATE INDEX IF NOT EXISTS pod_restarts_id_idx ON pod_restarts (pod_id); -- TODO create unique index, read about it 
+CREATE INDEX IF NOT EXISTS pod_restarts_id_idx ON pod_restarts (pod_id); -- TODO create unique index, read about it
 CREATE INDEX IF NOT EXISTS pod_restarts_ns_idx ON pod_restarts (namespace, service_name);
 
--- TODO сделать index по pod_name + restart_time
+-- TODO create index for pod_name + restart_time
 CREATE TABLE IF NOT EXISTS dictionary
 (
     pod_id       text,
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS dictionary
     PRIMARY KEY (pod_name, restart_time, position)
 );
 
--- TODO сделать index по pod_name + restart_time
+-- TODO create index for pod_name + restart_time
 CREATE TABLE IF NOT EXISTS params
 (
     pod_id       text,
@@ -151,8 +151,8 @@ CREATE TABLE IF NOT EXISTS params
     PRIMARY KEY (pod_name, restart_time, param_name)
 );
 
--- TODO проанализировать, надо ли здесь сделать партиционирование по дням
--- TODO сделать index по date и по pod_name + restart_time
+-- TODO analyze requirement for partitioning by days
+-- TODO create index for date and for pod_name + restart_time
 CREATE TABLE IF NOT EXISTS pod_statistics
 (
     date                 timestamptz,
@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS pod_statistics
     PRIMARY KEY (date, pod_name, restart_time, cur_time)
 );
 
--- TODO сделать index по date и по pod_name + restart_time
+-- TODO create index for date and for pod_name + restart_time
 CREATE TABLE IF NOT EXISTS suspend
 (
     date         timestamptz,

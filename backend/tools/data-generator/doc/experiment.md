@@ -39,7 +39,7 @@ Below is a brief table of results for saving Calls to .parquet files.
 
 - Common Results For Calls:
 
-  | Compression codec | Total compressed | Сompression ratio | File size (in Mb) | Tmerange | Total calls |
+  | Compression codec | Total compressed | Compression ratio | File size (in Mb) | Tmerange | Total calls |
   | ----------------- | ---------------- | ----------------- | ----------------- | -------- | ----------- |
   | GZIP, LZ4         | 22.50%           | 1.3               | 930               | 5 min    | 495000      |
   | Brotli, LZO       | 68.25%           | 3.1               | 381               | 5 min    | 495000      |
@@ -48,7 +48,7 @@ Below is a brief table of results for saving Calls to .parquet files.
 
 - Common Results For Java Dumps:
 
-  | Compression Type | Total compressed | Сompression ratio | Size (Mb) |
+  | Compression Type | Total compressed | Compression ratio | Size (Mb) |
   | ---------------- | ---------------- | ----------------- | --------- |
   | Brotli           | 17%              | 1.2               | 5095      |
   | Gzip             | 17%              | 1.2               | 5101      |
@@ -59,7 +59,7 @@ Below is a brief table of results for saving Calls to .parquet files.
 
 - Commo Results For Go Dumps:
 
-  | Compression Type | Total compressed | Сompression ratio | Size (Mb) |
+  | Compression Type | Total compressed | Compression ratio | Size (Mb) |
   | ---------------- | ---------------- | ----------------- | --------- |
   | Brotli           | 21%              | 1.3               | 3553      |
   | Gzip             | 0%               | 1.0               | 4489      |
@@ -143,7 +143,7 @@ In experiments, we tested the compression ratio of each of these codecs and sele
 further use: Snappy, GZip, Brotli, and Zstd. However, LZO and LZ4 codecs showed similar results, but they are not
 supported by analytical tools that we used to check the results (Clickhouse/DuckDB).
 
-| Compression type | Сompression ratio Min | Compression ratio Max | Supported by Clickhouse/DuckDb |
+| Compression type | Compression ratio Min | Compression ratio Max | Supported by Clickhouse/DuckDb |
 | ---------------- | --------------------- | --------------------- | ------------------------------ |
 | Brotli           | 1.2                   | 3.1                   | No                             |
 | Gzip             | 1                     | 1.4                   | Yes                            |
@@ -166,7 +166,7 @@ these tools.
   The experiment involved generating load for each pod and saving the data to a separate file. Four types of
   compression codecs were used (GZip, Brotli, LZO, LZ4). The results are shown in the table below.
 
-  | Description  | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Сompression ratio |
+  | Description  | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Compression ratio |
   | ------------ | ----------------- | --------- | ---------------------- | ----------- | -------------- | --------------------- | --------------------------- | -------------------------- | ---------------- | ----------------- |
   | Pod per file | GZIP, LZ4         | 5 min     | 1                      | 990         | 1.9            | 1.95                  | 2.4                         | 2.47                       | 20.83%           | 1.3               |
   | Pod per file | Brotli            | 5 min     | 1                      | 990         | 0.771          | 0.789                 | 2.4                         | 2.47                       | 67.88%           | 3.1               |
@@ -176,7 +176,7 @@ these tools.
 
   In this experiment, data was saved separately for each service. Additionally, 4 compression codecs were used.
 
-  | Description      | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Totalcompressed | Сompression ratio |
+  | Description      | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Totalcompressed | Compression ratio |
   | ---------------- | ----------------- | --------- | ---------------------- | ----------- | -------------- | --------------------- | --------------------------- | -------------------------- | --------------- | ----------------- |
   | Service per file | GZIP, LZ4         | 5 min     | 2                      | 1980        | 3.8            | 1.95                  | 4.8                         | 2.47                       | 20.83%          | 1.3               |
   | Service per file | Brotli, LZO       | 5 min     | 2                      | 1980        | 1.6            | 0.8                   | 4.8                         | 2.47                       | 66.67%          | 3.0               |
@@ -188,7 +188,7 @@ these tools.
   received sequentially, in a pre-sorted form. As seen from the results, Brotli and LZO showed the best compression
   ratio, while the results for the others were similar.
 
-  | Description          | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Сompression ratio |
+  | Description          | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Compression ratio |
   | -------------------- | ----------------- | --------- | ---------------------- | ----------- | -------------- | --------------------- | --------------------------- | -------------------------- | ---------------- | ----------------- |
   | Collector simulation | GZIP, LZ4         | 5 min     | 500                    | 495000      | 927            | 1.91                  | 1200                        | 2.47                       | 22.75%           | 1.3               |
   | Collector simulation | Brotli, LZO       | 5 min     | 500                    | 495000      | 381            | 0.788                 | 1200                        | 2.47                       | 68.25%           | 3.1               |
@@ -200,7 +200,7 @@ these tools.
   different services comes in randomly with varying time delays. As seen from the results, the sizes of .parquet files
   increased, which is quite expected, since compression is harder to implement in this case.
 
-  | Description                       | Compression codec | Timerange | Number of pods in file | Tota calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Сompression ratio |
+  | Description                       | Compression codec | Timerange | Number of pods in file | Tota calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Compression ratio |
   | --------------------------------- | ----------------- | --------- | ---------------------- | ---------- | -------------- | --------------------- | --------------------------- | -------------------------- | ---------------- | ----------------- |
   | Collector simulation with channel | GZIP, LZ4         | 5 min     | 500                    | 495000     | 930            | 1.91                  | 1200                        | 2.47                       | 22.50%           | 1.3               |
   | Collector simulation with channel | Brotli, LZO       | 5 min     | 500                    | 495000     | 381            | 0.788                 | 1200                        | 2.47                       | 68.25%           | 3.1               |
@@ -212,7 +212,7 @@ these tools.
   for frequently occurring string fields. This could help achieve a higher degree of compression, but it did not lead
   to a significant improvement in results.
 
-  | Description                                    | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Сompression ratio |
+  | Description                                    | Compression codec | Timerange | Number of pods in file | Total calls | File size (Mb) | One call size (in Kb) | Uncompressed file size (Mb) | One uncompressed call size | Total compressed | Compression ratio |
   | ---------------------------------------------- | ----------------- | --------- | ---------------------- | ----------- | -------------- | --------------------- | --------------------------- | -------------------------- | ---------------- | ----------------- |
   | Collector simulation with channel and encoding | GZIP              | 5 min     | 500                    | 495000      | 926            | 1.91                  | 1200                        | 2.47                       | 22.83%           | 1.3               |
   | Collector simulation with channel and encoding | Brotli, LZO       | 5 min     | 500                    | 495000      | 381            | 0.788                 | 1200                        | 2.47                       | 68.25%           | 3.1               |
@@ -223,7 +223,7 @@ Experiments were conducted for 2 types of dumps in the system:
 
 1. Dumps from java applications
 
-   | Description | Compression codec | Timerange (min) | Number of pods in file | Total dumps | File size (Mb) | One dump size (in Kb) | Uncompressed file size (Mb) | One uncompressed dump size | Total compressed | Сompression ratio |
+   | Description | Compression codec | Timerange (min) | Number of pods in file | Total dumps | File size (Mb) | One dump size (in Kb) | Uncompressed file size (Mb) | One uncompressed dump size | Total compressed | Compression ratio |
    | ----------- | ----------------- | --------------- | ---------------------- | ----------- | -------------- | --------------------- | --------------------------- | -------------------------- | ---------------- | ----------------- |
    | td          | gzip              | 5               | 500                    | 7500        | 3,700          | 505.17                | 4300                        | 587.09                     | 13.95%           | 1.2               |
    | top         | gzip              | 5               | 500                    | 7500        | 101            | 13.79                 | 143                         | 19.52                      | 29.37%           | 1.4               |
@@ -240,7 +240,7 @@ Experiments were conducted for 2 types of dumps in the system:
 
 2. Dumps from Go applications
 
-   | Description | Compression codec | Timerange (min) | Number of pods in file | Total dumps | File size (Mb) | One dump size (in Kb) | Uncompressed file size (Mb) | One uncompressed dump size | Total compressed | Сompression ratio |
+   | Description | Compression codec | Timerange (min) | Number of pods in file | Total dumps | File size (Mb) | One dump size (in Kb) | Uncompressed file size (Mb) | One uncompressed dump size | Total compressed | Compression ratio |
    | ----------- | ----------------- | --------------- | ---------------------- | ----------- | -------------- | --------------------- | --------------------------- | -------------------------- | ---------------- | ----------------- |
    | alloc       | gzip              | 5               | 500                    | 7500        | 2,200          | 300.37                | 2200                        | 300.37                     | 0.00%            | 1.0               |
    | goroutine   | gzip              | 5               | 500                    | 7500        | 76             | 10.38                 | 77                          | 10.51                      | 1.30%            | 1.0               |

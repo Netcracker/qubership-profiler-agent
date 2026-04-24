@@ -53,7 +53,7 @@ The following configuration will be used:
 | ----- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
 | calls | Calls s3 files time range in hours per duration range      | \*[S3FileRemovalCalls](#s3fileremovalcalls-configuration-format) |
 | dumps | Dumps s3 files time range in hours per duration range      | \*[S3FileRemovalDumps](#s3fileremovaldumps-configuration-format) |
-| heaps | Heaps s3 files time range in hoursю Default value is `336` | unsigned integer                                                 |
+| heaps | Heaps s3 files time range in hours. Default value is `336` | unsigned integer                                                 |
 
 ### S3FileRemovalCalls configuration format
 
