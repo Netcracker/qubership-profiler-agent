@@ -53,7 +53,7 @@ Clone `cloud-maintenance-job` repository with this git link to any location unde
 
 #### Postgres Setup
 
-- Either use local Postgres created using docker compose file of [prod.platform.cloud.infra/profiler/cloud-profiler](https://github.com/Netcracker/qubership-profiler-backend/-/blob/master/.docker/docker-compose.yml)
+- Either use local Postgres created using docker compose file of [profiler-backend](https://github.com/Netcracker/qubership-profiler-agent/blob/main/backend/.docker/docker-compose.yml)
   or use remote instance.
 - Run docker compose file using `docker-compose up` command.
 - Create required Postgres DB which need Environment variable to run Application `"POSTGRES_DB": "cdt_test"`.
@@ -61,7 +61,7 @@ Clone `cloud-maintenance-job` repository with this git link to any location unde
 #### Minio Setup
 
 - Either use local Minio created using docker compose file
-  of [prod.platform.cloud.infra/profiler/cloud-profiler](https://github.com/Netcracker/qubership-profiler-backend/-/blob/master/.docker/docker-compose.yml)
+  of [profiler-backend](https://github.com/Netcracker/qubership-profiler-agent/blob/main/backend/.docker/docker-compose.yml)
   or use remote instance.
 - Run docker compose file using `docker-compose up` command.
 - Create required s3 bucket which need Environment variable to run Application `s3.bucket-name=profiler`.

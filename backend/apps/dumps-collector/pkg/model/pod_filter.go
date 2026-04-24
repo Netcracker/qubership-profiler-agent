@@ -178,7 +178,7 @@ func NewPodFilterComparator(name string, comparator ComparatorType, values ...st
 	return res
 }
 
-func NewPodFilterСondition(operation OperationType, conditions ...PodFilter) PodFilter {
+func NewPodFilterCondition(operation OperationType, conditions ...PodFilter) PodFilter {
 	res := &PodFilterCondition{
 		Operation:  operation,
 		Conditions: make([]PodFilterContainer, len(conditions)),

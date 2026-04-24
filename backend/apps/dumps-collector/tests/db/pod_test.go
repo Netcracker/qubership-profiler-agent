@@ -150,9 +150,9 @@ func (suite *PodTestSuite) TestSearchPods() {
 	svc1PodFilter := model.NewPodFilterComparator("service_name", model.ComparatorEqual, "service-1")
 
 	// Find pods on ns-0 and service-0 or ns-1 and service-1
-	podFilter := model.NewPodFilterСondition(model.OperationOr,
-		model.NewPodFilterСondition(model.OperationAnd, ns0PodFilter, svc0PodFilter),
-		model.NewPodFilterСondition(model.OperationAnd, ns1PodFilter, svc1PodFilter),
+	podFilter := model.NewPodFilterCondition(model.OperationOr,
+		model.NewPodFilterCondition(model.OperationAnd, ns0PodFilter, svc0PodFilter),
+		model.NewPodFilterCondition(model.OperationAnd, ns1PodFilter, svc1PodFilter),
 	)
 
 	pods, err = suite.db.SearchPods(suite.ctx, podFilter)

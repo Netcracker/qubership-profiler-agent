@@ -82,7 +82,7 @@ public record PodDataAccumulated(Map<IStreamType, BlobSize> map) {
                 return this;
         }
 
-        public void overrideSum(long l) { // TODO hack for go collector
+        public void overrideSum(long l) { // TODO trick for go collector
                 for (var e: map.entrySet()) {
                         if (e.getValue().original != 0) {
                                 e.getValue().override(l);

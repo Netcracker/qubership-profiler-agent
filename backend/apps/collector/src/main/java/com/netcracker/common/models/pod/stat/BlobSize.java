@@ -68,7 +68,7 @@ public class BlobSize {
     static BlobSize MAX = new BlobSize(Long.MAX_VALUE, Long.MAX_VALUE);
     static BlobSize MIN = new BlobSize(0, 0);
 
-    public void override(long l) {  // TODO hack for go collector
+    public void override(long l) {  // TODO trick for go collector
         original = l;
         compressed = l;
     }

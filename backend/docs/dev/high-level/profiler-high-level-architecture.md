@@ -235,7 +235,7 @@ TODO: Add this section
 The `compactor` is a service that runs once every hour and performs compaction of **calls** into Parquet files.  
 It operates by querying PostgreSQL and saving the results to an S3-compatible storage.
 
-![Compactor Work](images/data-flow/сompactor/compactor.svg)
+![Compactor Work](images/data-flow/compactor/compactor.svg)
 
 ---
 

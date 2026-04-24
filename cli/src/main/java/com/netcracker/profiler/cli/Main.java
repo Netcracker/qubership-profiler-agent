@@ -97,7 +97,7 @@ public class Main {
                 "If not set, then user will be prompted to enter password during execution.");
         downloadDump.addArgument("-pd", "--parallel").metavar("DEGREE").type(Integer.class).setDefault(1).help("Parallel degree. Max is 10.");
         downloadDump.addArgument("-sh", "--shell").metavar("SHELL").help("Init shell command to execute after SSH session is created.\n" +
-                "Can be used to login as a local user. For ex: sudo su - netcrk");
+                "Can be used to login as a local user. For ex: sudo su - appuser");
         downloadDump.addArgument("-dp", "--download-protocol").metavar("PROTOCOL").setDefault("SFTP")
                 .help("Protocol, which will be used for downloading files. Possible values are: SFTP, SCP. Default is SFTP or SCP if local-user is set");
         addExportArgs(downloadDump, DownloadDump.class, null, true, null);

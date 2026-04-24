@@ -1,6 +1,6 @@
 {
-    "short_name": "SSM",
-    "name": "Solution Structure Management",
+    "short_name": "CDT",
+    "name": "Cloud Diagnostic Toolset",
     "icons": [
         {
             "src": "favicon.ico",

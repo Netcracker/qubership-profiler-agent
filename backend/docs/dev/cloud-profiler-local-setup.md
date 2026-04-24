@@ -59,8 +59,8 @@ If you want to manage Docker as non-root user, check this doc: [Manage Docker as
 
 ### Cloud Profiler Repository
 
-Clone `cloud-profiler` repository with this git link to any location under WSL:
-[PROD.Platform.CLoud.Infra.profiler.cloud-profiler](https://github.com/Netcracker/qubership-profiler-backend.git)
+Clone `profiler` repository with this git link to any location under WSL:
+[profiler-backend](https://github.com/Netcracker/qubership-profiler-agent/blob/main/backend)
 
 ### Intellij IDEA Setup
 

@@ -27,7 +27,7 @@ It will provide step-by-step instructions to run the Cloud Profiler UI locally.
 ### Cloud Profiler UI Repository
 
 Clone `cloud-profiler-ui` repository with this git link to any location under WSL:
-[PROD.Platform.CLoud.Infra.profiler.cloud-profiler-ui](https://github.com/Netcracker/qubership-profiler-backend-ui.git)
+[backend profiler ui](https://github.com/Netcracker/qubership-profiler-agent/tree/main/backend/apps/query)
 
 ### Project setup
 
