@@ -270,7 +270,7 @@
     <dependency>
       <groupId>io.quarkiverse.minio</groupId>
       <artifactId>quarkus-minio</artifactId>
-      <version>3.7.1</version>
+      <version>3.8.6</version>
     </dependency>
     <dependency>
       <groupId>io.minio</groupId>
