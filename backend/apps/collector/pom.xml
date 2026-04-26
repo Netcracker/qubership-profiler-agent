@@ -19,7 +19,7 @@
     <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
     <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
     <quarkus.platform.version>3.25.1</quarkus.platform.version>
-    <cucumber.version>7.13.0</cucumber.version>
+    <cucumber.version>7.34.3</cucumber.version>
     <poi.ooxml.version>5.4.0</poi.ooxml.version>
 
     <skipITs>true</skipITs>
