@@ -104,12 +104,15 @@ jobs:
         env:
           BASE_TAG: ${{ steps.metadata.outputs.result }}
           EXTRA_TAG: ${{ github.event.inputs.tags }}
+          REF_NAME: ${{ github.ref_name }}
         # language=bash
         run: |
+          TAGS="${BASE_TAG}"
+          if [ "${REF_NAME}" = "main" ]; then
+            TAGS="${TAGS}, main"
+          fi
           if [ -n "$EXTRA_TAG" ]; then
-            TAGS="${BASE_TAG}, ${EXTRA_TAG}"
-          else
-            TAGS="${BASE_TAG}"
+            TAGS="${TAGS}, ${EXTRA_TAG}"
           fi
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
