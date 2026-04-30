@@ -19,6 +19,6 @@ dependencies {
         api("org.jmockit:jmockit:1.50")
         api("org.mockito:mockito-core:5.22.0")
         api("org.openjdk.jcstress:jcstress-core:0.16")
-        api("org.postgresql:postgresql:42.7.10")
+        api("org.postgresql:postgresql:42.7.11")
     }
 }
