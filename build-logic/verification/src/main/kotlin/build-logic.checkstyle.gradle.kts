@@ -7,7 +7,7 @@ plugins {
 }
 
 checkstyle {
-    toolVersion = "13.4.0"
+    toolVersion = "13.4.1"
     providers.gradleProperty("checkstyle.version")
         .takeIf { it.isPresent }
         ?.let { toolVersion = it.get() }
