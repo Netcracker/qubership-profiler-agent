@@ -3447,7 +3447,7 @@ window.isDump = isDump;
 
                 ['db', 'org.postgresql.'],
 
-                ['profiler', 'com.netcracker.profiler.']
+                ['profiler', 'com.netcracker.profiler.'],
 
                 ['org.quartz', 'org.quartz.'],
 
