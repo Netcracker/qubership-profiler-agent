@@ -58,6 +58,15 @@ test('tree page shows call tree for Main.doWork', async ({ page, context }) => {
   await expect(callTree).toContainText('Main.test(String)');
   await expect(mainTestArg).toBeVisible({ timeout: 15_000 });
 
+  // Switch to the Hotspots tab and verify Main.doWork appears there
+  await treePage.locator('a[href="#tabs-hotspots"]').click();
+
+  // Hotspot computation runs in setTimeout slices and removes #hsStatus when done
+  await expect(treePage.locator('#hsStatus')).toHaveCount(0, { timeout: 15_000 });
+
+  const hotspots = treePage.locator('#hotspots');
+  await expect(hotspots).toContainText('Main.doWork', { timeout: 15_000 });
+
   // Verify no JavaScript errors occurred
   expect(jsErrors, `JavaScript errors on tree page: ${jsErrors.join('; ')}`).toHaveLength(0);
 });
