@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
     {{- include "common.commonLabels" . | nindent 4 }}
+    deployment.netcracker.com/ingress-type: private-network
+    deployment.netcracker.com/ingress-audience-type: ops-user
   {{- if or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"

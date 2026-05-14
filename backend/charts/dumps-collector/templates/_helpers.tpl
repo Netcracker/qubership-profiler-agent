@@ -7,12 +7,13 @@ Create common labels for each resource which is creating by this chart.
 */}}
 {{- define "common.namedLabels" -}}
 app: {{ .name }}
+name: {{ .name }}
 app.kubernetes.io/name: {{ .name }}
 app.kubernetes.io/instance: {{ .name }}
 {{- if .serviceMonitor }}
   {{- print "app.kubernetes.io/component: monitoring" | nindent 0 }}
 {{- else }}
-  {{- printf "%s: %s" "app.kubernetes.io/component" .name | nindent 0 }}
+  {{- printf "%s: %s" "app.kubernetes.io/component" "backend" | nindent 0 }}
 {{- end }}
 {{- if .labels }}
 {{ .labels | toYaml }}
@@ -24,7 +25,7 @@ Create common labels for each resource which is creating by this chart.
 */}}
 {{- define "common.commonLabels" -}}
 app.kubernetes.io/part-of: cloud-profiler
-app.kubernetes.io/managed-by: helm
+app.kubernetes.io/managed-by: Helm
 app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end -}}
 

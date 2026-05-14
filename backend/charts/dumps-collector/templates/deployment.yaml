@@ -6,6 +6,7 @@ metadata:
   labels:
     {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
     {{- include "common.commonLabels" . | nindent 4 }}
+    app.kubernetes.io/technology: 'go'
   annotations:
   {{- toYaml .Values.dumpsCollector.annotations | nindent 4 }}
 spec:
@@ -23,6 +24,7 @@ spec:
       labels:
         {{- include "common.namedLabels" .Values.dumpsCollector | nindent 8 }}
         {{- include "common.commonLabels" . | nindent 8 }}
+        app.kubernetes.io/technology: 'go'
     spec:
       {{- if .Values.dumpsCollector.nodeSelector }}
       nodeSelector: {{ toYaml .Values.dumpsCollector.nodeSelector | nindent 8 }}
