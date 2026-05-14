@@ -24,7 +24,7 @@ app.kubernetes.io/instance: {{ .name }}
 Create common labels for each resource which is creating by this chart.
 */}}
 {{- define "common.commonLabels" -}}
-app.kubernetes.io/part-of: cloud-profiler
+app.kubernetes.io/part-of: cloud-profiler-dumps-collector
 app.kubernetes.io/managed-by: Helm
 app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end -}}
