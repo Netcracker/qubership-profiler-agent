@@ -60,7 +60,7 @@ jobs:
     steps:
       - name: List GHCR packages for this repo
         id: ghcr
-        uses: Netcracker/qubership-workflow-hub/actions/ghcr-discover-repo-packages@e64a1ee2fc2f68ab44a4ef416c27d83ce36ba8e1 # v2.2.1
+        uses: Netcracker/qubership-workflow-hub/actions/ghcr-discover-repo-packages@6a2de8d62ac5b6998e30f923613c998c263ea9f2 # v2.2.2
         env:
           GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
@@ -93,7 +93,7 @@ jobs:
         tag: ${{ (github.event_name == 'workflow_dispatch' && fromJson(format('["{0}"]', inputs.tag))) || fromJson('["latest","main"]') }}
 
     name: "${{ format('{0}:{1}', matrix.package.path, matrix.tag) }}"
-    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@e64a1ee2fc2f68ab44a4ef416c27d83ce36ba8e1 # v2.2.1
+    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@6a2de8d62ac5b6998e30f923613c998c263ea9f2 # v2.2.2
     with:
       target: ${{ inputs.target || 'docker' }}
       image: ${{ format('{0}:{1}', matrix.package.path, matrix.tag) }}
@@ -111,7 +111,7 @@ jobs:
       packages: read
       contents: read
     name: "Run Security Scan (single image)"
-    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@e64a1ee2fc2f68ab44a4ef416c27d83ce36ba8e1 # v2.2.1
+    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@6a2de8d62ac5b6998e30f923613c998c263ea9f2 # v2.2.2
     with:
       target: ${{ inputs.target || 'docker' }}
       image: ${{ inputs.image }}
