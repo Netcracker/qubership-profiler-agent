@@ -32,7 +32,7 @@
         "@types/jest": "29.5.14",
         "@types/lodash.memoize": "4.1.9",
         "@types/node": "18.19.130",
-        "@types/react": "18.3.28",
+        "@types/react": "18.3.29",
         "@types/react-dom": "18.3.7",
         "@types/redux-logger": "3.0.13",
         "@types/webpack-env": "1.18.8",
