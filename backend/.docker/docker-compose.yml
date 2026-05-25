@@ -4,7 +4,7 @@ services:
 
   # DATABASES
   postgres:
-    image: postgres:15.17-alpine@sha256:09e4f20b14ddb3dfe3a0c825b206032aaf8f28300ba2070c0b60fc1c10c6abc7
+    image: postgres:15.18-alpine@sha256:df7bca0066e6f60cc3dd32faa70caddec20e2c22b58932f79498e5704b23854a
     container_name: ${PG_CONTAINER_NAME:-postgres}
     hostname: postgres
     environment:
