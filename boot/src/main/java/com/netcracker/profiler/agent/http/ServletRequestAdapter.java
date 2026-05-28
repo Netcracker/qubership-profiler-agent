@@ -16,20 +16,25 @@ public class ServletRequestAdapter {
     public ServletRequestAdapter(Object servletRequest) throws ClassNotFoundException, NoSuchMethodException {
         this.servletRequest = servletRequest;
 
+        // setAccessible(true) handles non-public wrapper classes (e.g. Spring Session's
+        // SessionRepositoryRequestWrapper) whose declaring class modifiers fail Method.invoke access checks.
         try {
             getRemoteAddr = servletRequest.getClass().getMethod("getRemoteAddr");
+            getRemoteAddr.setAccessible(true);
         } catch (NoSuchMethodException e) {
             logger.severe("ServletRequest should have method getRemoteAddr", e);
         }
 
         try {
             getRemoteHost = servletRequest.getClass().getMethod("getRemoteHost");
+            getRemoteHost.setAccessible(true);
         } catch (NoSuchMethodException e) {
             logger.severe("ServletRequest should have method getRemoteHost", e);
         }
 
         try {
             setAttribute = servletRequest.getClass().getMethod("setAttribute", String.class, Object.class);
+            setAttribute.setAccessible(true);
         } catch (NoSuchMethodException e) {
             logger.severe("ServletRequest should have method setAttribute", e);
         }

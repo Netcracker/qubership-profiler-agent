@@ -9,6 +9,7 @@ pluginManagement {
         id("com.google.osdetector") version "1.7.3"
         kotlin("jvm") version "2.3.21"
         kotlin("kapt") version "2.3.21"
+        kotlin("plugin.spring") version "2.3.21"
         id("me.champeau.jmh") version "0.7.3"
     }
 }
@@ -28,7 +29,7 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 rootProject.name = "qubership-profiler"
 
 gradle.allprojects {
-    if (path != ":plugins") {
+    if (path != ":plugins" && path != ":sample-apps") {
         buildscript {
             dependencies {
                 classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.1"))
@@ -65,6 +66,7 @@ include("profiler")
 include("profiler-ui")
 include("proto-definition")
 include("runtime")
+include("sample-apps:it-spring-boot-3")
 include("test-config")
 include("test-app")
 include("testkit")

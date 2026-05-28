@@ -16,14 +16,26 @@ public class HttpServletRequestAdapter {
 
     public HttpServletRequestAdapter(Object httpServletRequest) throws NoSuchMethodException {
         this.httpServletRequest = httpServletRequest;
+        // Spring Session wraps the request in a non-public inner class (SessionRepositoryRequestWrapper).
+        // Class.getMethod returns a Method whose declaringClass is that wrapper, and Method.invoke
+        // performs an access check against the declaring class modifiers — so we must setAccessible(true)
+        // even for methods declared public on a public ancestor interface.
         getSession = this.httpServletRequest.getClass().getMethod("getSession", boolean.class);
+        getSession.setAccessible(true);
         getRequestURL = this.httpServletRequest.getClass().getMethod("getRequestURL");
+        getRequestURL.setAccessible(true);
         getQueryString = this.httpServletRequest.getClass().getMethod("getQueryString");
+        getQueryString.setAccessible(true);
         getRequestedSessionId = this.httpServletRequest.getClass().getMethod("getRequestedSessionId");
+        getRequestedSessionId.setAccessible(true);
         getMethod = this.httpServletRequest.getClass().getMethod("getMethod");
+        getMethod.setAccessible(true);
         getHeader = this.httpServletRequest.getClass().getMethod("getHeader", String.class);
+        getHeader.setAccessible(true);
         getCookies = this.httpServletRequest.getClass().getMethod("getCookies");
+        getCookies.setAccessible(true);
         setAttribute = this.httpServletRequest.getClass().getMethod("setAttribute", String.class, Object.class);
+        setAttribute.setAccessible(true);
     }
 
     public HttpSessionAdapter getSession(boolean createSession) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
