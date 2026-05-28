@@ -45,6 +45,16 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!--
+            Spring Session is enabled so the demo exercises a real-world filter chain that wraps
+            requests in SessionRepositoryFilter$SessionRepositoryRequestWrapper. This is the
+            production scenario that previously triggered IllegalAccessException in the profiler's
+            HttpServletRequestAdapter (see sample-apps/it-spring-boot-3 integration test).
+        -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-core</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

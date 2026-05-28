@@ -115,6 +115,19 @@
       ]
     },
     {
+      "description": "Pin sample-apps/it-spring-boot-3 to Spring Boot 3.x; create it-spring-boot-4 module when bumping major",
+      "groupName": "Spring Boot 3 sample app",
+      "matchFileNames": [
+        "sample-apps/it-spring-boot-3/**"
+      ],
+      "allowedVersions": "< 4",
+      "matchPackageNames": [
+        "org.springframework.boot{/,}**",
+        "org.springframework{/,}**",
+        "org.springframework.session{/,}**"
+      ]
+    },
+    {
       "description": "Group all GitHub Actions updates into a single PR",
       "groupName": "GitHub Actions",
       "matchManagers": [

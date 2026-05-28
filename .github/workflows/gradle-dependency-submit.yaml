@@ -32,6 +32,8 @@ jobs:
       with:
         # Profiler plugins do not expose the dependencies to the runtime, so the versions used for the build
         # do not affect the execution. At the same time, we might need to build plugins for different thirdparty
-        # versions, so we intentionally exclude :plugins:* projects from the submitted dependencies
+        # versions, so we intentionally exclude :plugins:* projects from the submitted dependencies.
+        # :sample-apps:* are pinned to specific framework majors (e.g. Spring Boot 3.x) on purpose and should not
+        # generate security alerts for the profiler agent project.
         dependency-graph-exclude-projects: |
-          :plugins:.*
+          :plugins:.*|:sample-apps:.*

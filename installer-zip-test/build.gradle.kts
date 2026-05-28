@@ -22,6 +22,10 @@ val installerZip = configurations.resolvable("installerZip") {
 dependencies {
     installerZipElements(projects.installer)
     testCompileOnly(projects.boot)
+    // Drives the minimal logback-visibility reproducer: the test reconfigures Logback the way a
+    // host application (e.g. Spring Boot) would, then checks whether the agent's plugin logger
+    // still reaches that configuration.
+    testImplementation("ch.qos.logback:logback-classic")
 }
 
 val profilerHome = layout.buildDirectory.dir("profiler-home")
