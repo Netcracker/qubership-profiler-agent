@@ -15,7 +15,7 @@ tasks.withType<KotlinJvmCompile>().configureEach {
 }
 
 dependencies {
-    val testcontainersBom = enforcedPlatform("org.testcontainers:testcontainers-bom:1.21.0")
+    val testcontainersBom = enforcedPlatform("org.testcontainers:testcontainers-bom:1.21.4")
     testImplementation(testcontainersBom)
     testImplementation("org.testcontainers:testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")
