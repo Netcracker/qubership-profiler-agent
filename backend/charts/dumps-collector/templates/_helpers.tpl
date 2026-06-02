@@ -10,11 +10,7 @@ app: {{ .name }}
 name: {{ .name }}
 app.kubernetes.io/name: {{ .name }}
 app.kubernetes.io/instance: {{ .name }}
-{{- if .serviceMonitor }}
-  {{- print "app.kubernetes.io/component: monitoring" | nindent 0 }}
-{{- else }}
-  {{- printf "%s: %s" "app.kubernetes.io/component" "backend" | nindent 0 }}
-{{- end }}
+app.kubernetes.io/part-of: {{ .name }}
 {{- if .labels }}
 {{ .labels | toYaml }}
 {{- end }}
@@ -24,9 +20,10 @@ app.kubernetes.io/instance: {{ .name }}
 Create common labels for each resource which is creating by this chart.
 */}}
 {{- define "common.commonLabels" -}}
-app.kubernetes.io/part-of: {{ .name }}
 app.kubernetes.io/managed-by: Helm
 app.kubernetes.io/version: {{ .Chart.AppVersion }}
+app.kubernetes.io/technology: 'go'
+app.kubernetes.io/component: backend
 {{- end -}}
 
 {{/******************************************************************************************************************/}}
