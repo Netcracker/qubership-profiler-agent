@@ -15,7 +15,7 @@ dependencies {
     constraints {
         api("at.yawk.lz4:lz4-java:1.11.0")
         api("backport-util-concurrent:backport-util-concurrent:3.1")
-        api("ch.qos.logback:logback-classic:1.5.20")
+        api("ch.qos.logback:logback-classic:1.5.25")
         api("ch.qos.logback:logback-core:1.5.25")
         api("com.github.ajalt.clikt:clikt:5.1.0")
         api("com.google.guava:guava:33.6.0-jre")
