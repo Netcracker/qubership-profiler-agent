@@ -62,7 +62,7 @@ jobs:
         id: ghcr
         uses: Netcracker/qubership-workflow-hub/actions/ghcr-discover-repo-packages@e64a1ee2fc2f68ab44a4ef416c27d83ce36ba8e1 # v2.2.1
         env:
-          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }} # zizmor: ignore[secrets-outside-env]
 
       - name: Print packages
         env:

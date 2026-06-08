@@ -23,7 +23,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     env:
-      CENTRAL_PORTAL_USERNAME: ${{ secrets.MAVEN_USER }}
+      CENTRAL_PORTAL_USERNAME: ${{ secrets.MAVEN_USER }} # zizmor: ignore[secrets-outside-env]
     steps:
       - name: Checkout sources
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -75,8 +75,8 @@ jobs:
         if: ${{ env.CENTRAL_PORTAL_USERNAME != '' }}
         with:
           arguments: publishAllPublicationsToCentralSnapshotsRepository
-          properties: |
+          properties: | # zizmor: ignore[secrets-outside-env]
             centralSnapshotsUsername=${{ secrets.MAVEN_USER }}
             centralSnapshotsPassword=${{ secrets.MAVEN_PASSWORD }}
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} # zizmor: ignore[secrets-outside-env]
