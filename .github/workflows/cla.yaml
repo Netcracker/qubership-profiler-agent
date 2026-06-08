@@ -23,7 +23,7 @@ jobs:
         uses: Netcracker/qubership-workflow-hub/actions/cla-assistant@e64a1ee2fc2f68ab44a4ef416c27d83ce36ba8e1 # v2.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ACCESS_TOKEN }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ACCESS_TOKEN }} # zizmor: ignore[secrets-outside-env]
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/Netcracker/qubership-workflow-hub/blob/release/v2.2.0/CLA/cla.md'

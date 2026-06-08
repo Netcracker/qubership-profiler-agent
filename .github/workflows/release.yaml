@@ -93,7 +93,7 @@ jobs:
         id: app_token
         with:
           app-id: ${{ vars.GH_BUMP_VERSION_APP_ID }}
-          private-key: ${{ secrets.GH_BUMP_VERSION_APP_KEY }}
+          private-key: ${{ secrets.GH_BUMP_VERSION_APP_KEY }} # zizmor: ignore[secrets-outside-env]
 
       - name: Update version in gradle.properties to ${{ steps.release_version.outputs.version }}
         uses: ./.github/actions/update_version
@@ -141,10 +141,10 @@ jobs:
             release=true
             centralPortalPublishingType=AUTOMATIC
         env:
-          CENTRAL_PORTAL_USERNAME: ${{ secrets.MAVEN_USER }}
-          CENTRAL_PORTAL_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
-          SIGNING_PGP_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-          SIGNING_PGP_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          CENTRAL_PORTAL_USERNAME: ${{ secrets.MAVEN_USER }} # zizmor: ignore[secrets-outside-env]
+          CENTRAL_PORTAL_PASSWORD: ${{ secrets.MAVEN_PASSWORD }} # zizmor: ignore[secrets-outside-env]
+          SIGNING_PGP_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env]
+          SIGNING_PGP_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }} # zizmor: ignore[secrets-outside-env]
 
       - name: Publish GitHub release
         uses: release-drafter/release-drafter@6a93d829887aa2e0748befe2e808c66c0ec6e4c7 # v6.4.0
