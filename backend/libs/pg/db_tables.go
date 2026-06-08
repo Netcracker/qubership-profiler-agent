@@ -15,7 +15,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/common"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/golang-migrate/migrate/v4"
-	pgxmigr "github.com/golang-migrate/migrate/v4/database/pgx"
+	pgxmigr "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 

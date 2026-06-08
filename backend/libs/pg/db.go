@@ -57,7 +57,7 @@ const (
 	SuspendTempSchema   = "suspend_tables_template.gosql"
 	InvertedIndexSchema = "inverted_index_template.gosql"
 
-	pgxDriverName  = "pgx"
+	pgxDriverName  = "pgx/v5"
 	iofsDriverName = "iofs"
 )
 
