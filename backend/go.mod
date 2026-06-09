@@ -2,6 +2,8 @@ module github.com/Netcracker/qubership-profiler-backend
 
 go 1.25.0
 
+toolchain go1.26.4
+
 require (
 	github.com/IBM/pgxpoolprometheus v1.1.3
 	github.com/glebarez/sqlite v1.11.0
