@@ -7,7 +7,7 @@ toolchain go1.26.4
 require (
 	github.com/go-zookeeper/zk v1.0.4
 	github.com/hashicorp/consul/api v1.33.7
-	github.com/shirou/gopsutil/v4 v4.26.4
+	github.com/shirou/gopsutil/v4 v4.26.5
 	github.com/stretchr/testify v1.11.1
 	github.com/vlsi/jattach/v2 v2.2.2
 	golang.org/x/sys v0.46.0
