@@ -19,7 +19,7 @@ services:
      - ${PG_INIT_PATH:-./postgres/init}:/docker-entrypoint-initdb.d
 
   postgres_db:
-    image: postgres:latest@sha256:f7ce845ee6873dd84be93c9828fe0d1fab0f9707dc9ac569694657398b290bce
+    image: postgres:latest@sha256:29ee7bb30d804447dc9a91fd0d74322ae1dc3a4072cc6346f70a5ed6e783b565
     hostname: postgres-db
     container_name: postgres
     expose:
