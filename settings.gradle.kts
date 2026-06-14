@@ -32,7 +32,7 @@ gradle.allprojects {
     if (path != ":plugins" && path != ":sample-apps") {
         buildscript {
             dependencies {
-                classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.3"))
+                classpath(platform("com.fasterxml.jackson:jackson-bom:2.22.0"))
                 constraints {
                     classpath("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
                 }
