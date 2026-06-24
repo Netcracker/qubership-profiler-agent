@@ -1,0 +1,51 @@
+{{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install (contains "gateway-api-default" .Values.GATEWAY_SYSTEM_TYPE) }}
+{{- $tlsBackend := or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
+{{- $serviceName := .Values.dumpsCollector.service.name }}
+{{- $servicePort := .Values.dumpsCollector.service.httpPort }}
+{{- $namespace := .Values.NAMESPACE | default .Release.Namespace }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: '{{ .Values.dumpsCollector.name }}'
+  labels:
+    {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+    deployment.netcracker.com/ingress-type: private-network
+    deployment.netcracker.com/ingress-audience-type: ops-user
+spec:
+  parentRefs:
+    {{- include "gateway.parentRefs" . | nindent 4 }}
+  hostnames:
+    - {{ include "dumpsCollector.httpRoute" . | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        {{- if $tlsBackend }}
+        - group: gateway.envoyproxy.io
+          kind: Backend
+          name: '{{ $serviceName }}'
+        {{- else }}
+        - name: '{{ $serviceName }}'
+          port: {{ $servicePort }}
+        {{- end }}
+{{- if $tlsBackend }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: '{{ $serviceName }}'
+  labels:
+    {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
+    {{- include "common.commonLabels" . | nindent 4 }}
+spec:
+  endpoints:
+    - fqdn:
+        hostname: {{ printf "%s.%s.svc.cluster.local" $serviceName $namespace | quote }}
+        port: {{ $servicePort }}
+  tls:
+    insecureSkipVerify: true
+{{- end }}
+{{- end }}
