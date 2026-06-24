@@ -112,6 +112,13 @@ tlsConfig: {}
 #     tlsCert: ""
 #     tlsKey: ""
 
+############# Gateway API #############
+
+# Comma-separated gateway mode flags: legacy-ingress, gateway-api-default
+GATEWAY_SYSTEM_TYPE: legacy-ingress
+GATEWAY_SYSTEM_NAMESPACE: gateway-system
+GATEWAY_SYSTEM_NAME: default-external-gateway
+
 ############# Ingress #############
 
 # Allow override Ingress host name. Otherwise, host will generate as:

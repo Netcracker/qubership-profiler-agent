@@ -29,6 +29,19 @@ app.kubernetes.io/component: backend
 {{/******************************************************************************************************************/}}
 
 {{/*
+Gateway API parentRefs for HTTPRoute and similar resources.
+*/}}
+{{- define "gateway.parentRefs" -}}
+{{- if (default "" .Values.PEER_NAMESPACE) }}
+- name: edge-router
+  namespace: {{ .Values.CONTROLLER_NAMESPACE }}
+{{- else }}
+- name: {{ .Values.GATEWAY_SYSTEM_NAME }}
+  namespace: {{ .Values.GATEWAY_SYSTEM_NAMESPACE }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Set default value for dumps-collector ingress host if not specify in Values.
 */}}
 {{- define "dumpsCollector.ingress" -}}
@@ -36,6 +49,17 @@ Set default value for dumps-collector ingress host if not specify in Values.
     {{ .Values.dumpsCollector.ingress.host }}
   {{- else -}}
     {{- printf "dumps-collector-%s.%s" .Values.NAMESPACE .Values.CLOUD_PUBLIC_HOST -}}
+  {{- end -}}
+{{- end -}}
+
+{{/*
+Set default value for dumps-collector httpRoute host if not specify in Values.
+*/}}
+{{- define "dumpsCollector.httpRoute" -}}
+  {{- if .Values.dumpsCollector.ingress.host -}}
+    {{ .Values.dumpsCollector.ingress.host }}
+  {{- else -}}
+    {{- printf "dumps-collector-%s.eg.%s" .Values.NAMESPACE .Values.CLOUD_PUBLIC_HOST -}}
   {{- end -}}
 {{- end -}}
 

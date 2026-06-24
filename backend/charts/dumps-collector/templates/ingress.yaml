@@ -1,4 +1,5 @@
-{{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install }}
+{{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install (contains "legacy-ingress" .Values.GATEWAY_SYSTEM_TYPE) }}
+{{- $tlsBackend := or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -8,9 +9,14 @@ metadata:
     {{- include "common.commonLabels" . | nindent 4 }}
     deployment.netcracker.com/ingress-type: private-network
     deployment.netcracker.com/ingress-audience-type: ops-user
-  {{- if or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
+  {{- if or $tlsBackend (contains "gateway-api-default" .Values.GATEWAY_SYSTEM_TYPE) }}
   annotations:
+    {{- if $tlsBackend }}
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    {{- end }}
+    {{- if contains "gateway-api-default" .Values.GATEWAY_SYSTEM_TYPE }}
+    gateway-api-converter.netcracker.com/ignore: "true"
+    {{- end }}
   {{- end }}
 spec:
   {{- if .Values.dumpsCollector.ingress.className }}
