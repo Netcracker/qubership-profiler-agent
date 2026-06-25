@@ -1,4 +1,5 @@
-{{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install (contains "gateway-api-default" .Values.GATEWAY_SYSTEM_TYPE) }}
+{{- $gwType := .Values.GATEWAY_SYSTEM_TYPE | default "legacy-ingress" }}
+{{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install (contains "gateway-api-default" $gwType) }}
 {{- $tlsBackend := or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
 {{- $serviceName := .Values.dumpsCollector.service.name }}
 {{- $servicePort := .Values.dumpsCollector.service.httpPort }}

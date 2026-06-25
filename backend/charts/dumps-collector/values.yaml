@@ -87,12 +87,26 @@ dumpsCollector:
     host: ~
     className: ~
 
+  httpRoute:
+    host: ~
+
   monitoring:
     enabled: true
     port: http
     path: /esc/metrics
     scheme: http
     interval: 30s
+
+############# Gateway API #############
+
+# Comma-separated gateway mode flags: legacy-ingress, gateway-api-default
+GATEWAY_SYSTEM_TYPE: legacy-ingress
+GATEWAY_SYSTEM_NAMESPACE: gateway-system
+GATEWAY_SYSTEM_NAME: default-external-gateway
+
+# Blue/green (BGD2): when PEER_NAMESPACE is set, HTTPRoute parentRef targets edge-router
+PEER_NAMESPACE: ""
+CONTROLLER_NAMESPACE: ""
 
 ############# TLS Configuration #############
 
@@ -111,13 +125,6 @@ tlsConfig: {}
 #     caCert: ""
 #     tlsCert: ""
 #     tlsKey: ""
-
-############# Gateway API #############
-
-# Comma-separated gateway mode flags: legacy-ingress, gateway-api-default
-GATEWAY_SYSTEM_TYPE: legacy-ingress
-GATEWAY_SYSTEM_NAMESPACE: gateway-system
-GATEWAY_SYSTEM_NAME: default-external-gateway
 
 ############# Ingress #############
 
