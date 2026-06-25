@@ -60,6 +60,17 @@ jobs:
         # language=bash
         run: make tools-build
 
+      - name: Set up Helm
+        uses: azure/setup-helm@5116f1c1e66f49e5fe9ae3582a0c1656bbda817 # v4.3.0
+        with:
+          version: v4.2.2
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1
+
+      - name: Run dumps-collector Helm unit tests
+        run: helm unittest charts/dumps-collector
+
 # TODO: fix Helm violations like "name is required", "apiVersion is required", ...
 #      - name: charts-build
 #        # language=bash
