@@ -46,6 +46,18 @@ tests:
           path: spec.rules[0].host
           value: dumps-collector-test-ns.example.com
 
+  - it: ingress.host override is independent of httpRoute.host
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      GATEWAY_SYSTEM_TYPE: legacy-ingress,gateway-api-default
+      dumpsCollector.ingress.host: ingress-only.example.com
+      dumpsCollector.httpRoute.host: httproute-only.eg.example.com
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: ingress-only.example.com
+
   - it: null GATEWAY_SYSTEM_TYPE falls back to legacy Ingress
     set:
       NAMESPACE: test-ns
@@ -116,6 +128,52 @@ tests:
       - equal:
           path: spec.hostnames[0]
           value: dumps-collector-test-ns.eg.example.com
+
+  - it: httpRoute.host override is independent of ingress.host
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      GATEWAY_SYSTEM_TYPE: gateway-api-default
+      dumpsCollector.ingress.host: ingress-only.example.com
+      dumpsCollector.httpRoute.host: httproute-only.eg.example.com
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.hostnames[0]
+          value: httproute-only.eg.example.com
+
+  - it: PEER_NAMESPACE uses edge-router with default CONTROLLER_NAMESPACE
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      GATEWAY_SYSTEM_TYPE: gateway-api-default
+      PEER_NAMESPACE: peer-ns
+      CONTROLLER_NAMESPACE: ""
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.parentRefs[0].name
+          value: edge-router
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: bluegreen-controller
+
+  - it: PEER_NAMESPACE uses explicit CONTROLLER_NAMESPACE
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      GATEWAY_SYSTEM_TYPE: gateway-api-default
+      PEER_NAMESPACE: peer-ns
+      CONTROLLER_NAMESPACE: my-bg-controller
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].name
+          value: edge-router
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: my-bg-controller
 
   - it: TLS enabled renders Backend and Envoy backendRef
     set:
