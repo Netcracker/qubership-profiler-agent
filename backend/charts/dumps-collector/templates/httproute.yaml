@@ -29,8 +29,11 @@ spec:
           kind: Backend
           name: '{{ $serviceName }}'
         {{- else }}
-        - name: '{{ $serviceName }}'
+        - group: ''
+          kind: Service
+          name: '{{ $serviceName }}'
           port: {{ $servicePort }}
+          weight: 1
         {{- end }}
 {{- if $tlsBackend }}
 ---

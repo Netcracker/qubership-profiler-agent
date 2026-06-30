@@ -116,6 +116,18 @@ tests:
       - equal:
           path: spec.rules[0].backendRefs[0].port
           value: 8080
+      - equal:
+          path: spec.parentRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.parentRefs[0].kind
+          value: Gateway
+      - equal:
+          path: spec.parentRefs[0].name
+          value: default-external-gateway
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: gateway-system
 
   - it: dual-publish renders HTTPRoute with distinct hostname
     set:
@@ -154,6 +166,12 @@ tests:
       - hasDocuments:
           count: 1
       - equal:
+          path: spec.parentRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.parentRefs[0].kind
+          value: Gateway
+      - equal:
           path: spec.parentRefs[0].name
           value: edge-router
       - equal:
@@ -168,6 +186,12 @@ tests:
       PEER_NAMESPACE: peer-ns
       CONTROLLER_NAMESPACE: my-bg-controller
     asserts:
+      - equal:
+          path: spec.parentRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.parentRefs[0].kind
+          value: Gateway
       - equal:
           path: spec.parentRefs[0].name
           value: edge-router

@@ -33,10 +33,14 @@ Gateway API parentRefs for HTTPRoute and similar resources.
 */}}
 {{- define "gateway.parentRefs" -}}
 {{- if (default "" .Values.PEER_NAMESPACE) -}}
-- name: edge-router
+- group: gateway.networking.k8s.io
+  kind: Gateway
+  name: edge-router
   namespace: {{ .Values.CONTROLLER_NAMESPACE | default "bluegreen-controller" }}
 {{- else -}}
-- name: {{ .Values.GATEWAY_SYSTEM_NAME | default "default-external-gateway" }}
+- group: gateway.networking.k8s.io
+  kind: Gateway
+  name: {{ .Values.GATEWAY_SYSTEM_NAME | default "default-external-gateway" }}
   namespace: {{ .Values.GATEWAY_SYSTEM_NAMESPACE | default "gateway-system" }}
 {{- end -}}
 {{- end -}}
