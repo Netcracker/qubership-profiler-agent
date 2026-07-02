@@ -1,0 +1,13 @@
+name: qubership-profiler-aiagent
+version: 1.0.0
+description: APM project for qubership-profiler-aiagent
+dependencies:
+  apm:
+  - Netcracker/qubership-ai-packages/agent-packages/qubership-essentials
+  mcp: []
+includes: auto
+scripts: {}
+targets:
+- claude
+- codex
+- cursor

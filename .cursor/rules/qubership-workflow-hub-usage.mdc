@@ -1,0 +1,20 @@
+---
+description: Triggers for qubership-workflow-hub-usage skills when working on GitHub Actions workflows.
+globs: "**/.github/workflows/*.{yml,yaml}"
+---
+
+# Qubership Workflow Hub Usage
+
+When designing, writing, reviewing, or debugging `.github/workflows/*.yml` files
+that consume `netcracker/qubership-workflow-hub` actions or `Netcracker/.github` templates,
+apply the `qubership-workflow-conventions` skill.
+
+When a workflow step needs a specific Qubership action (Docker build/push,
+version/tag rendering, Maven/npm/Python publishing, package cleanup, Helm charts,
+security scans, email notifications, etc.) and you need to find the right action or read its README,
+apply the `qubership-actions-guide` skill.
+
+When the user asks for a CI/CD workflow that may already exist as a curated
+Netcracker template (Docker build/release, Maven/npm/Python release, Helm chart
+release, security scan, SBOM, PR hygiene, license/lint, GHCR cleanup),
+apply the `qubership-templates-guide` skill.
