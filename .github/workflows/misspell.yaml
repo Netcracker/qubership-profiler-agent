@@ -46,6 +46,10 @@ jobs:
             ./build/*
             ./*/build/*
             ./profiler-ui/node_modules/*
+            ./.agents/*
+            ./.claude/*
+            ./.codex/*
+            ./.cursor/*
           pattern: |
             *.java
             *.kt

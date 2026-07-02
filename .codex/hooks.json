@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ai-agent-telemetry ingest --agent=codex",
+            "timeout": 30,
+            "statusMessage": "Recording skill telemetry"
+          }
+        ],
+        "_apm_source": "ai-agent-telemetry"
+      }
+    ]
+  }
+}

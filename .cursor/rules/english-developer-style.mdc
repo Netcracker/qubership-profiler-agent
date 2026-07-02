@@ -1,0 +1,52 @@
+---
+description: American-English-first style rules for developer-facing text of any length — docs, code comments and docstrings inside source files (.go, .js, .ts, .py, .java, .rs, .kt, .cs, ...), commits, PR descriptions, changelogs, UI strings, error and log messages, and English-side localization files (.po, .properties, JSON i18n). Triggered by review/translate/verify/proofread, not only writing.
+globs: "**"
+---
+
+## Skill trigger: `english-developer-style`
+
+**You MUST invoke the `english-developer-style` skill BEFORE producing, modifying, translating, or critiquing any
+English developer-facing text.** The skill applies regardless of text length — a one-line error message and a multi-page
+README go through the same checklist.
+
+### Trigger verbs
+
+The skill fires on any of these tasks. The verb in the user request, not the file size, decides.
+
+- write, draft, author, compose
+- edit, rewrite, revise, polish, copy-edit
+- translate, localize (to or from English)
+- review, proofread, verify, audit, double-check, sanity-check, cross-check
+- "check the wording", "does this read well", "is this English natural", "make this sound less AI"
+
+If the user asks about English developer text in any of these modes — even a human-authored draft, even a five-word
+button label — invoke the skill before answering.
+
+### Covered surfaces
+
+- Markdown: README, reference docs, design docs, ADR, runbooks, changelog, release notes.
+- Source files (`.go`, `.js`, `.ts`, `.py`, `.java`, `.rs`, `.kt`, `.cs`, `.cpp`, `.rb`, `.swift`, `.scala`, `.php`,
+  ...): all English text inside them — code comments, docstrings (Javadoc, KDoc, TSDoc, JSDoc, Python docstrings, Rust
+  doc-comments), and the English identifier names you choose for new functions, types, fields, files, and tests.
+- Localization files (English source or English target): `.po`, `.pot`, `.properties`, `.resx`, `.json` (i18n), `.ftl`,
+  `.arb`.
+- UI strings: buttons, labels, placeholders, tooltips, empty states, confirmations.
+- Error, validation, warning, and log messages (including one-line `msgid` / `msgstr`).
+- Commit messages, PR / MR descriptions, code-review replies.
+
+Short messages count. A single `msgstr "..."` in a `.po` file, a one-line `// FIXME: …` comment in a `.go` file, or a
+three-word button label is in scope.
+
+### When NOT to invoke
+
+- *Existing* code identifiers, product names, CLI flags, file paths, environment variables — do not translate, restyle,
+  or rename them. (When you *choose* a new identifier name, that choice is in scope; see *Covered surfaces*.)
+- Generated API references and verbatim third-party quotes.
+- Files explicitly marked "do not edit" or covered by a repository-specific style guide — yield to the local guide.
+- Casual chat replies to the user.
+
+### Failure mode to avoid
+
+If the request touches English text and the skill has not been invoked, stop and invoke it before continuing.
+Native-speaker intuition is not a substitute: the dialect policy, AI-tell catalog, em-dash and hyphen rules, hedging
+policy, and per-surface templates live in the skill, not in general fluency.
