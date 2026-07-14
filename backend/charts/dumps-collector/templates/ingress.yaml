@@ -1,4 +1,4 @@
-{{- $gwType := .Values.GATEWAY_SYSTEM_TYPE | default "legacy-ingress" }}
+{{- $gwType := include "gateway.systemType" . -}}
 {{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install (contains "legacy-ingress" $gwType) }}
 {{- $tlsBackend := or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
 apiVersion: networking.k8s.io/v1

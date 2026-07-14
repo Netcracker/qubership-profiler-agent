@@ -1,4 +1,4 @@
-{{- $gwType := .Values.GATEWAY_SYSTEM_TYPE | default "legacy-ingress" }}
+{{- $gwType := include "gateway.systemType" . -}}
 {{- if and .Values.dumpsCollector.install .Values.dumpsCollector.ingress.install (contains "gateway-api-default" $gwType) }}
 {{- $tlsBackend := or (eq (include "isTlsGenerateCertsEnabled" .) "true") (eq (include "isTlsUseExistingCertsEnabled" .) "true") }}
 {{- $serviceName := .Values.dumpsCollector.service.name }}
@@ -50,6 +50,6 @@ spec:
         hostname: {{ printf "%s.%s.svc.cluster.local" $serviceName $namespace | quote }}
         port: {{ $servicePort }}
   tls:
-    insecureSkipVerify: true
+    {{- toYaml .Values.dumpsCollector.httpRoute.backendTls | nindent 4 }}
 {{- end }}
 {{- end }}

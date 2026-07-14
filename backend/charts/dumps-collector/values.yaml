@@ -89,6 +89,21 @@ dumpsCollector:
 
   httpRoute:
     host: ~
+    # Envoy Gateway Backend TLS settings (BackendTLSSettings on gateway.envoyproxy.io Backend).
+    # Applied when tlsConfig enables HTTPS on the dumps-collector service.
+    backendTls:
+      insecureSkipVerify: true
+
+  gateway:
+    # Comma-separated gateway mode flags: legacy-ingress, gateway-api-default
+    systemType: legacy-ingress
+    externalGateway:
+      namespace: gateway-system
+      name: default-external-gateway
+    # Blue/green (BGD2): when peerNamespace is set, HTTPRoute parentRef targets edge-router
+    blueGreen:
+      peerNamespace: ""
+      controllerNamespace: ""
 
   monitoring:
     enabled: true
@@ -96,17 +111,6 @@ dumpsCollector:
     path: /esc/metrics
     scheme: http
     interval: 30s
-
-############# Gateway API #############
-
-# Comma-separated gateway mode flags: legacy-ingress, gateway-api-default
-GATEWAY_SYSTEM_TYPE: legacy-ingress
-GATEWAY_SYSTEM_NAMESPACE: gateway-system
-GATEWAY_SYSTEM_NAME: default-external-gateway
-
-# Blue/green (BGD2): when PEER_NAMESPACE is set, HTTPRoute parentRef targets edge-router
-PEER_NAMESPACE: ""
-CONTROLLER_NAMESPACE: ""
 
 ############# TLS Configuration #############
 
