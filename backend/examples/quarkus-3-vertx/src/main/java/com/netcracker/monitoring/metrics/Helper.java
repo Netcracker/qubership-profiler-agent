@@ -121,9 +121,21 @@ public class Helper { // framework-agnostic helper. MUST be same in all subproje
         return Collections.singletonMap("status", "Out of service");
     }
 
+    // Environment variable that switches /health to a fast path. When set (to anything but
+    // "false"/"0"), getStatus() skips the emulated CPU load so /health works as a readiness probe.
+    // Leave it unset to reproduce the deliberately slow application the profiler demos exercise.
+    static final String FAST_HEALTH_ENDPOINT_ENV = "FAST_HEALTH_ENDPOINT";
+
+    static boolean fastHealthEndpoint() {
+        String value = System.getenv(FAST_HEALTH_ENDPOINT_ENV);
+        return value != null && !value.equalsIgnoreCase("false") && !value.equals("0");
+    }
+
     public Map<String, String> getStatus() {
-        tooLoong();
-        sleep();
+        if (!fastHealthEndpoint()) {
+            tooLoong();
+            sleep();
+        }
         this.metrics.timer.record((long) (100 * Math.random()), TimeUnit.MILLISECONDS);
         return Collections.singletonMap("status", this.state.recentStatus);
     }

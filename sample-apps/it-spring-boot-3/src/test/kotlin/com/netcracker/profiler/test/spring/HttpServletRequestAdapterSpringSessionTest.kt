@@ -58,6 +58,9 @@ class HttpServletRequestAdapterSpringSessionTest {
                     .copy("app.jar", "/app/app.jar")
                     .copy("agent-logback.xml", "/app/agent-logback.xml")
                     .env("NC_DIAGNOSTIC_MODE", "prod")
+                    // Serve /health without the emulated CPU load, so it works as a readiness probe.
+                    // Unset, the demo app deliberately busy-waits on /health (see Helper.getStatus).
+                    .env("FAST_HEALTH_ENDPOINT", "true")
                     .expose(8080)
                     .cmd(
                         "java",
