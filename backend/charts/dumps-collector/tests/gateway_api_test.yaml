@@ -12,7 +12,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: legacy-ingress
+      dumpsCollector.gateway.systemType: legacy-ingress
     asserts:
       - hasDocuments:
           count: 1
@@ -26,7 +26,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: gateway-api-default
+      dumpsCollector.gateway.systemType: gateway-api-default
     asserts:
       - hasDocuments:
           count: 0
@@ -35,7 +35,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: legacy-ingress,gateway-api-default
+      dumpsCollector.gateway.systemType: legacy-ingress,gateway-api-default
     asserts:
       - hasDocuments:
           count: 1
@@ -50,7 +50,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: legacy-ingress,gateway-api-default
+      dumpsCollector.gateway.systemType: legacy-ingress,gateway-api-default
       dumpsCollector.ingress.host: ingress-only.example.com
       dumpsCollector.httpRoute.host: httproute-only.eg.example.com
     asserts:
@@ -58,22 +58,22 @@ tests:
           path: spec.rules[0].host
           value: ingress-only.example.com
 
-  - it: null GATEWAY_SYSTEM_TYPE falls back to legacy Ingress
+  - it: null dumpsCollector.gateway.systemType falls back to legacy Ingress
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: null
+      dumpsCollector.gateway.systemType: null
     asserts:
       - hasDocuments:
           count: 1
       - isKind:
           of: Ingress
 
-  - it: empty GATEWAY_SYSTEM_TYPE falls back to legacy Ingress
+  - it: empty dumpsCollector.gateway.systemType falls back to legacy Ingress
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: ""
+      dumpsCollector.gateway.systemType: ""
     asserts:
       - hasDocuments:
           count: 1
@@ -92,7 +92,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: legacy-ingress
+      dumpsCollector.gateway.systemType: legacy-ingress
     asserts:
       - hasDocuments:
           count: 0
@@ -101,7 +101,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: gateway-api-default
+      dumpsCollector.gateway.systemType: gateway-api-default
     asserts:
       - hasDocuments:
           count: 1
@@ -133,7 +133,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: legacy-ingress,gateway-api-default
+      dumpsCollector.gateway.systemType: legacy-ingress,gateway-api-default
     asserts:
       - hasDocuments:
           count: 1
@@ -145,7 +145,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: gateway-api-default
+      dumpsCollector.gateway.systemType: gateway-api-default
       dumpsCollector.ingress.host: ingress-only.example.com
       dumpsCollector.httpRoute.host: httproute-only.eg.example.com
     asserts:
@@ -155,13 +155,13 @@ tests:
           path: spec.hostnames[0]
           value: httproute-only.eg.example.com
 
-  - it: PEER_NAMESPACE uses edge-router with default CONTROLLER_NAMESPACE
+  - it: blueGreen peerNamespace uses edge-router with default controllerNamespace
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: gateway-api-default
-      PEER_NAMESPACE: peer-ns
-      CONTROLLER_NAMESPACE: ""
+      dumpsCollector.gateway.systemType: gateway-api-default
+      dumpsCollector.gateway.blueGreen.peerNamespace: peer-ns
+      dumpsCollector.gateway.blueGreen.controllerNamespace: ""
     asserts:
       - hasDocuments:
           count: 1
@@ -178,13 +178,13 @@ tests:
           path: spec.parentRefs[0].namespace
           value: bluegreen-controller
 
-  - it: PEER_NAMESPACE uses explicit CONTROLLER_NAMESPACE
+  - it: blueGreen peerNamespace uses explicit controllerNamespace
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: gateway-api-default
-      PEER_NAMESPACE: peer-ns
-      CONTROLLER_NAMESPACE: my-bg-controller
+      dumpsCollector.gateway.systemType: gateway-api-default
+      dumpsCollector.gateway.blueGreen.peerNamespace: peer-ns
+      dumpsCollector.gateway.blueGreen.controllerNamespace: my-bg-controller
     asserts:
       - equal:
           path: spec.parentRefs[0].group
@@ -203,7 +203,7 @@ tests:
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: gateway-api-default
+      dumpsCollector.gateway.systemType: gateway-api-default
       tlsConfig.generateCerts.enabled: true
     asserts:
       - hasDocuments:
@@ -227,20 +227,45 @@ tests:
           path: spec.tls.insecureSkipVerify
           value: true
 
-  - it: null GATEWAY_SYSTEM_TYPE renders no HTTPRoute
+  - it: TLS enabled uses configurable backendTls settings
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: null
+      dumpsCollector.gateway.systemType: gateway-api-default
+      tlsConfig.generateCerts.enabled: true
+      dumpsCollector.httpRoute.backendTls:
+        insecureSkipVerify: false
+        sni: cloud-profiler-dumps-collector.test-ns.svc.cluster.local
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentSelector:
+          path: kind
+          value: Backend
+        equal:
+          path: spec.tls.insecureSkipVerify
+          value: false
+      - documentSelector:
+          path: kind
+          value: Backend
+        equal:
+          path: spec.tls.sni
+          value: cloud-profiler-dumps-collector.test-ns.svc.cluster.local
+
+  - it: null dumpsCollector.gateway.systemType renders no HTTPRoute
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: null
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: empty GATEWAY_SYSTEM_TYPE renders no HTTPRoute
+  - it: empty dumpsCollector.gateway.systemType renders no HTTPRoute
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
-      GATEWAY_SYSTEM_TYPE: ""
+      dumpsCollector.gateway.systemType: ""
     asserts:
       - hasDocuments:
           count: 0

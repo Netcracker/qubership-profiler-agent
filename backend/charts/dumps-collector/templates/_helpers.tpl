@@ -29,19 +29,27 @@ app.kubernetes.io/component: backend
 {{/******************************************************************************************************************/}}
 
 {{/*
+Gateway system type (legacy-ingress / gateway-api-default).
+*/}}
+{{- define "gateway.systemType" -}}
+{{- default .Values.dumpsCollector.gateway.systemType | default "legacy-ingress" -}}
+{{- end -}}
+
+{{/*
 Gateway API parentRefs for HTTPRoute and similar resources.
 */}}
 {{- define "gateway.parentRefs" -}}
-{{- if (default "" .Values.PEER_NAMESPACE) -}}
+{{- $peerNamespace := default .Values.dumpsCollector.gateway.blueGreen.peerNamespace | default "" }}
+{{- if $peerNamespace -}}
 - group: gateway.networking.k8s.io
   kind: Gateway
   name: edge-router
-  namespace: {{ .Values.CONTROLLER_NAMESPACE | default "bluegreen-controller" }}
+  namespace: {{ default .Values.dumpsCollector.gateway.blueGreen.controllerNamespace | default "bluegreen-controller" }}
 {{- else -}}
 - group: gateway.networking.k8s.io
   kind: Gateway
-  name: {{ .Values.GATEWAY_SYSTEM_NAME | default "default-external-gateway" }}
-  namespace: {{ .Values.GATEWAY_SYSTEM_NAMESPACE | default "gateway-system" }}
+  name: {{ default .Values.dumpsCollector.gateway.externalGateway.name | default "default-external-gateway" }}
+  namespace: {{ default .Values.dumpsCollector.gateway.externalGateway.namespace | default "gateway-system" }}
 {{- end -}}
 {{- end -}}
 
