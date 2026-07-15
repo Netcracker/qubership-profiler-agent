@@ -123,7 +123,7 @@ stateDiagram-v2
     FATAL --> [*]: exit non-zero, kubelet restarts
 ```
 
-**Readiness behaviour:**
+**Readiness behavior:**
 
 - `INIT`, `LOADING`, `RECOVERY`, `DRAINING`, `TERMINATING`, `FATAL` → readiness probe `503`.
 - `READY` → readiness probe `200`.
@@ -215,7 +215,7 @@ sequenceDiagram
     Query-->>Client: { calls: [...], next_cursor, partial: false }
 ```
 
-**Key behaviours visible:**
+**Key behaviors visible:**
 
 - Three parallel reads, all bounded by `PROFILER_FANOUT_TIMEOUT`. Partial failure → `partial: true`, not an error.
 - Dedup is unconditional, even when sticky TCP "should" prevent dupes — protects against replica transitions, retries, and overlap window.

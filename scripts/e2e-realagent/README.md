@@ -64,7 +64,7 @@ Environment knobs (all optional):
 
 The agent switches from local-file dumps to the TCP collector purely because `REMOTE_DUMP_HOST` is set. From `dumper/.../Dumper.java`:
 
-```
+```text
 remoteConfigured  = isNotEmpty(REMOTE_DUMP_HOST)
 localDumpEnabled  = forceLocalDump || !remoteConfigured
 ```
@@ -81,7 +81,7 @@ Six assertions fail, three per bug.
 
 Bug A — Call A:
 
-```
+```text
 method:      void com.acme.Svc.語한🔥_handle() ...   ->   void com.acme.Svc.����_handle() ...
 param key:   param.語한🔥                             ->   param.����
 param value: value-語한🔥-tail                        ->   value-����-tail
@@ -89,7 +89,7 @@ param value: value-語한🔥-tail                        ->   value-����
 
 Bug B — Call B, where a single empty word shifts every later id by one:
 
-```
+```text
 method:      void com.acme.Svc.plainAsciiHandleB() ...   ->   param.b.alpha
 param.b.alpha -> value-b-alpha                            ->   value-b-alpha bound under param.b.beta
 param.b.beta  -> value-b-beta                             ->   value-b-alpha
@@ -102,15 +102,20 @@ param.b.beta  -> value-b-beta                             ->   value-b-alpha
 
 ## v3.1.3 variant: the legacy `gc` stream
 
-A second, separate harness is the regression gate for a different bug: agents built before v3.1.4 register an eighth `gc` stream unconditionally whenever they stream directly to a collector, regardless of whether GC-log harvesting is even enabled (`Dumper.java`'s `gcOs`, deleted in commit `ac804ee3` together with `GCDumper` when GC-log collection moved to `diagtools`). Before the fix in `backend/libs/protocol/streams.go` / `backend/libs/collector/ingest/streams.go`, the collector treated `gc` as an unknown stream and tore the WHOLE connection down on it — so a pre-v3.1.4 agent wrote no data at all, not just its GC-log bytes.
+A second, separate harness is the regression gate for a different bug: agents built before v3.1.4 register an eighth `gc` stream unconditionally whenever they stream directly to a collector, regardless of whether GC-log harvesting is even enabled (`Dumper.java`'s `gcOs`, deleted in commit `ac804ee3` together with `GCDumper` when GC-log collection moved to `diagtools`).
+Before the fix in `backend/libs/protocol/streams.go` / `backend/libs/collector/ingest/streams.go`, the collector treated `gc` as an unknown stream and tore the WHOLE connection down on it — so a pre-v3.1.4 agent wrote no data at all, not just its GC-log bytes.
 
-Because v3.1.4 removed the `gc` stream entirely, HEAD can no longer reproduce the bug. Rather than building the agent from the `v3.1.3` git tag (a full old-tag Gradle build, including every plugin), `realagent_v313_test.go` downloads the pre-built v3.1.3 release straight from Maven Central: `org.qubership.profiler:qubership-profiler-installer:3.1.3` (the zip — the exact `lib/` + `config/` layout `extractInstaller` produces locally, including the shaded `lib/qubership-profiler-runtime.jar` that actually carries `Dumper`/`GCDumper`) and `org.qubership.profiler:qubership-profiler-test-app:3.1.3` (the plain jar). Both downloads are verified against Maven Central's published SHA-1 sidecars. It runs the v3.1.3 test-app's plain `Main` class (that tag predates `AdversarialMain`) under a config (`config/_config-v313.xml`) that turns bytecode instrumentation ON for the test-app package — the opposite of `_config.xml`'s `<do-not-profile/>`, since `Main` relies on ordinary instrumentation rather than the programmatic `Profiler` API.
+Because v3.1.4 removed the `gc` stream entirely, HEAD can no longer reproduce the bug. Rather than building the agent from the `v3.1.3` git tag (a full old-tag Gradle build, including every plugin), `realagent_v313_test.go` downloads the pre-built v3.1.3 release straight from Maven Central:
+`org.qubership.profiler:qubership-profiler-installer:3.1.3` (the zip — the exact `lib/` + `config/` layout `extractInstaller` produces locally, including the shaded `lib/qubership-profiler-runtime.jar` that actually carries `Dumper`/`GCDumper`) and `org.qubership.profiler:qubership-profiler-test-app:3.1.3` (the plain jar).
+Both downloads are verified against Maven Central's published SHA-1 sidecars.
+It runs the v3.1.3 test-app's plain `Main` class (that tag predates `AdversarialMain`) under a config (`config/_config-v313.xml`) that turns bytecode instrumentation ON for the test-app package — the opposite of `_config.xml`'s `<do-not-profile/>`, since `Main` relies on ordinary instrumentation rather than the programmatic `Profiler` API.
 
-Note: `qubership-profiler-runtime`'s own plain Maven Central jar is a near-empty aggregator (the `runtime` module has no sources of its own — it only shades `dumper` + `instrumenter` together via `com.gradleup.shadow`, and the `java-published-library` convention publishes the plain, unshaded jar). The functional 14 MB+ shaded jar only exists inside the `qubership-profiler-installer` distribution zip, which is why this harness fetches that zip rather than assembling `lib/` from the individual module artifacts.
+Note: `qubership-profiler-runtime`'s own plain Maven Central jar is a near-empty aggregator (the `runtime` module has no sources of its own — it only shades `dumper` + `instrumenter` together via `com.gradleup.shadow`, and the `java-published-library` convention publishes the plain, unshaded jar).
+The functional 14 MB+ shaded jar only exists inside the `qubership-profiler-installer` distribution zip, which is why this harness fetches that zip rather than assembling `lib/` from the individual module artifacts.
 
 | File | Role |
 | --- | --- |
-| `backend/libs/tests/smoke_realagent/realagent_v313_test.go` | The `//go:build smoke_realagent_v313` test. Downloads the v3.1.3 installer zip + test-app jar from Maven Central (`fetchV313Agent`), runs the old `Main` class via the shared `runJavaAgent`, then polls `/api/v1/calls` and asserts at least one call from this run's namespace/service landed — proving the connection survived the `gc` stream. |
+| `backend/libs/tests/smoke_realagent/realagent_v313_test.go` | The `//go:build smoke_realagent_v313` test. Downloads the v3.1.3 installer zip + test-app jar from Maven Central (`fetchV313Agent`), runs the old `Main` class via the shared `runJavaAgent`, then polls `/api/v1/calls` and asserts ≥1 call from this run's namespace/service landed, proving the connection survived the `gc` stream. |
 | `scripts/e2e-realagent/config/_config-v313.xml` | Profiler config. Enables instrumentation for `com.netcracker.profilerTest.testapp.**` (default is off until a rule opts a class in). |
 
 Run it (needs Docker for the backend stack and a JRE to run the downloaded agent — no JDK or Gradle build required for this variant):

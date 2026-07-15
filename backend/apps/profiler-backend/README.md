@@ -16,7 +16,7 @@ states, and the process wiring.
 Every subcommand serves Prometheus `/metrics`: `collect` on the internal port
 (scrapable through LOADING/RECOVERY), `query` on the external port, `maintain`
 on `PROFILER_METRICS_PORT` in loop mode (`--run-now` exits too fast to
-scrape). The series names are a stable contract — the catalogue lives in
+scrape). The series names are a stable contract — the catalog lives in
 `charts/profiler-backend/README.md`.
 
 ## Quick start (docker-compose)
@@ -32,9 +32,9 @@ The services create the `profiler-data` bucket themselves on first connect.
 
 ## Configuration
 
-Everything comes from the environment. The authoritative catalogues are
+Everything comes from the environment. The authoritative catalogs are
 `01-write-contract.md` §9, `02-read-contract.md` §9, and `03-lifecycle.md`
-§10; the wiring parses the subset the composed services honour.
+§10; the wiring parses the subset the composed services honor.
 
 ### Both subcommands
 

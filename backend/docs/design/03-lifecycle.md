@@ -287,7 +287,7 @@ The `all` mode is documented as **dev-only**; production uses three separate k8s
 ## 11. What this contract does NOT cover
 
 - **k8s manifests** (StatefulSet, Headless Service, PVC templates, probe wiring) → `04-storage-layout.md`.
-- **Agent reconnection behaviour** (timing, jitter, backoff) — set by the agent, not the collector. Out of scope here.
+- **Agent reconnection behavior** (timing, jitter, backoff) — set by the agent, not the collector. Out of scope here.
 - **maintenance job specifics** (compaction algorithms, retention enforcement loop) — covered briefly in `profiler-plan.md`, detailed when Stage 4 begins.
 - **Backpressure to the agent** when the collector is overloaded — the protocol has no graceful backpressure signal. The collector's only lever is refusing `RCV_DATA` with `ACK_ERROR` under the pending-upload budget (`01-write-contract.md` §4.6), which the agent answers by dropping the refused window and reconnecting; the refused bytes are counted and alerted on. A protocol-level signal remains a future C-track item in `profiler-plan.md` (C2 runtime config).
 

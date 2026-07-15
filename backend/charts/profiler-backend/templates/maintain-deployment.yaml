@@ -4,7 +4,7 @@
 {{- if eq .Values.maintain.mode "deployment" }}
 # Singleton maintenance loop (03-lifecycle.md §8.1). One replica is enough —
 # and correct: two maintainers PUT identical objects (deterministic keys), so
-# this is an optimisation, not a lock.
+# this is an optimization, not a lock.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -51,7 +51,7 @@ The entry screen. Pick services for a time range, then read their calls. Filter-
 
 ### 2.1 Left rail — service selection
 
-| Element | Behaviour |
+| Element | Behavior |
 |---------|-----------|
 | Search | Filters the tree by service name; essential at cluster scale. |
 | Namespace row | Collapsible group; not selectable itself. |
@@ -83,7 +83,7 @@ therefore carries only rail-selection edits.
 The metrics columns beyond CPU/Calls are the dropped-and-restored set (08 R1). Title shows the method plus a
 tag for `sql`, `error`, and similar.
 
-| Control | Behaviour |
+| Control | Behavior |
 |---------|-----------|
 | Duration chips | `All`, `>10ms`, `>100ms`, `>500ms`, `>3s`, `>5s`. Default `>500ms`, so page one is not sub-millisecond noise. Maps to `duration_min_ms`. This is the v1 "slowest" affordance (true ranking is 08 R2). |
 | Errors only | Toggle → `error_only=true`. |
@@ -131,11 +131,11 @@ Each row is a merged node (08 R5–R7):
 | Duration bar | Proportional to the node's share. |
 | Metrics | `total (self)` duration, `inv`, `×N` direct executions, child `calls` — every metric as self and total. |
 | Signature | `Class.method(args)`; `source:line` and `jar` parse from the method string on Ctrl+hover. |
-| Category | A colour spanning the tagged subtree, plus a badge (§3.5). |
+| Category | A color spanning the tagged subtree, plus a badge (§3.5). |
 
 **Params under a node** are a mini-tree, not flat values (08 R11): metadata rows (`node.name`, `java.thread`,
 `memory.allocated`, …) and aggregated `sql` groups — top shapes by time plus an `::other` bucket, similar SQL
-grouped by a normalised signature, binds nested under their SQL. Rendered inline and summarised in the
+grouped by a normalized signature, binds nested under their SQL. Rendered inline and summarized in the
 Parameters tab.
 
 ### 3.4 Per-node operations
@@ -148,7 +148,7 @@ total duration and suspension, invocations, average, `source jar`, and `line`.
 ### 3.5 Hotspots and categories
 
 **Setup categories** tags a method by pattern; the category propagates down its whole subtree (a child tag
-overrides) and colours it. **Hotspots** is a flat self-time profile; when categories are set it groups by
+overrides) and colors it. **Hotspots** is a flat self-time profile; when categories are set it groups by
 category first, then flat-profiles within — so a business operation's share of time and its SQL read directly
 (07 §5.3).
 
@@ -163,7 +163,7 @@ the same degenerate-frame skipping.
 A tab listing the pod-restarts behind the current selection: `namespace / service / pod`, restart time, the
 data time range (`time_min_ms`–`time_max_ms`), and a live/closed marker. Source: `/pods`. Diagnostic dumps
 (thread, TOP, GC, heap) are not browsed here — each pod row links out to `dumps-collector`, which owns their
-listing and download, so the user does not lose access. Analysing a dump as a tree is deferred (07 §8, 08 §10).
+listing and download, so the user does not lose access. Analyzing a dump as a tree is deferred (07 §8, 08 §10).
 
 ## 5. States
 
