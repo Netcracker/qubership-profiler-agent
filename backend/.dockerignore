@@ -1,0 +1,6 @@
+# Keep the npm workspace out of the build context: the ui-builder stage
+# installs its own node_modules, and dist regenerates inside the image.
+apps/ui/node_modules
+apps/ui/dist
+apps/ui/coverage
+apps/ui/tsconfig.tsbuildinfo

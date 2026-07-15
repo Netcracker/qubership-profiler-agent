@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 
@@ -27,6 +28,10 @@ type (
 		HotDiscovery hot.Discovery
 		// Metrics receives the query Prometheus series; nil disables them.
 		Metrics *Metrics
+		// UI is the built single-page app to serve at /ui (07 §6); nil
+		// leaves the route unregistered. Production wiring passes
+		// apps/ui.Dist(); tests pass an fstest.MapFS.
+		UI fs.FS
 	}
 
 	// Service is the running query API: stateless, no PV (02 §1). The
@@ -40,6 +45,7 @@ type (
 		dicts     *dictCache
 		echo      *echo.Echo
 		metrics   *Metrics
+		ui        fs.FS
 	}
 )
 
@@ -56,6 +62,7 @@ func New(opts Options) *Service {
 		dicts:   newDictCache(),
 		metrics: opts.Metrics,
 	}
+	s.ui = opts.UI
 	s.discovery = opts.HotDiscovery
 	if s.discovery == nil && cfg.CollectorService != "" {
 		s.discovery = hot.DNSDiscovery{Service: cfg.CollectorService, Port: cfg.CollectorPort}
