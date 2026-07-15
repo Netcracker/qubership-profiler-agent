@@ -10,17 +10,22 @@ const (
 	eventTag    = 2
 	eventFinish = 3
 
-	paramInline = 0
+	paramInline   = 0
+	paramBig      = 1
+	paramBigDedup = 1 | 2
 )
 
 // TraceEvent is one event inside a logical trace chunk. DeltaMs is the
 // event-time delta carried in the header byte (plus a varint continuation when
 // it does not fit in five bits).
 type TraceEvent struct {
-	kind    byte
-	DeltaMs int
-	TagId   int    // ENTER: method id; TAG: param id
-	Value   string // TAG only: inline value
+	kind      byte
+	paramType byte
+	DeltaMs   int
+	TagId     int    // ENTER: method id; TAG: param id
+	Value     string // TAG only: inline value
+	BigSeq    int    // TAG with a big-param reference: value-stream file index
+	BigOffset int    // TAG with a big-param reference: offset within the file
 }
 
 // Enter encodes a method-enter event for the given dictionary method id.
@@ -35,7 +40,18 @@ func Exit(deltaMs int) TraceEvent {
 
 // Tag encodes an inline-parameter tag event (PARAM_INLINE).
 func Tag(deltaMs, tagId int, value string) TraceEvent {
-	return TraceEvent{kind: eventTag, DeltaMs: deltaMs, TagId: tagId, Value: value}
+	return TraceEvent{kind: eventTag, paramType: paramInline, DeltaMs: deltaMs, TagId: tagId, Value: value}
+}
+
+// BigTag encodes a big-parameter tag event: a (rolling_seq, offset) reference
+// into the xml value stream for PARAM_BIG, or into the sql stream when dedup
+// is set (PARAM_BIG_DEDUP; 01-write-contract.md §4.4).
+func BigTag(deltaMs, tagId int, dedup bool, seq, offset int) TraceEvent {
+	pt := byte(paramBig)
+	if dedup {
+		pt = paramBigDedup
+	}
+	return TraceEvent{kind: eventTag, paramType: pt, DeltaMs: deltaMs, TagId: tagId, BigSeq: seq, BigOffset: offset}
 }
 
 // TraceChunk is one logical trace chunk: a 16-byte [threadId, startTime]
@@ -85,7 +101,28 @@ func putTraceEvent(buf *bytes.Buffer, e TraceEvent) {
 	}
 	putVarInt(buf, uint64(e.TagId))
 	if e.kind == eventTag {
-		buf.WriteByte(paramInline)
-		putVarString(buf, e.Value)
+		buf.WriteByte(e.paramType)
+		switch e.paramType {
+		case paramBig, paramBigDedup:
+			putVarInt(buf, uint64(e.BigSeq))
+			putVarInt(buf, uint64(e.BigOffset))
+		default:
+			putVarString(buf, e.Value)
+		}
 	}
+}
+
+// ValueStream encodes one sql / xml value-stream file the way the agent
+// writes it: a bare concatenation of var-strings with no file header
+// (Dumper.initStreams gives the big-param streams no fileRotated content).
+// It returns the byte offset of every value, so a test can point a BigTag's
+// (rolling_seq, offset) reference at it.
+func ValueStream(values []string) (data []byte, offsets []int64) {
+	buf := &bytes.Buffer{}
+	offsets = make([]int64, 0, len(values))
+	for _, v := range values {
+		offsets = append(offsets, int64(buf.Len()))
+		putVarString(buf, v)
+	}
+	return buf.Bytes(), offsets
 }

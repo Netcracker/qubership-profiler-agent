@@ -615,6 +615,72 @@ func (m *metaDb) InsertCall(bucket int64, row CallIndexRow) error {
 		row.CpuTimeMs, row.WaitTimeMs, row.MemoryUsed, row.ChildCalls, row.ParamsJson, row.CallsWalOffset).Error
 }
 
+// MinTsMs reports one partition's earliest ts_ms, or nil when it is empty.
+func (m *metaDb) MinTsMs(bucket int64) (*int64, error) {
+	db, err := m.partition(bucket)
+	if err != nil {
+		return nil, err
+	}
+	var min *int64
+	err = db.Raw(`SELECT MIN(ts_ms) FROM call_index`).Scan(&min).Error
+	return min, err
+}
+
+// CallsInWindow reads one partition's rows with ts_ms in [fromMs, toMs).
+func (m *metaDb) CallsInWindow(bucket, fromMs, toMs int64) ([]CallIndexRow, error) {
+	db, err := m.partition(bucket)
+	if err != nil {
+		return nil, err
+	}
+	var rows []CallIndexRow
+	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
+		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+		cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
+		FROM call_index WHERE ts_ms >= ? AND ts_ms < ?`, fromMs, toMs).Scan(&rows).Error
+	return rows, err
+}
+
+// FindCall probes one partition for a PK; the point SELECT rides the
+// partition's primary key.
+func (m *metaDb) FindCall(bucket int64, podRestart string, traceFileIndex, bufferOffset, recordIndex int) (CallIndexRow, bool, error) {
+	db, err := m.partition(bucket)
+	if err != nil {
+		return CallIndexRow{}, false, err
+	}
+	var rows []CallIndexRow
+	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
+		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+		cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
+		FROM call_index WHERE pod_restart = ? AND trace_file_index = ? AND buffer_offset = ? AND record_index = ?`,
+		podRestart, traceFileIndex, bufferOffset, recordIndex).Scan(&rows).Error
+	if err != nil || len(rows) == 0 {
+		return CallIndexRow{}, false, err
+	}
+	return rows[0], true, nil
+}
+
+// PodWindows reports one partition's per-pod-restart [min, max] ts_ms bounds.
+func (m *metaDb) PodWindows(bucket int64) (map[string][2]int64, error) {
+	db, err := m.partition(bucket)
+	if err != nil {
+		return nil, err
+	}
+	var rows []struct {
+		PodRestart string
+		TsMin      int64
+		TsMax      int64
+	}
+	if err := db.Raw(`SELECT pod_restart, MIN(ts_ms) AS ts_min, MAX(ts_ms) AS ts_max
+		FROM call_index GROUP BY pod_restart`).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string][2]int64, len(rows))
+	for _, r := range rows {
+		out[r.PodRestart] = [2]int64{r.TsMin, r.TsMax}
+	}
+	return out, nil
+}
+
 // Buckets lists the known call-index partitions.
 func (m *metaDb) Buckets() ([]int64, error) {
 	var buckets []int64

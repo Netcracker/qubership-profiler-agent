@@ -59,7 +59,7 @@ URL serialization (path segments are colon-separated, percent-encoded):
 
 JSON bodies use the nested-object form.
 
-A bare PK carries no time or retention class, so `/calls/{pk}/tree` and `/calls/{pk}/trace` cannot locate a cold file on their own. A client fetching a cold call passes the `ts_ms` and `retention_class` from the `/calls` response (or an opaque `call_ref` bundling them), so the file is found by range-overlap (§5.1) without a full scan.
+A bare PK carries no time or retention class, so `/calls/{pk}/tree` and `/calls/{pk}/trace` cannot locate a cold file on their own. A client fetching a cold call passes the `ts_ms` and `retention_class` from the `/calls` response as query parameters of the same names (`?ts_ms=...&retention_class=...`; an opaque `call_ref` bundling them stays an option for later), so the file is found by range-overlap (§5.1) without a full scan. Without the `ts_ms` hint, a call outside the hot window answers `404` whose detail names the missing hint — the server never falls back to an unbounded scan.
 
 ### 2.3 GET /calls — filter and pagination
 
@@ -116,7 +116,7 @@ Response:
 
 `/calls` paginates by keyset (seek), not by offset. The cursor encodes a position in a total order that every tier shares, so a call that migrates from the hot tier to the cold tier between two page fetches keeps its place.
 
-**Ordering.** Rows come back by `ts_ms` descending, then by PK ascending as the tiebreaker (`ts_ms` is not unique — many calls share a millisecond). The PK compares component by component in binary (byte-wise) collation. Both tiers must produce byte-identical order: the SQLite `ORDER BY` and the cold-tier k-way merge apply the same binary collation to the `pod_*` string components, not a locale-aware one, or the string parts diverge across tiers. Alternative sort orders (for example by `duration_ms`) are out of scope for the MVP; `/stats` covers ranked-by-duration views.
+**Ordering.** Rows come back by `ts_ms` descending, then by PK ascending as the tiebreaker (`ts_ms` is not unique — many calls share a millisecond). The PK compares component by component: the `pod_*` string components byte-wise (not locale-aware), then `restart_time_ms` and the integer pointer components numerically. Both tiers must produce this same total order, so the query service applies one shared component-wise comparator to the hot rows and the cold-tier k-way merge alike. A hot source must not delegate ordering to a SQLite `ORDER BY` over a concatenated `pod_restart` string: the `/` separators and a text-compared `restart_time_ms` diverge from the component-wise order and silently break cross-tier merge and pagination. Alternative sort orders (for example by `duration_ms`) are out of scope for the MVP; `/stats` covers ranked-by-duration views.
 
 **Why migration is not a special case.** `ts_ms` and the PK are immutable and identical in the SQLite call index and in the parquet row. Keyset pagination seeks with `WHERE (ts_ms, pk) < (cursor.ts_ms, cursor.pk)` against every source, so a migrated call is found by whichever tier now holds it, at the same position; the overlap window (§4.3) and PK dedup (§6) collapse the duplicate. Crossing the hot→cold boundary as pagination goes deeper is therefore transparent, and it rests on the zero-gap guarantee of §4.3: a flushed call is visible from at least one tier from the moment it leaves in-memory state.
 
@@ -180,7 +180,7 @@ Two consumption paths:
 - **`/calls/{pk}/tree` — canonical path** for UI, MCP, CLI. Server pre-aggregates the per-call blob into a tree, encodes as MessagePack with stable int-keyed maps and a version envelope. Self-contained (the response carries its own per-tree dictionary inline). Hand-written decoders in any language are ~50–80 LOC.
 - **`/calls/{pk}/trace` + `/pods/{pod-restart}/dictionary` — advanced path** for consumers that want the raw wire format (third-party tooling re-using our Go decoder, full-fidelity offline analysis). Smaller payload, but more client code to maintain.
 
-Big parameter values (`sql` / `xml`) are the one asymmetry between the two paths. The blob does not inline them — it holds `(rolling_seq, offset)` references into the value streams (§3, `01-write-contract.md` §4.4). `/tree` resolves each reference and inlines the value string in the returned tree, so its consumers need nothing else. The raw `/trace` blob keeps the references; the MVP does not expose the value streams over a separate endpoint, so an advanced consumer resolves big params only against a full dump. Add a `/calls/{pk}/values` endpoint if a raw-path consumer needs them.
+Big parameter values (`sql` / `xml`) are the one asymmetry between the two paths. The blob does not inline them — it holds `(rolling_seq, offset)` references into the value streams (§3, `01-write-contract.md` §4.4). `/tree` resolves each reference and inlines the value string in the returned tree, so its consumers need nothing else. On the hot tier the references resolve against the replica's value segments (via the internal values endpoint, §3); on the cold tier they resolve against the values the seal pass inlined into the row's `big_params_json` column (`01-write-contract.md` §4.4, §5.2) — the value segments themselves never reach S3. A reference that cannot be resolved (its segment was evicted before the seal, or the file predates the column) is marked explicitly in the tree (`unresolved`, §2.5.3) with the reference text in the value slot; a value is never dropped silently. The raw `/trace` blob keeps the references; the MVP does not expose the value streams over a separate external endpoint, so an advanced consumer resolves big params only against a full dump. Add an external `/calls/{pk}/values` endpoint if a raw-path consumer needs them.
 
 The decision in MVP: ship `/tree` as the canonical contract. `/trace` + `/dictionary` remain as the secondary, lower-traffic interface — useful, but not the default.
 
@@ -249,6 +249,7 @@ The `methods` and `params` arrays carry only strings that this specific tree ref
 |---|---|---|---|---|
 | 0 | `paramIdx` | int | yes | Index into top-level `params`. |
 | 1 | `values` | `[str]` | yes | Multi-value list (`01-write-contract.md` §5.2 carries `params` as `MAP<UTF8, LIST<UTF8>>`). |
+| 2 | `unresolved` | `[int]` | no | Indexes into `values` whose big-parameter reference did not resolve (§2.5); such a value slot carries the reference text `<stream>:<seq>:<offset>` instead of the payload. Omitted when every value resolved. |
 
 **Reserved-number registry.** When a field is removed in a future version, its number is added below and never re-used. (Empty in v1.)
 
@@ -299,6 +300,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 |---|---|---|
 | GET | `/internal/v1/pods` | Pods/restarts this replica holds data for. Used by `query` for targeted fan-out. |
 | GET | `/internal/v1/pods/{pod-restart}/dictionary` | Same shape as `/api/v1/pods/{pod-restart}/dictionary` (§2.6). For live pod-restarts hosted by this replica. |
+| GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
 | GET | `/internal/v1/calls` | Same params as `/api/v1/calls`; returns only rows this replica holds. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |
 | GET | `/internal/v1/calls/{pk}/trace` | Blob from this replica. |
@@ -308,7 +310,7 @@ Sources this replica reads from when serving `/internal/v1/*`:
 
 1. The SQLite call index — filter, sort, and paginate `/internal/v1/calls` over it; it holds one row per call (pointer + filter columns). It is partitioned by time bucket into `calls-<bucket>.sqlite` files (`01-write-contract.md` §8); the replica ATTACHes the partitions overlapping the query range.
 2. The gzip trace segments in `trace/*.gz` — `/internal/v1/calls/{pk}/trace` decompresses the segment(s) covering the call (located via the SQLite segment catalog) and slices the blob.
-3. The gzip value segments in `sql/*.gz` and `xml/*.gz` — the blob carries `(rolling_seq, offset)` references into them (`PARAM_BIG_DEDUP` → `sql`, `PARAM_BIG` → `xml`; `01-write-contract.md` §4.4). `/calls/{pk}/tree` resolves these references into the tree it returns; the raw `/calls/{pk}/trace` blob keeps them and an advanced consumer resolves them itself (§2.5).
+3. The gzip value segments in `sql/*.gz` and `xml/*.gz` — the blob carries `(rolling_seq, offset)` references into them (`PARAM_BIG_DEDUP` → `sql`, `PARAM_BIG` → `xml`; `01-write-contract.md` §4.4). The values endpoint reads them for the `/calls/{pk}/tree` rendering in `query` (§2.5); the raw `/calls/{pk}/trace` blob keeps the references and an advanced consumer resolves them itself.
 4. Recently sealed local parquet files (post-flush, pre-deletion; retained until `hot_retention` past flush — see §4.2), for calls already moved out of the hot index.
 
 Open parquet writers are NOT a query source — an unsealed parquet file has no footer and is not randomly readable. The replica never reads from S3 to serve `/internal/v1/*`. S3 is `query`'s job via the cold path.

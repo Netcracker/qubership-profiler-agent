@@ -50,4 +50,13 @@ type CallV2 struct {
 	Params          Parameters `parquet:"name=params, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
 	TraceBlob       *string    `parquet:"name=trace_blob, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
 	TruncatedReason *string    `parquet:"name=truncated_reason, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY, repetitiontype=OPTIONAL"`
+
+	// big_params_json inlines the call's big-parameter values, resolved at
+	// seal from the sql / xml value segments the blob references — the
+	// segments themselves never reach S3, so this column is the cold tier's
+	// only source for them (01-write-contract.md §4.4). A JSON object
+	// {"<stream>:<seq>:<offset>": value}; NULL when the call has none. A
+	// single scalar column (not a MAP) so the list-path projection can drop
+	// it the same way it drops trace_blob.
+	BigParamsJson *string `parquet:"name=big_params_json, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
 }

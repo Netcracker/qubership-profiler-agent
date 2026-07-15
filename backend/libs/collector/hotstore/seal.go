@@ -3,9 +3,7 @@ package hotstore
 import (
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +17,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/pipe"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
 	"github.com/pkg/errors"
 	"github.com/xitongsys/parquet-go-source/local"
@@ -68,13 +67,17 @@ type (
 	}
 
 	// sealRow carries one call through the pass: the index row, the full WAL
-	// record, and the blob assembly outcome.
+	// record, the blob assembly outcome, and the big-parameter references the
+	// blob carries (resolved into big_params_json before the row is written,
+	// because the value segments never reach S3).
 	sealRow struct {
 		idx       CallIndexRow
 		wal       CallWalRecord
 		blob      *blobBuffer
 		truncated string
 		srcSegs   map[segKey]struct{}
+		bigRefs   []ValueRef
+		bigValues map[string]string
 	}
 
 	// segKey addresses one hot-store segment within a pod-restart.
@@ -95,10 +98,10 @@ type (
 )
 
 // PodRestartHash renders the short pod-restart hash used in sealed-file names
-// and S3 keys (01-write-contract.md §7).
+// and S3 keys (01-write-contract.md §7). The hash itself lives in the shared
+// model package so the cold read path resolves the same keys.
 func PodRestartHash(key PodRestartKey) string {
-	sum := sha256.Sum256([]byte(key.String()))
-	return hex.EncodeToString(sum[:4])
+	return model.PodRestartHash(key.Tuple())
 }
 
 // SealCountersSnapshot returns a copy of the process-lifetime seal metrics.
@@ -174,6 +177,7 @@ func (s *Store) Seal(ctx context.Context, key PodRestartKey, bucket int64) (Seal
 	if err := s.assembleBlobs(ctx, pr, rows, scratchDir); err != nil {
 		return SealResult{}, err
 	}
+	resolveBigValues(ctx, pr, rows)
 
 	res, err := s.writeSealedFiles(ctx, pr, bucket, rows, scratchDir)
 	if err != nil {
@@ -454,11 +458,15 @@ func (s *Store) consumeChunk(ctx context.Context, pr *PodRestart, a *assembly, s
 		case TraceTag:
 			// The blob points into the external value streams; they must
 			// survive with it (03-lifecycle.md §3.2), so they join the refcount.
+			// The full reference is kept too: the seal resolves it into
+			// big_params_json so the cold tier can inline the value (§4.4).
 			switch int(ev.ParamType) {
 			case pipe.ParamBigDedup:
 				a.row.srcSegs[segKey{StreamSql, ev.BigSeq}] = struct{}{}
+				a.row.bigRefs = append(a.row.bigRefs, ValueRef{StreamSql, ev.BigSeq, int64(ev.BigOffset)})
 			case pipe.ParamBig:
 				a.row.srcSegs[segKey{StreamXml, ev.BigSeq}] = struct{}{}
+				a.row.bigRefs = append(a.row.bigRefs, ValueRef{StreamXml, ev.BigSeq, int64(ev.BigOffset)})
 			}
 		}
 		return true
@@ -473,6 +481,39 @@ func (s *Store) consumeChunk(ctx context.Context, pr *PodRestart, a *assembly, s
 		}
 		a.done = true
 		a.row.truncate(TruncIdleTimeout)
+	}
+}
+
+// resolveBigValues inlines the big-parameter values the assembled blobs
+// reference (01-write-contract.md §6.5 step 3): every referenced sql / xml
+// segment is read once across the whole pass, and each row keeps its own
+// values keyed by the reference text. A value that fails to resolve is left
+// out — the row still seals with its blob, and /tree marks the reference
+// unresolved rather than losing it silently.
+func resolveBigValues(ctx context.Context, pr *PodRestart, rows []sealRow) {
+	var refs []ValueRef
+	for i := range rows {
+		if rows[i].truncated == "" {
+			refs = append(refs, rows[i].bigRefs...)
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	values := pr.readBigValues(ctx, refs)
+	for i := range rows {
+		row := &rows[i]
+		if row.truncated != "" || len(row.bigRefs) == 0 {
+			continue
+		}
+		for _, ref := range row.bigRefs {
+			if v, ok := values[ref]; ok {
+				if row.bigValues == nil {
+					row.bigValues = map[string]string{}
+				}
+				row.bigValues[ref.String()] = v
+			}
+		}
 	}
 }
 
@@ -704,16 +745,27 @@ func (s *Store) renderRow(pr *PodRestart, row *sealRow, class string, dict map[i
 	}
 	blobStr := string(blob)
 	v.TraceBlob = &blobStr
+	if len(row.bigValues) > 0 {
+		encoded, err := json.Marshal(row.bigValues)
+		if err != nil {
+			return nil, errors.Wrap(err, "encode big_params_json")
+		}
+		bigStr := string(encoded)
+		v.BigParamsJson = &bigStr
+	}
 	return v, nil
 }
 
 // truncate drops the row's blob and records the reason (§5.2). A NULL blob
-// sources no segment, so the row's refcount contribution is cleared too.
+// sources no segment and resolves no values, so the row's refcount
+// contribution and its big-parameter references are cleared too.
 func (r *sealRow) truncate(reason string) {
 	if r.truncated == "" {
 		r.truncated = reason
 	}
 	r.srcSegs = map[segKey]struct{}{}
+	r.bigRefs = nil
+	r.bigValues = nil
 	r.freeBlob()
 }
 

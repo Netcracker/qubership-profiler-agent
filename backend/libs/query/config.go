@@ -1,8 +1,8 @@
 // Package query composes the external read API of 02-read-contract.md: the
 // /api/v1 HTTP surface, keyset pagination cursors (§2.3.1), the wide-query
-// guard (§2.3.2), and the tier merge (§6). This Stage 1 slice wires the cold
-// S3 source only; the hot collector fan-out (§3, §4, §7) attaches in the next
-// slices, which is why the merge and cursor already speak multi-source.
+// guard (§2.3.2), the hot collector fan-out (§3, §4, §7), and the tier merge
+// with cold-preferred PK dedup (§6). The cold tier reads S3; the hot tier
+// fans out to the collector replicas discovered through the headless Service.
 package query
 
 import "time"
@@ -26,6 +26,18 @@ type Config struct {
 	// DefaultLimit / MaxLimit bound the /calls page size (02 §2.3).
 	DefaultLimit int
 	MaxLimit     int
+	// CollectorService enables the hot tier: the headless-Service name the
+	// fan-out re-resolves on every request (COLLECTOR_HEADLESS_SVC, §7.1).
+	// Empty leaves the query cold-only unless Options wires a Discovery.
+	CollectorService string
+	// CollectorPort is the replicas' internal API port
+	// (PROFILER_INTERNAL_API_PORT on the collector side, 02 §9).
+	CollectorPort int
+	// FanoutTimeout bounds each per-replica read (PROFILER_FANOUT_TIMEOUT, §7.2).
+	FanoutTimeout time.Duration
+	// OverlapMargin sizes the hot/cold overlap window the dynamic cutoff adds
+	// on top of the replicas' hot-window reports (PROFILER_OVERLAP_MARGIN, §4.3).
+	OverlapMargin time.Duration
 }
 
 // Normalize fills unset fields with the 02 §9 defaults.
@@ -53,6 +65,15 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxLimit <= 0 {
 		c.MaxLimit = 1000
+	}
+	if c.CollectorPort <= 0 {
+		c.CollectorPort = 8081
+	}
+	if c.FanoutTimeout <= 0 {
+		c.FanoutTimeout = 2 * time.Second
+	}
+	if c.OverlapMargin <= 0 {
+		c.OverlapMargin = 5 * time.Minute
 	}
 	return c
 }

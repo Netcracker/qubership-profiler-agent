@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
 )
 
@@ -323,22 +324,13 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	dayPath := utcDayPath(key.RestartTimeMs)
 	hash := PodRestartHash(key)
 
-	dict := pr.Dictionary()
-	maxId := -1
-	for id := range dict {
-		if id > maxId {
-			maxId = id
-		}
-	}
-	words := make([]string, maxId+1)
-	for id, word := range dict {
-		words[id] = word
-	}
+	words := pr.DictionaryWords()
 	dictBody, err := json.Marshal(dictionarySnapshot{Version: len(words), Methods: words, Params: words})
 	if err != nil {
 		return errors.Wrap(err, "encode dictionary snapshot")
 	}
-	dictKey := path.Join("dictionaries/v1", dayPath, hash+".json")
+	// The shared helper keeps the writer and the cold reader on one key.
+	dictKey := model.DictionarySnapshotKey(key.Tuple())
 	if err := u.putWithRetry(ctx, dictKey, func() error { return u.s3.PutBytes(ctx, dictKey, dictBody) }, stats); err != nil {
 		return err
 	}

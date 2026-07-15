@@ -8,27 +8,35 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/hot"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/oklog/run"
 )
 
 type (
-	// Options bundle the read-path configuration. The hot fan-out options
-	// (COLLECTOR_HEADLESS_SVC discovery, per-replica timeouts; 02 §7) attach
-	// in the fan-out slice.
+	// Options bundle the read-path configuration.
 	Options struct {
 		Config Config
 		// ColdStore is the S3 surface of the cold tier (02 §5). Production
 		// wiring passes NewS3ObjectReader; tests pass a fake.
 		ColdStore cold.ObjectStore
+		// HotDiscovery overrides the replica discovery of the hot tier (02
+		// §7.1). Nil falls back to DNS over Config.CollectorService; with that
+		// empty too the query stays cold-only.
+		HotDiscovery hot.Discovery
 	}
 
-	// Service is the running query API: stateless, no PV (02 §1).
+	// Service is the running query API: stateless, no PV (02 §1). The
+	// dictionary cache is a revalidation shortcut, not state — losing it only
+	// costs refetches.
 	Service struct {
-		cfg  Config
-		cold *cold.Source
-		echo *echo.Echo
+		cfg       Config
+		cold      *cold.Source
+		hot       *hot.Client
+		discovery hot.Discovery
+		dicts     *dictCache
+		echo      *echo.Echo
 	}
 )
 
@@ -36,8 +44,16 @@ type (
 func New(opts Options) *Service {
 	cfg := opts.Config.Normalize()
 	s := &Service{
-		cfg:  cfg,
-		cold: &cold.Source{Store: opts.ColdStore, ListConcurrency: cfg.ListConcurrency},
+		cfg:   cfg,
+		cold:  &cold.Source{Store: opts.ColdStore, ListConcurrency: cfg.ListConcurrency},
+		dicts: newDictCache(),
+	}
+	s.discovery = opts.HotDiscovery
+	if s.discovery == nil && cfg.CollectorService != "" {
+		s.discovery = hot.DNSDiscovery{Service: cfg.CollectorService, Port: cfg.CollectorPort}
+	}
+	if s.discovery != nil {
+		s.hot = hot.NewClient(cfg.FanoutTimeout)
 	}
 	e := echo.New()
 	e.HideBanner = true

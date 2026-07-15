@@ -8,6 +8,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 // problem is an RFC 7807 body (02 §8) with the §2.3.2 guard extensions.
@@ -25,38 +26,16 @@ type problem struct {
 
 // callsResponse is the /calls page (02 §2.3).
 type callsResponse struct {
-	Calls          []callJSON `json:"calls"`
-	NextCursor     *string    `json:"next_cursor"`
-	Partial        bool       `json:"partial"`
-	PartialReasons []string   `json:"partial_reasons"`
+	Calls          []model.CallJSON `json:"calls"`
+	NextCursor     *string          `json:"next_cursor"`
+	Partial        bool             `json:"partial"`
+	PartialReasons []string         `json:"partial_reasons"`
 }
 
-// callJSON is one §2.3 row. trace_blob_size is 0 for a truncated row and
-// null otherwise: CallV2 (01 §5.2) has no blob-size column and the list path
-// never reads trace_blob, so the cold tier cannot know the size — see the
-// stage1-progress.md open issue proposing an additive column.
-type callJSON struct {
-	PK              model.PK            `json:"pk"`
-	TsMs            int64               `json:"ts_ms"`
-	DurationMs      int32               `json:"duration_ms"`
-	Method          string              `json:"method"`
-	ThreadName      string              `json:"thread_name"`
-	CpuTimeMs       int64               `json:"cpu_time_ms"`
-	WaitTimeMs      int64               `json:"wait_time_ms"`
-	MemoryUsed      int64               `json:"memory_used"`
-	ChildCalls      int32               `json:"child_calls"`
-	ErrorFlag       bool                `json:"error_flag"`
-	RetentionClass  string              `json:"retention_class"`
-	Params          map[string][]string `json:"params"`
-	TraceBlobSize   *int64              `json:"trace_blob_size"`
-	TruncatedReason *string             `json:"truncated_reason"`
-}
-
-// podsResponse is the /pods body. 02 §2.7 pins the tuple set but not the
-// JSON shape; the member names follow the pods/v1 manifest fields (decision
-// in stage1-progress.md).
+// podsResponse is the /pods body: the §2.7 union of live (hot) and closed
+// (cold-manifest) pod-restarts on the entry shape both tiers share.
 type podsResponse struct {
-	Pods           []model.PodTuple `json:"pods"`
+	Pods           []model.PodEntry `json:"pods"`
 	Partial        bool             `json:"partial"`
 	PartialReasons []string         `json:"partial_reasons"`
 }
@@ -64,6 +43,10 @@ type podsResponse struct {
 func (s *Service) routes(e *echo.Echo) {
 	e.GET("/api/v1/calls", s.handleCalls)
 	e.GET("/api/v1/pods", s.handlePods)
+	e.GET("/api/v1/calls/:pk/trace", s.handleCallTrace)
+	// gzip is per-route: /tree wants it (02 §2.5.5), while /trace serves raw
+	// bytes with Range support, which the middleware would break.
+	e.GET("/api/v1/calls/:pk/tree", s.handleCallTree, middleware.Gzip())
 }
 
 func sendProblem(c echo.Context, p problem) error {
@@ -79,9 +62,16 @@ func badRequest(c echo.Context, detail string) error {
 	return sendProblem(c, problem{Title: "invalid request", Status: http.StatusBadRequest, Detail: detail})
 }
 
-// handleCalls serves GET /api/v1/calls (02 §2.3): validate or thaw the
-// frozen query, run the wide-query guard on page 1, discover, scan, merge,
-// and mint the next cursor.
+func gatewayTimeout(c echo.Context, reasons []string) error {
+	return sendProblem(c, problem{Title: "no data source available", Status: http.StatusGatewayTimeout,
+		Detail: strings.Join(reasons, "; ")})
+}
+
+// handleCalls serves GET /api/v1/calls (02 §2.3): validate or thaw the frozen
+// query, run the wide-query guard on page 1, then fan out to both tiers —
+// every hot replica plus the cutoff-bounded cold LIST — and k-way merge with
+// cold-preferred PK dedup (§2.3.1, §4.3, §6). The fan-out is re-issued whole
+// on every page; the cursor carries the only cross-page state.
 func (s *Service) handleCalls(c echo.Context) error {
 	ctx := c.Request().Context()
 	params := c.QueryParams()
@@ -90,7 +80,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 	var after *model.Position
 	firstPage := !params.Has("cursor")
 	if firstPage {
-		parsed, errDetail := parseCallsQuery(params)
+		parsed, errDetail := model.ParseCallsQuery(params)
 		if errDetail != "" {
 			return badRequest(c, errDetail)
 		}
@@ -117,62 +107,117 @@ func (s *Service) handleCalls(c echo.Context) error {
 		return badRequest(c, errDetail)
 	}
 
-	discovery, err := s.cold.Discover(ctx, q)
-	if err != nil {
-		return err
+	tier := s.resolveHotTier(ctx)
+	partial := append([]string{}, tier.partialReasons...)
+	succeeded, failed := 0, 0
+	if tier.resolveFailed {
+		failed++
 	}
-	if firstPage {
-		if rej := guardCost(q, discovery.Files, s.cfg.MaxScanFiles, s.cfg.MaxScanBytes); rej != nil {
-			return s.sendGuardRejection(c, rej)
+
+	// Cold tier, bounded by the dynamic cutoff (02 §4.3). A window that ends
+	// inside every replica's hot coverage skips the LIST entirely.
+	var runs [][]model.CallRow
+	more := false
+	if coldTo := tier.coldToMs(q, s.cfg.OverlapMargin.Milliseconds()); coldTo > q.FromMs {
+		coldQ := q
+		coldQ.ToMs = coldTo
+		discovery, err := s.cold.Discover(ctx, coldQ)
+		if err != nil {
+			return err
+		}
+		if firstPage {
+			if rej := guardCost(q, discovery.Files, s.cfg.MaxScanFiles, s.cfg.MaxScanBytes); rej != nil {
+				return s.sendGuardRejection(c, rej)
+			}
+		}
+		scan, err := s.cold.Calls(ctx, discovery, coldQ, after, limit)
+		if err != nil {
+			return err
+		}
+		partial = append(partial, discovery.PartialReasons...)
+		partial = append(partial, scan.PartialReasons...)
+		if discovery.Prefixes > 0 && discovery.FailedPrefixes == discovery.Prefixes {
+			failed++
+		} else {
+			succeeded++
+		}
+		if len(scan.Rows) > 0 {
+			runs = append(runs, scan.Rows)
+		}
+		more = more || scan.More
+	}
+
+	// Hot tier: one sorted run per healthy replica (02 §3, §7.2). A replica
+	// that filled its page may hold more rows past it, so it keeps next_cursor
+	// alive; the §2.3.1 termination tolerates the resulting empty last page.
+	hotRuns, hotOK, hotFail, hotReasons := s.hotCalls(ctx, tier, q, after, limit)
+	succeeded += hotOK
+	failed += hotFail
+	partial = append(partial, hotReasons...)
+	for _, run := range hotRuns {
+		if len(run) == limit {
+			more = true
 		}
 	}
-	if discovery.Prefixes > 0 && discovery.FailedPrefixes == discovery.Prefixes {
-		// The cold LIST is the only wired source; nothing produced data (02 §8).
-		return sendProblem(c, problem{Title: "no data source available", Status: http.StatusGatewayTimeout,
-			Detail: strings.Join(discovery.PartialReasons, "; ")})
+	runs = append(runs, hotRuns...)
+
+	// §8: 504 only when every attempted source failed — no data at all.
+	if succeeded == 0 && failed > 0 {
+		return gatewayTimeout(c, partial)
 	}
 
-	scan, err := s.cold.Calls(ctx, discovery, q, after, limit)
-	if err != nil {
-		return err
-	}
+	rows, mergeMore := model.MergeRuns(runs, limit)
+	more = more || mergeMore
 
 	resp := callsResponse{
-		Calls:          make([]callJSON, 0, len(scan.Rows)),
-		PartialReasons: append(discovery.PartialReasons, scan.PartialReasons...),
+		Calls:          make([]model.CallJSON, 0, len(rows)),
+		Partial:        len(partial) > 0,
+		PartialReasons: partial,
 	}
-	resp.Partial = len(resp.PartialReasons) > 0
 	if resp.PartialReasons == nil {
 		resp.PartialReasons = []string{}
 	}
-	for _, row := range scan.Rows {
-		resp.Calls = append(resp.Calls, toCallJSON(row))
+	for _, row := range rows {
+		resp.Calls = append(resp.Calls, row.JSON())
 	}
-	if scan.More && len(scan.Rows) > 0 {
-		cur := encodeCursor(q, scan.Rows[len(scan.Rows)-1].Position())
+	if more && len(rows) > 0 {
+		cur := encodeCursor(q, rows[len(rows)-1].Position())
 		resp.NextCursor = &cur
 	}
 	return c.JSON(http.StatusOK, resp)
 }
 
-// handlePods serves GET /api/v1/pods (02 §2.7); the cold set comes from the
-// pods/v1 manifests, never from parquet.
+// handlePods serves GET /api/v1/pods (02 §2.7): the union of live
+// pod-restarts from the hot replicas and closed ones from the pods/v1
+// manifests, merged on the identity tuple with widened time bounds.
 func (s *Service) handlePods(c echo.Context) error {
-	fromMs, toMs, errDetail := parseWindow(c.QueryParams())
+	ctx := c.Request().Context()
+	fromMs, toMs, errDetail := model.ParseWindow(c.QueryParams())
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
-	res, err := s.cold.Pods(c.Request().Context(), fromMs, toMs)
+
+	hotPods, hotOK, hotFail, hotReasons := s.hotPods(ctx, fromMs, toMs)
+
+	res, err := s.cold.Pods(ctx, fromMs, toMs)
 	if err != nil {
 		return err
 	}
+	succeeded, failed := hotOK, hotFail
 	if res.Prefixes > 0 && res.FailedPrefixes == res.Prefixes {
-		return sendProblem(c, problem{Title: "no data source available", Status: http.StatusGatewayTimeout,
-			Detail: strings.Join(res.PartialReasons, "; ")})
+		failed++
+	} else {
+		succeeded++
 	}
-	resp := podsResponse{Pods: res.Pods, Partial: len(res.PartialReasons) > 0, PartialReasons: res.PartialReasons}
-	if resp.Pods == nil {
-		resp.Pods = []model.PodTuple{}
+	partial := append(append([]string{}, hotReasons...), res.PartialReasons...)
+	if succeeded == 0 && failed > 0 {
+		return gatewayTimeout(c, partial)
+	}
+
+	resp := podsResponse{
+		Pods:           model.UnionPods(res.Pods, hotPods),
+		Partial:        len(partial) > 0,
+		PartialReasons: partial,
 	}
 	if resp.PartialReasons == nil {
 		resp.PartialReasons = []string{}
@@ -193,104 +238,6 @@ func (s *Service) sendGuardRejection(c echo.Context, rej *guardRejection) error 
 		p.ByClass = rej.ByClass
 	}
 	return sendProblem(c, p)
-}
-
-func toCallJSON(row model.CallRow) callJSON {
-	out := callJSON{
-		PK:             row.PK,
-		TsMs:           row.TsMs,
-		DurationMs:     row.DurationMs,
-		Method:         row.Method,
-		ThreadName:     row.ThreadName,
-		CpuTimeMs:      row.CpuTimeMs,
-		WaitTimeMs:     row.WaitTimeMs,
-		MemoryUsed:     row.MemoryUsed,
-		ChildCalls:     row.ChildCalls,
-		ErrorFlag:      row.ErrorFlag,
-		RetentionClass: row.RetentionClass,
-		Params:         row.Params,
-	}
-	if out.Params == nil {
-		out.Params = map[string][]string{}
-	}
-	if row.TruncatedReason != "" {
-		reason := row.TruncatedReason
-		out.TruncatedReason = &reason
-		zero := int64(0)
-		out.TraceBlobSize = &zero // 02 §2.3: 0 when the blob was dropped
-	}
-	return out
-}
-
-// parseCallsQuery validates the page-1 parameters (02 §2.3).
-func parseCallsQuery(params map[string][]string) (model.CallsQuery, string) {
-	get := func(name string) string {
-		if vs := params[name]; len(vs) > 0 {
-			return vs[0]
-		}
-		return ""
-	}
-	var q model.CallsQuery
-	fromMs, toMs, errDetail := parseWindow(params)
-	if errDetail != "" {
-		return q, errDetail
-	}
-	q.FromMs, q.ToMs = fromMs, toMs
-	q.Pods = append(q.Pods, params["pod"]...)
-	for _, p := range q.Pods {
-		if strings.Count(p, "/") != 2 {
-			return q, "pod must be <namespace>/<service>/<pod>: " + p
-		}
-	}
-	q.Method = get("method")
-	for _, class := range params["retention_class"] {
-		if !model.IsRetentionClass(class) {
-			return q, "unknown retention_class: " + class
-		}
-		q.RetentionClasses = append(q.RetentionClasses, class)
-	}
-	for name, dst := range map[string]*int32{"duration_min_ms": &q.DurationMinMs, "duration_max_ms": &q.DurationMaxMs} {
-		if raw := get(name); raw != "" {
-			v, err := strconv.ParseInt(raw, 10, 32)
-			if err != nil || v < 0 {
-				return q, name + " must be a non-negative integer"
-			}
-			*dst = int32(v)
-		}
-	}
-	if raw := get("error_only"); raw != "" {
-		v, err := strconv.ParseBool(raw)
-		if err != nil {
-			return q, "error_only must be a boolean"
-		}
-		q.ErrorOnly = v
-	}
-	return q, ""
-}
-
-func parseWindow(params map[string][]string) (int64, int64, string) {
-	get := func(name string) string {
-		if vs := params[name]; len(vs) > 0 {
-			return vs[0]
-		}
-		return ""
-	}
-	fromRaw, toRaw := get("from"), get("to")
-	if fromRaw == "" || toRaw == "" {
-		return 0, 0, "from and to are required (Unix ms)"
-	}
-	fromMs, err := strconv.ParseInt(fromRaw, 10, 64)
-	if err != nil {
-		return 0, 0, "from must be Unix ms"
-	}
-	toMs, err := strconv.ParseInt(toRaw, 10, 64)
-	if err != nil {
-		return 0, 0, "to must be Unix ms"
-	}
-	if toMs <= fromMs {
-		return 0, 0, "to must be greater than from"
-	}
-	return fromMs, toMs, ""
 }
 
 func parseLimit(raw string, cfg Config) (int, string) {

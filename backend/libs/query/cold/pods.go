@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"sort"
 	"sync"
 	"time"
 
@@ -25,9 +24,9 @@ type podsManifest struct {
 	TimeMaxMs     int64  `json:"time_max_ms"`
 }
 
-// PodsResult carries the cold /pods tuples plus the §7.4 partial markers.
+// PodsResult carries the cold /pods entries plus the §7.4 partial markers.
 type PodsResult struct {
-	Pods           []model.PodTuple
+	Pods           []model.PodEntry
 	PartialReasons []string
 	Prefixes       int
 	FailedPrefixes int
@@ -81,53 +80,36 @@ func (s *Source) Pods(ctx context.Context, fromMs, toMs int64) (PodsResult, erro
 	}
 
 	// A pod-restart spanning several days has one manifest per day (01 §3.6):
-	// collapse to one tuple and give the set a stable order.
-	seen := map[model.PodTuple]struct{}{}
-	unique := res.Pods[:0]
-	for _, t := range res.Pods {
-		if _, dup := seen[t]; dup {
-			continue
-		}
-		seen[t] = struct{}{}
-		unique = append(unique, t)
-	}
-	res.Pods = unique
-	sort.Slice(res.Pods, func(i, j int) bool {
-		a, b := res.Pods[i], res.Pods[j]
-		if a.Namespace != b.Namespace {
-			return a.Namespace < b.Namespace
-		}
-		if a.Service != b.Service {
-			return a.Service < b.Service
-		}
-		if a.Pod != b.Pod {
-			return a.Pod < b.Pod
-		}
-		return a.RestartTimeMs < b.RestartTimeMs
-	})
+	// the union collapses them into one entry with the widened bounds and a
+	// stable order (02 §2.7).
+	res.Pods = model.UnionPods(res.Pods)
 	return res, nil
 }
 
-func (s *Source) readManifest(ctx context.Context, key string, fromMs, toMs int64) (model.PodTuple, bool, error) {
+func (s *Source) readManifest(ctx context.Context, key string, fromMs, toMs int64) (model.PodEntry, bool, error) {
 	body, err := s.Store.Get(ctx, key)
 	if errors.Is(err, ErrNotFound) {
-		return model.PodTuple{}, false, nil
+		return model.PodEntry{}, false, nil
 	}
 	if err != nil {
-		return model.PodTuple{}, false, err
+		return model.PodEntry{}, false, err
 	}
 	var m podsManifest
 	if err := json.Unmarshal(body, &m); err != nil {
-		return model.PodTuple{}, false, errors.Wrap(err, "decode pods manifest")
+		return model.PodEntry{}, false, errors.Wrap(err, "decode pods manifest")
 	}
 	if m.TimeMinMs >= toMs || m.TimeMaxMs < fromMs {
-		return model.PodTuple{}, false, nil // no Call rows inside the window
+		return model.PodEntry{}, false, nil // no Call rows inside the window
 	}
-	return model.PodTuple{
-		Namespace:     m.Namespace,
-		Service:       m.Service,
-		Pod:           m.Pod,
-		RestartTimeMs: m.RestartTimeMs,
+	return model.PodEntry{
+		PodTuple: model.PodTuple{
+			Namespace:     m.Namespace,
+			Service:       m.Service,
+			Pod:           m.Pod,
+			RestartTimeMs: m.RestartTimeMs,
+		},
+		TimeMinMs: m.TimeMinMs,
+		TimeMaxMs: m.TimeMaxMs,
 	}, true, nil
 }
 
