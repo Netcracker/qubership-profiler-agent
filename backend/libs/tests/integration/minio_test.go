@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"os"
 	"path"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,13 @@ type MinioTestSuite struct {
 }
 
 func (suite *MinioTestSuite) SetupSuite() {
+	// The object tests below upload testObjectFile (a captured calls.parquet)
+	// that the project never commits (WORKFLOW.md §6), so skip when it is
+	// absent instead of nil-dereferencing the failed PutObject result.
+	if _, err := os.Stat(testObjectFile); os.IsNotExist(err) {
+		suite.T().Skip("missing captured fixture " + testObjectFile +
+			" (real parquet captures are never committed; see WORKFLOW.md §6)")
+	}
 	suite.ctx = log.SetLevel(log.Context("itest"), log.DEBUG)
 	suite.minio = helpers.CreateMinioContainer(suite.ctx)
 }

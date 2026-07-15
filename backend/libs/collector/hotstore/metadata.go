@@ -686,6 +686,21 @@ func (m *metaDb) UnsealedPodRestarts() (map[string]bool, error) {
 	return out, nil
 }
 
+// LivePodRestarts lists pod-restarts whose connection is still open
+// (closed_at IS NULL). Their segments may be referenced by data that has not
+// arrived yet — a PARAM_BIG_DEDUP tag pointing at a value sent hours ago, or
+// a long call whose chunks predate its Call record — so the disk budget
+// evicts them last (re-review finding 5).
+func (m *metaDb) LivePodRestarts() (map[string]bool, error) {
+	var rows []string
+	err := m.meta.Raw(`SELECT pod_restart FROM pod_restarts WHERE closed_at IS NULL`).Scan(&rows).Error
+	out := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		out[r] = true
+	}
+	return out, err
+}
+
 // SegmentRefcount re-reads one segment's current refcount and status; the
 // disk-budget eviction re-checks its candidates against this right before the
 // unlink, because its candidate list may predate a seal commit that pinned the

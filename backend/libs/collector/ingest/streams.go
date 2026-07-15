@@ -110,7 +110,15 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 			rd := pipe.NewPipeReader(src, false)
 			for item := range pipe.DictionaryPipeReader(ctx, rd, noPhraseLimit) {
 				if _, err := pr.AppendDictionaryWord(item.Value); err != nil {
-					log.Error(ctx, err, "append dictionary word of %v", pr.Key)
+					// Re-review finding 3: the word's id is already allocated in
+					// RAM, so swallowing a WAL-append failure (ENOSPC being the
+					// canonical case) leaves the word missing from dictionary.wal
+					// forever — after the self-contained seal the cold tree
+					// renders "#<id>" permanently. Fail the stream instead: the
+					// agent reconnects and re-sends the whole dictionary with
+					// resetRequired.
+					pi.l.noteDictAppendError()
+					return errors.Wrapf(err, "append dictionary word of %v", pr.Key)
 				}
 			}
 			return rd.Err()
@@ -124,7 +132,10 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 					Order: item.Order, Signature: item.Signature,
 				})
 				if err != nil {
-					log.Error(ctx, err, "append param of %v", pr.Key)
+					// Like the dictionary above (finding 3): a record missing
+					// from params.wal is a permanent loss, so fail the stream
+					// and let the agent re-send after reconnect.
+					return errors.Wrapf(err, "append param of %v", pr.Key)
 				}
 			}
 			return nil
@@ -134,7 +145,10 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
 			for item := range pipe.SuspendPipeReader(ctx, pipe.NewPipeReader(src, false)) {
 				if err := pr.AppendSuspend(item.Time.UnixMilli(), item.Amount); err != nil {
-					log.Error(ctx, err, "append suspend of %v", pr.Key)
+					// Like the dictionary above (finding 3): a pause missing
+					// from suspend.wal silently understates suspend_ms, so
+					// fail the stream and let the agent re-send.
+					return errors.Wrapf(err, "append suspend of %v", pr.Key)
 				}
 			}
 			return nil

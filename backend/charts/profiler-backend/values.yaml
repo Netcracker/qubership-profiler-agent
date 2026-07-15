@@ -61,11 +61,12 @@ collector:
   # Must cover the 03-lifecycle.md §5.4 shutdown budget (~95 s).
   terminationGracePeriodSeconds: 100
   storage:
-    # The PVC must exceed chunksStagingMaxBytes: the budget bounds only the
-    # trace/sql/xml segment files, while the WALs, the call-index SQLite
-    # partitions, the seal scratch, and the hot-retention parquet share the
-    # same PV outside it (04 §3.5). A budget-sized PVC hits ENOSPC before
-    # eviction ever engages.
+    # PV capacity formula (04 §3.5): size ≥ chunksStagingMaxBytes (the
+    # trace/sql/xml segment budget) + PROFILER_PENDING_UPLOAD_MAX_BYTES (the
+    # ingest gate covering pending parquet + call partitions + WAL files,
+    # 2GB default) + headroom for the seal scratch, hot-retention parquet
+    # (~1GB), and the recovered pod-restarts' WALs the gate does not track.
+    # A budget-sized PVC hits ENOSPC before eviction or the gate engages.
     size: 20Gi
     # Empty string omits storageClassName, selecting the cluster's default
     # StorageClass (kind: local-path; OrbStack: its default). An explicit ""
@@ -153,6 +154,13 @@ maintain:
 # any_error regardless of duration. podsTTL expires the pods/v1 identity
 # manifests and must exceed the longest class TTL.
 retention:
+  # Clean-tier duration thresholds (PROFILER_DURATION_THRESHOLDS), e.g.
+  # "100ms,1s,10s". Rendered into BOTH the collector and query workloads from
+  # this one key: the collector classifies rows with it at write time and
+  # query prunes cold classes with it at read time, so a drift between the
+  # two silently drops rows. Empty keeps the built-in tier-table defaults in
+  # both binaries. Override the TTLs above together with this.
+  durationThresholds: ""
   shortCleanTTL: 2d
   normalCleanTTL: 7d
   longCleanTTL: 30d

@@ -203,6 +203,16 @@ mirror via the internal suspend endpoint (§3); on the cold tier from the row's 
 the pauses overlapping the call's blob span, inlined at seal (`01-write-contract.md` §3.6, §5.2). A NULL
 column means zero suspension.
 
+**The list column and the tree can disagree, by design.** `suspend_ms` on the `/calls` row (§2.3) is
+computed on the *calls* time axis — the pause overlap with `[ts_ms, ts_ms + duration_ms]`
+(`01-write-contract.md` §5.1 step 4) — while `suspend_json` and the per-node suspension above are selected
+on the *blob* time axis, the call's own trace-event timer span (`01-write-contract.md` §3.6). The two axes
+are independent epochs (calls-stream `ts_ms` vs. the trace timer), so a call can show `suspend_ms = 0` in
+the `/calls` list while its `/tree` still reports non-zero suspension on one or more nodes, or vice versa.
+This is a conscious compromise, not a bug: a client that needs the two numbers to agree should treat the
+tree's per-node suspension as authoritative and the list column as a cheap, approximate hint for sorting
+and filtering.
+
 Big parameter values (`sql` / `xml`) are the one asymmetry between the two paths. The blob does not inline them — it holds `(rolling_seq, offset)` references into the value streams (§3, `01-write-contract.md` §4.4). `/tree` resolves each reference and inlines the value string in the returned tree, so its consumers need nothing else. On the hot tier the references resolve against the replica's value segments (via the internal values endpoint, §3); on the cold tier they resolve against the values the seal pass inlined into the row's `big_params_json` column (`01-write-contract.md` §4.4, §5.2) — the value segments themselves never reach S3. A reference that cannot be resolved (its segment was evicted before the seal, or the file predates the column) is marked explicitly in the tree (`unresolved`, §2.5.3) with the reference text in the value slot; a value is never dropped silently. The raw `/trace` blob keeps the references; the MVP does not expose the value streams over a separate external endpoint, so an advanced consumer resolves big params only against a full dump. Add an external `/calls/{pk}/values` endpoint if a raw-path consumer needs them.
 
 The decision in MVP: ship `/tree` as the canonical contract. `/trace` + `/dictionary` remain as the secondary, lower-traffic interface — useful, but not the default.

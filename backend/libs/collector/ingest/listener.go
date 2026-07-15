@@ -32,6 +32,16 @@ type (
 		// DecoderErrors counts streams a decoder rejected as malformed or
 		// gzip-wrapped (the agent then resends from scratch, 06 §6).
 		DecoderErrors uint64
+		// RefusedBytes counts RCV_DATA payload bytes the backpressure gate
+		// refused with ACK_ERROR before writing (№2, re-review finding 1).
+		// The agent drops the refused window and reconnects, so a non-zero
+		// rate is data loss happening right now.
+		RefusedBytes uint64
+		// DictAppendErrors counts dictionary words whose WAL append failed
+		// (re-review finding 3); each one also fails its stream, so the agent
+		// re-sends the dictionary with resetRequired instead of the word
+		// silently missing from dictionary.wal.
+		DictAppendErrors uint64
 	}
 
 	// Listener implements server.Listener on top of a hotstore.Store.
@@ -44,6 +54,8 @@ type (
 		commandErrors    atomic.Uint64
 		bytesRead        atomic.Uint64
 		decoderErrors    atomic.Uint64
+		refusedBytes     atomic.Uint64
+		dictAppendErrors atomic.Uint64
 
 		mu   sync.Mutex
 		pods map[common.Uuid]*podIngest // keyed by the connection's pod UUID
@@ -76,7 +88,10 @@ func podKey(pod *server.ConnectedPod) hotstore.PodRestartKey {
 }
 
 // RegisterPod opens the pod-restart on the PV: directory layout plus the four
-// WALs. Called once per connection, right after the handshake.
+// WALs. Called once per connection, right after the handshake. The store may
+// bump RestartTimeMs past a same-millisecond collision (re-review finding 2),
+// so pr.Key — not the pod's stamp — is the identity everything downstream
+// files under; the routing here keys off pod.Uuid and is unaffected.
 func (l *Listener) RegisterPod(pod *server.ConnectedPod) error {
 	pr, err := l.store.OpenPodRestart(podKey(pod))
 	if err != nil {
@@ -152,8 +167,11 @@ func (l *Listener) RegisterStream(ctx context.Context,
 func (l *Listener) AppendData(ctx context.Context, pod *server.ConnectedPod, handleId common.Uuid, chunk string) (int, error) {
 	if l.store.IngestPaused() {
 		// №2 backpressure: refuse BEFORE writing anything, so the server
-		// answers ACK_ERROR and the agent keeps the payload buffered in its
-		// own files and retries after reconnecting.
+		// answers ACK_ERROR. The agent does NOT buffer and retry: it treats
+		// ACK_ERROR as fatal, drops the window it has not seen acknowledged,
+		// and reconnects as a fresh pod-restart (06 §6). Counting the refused
+		// bytes keeps that loss visible (re-review finding 1).
+		l.refusedBytes.Add(uint64(len(chunk)))
 		return 0, errors.Errorf("hot store over the pending-upload budget; refusing data of %v", pod.Uuid)
 	}
 	pi, err := l.pod(pod)
@@ -228,6 +246,8 @@ func (l *Listener) IngestStatsSnapshot() IngestStats {
 		CommandErrors:    l.commandErrors.Load(),
 		BytesRead:        l.bytesRead.Load(),
 		DecoderErrors:    l.decoderErrors.Load(),
+		RefusedBytes:     l.refusedBytes.Load(),
+		DictAppendErrors: l.dictAppendErrors.Load(),
 	}
 }
 
@@ -235,6 +255,10 @@ func (l *Listener) IngestStatsSnapshot() IngestStats {
 // or gzip-wrapped (№21). The connection goroutine surfaces the same failure to
 // the agent as ACK_ERROR_MAGIC via the pipe error.
 func (l *Listener) noteDecoderError() { l.decoderErrors.Add(1) }
+
+// noteDictAppendError records a failed dictionary WAL append (re-review
+// finding 3) before the decoder fails the stream.
+func (l *Listener) noteDictAppendError() { l.dictAppendErrors.Add(1) }
 
 // Metric callbacks (№21): real counters registered by RegisterIngest.
 func (l *Listener) SentCommand(ctx context.Context, c model.Command) {}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
+	"github.com/Netcracker/qubership-profiler-backend/libs/collector/ingest"
 	"github.com/Netcracker/qubership-profiler-backend/libs/maintain"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/stretchr/testify/assert"
@@ -69,6 +70,39 @@ func TestRegisterCollectSeries(t *testing.T) {
 		"profiler_seal_lost_big_values_total",
 		"profiler_seal_skipped_buckets_total",
 		"profiler_janitor_mem_pressure_seals_total",
+		// Re-review cleanup (findings 4, 7): the WAL share of the ingest gate
+		// and the janitor orphan sweep.
+		"profiler_hotstore_wal_disk_bytes",
+		"profiler_janitor_orphan_parquet_removed_total",
+	} {
+		assert.True(t, names[want], "missing series %s", want)
+	}
+}
+
+// TestRegisterIngestSeries pins the ingest metric names, including the
+// re-review additions: refused bytes (finding 1, read by the
+// ProfilerIngestRefused alert) and failed dictionary appends (finding 3).
+func TestRegisterIngestSeries(t *testing.T) {
+	store, err := hotstore.Open(hotstore.Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	reg := NewRegistry()
+	RegisterIngest(reg, ingest.NewListener(store))
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	names := make(map[string]bool, len(families))
+	for _, mf := range families {
+		names[mf.GetName()] = true
+	}
+	for _, want := range []string{
+		"profiler_ingest_commands_total",
+		"profiler_ingest_command_errors_total",
+		"profiler_ingest_bytes_total",
+		"profiler_ingest_decoder_errors_total",
+		"profiler_ingest_refused_bytes_total",
+		"profiler_ingest_dict_append_errors_total",
 	} {
 		assert.True(t, names[want], "missing series %s", want)
 	}

@@ -116,6 +116,34 @@ tests:
         alertname: ProfilerLoopErrors
         exp_alerts: []
 
+  # Ingest refusals: the gate starts refusing at t=10m and the counter climbs;
+  # the alert fires once the 5m for-window closes, and a collector that never
+  # refuses must never page.
+  - interval: 1m
+    input_series:
+      - series: "profiler_ingest_refused_bytes_total"
+        values: "0x10 1024+1024x30"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ProfilerIngestRefused
+        exp_alerts: [] # nothing refused yet
+      - eval_time: 20m
+        alertname: ProfilerIngestRefused
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Collector is refusing agent data — the agent drops it"
+              description: "The backpressure gate answered ACK_ERROR to agent RCV_DATA; the agent drops the refused window and reconnects, so this data is lost. Check S3 upload health and PROFILER_PENDING_UPLOAD_MAX_BYTES."
+  - interval: 1m
+    input_series:
+      - series: "profiler_ingest_refused_bytes_total"
+        values: "0x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ProfilerIngestRefused
+        exp_alerts: []
+
   # Upload backlog: the oldest pending upload ages one minute per minute past
   # the 30-minute line. The alert fires after its 10m for-window.
   - interval: 1m

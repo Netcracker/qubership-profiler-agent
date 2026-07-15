@@ -312,8 +312,11 @@ smoke:
 # Real-agent E2E: drives the ACTUAL Java profiler agent (built from this repo,
 # needs a JDK + Gradle) against the same dev stack and asserts the adversarial
 # method/param strings round-trip byte-exact. This is the acceptance gate for
-# the decoder fixes and currently FAILS on two known bugs (readChar signedness
-# and the empty dictionary word); see libs/tests/smoke_realagent and
+# the decoder fixes and now PASSES: it verifies a real agent's Unicode strings
+# (CJK/Hangul code units and a non-BMP emoji surrogate pair) round-trip
+# byte-exact through dictionary words and inline param values, and that
+# dictionary ids — including one assigned to an empty word — stay aligned
+# with what the agent sent; see libs/tests/smoke_realagent and
 # ../scripts/e2e-realagent/README.md.
 .PHONY: smoke-realagent
 smoke-realagent:
@@ -343,10 +346,10 @@ smoke-realagent-v313:
 	exit $$status
 
 # Pure-Go adversarial decoder gate: the no-JDK, no-docker counterpart of
-# smoke-realagent. The wire helpers now emit faithful UTF-16, so they surface
-# the same two decoder bugs (readChar signedness and the empty dictionary word)
-# without building the Java agent or bringing the stack up. Like smoke-realagent
-# it FAILS today; the failing assertions are the deliverable.
+# smoke-realagent. The wire helpers now emit faithful UTF-16, so they exercise
+# the same round-trip of Unicode strings and dictionary id alignment as
+# smoke-realagent, without building the Java agent or bringing the stack up.
+# Like smoke-realagent it now PASSES.
 .PHONY: adversarial
 adversarial:
 	@echo "==> Running the pure-Go adversarial decoder gate..."

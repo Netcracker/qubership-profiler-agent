@@ -98,6 +98,47 @@ func TestAppendDataRefusedUnderBackpressure(t *testing.T) {
 	_, err = l.AppendData(ctx, pod, handle, "payload")
 	require.Error(t, err, "the gate refuses before writing")
 	assert.Zero(t, l.IngestStatsSnapshot().BytesRead, "nothing was persisted for the refused payload")
+	// Finding 1: the refusal is loss the agent will not retry, so the bytes
+	// must land on the counter the ProfilerIngestRefused alert reads.
+	assert.EqualValues(t, len("payload"), l.IngestStatsSnapshot().RefusedBytes,
+		"refused bytes must be counted at the ACK_ERROR-before-write point")
+}
+
+// TestDictionaryDecoderEscalatesAppendErrors pins the finding-3 fix: a
+// dictionary word whose WAL append fails must fail the stream (the agent then
+// re-sends the dictionary with resetRequired), never be swallowed — the id is
+// already allocated in RAM, so a swallowed failure leaves the word missing
+// from dictionary.wal and the cold tree renders "#<id>" forever.
+func TestDictionaryDecoderEscalatesAppendErrors(t *testing.T) {
+	ctx := context.Background()
+	store, err := hotstore.Open(hotstore.Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	l := NewListener(store)
+	pod := testPod(t)
+	require.NoError(t, l.RegisterPod(pod))
+
+	handle, err := common.RandomUuidChecked()
+	require.NoError(t, err)
+	require.NoError(t, l.RegisterStream(ctx, pod, handle, model.StreamDictionary, 0, 0, 0, 0, 0))
+
+	// Sabotage the WAL underneath: a closed pod-restart rejects appends the
+	// same way a full PV does.
+	pr, ok := store.PodRestart(hotstore.PodRestartKey{
+		Namespace: pod.Namespace, Service: pod.Service,
+		PodName: pod.PodName, RestartTimeMs: pod.RestartTimeMs,
+	})
+	require.True(t, ok)
+	require.NoError(t, pr.Close())
+
+	payload := string(wire.DictionaryStream([]string{"com.example.Api.get"}))
+	require.Eventually(t, func() bool {
+		_, err := l.AppendData(ctx, pod, handle, payload)
+		return err != nil
+	}, 2*time.Second, 10*time.Millisecond,
+		"a failed dictionary append must fail the stream, not be logged and dropped")
+	assert.GreaterOrEqual(t, l.IngestStatsSnapshot().DictAppendErrors, uint64(1),
+		"the failed append must land on dict_append_errors_total")
 }
 
 // TestGcStreamIsAcceptedAndDiscarded pins the pre-v3.1.4 compatibility fix:

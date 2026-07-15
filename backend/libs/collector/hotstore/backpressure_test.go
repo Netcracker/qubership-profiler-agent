@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -116,6 +117,37 @@ func TestBackpressureGateThresholds(t *testing.T) {
 	refresh()
 	assert.False(t, store.SealPaused(), "confirmed uploads lift the gates")
 	assert.False(t, store.IngestPaused())
+}
+
+// TestWalBytesCountTowardIngestGate pins the finding-4 fix: WAL files share
+// the PV with the pending parquet and the partitions but purge only after
+// upload + retention + grace, so leaving them outside the budget let the PV
+// run to ENOSPC before the ingest gate ever closed. The gate must read them;
+// the seal gate must not (it reads pending parquet only, or it deadlocks).
+func TestWalBytesCountTowardIngestGate(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir(), PendingUploadMaxBytes: 4096})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	pr, err := store.OpenPodRestart(PodRestartKey{
+		Namespace: "ns", Service: "svc", PodName: "pod-w", RestartTimeMs: janitorCallTs})
+	require.NoError(t, err)
+
+	require.NoError(t, store.refreshBackpressure(ctx))
+	require.False(t, store.IngestPaused(), "empty WALs stay inside the budget")
+
+	// Dictionary-only writes: no call partitions, no pending parquet — only
+	// WAL bytes can trip the gate.
+	word := strings.Repeat("x", 100)
+	for i := 0; pr.walBytes() < 4096; i++ {
+		_, err := pr.AppendDictionaryWord(fmt.Sprintf("%s-%d", word, i))
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.refreshBackpressure(ctx))
+	assert.True(t, store.IngestPaused(), "WAL bytes alone must close the ingest gate")
+	assert.False(t, store.SealPaused(), "the seal gate reads pending parquet only")
+	assert.GreaterOrEqual(t, store.WalBytes(), int64(4096), "the gauge reports the measured WAL bytes")
 }
 
 // TestS3DownBoundedBacklogNoSilentLoss is the №2 acceptance test: with S3

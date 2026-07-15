@@ -40,6 +40,7 @@ spec:
               value: {{ include "profiler-backend.collectorHeadless" . | quote }}
             - name: PROFILER_INTERNAL_API_PORT
               value: {{ .Values.collector.internalPort | quote }}
+            {{- include "profiler-backend.durationThresholdsEnv" . | nindent 12 }}
             {{- include "profiler-backend.s3ConfigEnv" . | nindent 12 }}
             {{- include "profiler-backend.s3CredentialEnv" . | nindent 12 }}
             {{- include "profiler-backend.s3TlsEnv" . | nindent 12 }}

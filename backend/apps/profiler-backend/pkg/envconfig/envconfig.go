@@ -68,12 +68,14 @@ type (
 		// dictionaries and, once fully sealed, their chunk indexes.
 		MemBudget ByteSize `envconfig:"PROFILER_MEM_BUDGET" default:"2GB"`
 		// PendingUploadMaxBytes bounds the un-uploaded backlog (sealed parquet
-		// owed to S3 plus live call partitions) when S3 falls behind: once
-		// pending parquet alone reaches half the budget sealing pauses, once
-		// the whole backlog reaches the full budget ingest refuses agent data
-		// so the PV never runs to ENOSPC. The env name is an implementation
-		// choice recorded in stage1-progress.md, like the quarantine knobs
-		// below.
+		// owed to S3, live call partitions, and the tracked pod-restarts' WAL
+		// files) when S3 falls behind: once pending parquet alone reaches half
+		// the budget sealing pauses, once the whole backlog reaches the full
+		// budget ingest refuses agent data with ACK_ERROR so the PV never runs
+		// to ENOSPC. The agent drops the refused window and reconnects (01
+		// §4.6) — the loss is counted on ingest_refused_bytes_total. The env
+		// name is an implementation choice recorded in stage1-progress.md,
+		// like the quarantine knobs below.
 		PendingUploadMaxBytes ByteSize `envconfig:"PROFILER_PENDING_UPLOAD_MAX_BYTES" default:"2GB"`
 		// QuarantineRetestInterval re-tests permanently-rejected uploads;
 		// QuarantineMaxAge / QuarantineMaxBytes cap the upload-failed/
