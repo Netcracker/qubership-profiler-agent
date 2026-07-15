@@ -10,13 +10,20 @@ import (
 )
 
 type (
+	// Listener receives the demultiplexed agent streams. Errors propagate into
+	// the wire error path of 06-wire-protocol-server.md §6: a failed
+	// RegisterStream yields the null-UUID teardown, a failed AppendData yields
+	// ACK_ERROR_MAGIC and a close, so the agent reconnects instead of stalling.
 	Listener interface {
-		RegisterPod(pod *ConnectedPod)
-		AppendData(ctx context.Context, pod *ConnectedPod, handleId common.Uuid, chunk string) int
+		RegisterPod(pod *ConnectedPod) error
+		AppendData(ctx context.Context, pod *ConnectedPod, handleId common.Uuid, chunk string) (int, error)
 		RegisterStream(ctx context.Context,
 			pod *ConnectedPod, handleId common.Uuid, streamType string,
 			resetRequired int, requestedRollingSequenceId int, rollingSequenceId int,
-			rotationPeriod uint64, requiredRotationSize uint64)
+			rotationPeriod uint64, requiredRotationSize uint64) error
+		// PodDisconnected fires when the pod's TCP connection ends, however it
+		// ends; the pod-restart is closed and never resumes (01 §3.7).
+		PodDisconnected(ctx context.Context, pod *ConnectedPod)
 
 		SentCommand(ctx context.Context, c model.Command)
 		ReceivedCommand(ctx context.Context, c model.Command, latency time.Duration, err error)

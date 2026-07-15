@@ -16,16 +16,17 @@ import (
 type (
 	// AgentConnection acts as a client (the profiler agent) and sends data to the CDT collector
 	AgentConnection struct {
-		podName      string
-		ctx          context.Context
-		cancel       context.CancelFunc
-		fileReader   *io.BlobReader
-		socketReader *io.TcpReader
-		socketWriter *io.TcpWriter
-		pendingAcks  int
-		conn         net.Conn
-		Opts         ConnectionOpts
-		listener     AgentListener
+		podName       string
+		ctx           context.Context
+		cancel        context.CancelFunc
+		fileReader    *io.BlobReader
+		socketReader  *io.TcpReader
+		socketWriter  *io.TcpWriter
+		pendingAcks   int
+		serverVersion uint64
+		conn          net.Conn
+		Opts          ConnectionOpts
+		listener      AgentListener
 	}
 )
 
@@ -98,10 +99,22 @@ func (ac *AgentConnection) InitializeConnection(protocolVersion uint64, namespac
 
 		// response
 		svrProtocol, err := ac.socketReader.ReadFixedLong(ac.ctx)
+		ac.serverVersion = svrProtocol
 		log.Debug(ac.ctx, "GET_PROTOCOL_VERSION_V2 protocols [cli:%v-svr:%v] for %v ",
 			protocolVersion, svrProtocol, pod)
 		return err
 	})
+}
+
+// ServerVersion returns the protocol version the collector replied with during
+// the last handshake. It must be PROTOCOL_VERSION_V2 (06-wire-protocol-server.md §3).
+func (ac *AgentConnection) ServerVersion() uint64 {
+	return ac.serverVersion
+}
+
+// Flush flushes the buffered writer so the collector sees the pending commands.
+func (ac *AgentConnection) Flush() error {
+	return ac.socketWriter.Flush()
 }
 func (ac *AgentConnection) CommandInitStream(streamType string, requestedSeqId int, resetRequired bool) (handleId common.Uuid, err error) {
 	err = ac.sendOperation(model.COMMAND_INIT_STREAM_V2, true, func(ac *AgentConnection) error {
