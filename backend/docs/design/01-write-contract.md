@@ -103,7 +103,7 @@ Parquet rows have a per-bucket retention of up to 30 days (`long_clean`, `any_er
 **On pod-restart close** (TCP connection terminates AND all in-flight Calls flush), the collector:
 
 1. Reads the local WAL and builds the final dictionary snapshot in memory.
-2. Serializes it as a single JSON object: `{ version, methods: [...], params: [...] }`.
+2. Serializes it as a single JSON object: `{ version, methods: [...], params: [...] }`. **TODO (dictionary shape):** methods and params share one wire id space, so both arrays carry the full word list and a reader is correct against either; a future revision should collapse them to a single `words` array indexed by id (see `02-read-contract.md` §2.6, decision logged in `stage1-progress.md`).
 3. Uploads it to S3 with a deterministic key:
 
    ```
@@ -420,7 +420,7 @@ s3://<bucket>/parquet/v1/<retentionClass>/<yyyy>/<mm>/<dd>/<hh>/<replica>-<podRe
 - `<replica>` — the producer. For a write-path seal it is the StatefulSet ordinal (`collector-0`, `collector-1`, …), so distinct replicas don't collide on object keys; a `maintain` compaction (§6.6) uses the reserved token `maintain`.
 - `<podRestartHash>` — short hash of `(namespace, service, podName, restartTime)`, identifying the pod-restart that produced the file. A cross-pod-restart compaction (§6.6) covers several pod-restarts, so it substitutes a short hash of its inputs; the per-row `pod_*` / `restart_time_ms` columns stay the authoritative pod-restart identity either way.
 - `<timeBucketStart>` — the bucket's start as `yyyymmddTHHMMSSZ`. Fixes the file's bucket identity: the patch files (§6.6) and size-split `<seq>` files of one bucket share it, and it keeps the key chronologically sortable within a class.
-- `<timeMin>` / `<timeMax>` — the file's actual `min(ts_ms)` / `max(ts_ms)`, as `yyyymmddTHHMMSSZ`. The seal pass computes both for `metadata.sqlite` (§6.2), so carrying them in the key is free and lets range discovery test overlap straight from the `ListObjectsV2` result, with no footer read and no per-object HEAD (`02-read-contract.md` §5.1). Both lie inside `[timeBucketStart, timeBucketStart + PROFILER_TIME_BUCKET)`. The key stays deterministic: the late-data watermark (§6.6) fixes each `<seq>`'s row set, so a re-seal regenerates the same `<timeMin>` / `<timeMax>`.
+- `<timeMin>` / `<timeMax>` — the file's actual `min(ts_ms)` / `max(ts_ms)`, as `yyyymmddTHHMMSSZ`. The seal pass computes both for `metadata.sqlite` (§6.2), so carrying them in the key is free and lets range discovery test overlap straight from the `ListObjectsV2` result, with no footer read and no per-object HEAD (`02-read-contract.md` §5.1). Both lie inside `[timeBucketStart, timeBucketStart + PROFILER_TIME_BUCKET)`. The key stays deterministic: the late-data watermark (§6.6) fixes each `<seq>`'s row set, so a re-seal regenerates the same `<timeMin>` / `<timeMax>`. Because the stamp is second-granularity while `ts_ms` is milliseconds, `<timeMin>` is floored to its second and `<timeMax>` is ceiled to the end of its second (`+999 ms`); the overlap test (`02-read-contract.md` §5.1) reads the key range as inclusive at both ends. Without the `<timeMax>` ceiling, a query whose lower bound falls inside the file's last second skips rows the file actually holds.
 - `<seq>` — sequence number when one bucket spawned multiple files via size trigger.
 
 Example:

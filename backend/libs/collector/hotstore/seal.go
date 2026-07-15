@@ -44,7 +44,7 @@ type (
 	// SealedFile describes one parquet file a seal pass produced.
 	SealedFile struct {
 		Path           string // local sealed path, mirrors the S3 key under DataDir
-		S3Key          string // deterministic S3 object key (01 §7); upload is the Stage 1 S3 task
+		S3Key          string // deterministic S3 object key (01 §7); the Uploader PUTs it verbatim
 		RetentionClass string
 		Seq            int
 		Rows           int
@@ -133,7 +133,7 @@ func (s *Store) countSeal(res SealResult) {
 // (01-write-contract.md §6.5): a segment-ordered walk assembles the per-call
 // blobs, every classification is re-derived from calls.wal against the full
 // dictionary (§5.6), and the rows land in up to five retention-class files
-// named per §7. S3 upload is a later Stage 1 task; uploaded_at stays NULL.
+// named per §7. uploaded_at stays NULL until the Uploader confirms the PUT.
 func (s *Store) Seal(ctx context.Context, key PodRestartKey, bucket int64) (SealResult, error) {
 	pr, ok := s.PodRestart(key)
 	if !ok {

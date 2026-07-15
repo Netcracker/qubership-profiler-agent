@@ -246,7 +246,7 @@ func (s *Store) Buckets() ([]int64, error) { return s.db.Buckets() }
 func (s *Store) Calls(bucket int64) ([]CallIndexRow, error) { return s.db.Calls(bucket) }
 
 // LocalParquet lists a pod-restart's sealed parquet files still held locally;
-// UploadedAtMs stays nil until the Stage 1 S3 task lands.
+// UploadedAtMs stays nil until the Uploader confirms the S3 PUT.
 func (s *Store) LocalParquet(key PodRestartKey) ([]ParquetLocalFile, error) {
 	return s.db.LocalParquet(key.String())
 }

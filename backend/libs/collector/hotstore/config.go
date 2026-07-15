@@ -3,8 +3,9 @@
 // records, gzip segments for the offset-addressable bulk streams (trace, sql,
 // xml), and the SQLite metadata that indexes them. It implements the write-path
 // side of backend/docs/design/01-write-contract.md §3-§4, the recovery sequence
-// of 03-lifecycle.md §3, and the seal pass of 01 §5-§6 that materializes the
-// CallV2 parquet files locally. S3 upload and snapshots are the next slice.
+// of 03-lifecycle.md §3, the seal pass of 01 §5-§6 that materializes the CallV2
+// parquet files locally, and the Uploader that makes them durable in S3 along
+// with the per-pod-restart snapshot objects (01 §3.6, §6.2).
 package hotstore
 
 import "time"
@@ -37,6 +38,15 @@ type Config struct {
 	// SealCheckInterval paces the seal loop (§6.1). Zero disables the loop:
 	// the collector app wiring enables it; tests seal explicitly.
 	SealCheckInterval time.Duration
+	// UploadCheckInterval paces the S3 upload loop (§6.2, 03 §3.8). Zero
+	// disables it, mirroring SealCheckInterval; tests drive Uploader.Pass.
+	UploadCheckInterval time.Duration
+	// UploadRetryAttempts / UploadRetryBaseDelay bound the in-pass exponential
+	// backoff on a retryable S3 error (§6.2 step 4). A file that exhausts the
+	// attempts stays pending and the next pass starts over, so the retry is
+	// unbounded across passes as the contract requires.
+	UploadRetryAttempts  int
+	UploadRetryBaseDelay time.Duration
 }
 
 // Normalize fills unset fields with the contract defaults.
@@ -64,6 +74,12 @@ func (c Config) Normalize() Config {
 	}
 	if c.SealSpillBytes <= 0 {
 		c.SealSpillBytes = 16 << 20
+	}
+	if c.UploadRetryAttempts <= 0 {
+		c.UploadRetryAttempts = 5
+	}
+	if c.UploadRetryBaseDelay <= 0 {
+		c.UploadRetryBaseDelay = 200 * time.Millisecond
 	}
 	return c
 }

@@ -3,6 +3,7 @@ package hotstore
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +16,9 @@ import (
 // metadata.sqlite schema per 03-lifecycle.md §3.2. parquet_segments maps each
 // sealed file to the segments its rows source from, so the S3 upload task can
 // decrement the refcounts the seal pass added (01-write-contract.md §6.2
-// step 3; TODO seam: Stage 1 S3 task).
+// step 3). upload_failed_at quarantines a file S3 rejected with a permanent
+// error: the row keeps its refcounts pinned but leaves the upload queue
+// (01 §8, upload-failed/).
 const metaSchema = `
 CREATE TABLE IF NOT EXISTS pod_restarts (
   pod_restart      TEXT PRIMARY KEY,
@@ -53,6 +56,7 @@ CREATE TABLE IF NOT EXISTS parquet_local (
   file_size       INTEGER NOT NULL,
   sealed_at       INTEGER NOT NULL,
   uploaded_at     INTEGER,
+  upload_failed_at INTEGER,
   s3_key          TEXT
 );
 CREATE TABLE IF NOT EXISTS parquet_segments (
@@ -163,17 +167,18 @@ type (
 	// ParquetLocalFile is the exported view of parquet_local for tests and the
 	// upload task.
 	ParquetLocalFile struct {
-		Path           string
-		PodRestart     string
-		TimeBucketMs   int64
-		RetentionClass string
-		Seq            int
-		RowCount       int
-		TimeMinMs      int64
-		TimeMaxMs      int64
-		FileSize       int64
-		UploadedAtMs   *int64
-		S3Key          string
+		Path             string
+		PodRestart       string
+		TimeBucketMs     int64
+		RetentionClass   string
+		Seq              int
+		RowCount         int
+		TimeMinMs        int64
+		TimeMaxMs        int64
+		FileSize         int64
+		UploadedAtMs     *int64
+		UploadFailedAtMs *int64
+		S3Key            string
 	}
 
 	// metaDb wraps metadata.sqlite plus the per-bucket partition handles.
@@ -222,6 +227,13 @@ func openMetaDb(cfg Config) (*metaDb, error) {
 	}
 	if err := db.Exec(metaSchema).Error; err != nil {
 		return nil, errors.Wrap(err, "migrate metadata.sqlite")
+	}
+	// upload_failed_at joined the schema with the S3 slice; a metadata.sqlite
+	// created before it needs the column added (new files get it via CREATE
+	// TABLE above, so the duplicate-column error is the common case).
+	if err := db.Exec(`ALTER TABLE parquet_local ADD COLUMN upload_failed_at INTEGER`).Error; err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		return nil, errors.Wrap(err, "add parquet_local.upload_failed_at")
 	}
 	return &metaDb{cfg: cfg, meta: db, parts: map[int64]*gorm.DB{}}, nil
 }
@@ -346,32 +358,168 @@ func (m *metaDb) RecordSealedFile(row parquetLocalRow, segRows map[segKey]int) e
 func (m *metaDb) LocalParquet(podRestart string) ([]ParquetLocalFile, error) {
 	var rows []ParquetLocalFile
 	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
-		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms, s3_key
+		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
+		upload_failed_at AS upload_failed_at_ms, s3_key
 		FROM parquet_local WHERE pod_restart = ? ORDER BY path`, podRestart).Scan(&rows).Error
 	return rows, err
+}
+
+// releaseSealedFileRefs decrements the segment refcounts a sealed file pinned
+// and deletes its parquet_segments rows. Running inside one transaction with
+// the caller's state change makes the release exactly-once: a second call
+// finds no parquet_segments rows and decrements nothing (01-write-contract.md
+// §6.2 step 3).
+func releaseSealedFileRefs(tx *gorm.DB, path string) error {
+	if err := tx.Exec(`UPDATE segments SET refcount = refcount - (
+			SELECT ps.row_count FROM parquet_segments ps
+			WHERE ps.path = ? AND ps.pod_restart = segments.pod_restart
+			  AND ps.stream = segments.stream AND ps.rolling_seq = segments.rolling_seq)
+		WHERE EXISTS (
+			SELECT 1 FROM parquet_segments ps
+			WHERE ps.path = ? AND ps.pod_restart = segments.pod_restart
+			  AND ps.stream = segments.stream AND ps.rolling_seq = segments.rolling_seq)`,
+		path, path).Error; err != nil {
+		return errors.Wrap(err, "release sealed-file segments")
+	}
+	return errors.Wrap(tx.Exec(`DELETE FROM parquet_segments WHERE path = ?`, path).Error,
+		"drop sealed-file segment refs")
 }
 
 // DropParquetLocal forgets a sealed file and releases the segment refs it
 // pinned; used when the file vanished before its upload (03-lifecycle.md §3.6).
 func (m *metaDb) DropParquetLocal(path string) error {
 	return m.meta.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`UPDATE segments SET refcount = refcount - (
-				SELECT ps.row_count FROM parquet_segments ps
-				WHERE ps.path = ? AND ps.pod_restart = segments.pod_restart
-				  AND ps.stream = segments.stream AND ps.rolling_seq = segments.rolling_seq)
-			WHERE EXISTS (
-				SELECT 1 FROM parquet_segments ps
-				WHERE ps.path = ? AND ps.pod_restart = segments.pod_restart
-				  AND ps.stream = segments.stream AND ps.rolling_seq = segments.rolling_seq)`,
-			path, path).Error; err != nil {
-			return errors.Wrap(err, "release sealed-file segments")
-		}
-		if err := tx.Exec(`DELETE FROM parquet_segments WHERE path = ?`, path).Error; err != nil {
-			return errors.Wrap(err, "drop sealed-file segment refs")
+		if err := releaseSealedFileRefs(tx, path); err != nil {
+			return err
 		}
 		return errors.Wrap(tx.Exec(`DELETE FROM parquet_local WHERE path = ?`, path).Error,
 			"drop sealed parquet row")
 	})
+}
+
+// PendingUploads lists the sealed files still owed to S3, across pod-restarts:
+// not uploaded and not quarantined (01-write-contract.md §6.2, 03 §3.8).
+func (m *metaDb) PendingUploads() ([]ParquetLocalFile, error) {
+	var rows []ParquetLocalFile
+	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
+		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
+		upload_failed_at AS upload_failed_at_ms, s3_key
+		FROM parquet_local WHERE uploaded_at IS NULL AND upload_failed_at IS NULL
+		ORDER BY path`).Scan(&rows).Error
+	return rows, err
+}
+
+// MarkUploaded implements 01-write-contract.md §6.2 step 3 after a confirmed
+// PUT: uploaded_at and the refcount release commit in ONE transaction, so a
+// crash on either side of it re-runs the whole step. Idempotent: the release
+// deletes the file's parquet_segments rows, so a repeat decrements nothing and
+// a segment other rows still pin is never freed early (invariant C1).
+func (m *metaDb) MarkUploaded(path string, uploadedAtMs int64) error {
+	return m.meta.Transaction(func(tx *gorm.DB) error {
+		if err := releaseSealedFileRefs(tx, path); err != nil {
+			return err
+		}
+		return errors.Wrap(tx.Exec(`UPDATE parquet_local SET uploaded_at = ?
+			WHERE path = ? AND uploaded_at IS NULL`, uploadedAtMs, path).Error,
+			"mark sealed parquet uploaded")
+	})
+}
+
+// MarkUploadFailed re-points a quarantined file at its upload-failed/ location
+// and takes it out of the upload queue. The parquet_segments rows stay: a
+// rejected file keeps its segments pinned until a human resolves it (01 §8).
+func (m *metaDb) MarkUploadFailed(path, quarantinePath string, failedAtMs int64) error {
+	return errors.Wrap(m.meta.Exec(`UPDATE parquet_local SET path = ?, upload_failed_at = ?
+		WHERE path = ? AND uploaded_at IS NULL`, quarantinePath, failedAtMs, path).Error,
+		"mark sealed parquet upload-failed")
+}
+
+// ManifestBounds reports min(time_min_ms) / max(time_max_ms) over one
+// pod-restart's sealed files of one UTC day — the pods-manifest range
+// (01-write-contract.md §3.6). ok is false when the day holds no sealed file.
+func (m *metaDb) ManifestBounds(podRestart string, dayStartMs, dayEndMs int64) (timeMinMs, timeMaxMs int64, ok bool, err error) {
+	var row struct {
+		TimeMinMs *int64
+		TimeMaxMs *int64
+	}
+	err = m.meta.Raw(`SELECT MIN(time_min_ms) AS time_min_ms, MAX(time_max_ms) AS time_max_ms
+		FROM parquet_local WHERE pod_restart = ? AND time_bucket_ms >= ? AND time_bucket_ms < ?`,
+		podRestart, dayStartMs, dayEndMs).Scan(&row).Error
+	if err != nil || row.TimeMinMs == nil || row.TimeMaxMs == nil {
+		return 0, 0, false, err
+	}
+	return *row.TimeMinMs, *row.TimeMaxMs, true, nil
+}
+
+// DictPendingPodRestarts lists closed pod-restarts whose dictionary/suspend
+// snapshots are still owed to S3 (03-lifecycle.md §3.9).
+func (m *metaDb) DictPendingPodRestarts() ([]string, error) {
+	var rows []string
+	err := m.meta.Raw(`SELECT pod_restart FROM pod_restarts
+		WHERE closed_at IS NOT NULL AND dict_uploaded_at IS NULL ORDER BY pod_restart`).Scan(&rows).Error
+	return rows, err
+}
+
+// SetDictUploaded gates the snapshot upload (01-write-contract.md §3.6): set
+// only after both the dictionary and suspend objects are in S3.
+func (m *metaDb) SetDictUploaded(podRestart string, uploadedAtMs int64) error {
+	return errors.Wrap(m.meta.Exec(`UPDATE pod_restarts SET dict_uploaded_at = ?
+		WHERE pod_restart = ? AND dict_uploaded_at IS NULL`, uploadedAtMs, podRestart).Error,
+		"set dict_uploaded_at")
+}
+
+// DeletableSegmentCandidates lists segments with no un-uploaded sealed rows
+// left (refcount 0) in closed pod-restarts. The caller still has to prove the
+// pod-restart holds no un-sealed calls before unlinking (03-lifecycle.md §3.7
+// step 14): a refcount-0 segment may simply not be sealed yet.
+func (m *metaDb) DeletableSegmentCandidates() ([]SegmentRow, error) {
+	var rows []SegmentRow
+	err := m.meta.Raw(`SELECT s.pod_restart, s.stream, s.rolling_seq, s.path, s.logical_size,
+		s.time_min_ms, s.time_max_ms, s.refcount, s.status
+		FROM segments s JOIN pod_restarts p ON p.pod_restart = s.pod_restart
+		WHERE s.refcount = 0 AND s.status <> 'open' AND p.closed_at IS NOT NULL
+		ORDER BY s.pod_restart, s.stream, s.rolling_seq`).Scan(&rows).Error
+	return rows, err
+}
+
+// HasUnsealedCalls reports whether any bucket still holds indexed calls of the
+// pod-restart past its seal watermark — rows a future seal will pin segments
+// for, so the segments cannot be deleted yet.
+func (m *metaDb) HasUnsealedCalls(podRestart string) (bool, error) {
+	buckets, err := m.Buckets()
+	if err != nil {
+		return false, err
+	}
+	for _, bucket := range buckets {
+		db, err := m.partition(bucket)
+		if err != nil {
+			return false, err
+		}
+		var maxOffset *int64
+		if err := db.Raw(`SELECT MAX(calls_wal_offset) FROM call_index WHERE pod_restart = ?`,
+			podRestart).Scan(&maxOffset).Error; err != nil {
+			return false, err
+		}
+		if maxOffset == nil {
+			continue
+		}
+		watermark, err := m.SealWatermark(podRestart, bucket)
+		if err != nil {
+			return false, err
+		}
+		if *maxOffset >= watermark {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// DeleteSegment removes one segment's catalog row; the refcount guard keeps a
+// racing seal (which pins under its own transaction) safe.
+func (m *metaDb) DeleteSegment(podRestart, stream string, seq int) error {
+	return errors.Wrap(m.meta.Exec(`DELETE FROM segments
+		WHERE pod_restart = ? AND stream = ? AND rolling_seq = ? AND refcount = 0`,
+		podRestart, stream, seq).Error, "delete segment row")
 }
 
 // ParquetLocalPaths lists every sealed file the catalog believes exists.

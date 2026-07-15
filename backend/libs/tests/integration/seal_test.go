@@ -312,12 +312,12 @@ func TestSealPass(t *testing.T) {
 			"P, C1, C2 source segment 1; C4 sources segment 2; the evicted C5 pins nothing")
 	})
 
-	t.Run("catalog rows await the S3 upload task", func(t *testing.T) {
+	t.Run("catalog rows await the uploader", func(t *testing.T) {
 		files, err := store.LocalParquet(key)
 		require.NoError(t, err)
 		require.Len(t, files, 4)
 		for _, f := range files {
-			assert.Nil(t, f.UploadedAtMs, "no upload happens in this slice")
+			assert.Nil(t, f.UploadedAtMs, "the seal pass itself never uploads")
 			assert.True(t, strings.HasPrefix(f.S3Key, "parquet/v1/"))
 		}
 	})
