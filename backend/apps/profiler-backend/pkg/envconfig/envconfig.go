@@ -114,6 +114,13 @@ type (
 
 		ShutdownDrainGrace time.Duration `envconfig:"PROFILER_SHUTDOWN_DRAIN_GRACE" default:"30s"`
 
+		// DumpsCollectorURL is the dumps-collector base URL, e.g.
+		// "https://dumps-collector-<namespace>.<cloud-public-host>" — a
+		// separate deployment with its own ingress, so there is no in-cluster
+		// way to derive it. Empty leaves the Pods Info dump link-out
+		// unavailable (PR 708 review #18).
+		DumpsCollectorURL string `envconfig:"DUMPS_COLLECTOR_URL"`
+
 		S3 S3
 	}
 

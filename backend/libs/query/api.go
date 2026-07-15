@@ -40,9 +40,18 @@ type podsResponse struct {
 	PartialReasons []string         `json:"partial_reasons"`
 }
 
+// configResponse is the /config body: deployment-specific values the UI has
+// no other way to learn, currently just the dumps-collector link-out base
+// (PR 708 review #18). Empty fields mean the feature they back is
+// unavailable in this deployment, not an error.
+type configResponse struct {
+	DumpsCollectorURL string `json:"dumps_collector_url"`
+}
+
 func (s *Service) routes(e *echo.Echo) {
 	e.GET("/api/v1/calls", s.handleCalls)
 	e.GET("/api/v1/pods", s.handlePods)
+	e.GET("/api/v1/config", s.handleConfig)
 	e.GET("/api/v1/calls/:pk/trace", s.handleCallTrace)
 	// gzip is per-route: /tree wants it (02 §2.5.5), while /trace serves raw
 	// bytes with Range support, which the middleware would break.
@@ -53,6 +62,12 @@ func (s *Service) routes(e *echo.Echo) {
 		e.GET("/ui", s.handleUI, middleware.Gzip())
 		e.GET("/ui/*", s.handleUI, middleware.Gzip())
 	}
+}
+
+// handleConfig serves GET /api/v1/config: static, deployment-specific values
+// the UI cannot derive on its own.
+func (s *Service) handleConfig(c echo.Context) error {
+	return c.JSON(http.StatusOK, configResponse{DumpsCollectorURL: s.cfg.DumpsCollectorURL})
 }
 
 func sendProblem(c echo.Context, p problem) error {

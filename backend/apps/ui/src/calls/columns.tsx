@@ -2,6 +2,7 @@ import { PushpinOutlined } from '@ant-design/icons';
 import { Button, Tag, Tooltip, Typography } from 'antd';
 import type { ReactNode } from 'react';
 
+import { httpTitle } from '../api/http-title';
 import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
 import { treeHref } from '../url/search-params';
@@ -73,6 +74,7 @@ export function buildCallColumns(handlers: ColumnHandlers): CallColumnDef[] {
                 size="small"
                 icon={<PushpinOutlined />}
                 title={`Pin ${tuple} in the selection`}
+                aria-label={`Pin ${tuple} in the selection`}
                 onClick={() => handlers.onPinPod?.(tuple)}
               />
             ) : null}
@@ -84,18 +86,27 @@ export function buildCallColumns(handlers: ColumnHandlers): CallColumnDef[] {
       key: 'title',
       title: 'Title',
       defaultWidth: 380,
-      render: (c) => (
-        <span>
-          <Typography.Text type={isIdleMethod(c.method) ? 'secondary' : undefined}>{c.method}</Typography.Text>{' '}
-          {c.error_flag ? <Tag color="red">error</Tag> : null}
-          {'sql' in c.params ? <Tag color="blue">sql</Tag> : null}
-          {c.truncated_reason !== null ? (
-            <Tooltip title={c.truncated_reason}>
-              <Tag color="orange">no trace</Tag>
-            </Tooltip>
-          ) : null}
-        </span>
-      ),
+      render: (c) => {
+        const http = httpTitle(c.params);
+        return (
+          <span>
+            {http !== null ? (
+              <Tooltip title={c.method}>
+                <Typography.Text>{http}</Typography.Text>
+              </Tooltip>
+            ) : (
+              <Typography.Text type={isIdleMethod(c.method) ? 'secondary' : undefined}>{c.method}</Typography.Text>
+            )}{' '}
+            {c.error_flag ? <Tag color="red">error</Tag> : null}
+            {'sql' in c.params ? <Tag color="blue">sql</Tag> : null}
+            {c.truncated_reason !== null ? (
+              <Tooltip title={c.truncated_reason}>
+                <Tag color="orange">no trace</Tag>
+              </Tooltip>
+            ) : null}
+          </span>
+        );
+      },
     },
     { key: 'cpu', title: 'CPU', defaultWidth: 90, align: 'right', render: (c) => formatDurationMs(c.cpu_time_ms), compare: (a, b) => a.cpu_time_ms - b.cpu_time_ms },
     { key: 'suspend', title: 'Suspend', defaultWidth: 95, align: 'right', render: (c) => formatDurationMs(c.suspend_ms), compare: (a, b) => a.suspend_ms - b.suspend_ms },

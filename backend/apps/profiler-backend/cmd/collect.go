@@ -85,7 +85,10 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fatal("resolve S3 credentials", err)
 	}
-	mc, err := s3.NewClient(ctx, s3params)
+	mc, err := s3.NewClientWithRetry(ctx, s3params, s3.RetryConfig{}, func(attempt int, delay time.Duration, retryErr error) {
+		gate.Set(health.StateLoading, fmt.Sprintf("connecting to S3 (attempt %d failed, retrying in %v)", attempt, delay))
+		s3.LogRetry(ctx, "connect to S3")(attempt, delay, retryErr)
+	})
 	if err != nil {
 		return fatal("connect to S3", err)
 	}

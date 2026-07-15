@@ -1,3 +1,4 @@
+import { MoreOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
@@ -270,6 +271,8 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
           type="text"
           style={{ width: 22, minWidth: 22, height: 22, padding: 0 }}
           disabled={!row.hasChildren}
+          aria-label={row.hasChildren ? (row.expanded ? 'Collapse node' : 'Expand node') : undefined}
+          aria-hidden={row.hasChildren ? undefined : true}
           onClick={() => toggleNode(row)}
         >
           {row.hasChildren ? (row.expanded ? '−' : '+') : '·'}
@@ -309,15 +312,17 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
             },
           }}
         >
-          {/* The old UI's direction arrow doubling as the operations menu
-              (BUTTON_ID_MENU): left of the bar, so it never scrolls away. */}
+          {/* A kebab icon reads as an actions menu; the old UI's direction
+              arrow alone was easy to mistake for a tree marker (PR 708
+              review #19). Left of the bar, so it never scrolls away. */}
           <Button
             size="small"
             type="text"
             title="Operations"
+            aria-label={`Open node operations${direction === 'bottom-up' ? ' (bottom-up view)' : ''}`}
             style={{ width: 22, minWidth: 22, height: 22, padding: 0, color: '#999' }}
           >
-            {direction === 'bottom-up' ? '↖' : '↘'}
+            <MoreOutlined />
           </Button>
         </Dropdown>
         {row.skippedLevels > 0 ? (

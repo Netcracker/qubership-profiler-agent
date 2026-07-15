@@ -3,6 +3,7 @@ import { Alert, Button, Empty, Input, Layout, Modal, Result, Space, Spin, Table,
 import { useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 
+import { httpTitleFromNodeParams } from '../api/http-title';
 import { parsePkPath, pkToPath } from '../api/pk';
 import type { CallPK } from '../api/types';
 import { formatCount, formatDurationMs, formatTs } from '../calls/format';
@@ -11,8 +12,8 @@ import { parseMethod } from '../tree/method-info';
 import { buildTreeModel } from '../tree/model';
 import type { TreeModel, TreeNode } from '../tree/model';
 import { summariseParams } from '../tree/params-summary';
-import { applyAdjustments, factorByMethod, parseAdjustConfig } from '../tree/transforms/adjust';
-import { applyCategories, parseCategoryConfig } from '../tree/transforms/categories';
+import { applyAdjustments, factorByMethod, invalidAdjustLines, parseAdjustConfig } from '../tree/transforms/adjust';
+import { applyCategories, invalidCategoryLines, parseCategoryConfig } from '../tree/transforms/categories';
 import { computeFlatProfile } from '../tree/transforms/flat-profile';
 import type { CategoryProfile } from '../tree/transforms/flat-profile';
 import { findUsages, incomingCalls, outgoingCalls } from '../tree/transforms/merge';
@@ -101,9 +102,23 @@ export function TreePage() {
     applyCategories(m, categoryText.trim() === '' ? null : parseCategoryConfig(categoryText));
     return m;
   }, [wire, adjustText, categoryText]);
+  // Whether the applied config actually adjusted anything — invalid-only
+  // text (e.g. every line rejected) must not claim durations changed
+  // (PR 708 review #13).
+  const hasAdjustRules = useMemo(() => parseAdjustConfig(adjustText).length > 0, [adjustText]);
+  const adjustModalInvalidLines = useMemo(() => invalidAdjustLines(adjustModal ?? ''), [adjustModal]);
+  const categoryModalInvalidLines = useMemo(() => invalidCategoryLines(categoryModal ?? ''), [categoryModal]);
 
   const profiles = useMemo(() => (model === null ? [] : computeFlatProfile(model)), [model]);
   const paramStats = useMemo(() => (model === null ? [] : summariseParams(model)), [model]);
+  // The root call's HTTP context (web.method/web.url), when the call carries
+  // one — the header otherwise shows only the technical root method, which
+  // for Tomcat/Reactor entry points is not the primary thing a reader wants
+  // (PR 708 review #6).
+  const httpContext = useMemo(
+    () => (model === null ? null : httpTitleFromNodeParams(model.root.params, model.paramKeys)),
+    [model],
+  );
 
   const openOpTab = (op: OpTabSpec['op'], methodIdx: number, category?: string): void => {
     const key = `z${nextTabId.current++}`;
@@ -196,24 +211,69 @@ export function TreePage() {
 
   return (
     <Layout style={{ height: '100vh' }}>
-      <Layout.Header style={{ display: 'flex', alignItems: 'center', gap: 16, color: '#fff' }}>
-        <Typography.Title level={5} style={{ margin: 0, color: '#fff', whiteSpace: 'nowrap' }}>
-          {pk.pod_namespace} / {pk.pod_service} / {pk.pod_name}
-        </Typography.Title>
-        <Space>
+      <Layout.Header
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 16,
+          color: '#fff',
+          height: 'auto',
+          minHeight: 64,
+          paddingTop: 12,
+          paddingBottom: 12,
+        }}
+      >
+        <Space wrap style={{ minWidth: 0, flex: '1 1 auto' }}>
+          <Typography.Title
+            level={5}
+            title={`${pk.pod_namespace} / ${pk.pod_service} / ${pk.pod_name}`}
+            style={{
+              margin: 0,
+              color: '#fff',
+              maxWidth: 'min(60vw, 520px)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {pk.pod_namespace} / {pk.pod_service} / {pk.pod_name}
+          </Typography.Title>
+          {httpContext !== null ? (
+            <Tag color="green" title="From the root call's web.method/web.url params">
+              {httpContext}
+            </Tag>
+          ) : null}
           {hints.tsMs !== null ? <Tag>{formatTs(hints.tsMs)}</Tag> : null}
           {model !== null ? <Tag color="blue">{formatDurationMs(model.root.durationMs)}</Tag> : null}
           {hints.retentionClass !== null ? <Tag>{hints.retentionClass}</Tag> : null}
         </Space>
-        <span style={{ flex: 1 }} />
-        <Space>
-          <Button size="small" onClick={() => setAdjustModal(adjustText)}>
+        <Space wrap style={{ flex: '0 0 auto' }}>
+          <Button
+            size="small"
+            disabled={model === null}
+            title={model === null ? 'No tree loaded yet — nothing to adjust' : undefined}
+            onClick={() => setAdjustModal(adjustText)}
+          >
             Adjust duration
           </Button>
-          <Button size="small" onClick={() => setCategoryModal(categoryText)}>
+          <Button
+            size="small"
+            disabled={model === null}
+            title={model === null ? 'No tree loaded yet — nothing to categorize' : undefined}
+            onClick={() => setCategoryModal(categoryText)}
+          >
             Setup categories
           </Button>
-          <Button size="small" icon={<DownloadOutlined />} href={traceHref} download>
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={model === null}
+            title={model === null ? 'No trace located for this call yet' : undefined}
+            href={model === null ? undefined : traceHref}
+            download
+          >
             Raw trace
           </Button>
         </Space>
@@ -274,7 +334,7 @@ export function TreePage() {
                   description="Branches are still expandable by hand; the raw trace download carries full fidelity."
                 />
               ) : null}
-              {adjustText.trim() !== '' ? (
+              {adjustText.trim() !== '' && hasAdjustRules ? (
                 <Alert
                   type="info"
                   showIcon
@@ -407,6 +467,15 @@ export function TreePage() {
             onChange={(e) => setAdjustModal(e.target.value)}
             placeholder={ADJUST_PLACEHOLDER}
           />
+          {adjustModalInvalidLines.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 8 }}
+              title={`Line${adjustModalInvalidLines.length === 1 ? '' : 's'} ${adjustModalInvalidLines.join(', ')} will be ignored`}
+              description="Expected <factor> <method pattern>, for example 1/10 *Query.run*."
+            />
+          ) : null}
         </Modal>
 
         <Modal
@@ -431,6 +500,15 @@ export function TreePage() {
             onChange={(e) => setCategoryModal(e.target.value)}
             placeholder={CATEGORY_PLACEHOLDER}
           />
+          {categoryModalInvalidLines.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 8 }}
+              title={`Line${categoryModalInvalidLines.length === 1 ? '' : 's'} ${categoryModalInvalidLines.join(', ')} will be ignored`}
+              description="Expected <category> <method pattern>, for example db >s.Dao.select*."
+            />
+          ) : null}
         </Modal>
       </Layout.Content>
     </Layout>

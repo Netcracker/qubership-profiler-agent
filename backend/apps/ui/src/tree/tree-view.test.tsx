@@ -56,13 +56,13 @@ describe('TreeView row layout', () => {
     expect(pkg?.style.fontSize).toBe('0px');
   });
 
-  it('puts the operations menu left of the label, with the top-down arrow', () => {
+  it('puts an accessible operations menu left of the label', () => {
     render(<TreeView model={buildTreeModel(wire())} />);
     const label = screen.getByTitle(METHODS[1]!);
     const row = label.closest('div')!;
     const buttons = row.querySelectorAll('button');
     expect(buttons[1]!.title).toBe('Operations');
-    expect(buttons[1]!.textContent).toBe('↘');
+    expect(buttons[1]!.getAttribute('aria-label')).toBe('Open node operations');
     expect(buttons[1]!.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The fixed-width bar slot is gone: the bar hugs the duration number.
     for (const span of row.querySelectorAll('span')) {
@@ -70,11 +70,11 @@ describe('TreeView row layout', () => {
     }
   });
 
-  it('draws the bottom-up arrow on caller trees', () => {
+  it('notes the bottom-up view in the operations menu label on caller trees', () => {
     render(<TreeView model={buildTreeModel(wire())} direction="bottom-up" />);
     const label = screen.getByTitle(METHODS[1]!);
     const buttons = label.closest('div')!.querySelectorAll('button');
-    expect(buttons[1]!.textContent).toBe('↖');
+    expect(buttons[1]!.getAttribute('aria-label')).toBe('Open node operations (bottom-up view)');
   });
 
   it('shows the Ctrl stats in an overlay without remounting the hovered row', () => {

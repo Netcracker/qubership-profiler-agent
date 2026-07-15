@@ -131,7 +131,12 @@ func (o *memObject) Size() int64  { return int64(len(o.data)) }
 
 // --- seeding helpers -------------------------------------------------------
 
-var testBucketStart = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+// testBucketStart must stay well inside every retention class's TTL (the
+// shortest is 2 days, model.RetentionTiers) while remaining settled (past
+// TimeBucket + MinAge, at most an hour): a fixed calendar date ages past the
+// TTL and gets expired out from under the compaction tests as real time
+// advances, so it is pinned relative to the test run instead.
+var testBucketStart = time.Now().Add(-2 * time.Hour).UTC().Truncate(5 * time.Minute)
 
 func testRow(pod string, restartMs, tsMs int64, seqNo int32, class string) storageparquet.CallV2 {
 	blob := []byte(fmt.Sprintf("blob-%s-%d-%d", pod, tsMs, seqNo))

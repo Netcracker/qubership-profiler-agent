@@ -11,6 +11,8 @@ export interface MethodInfo {
   shortClassName: string;
   /** Abbreviated signature, e.g. `void c.n.Class.setBeanFactory(o.s.b.f.BeanFactory)`. */
   signature: string;
+  /** `package.Class.method`, no return type/args; '' for an unparsed word. */
+  classMethod: string;
   /**
    * Package with a trailing dot (`com.acme.orders.`), '' for the default
    * package or an unparsed word. Rendered as the hidden-but-copyable span
@@ -79,6 +81,7 @@ export function parseMethod(original: string): MethodInfo {
     className: '',
     shortClassName: '',
     signature: original,
+    classMethod: '',
     packagePrefix: '',
     bareSignature: '',
     fileName: '',
@@ -124,6 +127,7 @@ export function parseMethod(original: string): MethodInfo {
 
   info.className = className!;
   info.shortClassName = shortClass(className!);
+  info.classMethod = qualifiedMethod!;
   const lastDot = className!.lastIndexOf('.');
   info.packagePrefix = lastDot >= 0 ? className!.slice(0, lastDot + 1) : '';
   const args = argsRaw!

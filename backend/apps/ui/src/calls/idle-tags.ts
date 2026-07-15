@@ -1,3 +1,5 @@
+import { parseMethod } from '../tree/method-info';
+
 // The "Hide system/proxy" toggle (09 §2.3) hides housekeeping threads that
 // dominate page one when idle. The list is ported verbatim from the old UI's
 // idleTags (profiler-ui/src/dataFormat.mjs); it filters client-side until a
@@ -21,5 +23,10 @@ export const IDLE_TAGS: ReadonlySet<string> = new Set([
 ]);
 
 export function isIdleMethod(method: string): boolean {
-  return IDLE_TAGS.has(method);
+  // `method` is normally a full dictionary word (return type, args, file/line,
+  // jar — 08 §7), which never equals the bare `package.Class.method` entries
+  // above; parse it down to that shape before matching (the old UI's
+  // isTagIdle did the same over its own decoded tag).
+  if (IDLE_TAGS.has(method)) return true;
+  return IDLE_TAGS.has(parseMethod(method).classMethod);
 }

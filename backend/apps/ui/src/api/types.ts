@@ -90,6 +90,15 @@ export interface PodsResponse {
   partial_reasons: string[];
 }
 
+/**
+ * GET /config body: deployment-specific values the UI cannot derive on its
+ * own. Empty fields mean the feature they back is unavailable in this
+ * deployment, not an error.
+ */
+export interface ConfigResponse {
+  dumps_collector_url: string;
+}
+
 /** RFC 7807 body with the §2.3.2 wide-query guard extensions (02 §8). */
 export interface ProblemDetails {
   type: string;

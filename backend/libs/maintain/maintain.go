@@ -97,6 +97,14 @@ func DefaultPodsManifestTTL() time.Duration {
 	return model.MaxClassTTL() + 5*24*time.Hour
 }
 
+// isNoteworthy reports whether a pass changed state or hit an error, as
+// opposed to routine skip counters (nothing settled or ready yet) that run
+// every tick regardless (PR 708 review #27).
+func (s Stats) isNoteworthy() bool {
+	return s.CompactedGroups > 0 || s.DeletedInputFiles > 0 ||
+		s.TTLParquetDeleted > 0 || s.TTLManifestsDeleted > 0 || s.Errors > 0
+}
+
 // Normalize fills unset fields with the contract defaults (01 §9).
 func (c Config) Normalize() Config {
 	if c.TimeBucket <= 0 {
@@ -181,7 +189,14 @@ func (j *Job) RunLoop(ctx context.Context, interval time.Duration) error {
 			j.OnPass(stats)
 		}
 		if stats != (Stats{}) {
-			log.Info(ctx, "maintain pass: %+v", stats)
+			if stats.isNoteworthy() {
+				log.Info(ctx, "maintain pass: %+v", stats)
+			} else {
+				// Routine skip counters (nothing settled/ready yet) run every
+				// tick and would otherwise bury real events in steady-state
+				// INFO volume (PR 708 review #27).
+				log.Debug(ctx, "maintain pass: %+v", stats)
+			}
 		}
 		select {
 		case <-ctx.Done():

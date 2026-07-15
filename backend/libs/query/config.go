@@ -43,6 +43,13 @@ type Config struct {
 	// OverlapMargin sizes the hot/cold overlap window the dynamic cutoff adds
 	// on top of the replicas' hot-window reports (PROFILER_OVERLAP_MARGIN, §4.3).
 	OverlapMargin time.Duration
+	// DumpsCollectorURL is the dumps-collector base URL (DUMPS_COLLECTOR_URL),
+	// e.g. "https://dumps-collector-<namespace>.<cloud-public-host>". It is a
+	// separate deployment with its own ingress, so there is no in-cluster way
+	// to derive it; empty (the default) leaves the Pods Info dump link-out
+	// unavailable rather than guess a scheme and host that may not resolve
+	// (PR 708 review #18).
+	DumpsCollectorURL string
 }
 
 // Normalize fills unset fields with the 02 §9 defaults.

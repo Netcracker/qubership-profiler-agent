@@ -46,32 +46,21 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 	}
 
 	// The job is stateless (03 §8): S3 access is its only dependency and a
-	// failure is FATAL, mirroring the query startup.
+	// failure is FATAL, mirroring the query startup. A temporarily
+	// unreachable endpoint retries with backoff instead (PR 708 review #22).
 	s3params, err := cfg.S3.Params()
 	if err != nil {
 		return pkgerrors.Wrap(err, "resolve S3 credentials")
 	}
-	mc, err := s3.NewClient(ctx, s3params)
-	if err != nil {
-		return pkgerrors.Wrap(err, "connect to S3")
-	}
-
-	job := maintain.NewJob(maintain.NewS3ObjectStore(mc, cfg.S3.PathPrefix), maintain.Config{
-		TimeBucket:    cfg.TimeBucket,
-		MinAge:        cfg.CompactionMinAge,
-		MinFiles:      cfg.CompactionMinFiles,
-		DeleteGrace:   cfg.CompactionDeleteGrace,
-		MaxGroupBytes: int64(cfg.CompactionMaxBytes),
-		// Explicit env TTLs win; unset classes keep the tier-table defaults
-		// (№10), so the write classification, the read pruning, and the TTLs
-		// share one source.
-		ClassTTL:        cfg.ClassTTLs(),
-		PodsManifestTTL: time.Duration(cfg.RetentionPodsTTL),
-	})
 
 	if maintainRunNow {
-		// One-shot CronJob mode: the pod exits right after the pass, so a
-		// scrape endpoint would never be seen — stats go to the log only.
+		// One-shot CronJob mode (§8.2): no listener to keep alive, so retry
+		// just rides out a slow-starting S3 within the job's own budget.
+		mc, err := s3.NewClientWithRetry(ctx, s3params, s3.RetryConfig{}, s3.LogRetry(ctx, "connect to S3"))
+		if err != nil {
+			return pkgerrors.Wrap(err, "connect to S3")
+		}
+		job := newMaintainJob(mc, cfg)
 		stats, err := job.Pass(ctx, time.Now())
 		log.Info(ctx, "maintain pass: %+v", stats)
 		return err
@@ -81,6 +70,30 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 	// Expose the cdt_minio_* series (registered on the default registry inside
 	// s3.NewClient) on this subcommand's own registry too.
 	s3.RegisterMetrics(reg)
+	// Bind the metrics/liveness listener before S3 (rather than after, as
+	// before): the liveness probe must see the process is alive while a
+	// slow-starting S3 endpoint retries, not connection-refused.
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics.Handler(reg))
+	mux.HandleFunc("/health/live", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	metricsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.MetricsPort), Handler: mux}
+	metricsServeErr := make(chan error, 1)
+	go func() { metricsServeErr <- metricsSrv.ListenAndServe() }()
+	shutdownMetrics := func() {
+		shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shCancel()
+		_ = metricsSrv.Shutdown(shCtx)
+	}
+
+	mc, err := s3.NewClientWithRetry(ctx, s3params, s3.RetryConfig{}, s3.LogRetry(ctx, "connect to S3"))
+	if err != nil {
+		shutdownMetrics()
+		return pkgerrors.Wrap(err, "connect to S3")
+	}
+
+	job := newMaintainJob(mc, cfg)
 	job.OnPass = metrics.RegisterMaintain(reg).Observe
 
 	log.Info(ctx, "maintain ready: check interval %s, delete grace %s, min age %s, min files %d, metrics :%d",
@@ -101,22 +114,18 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 	})
 	// The metrics listener lives and dies with the loop; the job itself has no
 	// readiness state (03 §8) — /health/live just says the process runs.
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", metrics.Handler(reg))
-	mux.HandleFunc("/health/live", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	metricsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.MetricsPort), Handler: mux}
 	gr.Add(func() error {
-		err := metricsSrv.ListenAndServe()
-		if pkgerrors.Is(err, http.ErrServerClosed) {
+		select {
+		case err := <-metricsServeErr:
+			if pkgerrors.Is(err, http.ErrServerClosed) {
+				return nil
+			}
+			return err
+		case <-runCtx.Done():
 			return nil
 		}
-		return err
 	}, func(error) {
-		shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer shCancel()
-		_ = metricsSrv.Shutdown(shCtx)
+		shutdownMetrics()
 	})
 	// No drain phase: the job serves no traffic, and a pass interrupted
 	// between the compacted PUT and the input deletes is resumed by the next
@@ -137,4 +146,19 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 		close(sigDone)
 	})
 	return gr.Run()
+}
+
+func newMaintainJob(mc *s3.MinioClient, cfg appenv.Maintain) *maintain.Job {
+	return maintain.NewJob(maintain.NewS3ObjectStore(mc, cfg.S3.PathPrefix), maintain.Config{
+		TimeBucket:    cfg.TimeBucket,
+		MinAge:        cfg.CompactionMinAge,
+		MinFiles:      cfg.CompactionMinFiles,
+		DeleteGrace:   cfg.CompactionDeleteGrace,
+		MaxGroupBytes: int64(cfg.CompactionMaxBytes),
+		// Explicit env TTLs win; unset classes keep the tier-table defaults
+		// (№10), so the write classification, the read pruning, and the TTLs
+		// share one source.
+		ClassTTL:        cfg.ClassTTLs(),
+		PodsManifestTTL: time.Duration(cfg.RetentionPodsTTL),
+	})
 }

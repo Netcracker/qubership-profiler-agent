@@ -1,10 +1,11 @@
 import { DownOutlined, SettingOutlined, UpOutlined } from '@ant-design/icons';
 import { Button, Checkbox, Input, Popover, Radio, Space, Switch, Typography } from 'antd';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { CallsSearchState } from '../url/search-params';
+import { defaultColumnPrefs } from './column-prefs';
 import type { ColumnPrefs } from './column-prefs';
-import { buildCallColumns } from './columns';
+import { buildCallColumns, DEFAULT_COLUMN_ORDER } from './columns';
 
 // Calls filter bar (09 §2.3): duration chips (>500ms default), errors-only,
 // hide system/proxy, method-substring query, column management. These narrow
@@ -39,33 +40,52 @@ function ColumnSettings({ prefs, onPrefsChange }: Pick<CallsToolbarProps, 'prefs
     next.splice(target, 0, item!);
     onPrefsChange({ ...prefs, order: next });
   };
+  // Hiding the last visible column leaves a blank table with loaded rows and
+  // no visible way back, so that last checkbox stays checked and disabled.
+  const visibleCount = prefs.order.length - prefs.hidden.length;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
-      {prefs.order.map((key, i) => (
-        <Space key={key} style={{ justifyContent: 'space-between', width: '100%' }}>
-          <Checkbox
-            checked={!prefs.hidden.includes(key)}
-            onChange={(e) =>
-              onPrefsChange({
-                ...prefs,
-                hidden: e.target.checked ? prefs.hidden.filter((k) => k !== key) : [...prefs.hidden, key],
-              })
-            }
-          >
-            {COLUMN_TITLES.get(key) ?? key}
-          </Checkbox>
-          <Space size={0}>
-            <Button type="text" size="small" icon={<UpOutlined />} disabled={i === 0} onClick={() => move(i, -1)} />
-            <Button
-              type="text"
-              size="small"
-              icon={<DownOutlined />}
-              disabled={i === prefs.order.length - 1}
-              onClick={() => move(i, 1)}
-            />
+      {prefs.order.map((key, i) => {
+        const visible = !prefs.hidden.includes(key);
+        const title = COLUMN_TITLES.get(key) ?? key;
+        return (
+          <Space key={key} style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Checkbox
+              checked={visible}
+              disabled={visible && visibleCount === 1}
+              onChange={(e) =>
+                onPrefsChange({
+                  ...prefs,
+                  hidden: e.target.checked ? prefs.hidden.filter((k) => k !== key) : [...prefs.hidden, key],
+                })
+              }
+            >
+              {title}
+            </Checkbox>
+            <Space size={0}>
+              <Button
+                type="text"
+                size="small"
+                icon={<UpOutlined />}
+                disabled={i === 0}
+                aria-label={`Move ${title} column up`}
+                onClick={() => move(i, -1)}
+              />
+              <Button
+                type="text"
+                size="small"
+                icon={<DownOutlined />}
+                disabled={i === prefs.order.length - 1}
+                aria-label={`Move ${title} column down`}
+                onClick={() => move(i, 1)}
+              />
+            </Space>
           </Space>
-        </Space>
-      ))}
+        );
+      })}
+      <Button size="small" onClick={() => onPrefsChange(defaultColumnPrefs(DEFAULT_COLUMN_ORDER))}>
+        Reset columns
+      </Button>
     </div>
   );
 }
@@ -73,6 +93,22 @@ function ColumnSettings({ prefs, onPrefsChange }: Pick<CallsToolbarProps, 'prefs
 export function CallsToolbar({ search, onSearchChange, prefs, onPrefsChange, disabled }: CallsToolbarProps) {
   // The query commits on Enter or the search button, not per keystroke.
   const [queryDraft, setQueryDraft] = useState(search.query);
+
+  // Resync the draft when the committed query changes under us (back/forward,
+  // a shared link, a banner action), or the input would keep showing stale text.
+  useEffect(() => {
+    setQueryDraft(search.query);
+  }, [search.query]);
+
+  // An empty field reads as "no filter" to the user, so clearing it — by
+  // backspacing or the input's own clear button — commits immediately instead
+  // of waiting for Enter/search, unlike a non-empty edit.
+  const handleQueryChange = (value: string): void => {
+    setQueryDraft(value);
+    if (value === '' && search.query !== '') {
+      onSearchChange({ ...search, query: '' });
+    }
+  };
 
   return (
     <Space wrap style={{ padding: '8px 0' }}>
@@ -109,7 +145,7 @@ export function CallsToolbar({ search, onSearchChange, prefs, onPrefsChange, dis
         style={{ width: 260 }}
         value={queryDraft}
         disabled={disabled}
-        onChange={(e) => setQueryDraft(e.target.value)}
+        onChange={(e) => handleQueryChange(e.target.value)}
         onSearch={(value) => onSearchChange({ ...search, query: value })}
       />
       <Popover trigger="click" content={<ColumnSettings prefs={prefs} onPrefsChange={onPrefsChange} />}>

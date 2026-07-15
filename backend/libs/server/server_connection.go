@@ -75,7 +75,9 @@ func (sc *ConnectionHandler) Handle() {
 	for {
 		err := sc.HandleCommand(sc.ctx)
 		if err != nil {
-			if err != errAgentClosed {
+			if err == errAgentClosed || io.IsExpectedDisconnect(err) {
+				log.Debug(sc.ctx, "connection handler stopped: %v", err)
+			} else {
 				log.Error(sc.ctx, err, "connection handler stopped")
 			}
 			break
@@ -134,7 +136,11 @@ func (sc *ConnectionHandler) HandleCommand(ctx context.Context) (err error) {
 
 	if err != nil && err != errAgentClosed {
 		pos := sc.socketReader.Pos()
-		log.Error(ctx, err, " command %02X failed around pos: %d (%02X) ", op, pos, pos)
+		if io.IsExpectedDisconnect(err) {
+			log.Debug(ctx, "command %02X: connection closed around pos: %d (%02X): %v", op, pos, pos, err)
+		} else {
+			log.Error(ctx, err, " command %02X failed around pos: %d (%02X) ", op, pos, pos)
+		}
 	}
 	return err
 }

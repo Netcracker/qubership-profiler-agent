@@ -16,6 +16,7 @@ describe('parseMethod', () => {
     expect(info.lineNumber).toBe(67);
     expect(info.jarName).toBe('cassandra-dao-9.3.2.64.jar');
     expect(info.jarPath).toBe('BOOT-INF/lib');
+    expect(info.classMethod).toBe('com.netcracker.cloud.collector.storage.model.StreamFacadeCassandra.setBeanFactory');
   });
 
   it('parses a multi-arg signature (no space after the comma, the wire form)', () => {
@@ -66,6 +67,7 @@ describe('parseMethod', () => {
     expect(info.className).toBe('');
     expect(info.packagePrefix).toBe('');
     expect(info.bareSignature).toBe('');
+    expect(info.classMethod).toBe('');
   });
 
   it('never throws on malformed words', () => {

@@ -60,6 +60,13 @@ describe('TreePage', () => {
     expect(await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 })).toBeInTheDocument();
     // The degenerate entry chain is skipped: reveal badges are present.
     expect((await screen.findAllByText(/⤵/)).length).toBeGreaterThan(0);
+    // A loaded tree makes the header actions usable again. Raw trace has an
+    // href once enabled, so AntD renders it as a link, not a button.
+    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeEnabled();
+    const rawTrace = screen.getByRole('link', { name: /Raw trace/ });
+    expect(rawTrace).toHaveAttribute('href');
+    expect(rawTrace).not.toHaveAttribute('aria-disabled', 'true');
   });
 
   it('keeps derived views as closeable tabs', async () => {
@@ -96,6 +103,12 @@ describe('TreePage', () => {
       await screen.findByText('This call is outside the hot window', undefined, { timeout: 5000 }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Reopen the call from its row/)).toBeInTheDocument();
+    // No tree model exists to adjust/categorize, and no trace can be located
+    // without hints — the header actions must not look usable (PR 708
+    // review #20).
+    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Raw trace/ })).toBeDisabled();
   });
 
   it('shows the truncated-blob state', async () => {

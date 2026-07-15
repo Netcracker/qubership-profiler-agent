@@ -46,14 +46,44 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// §7.1 step 2: verify the S3 side before serving; unrecoverable → FATAL.
+	// Bind the external port and gate before S3 (rather than after, as
+	// before): a probe must see LOADING instead of connection-refused while
+	// S3 is still coming up (PR 708 review #22), the same reasoning as the
+	// collector's internal port (03-lifecycle.md §2).
+	gate := health.NewGate("/api/v1")
+	reg := metrics.NewRegistry()
+	// Expose the cdt_minio_* series (registered on the default registry inside
+	// s3.NewClient) on this subcommand's own registry too.
+	s3.RegisterMetrics(reg)
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.ExternalAPIPort))
+	if err != nil {
+		return pkgerrors.Wrap(err, "bind external API")
+	}
+	// query has no internal port, so /metrics rides the external one (04 §12);
+	// the ingress publishes /api/v1 only.
+	external := &http.Server{Handler: metrics.Mux(reg, gate)}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- external.Serve(ln) }()
+
+	fatal := func(stage string, err error) error {
+		gate.Set(health.StateFatal, stage+": "+err.Error())
+		_ = external.Close()
+		return pkgerrors.Wrap(err, stage)
+	}
+
+	// §7.1 step 2: verify the S3 side before serving; unrecoverable → FATAL,
+	// a temporarily unreachable endpoint retries with backoff instead.
+	gate.Set(health.StateLoading, "connecting to S3")
 	s3params, err := cfg.S3.Params()
 	if err != nil {
-		return pkgerrors.Wrap(err, "resolve S3 credentials")
+		return fatal("resolve S3 credentials", err)
 	}
-	mc, err := s3.NewClient(ctx, s3params)
+	mc, err := s3.NewClientWithRetry(ctx, s3params, s3.RetryConfig{}, func(attempt int, delay time.Duration, retryErr error) {
+		gate.Set(health.StateLoading, fmt.Sprintf("connecting to S3 (attempt %d failed, retrying in %v)", attempt, delay))
+		s3.LogRetry(ctx, "connect to S3")(attempt, delay, retryErr)
+	})
 	if err != nil {
-		return pkgerrors.Wrap(err, "connect to S3")
+		return fatal("connect to S3", err)
 	}
 
 	// §7.1 step 1: resolve the collector service once to surface a
@@ -72,10 +102,6 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		log.Warning(ctx, "/ui disabled: %s", uiErr)
 	}
 
-	reg := metrics.NewRegistry()
-	// Expose the cdt_minio_* series (registered on the default registry inside
-	// s3.NewClient) on this subcommand's own registry too.
-	s3.RegisterMetrics(reg)
 	svc := query.New(query.Options{
 		Config: query.Config{
 			CursorTTL:          cfg.CursorTTL,
@@ -88,19 +114,14 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 			CollectorPort:      cfg.CollectorPort,
 			FanoutTimeout:      cfg.FanoutTimeout,
 			OverlapMargin:      cfg.OverlapMargin,
+			DumpsCollectorURL:  cfg.DumpsCollectorURL,
 		},
 		ColdStore: query.NewS3ObjectReader(mc, cfg.S3.PathPrefix),
 		Metrics:   query.NewMetrics(reg),
 		UI:        uiAssets,
 	})
-
-	gate := health.NewGate("/api/v1")
 	gate.Mount(svc.Handler())
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.ExternalAPIPort))
-	if err != nil {
-		return pkgerrors.Wrap(err, "bind external API")
-	}
-	// Stateless service: READY as soon as the port is bound (§7.1 step 4).
+	// Stateless service: READY as soon as the handler is mounted (§7.1 step 4).
 	gate.Set(health.StateReady, "")
 	// The thresholds must mirror the collector's, or the cold class pruning
 	// silently drops rows (01 §6.4); logging the resolved value makes a drift
@@ -111,12 +132,6 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	}
 	log.Info(ctx, "query ready: external API :%d, collector service %q, duration thresholds %v",
 		cfg.ExternalAPIPort, cfg.CollectorService, thresholds)
-
-	// query has no internal port, so /metrics rides the external one (04 §12);
-	// the ingress publishes /api/v1 only.
-	external := &http.Server{Handler: metrics.Mux(reg, gate)}
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- external.Serve(ln) }()
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

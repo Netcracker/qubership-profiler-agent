@@ -90,6 +90,16 @@ const TOPOLOGY: ServiceSpec[] = [
   },
 ];
 
+// REST-ish routes per service, so the HTTP title (Calls Title column, Call
+// Tree header) has a plausible path to show — real content is not the point.
+const HTTP_ROUTES: Record<string, string[]> = {
+  billing: ['/invoices', '/invoices/1', '/tax'],
+  gateway: ['/payments/authorize', '/payments/capture'],
+  checkout: ['/checkout', '/cart'],
+  inventory: ['/inventory/sku-42'],
+  proxy: ['/health'],
+};
+
 const SQL_TEXTS = [
   'select * from invoices where customer_id = ? and status = ?',
   'update inventory set reserved = reserved + ? where sku = ?',
@@ -179,6 +189,15 @@ function callsInBucket(pr: PodRestart, bucketStartMs: number): CallJSON[] {
     };
     if (hasSql) params['sql'] = ['1'];
     if (errorFlag) params['error'] = ['java.lang.IllegalStateException'];
+    // Business calls arrive over HTTP (the mock's tree root is always the
+    // Tomcat entry point, treeForCall below) — carry web.method/web.url the
+    // same way the real agent does, so the Title column and tree header have
+    // something to derive a human-readable endpoint from.
+    if (!idle) {
+      const routes = HTTP_ROUTES[pr.service] ?? ['/'];
+      params['web.method'] = [r() < 0.85 ? 'GET' : 'POST'];
+      params['web.url'] = [`http://${pr.service}:8080${routes[Math.floor(r() * routes.length)]}`];
+    }
     const call: CallJSON = {
       pk: {
         pod_namespace: pr.namespace,
@@ -334,7 +353,7 @@ const TREE_METHODS = [
   'Object com.acme.web.OrderController.handle(OrderRequest) (OrderController.java:44) [app.jar]',
 ];
 
-const TREE_PARAM_KEYS = ['sql', 'binds', 'request.id', 'node.name', 'java.thread'];
+const TREE_PARAM_KEYS = ['sql', 'binds', 'request.id', 'node.name', 'java.thread', 'web.method', 'web.url'];
 
 /**
  * Deterministic merged tree for one call. Invariants the backend guarantees
@@ -450,6 +469,12 @@ export function treeForCall(call: CallJSON): TreeWire {
     params: [
       { paramIdx: 2, groups: [{ value: call.params['request.id']?.[0] ?? 'n/a', durationMs: call.duration_ms, executions: 1 }] },
       { paramIdx: 4, groups: [{ value: call.thread_name, durationMs: call.duration_ms, executions: 1 }] },
+      ...(call.params['web.method'] !== undefined
+        ? [{ paramIdx: 5, groups: [{ value: call.params['web.method']![0]!, durationMs: call.duration_ms, executions: 1 }] }]
+        : []),
+      ...(call.params['web.url'] !== undefined
+        ? [{ paramIdx: 6, groups: [{ value: call.params['web.url']![0]!, durationMs: call.duration_ms, executions: 1 }] }]
+        : []),
     ],
     children: [filter],
   };

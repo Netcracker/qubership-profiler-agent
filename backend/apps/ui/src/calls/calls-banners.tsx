@@ -39,12 +39,16 @@ export function TooWideBanner({ problem, search, onSearchChange }: TooWideBanner
   }
   if (suggested.includes('retention_class')) {
     chips.push(
+      // Narrows the scan to the long-duration and error retention classes
+      // (02 §2.3.2: error_only already prunes to any_error/corrupted, so this
+      // stays a retention_class filter rather than also setting error_only —
+      // that would drop the long_clean matches this chip is meant to keep).
       <Button
         key="long"
         size="small"
         onClick={() => onSearchChange({ ...search, retentionClasses: ['long_clean', 'any_error'] })}
       >
-        Long + errors only
+        Long or errored calls
       </Button>,
     );
   }
@@ -73,6 +77,39 @@ export function TooWideBanner({ problem, search, onSearchChange }: TooWideBanner
               <Typography.Text type="secondary">…or select services in the left rail.</Typography.Text>
             ) : null}
           </Space>
+        </Space>
+      }
+    />
+  );
+}
+
+/**
+ * The selected services expand to a pod list too long to fit in one GET
+ * /calls request line. There is no `service` param to fall back to (02
+ * §2.3), so the only way out is fewer pods: clear the selection, or pin
+ * individual pods instead of whole services (PR 708 review #8).
+ */
+export function SelectionTooWideBanner({
+  search,
+  onSearchChange,
+}: {
+  search: CallsSearchState;
+  onSearchChange: (next: CallsSearchState) => void;
+}) {
+  return (
+    <Alert
+      type="error"
+      showIcon
+      title="Selection too wide"
+      description={
+        <Space orientation="vertical" size={4}>
+          <Typography.Text>
+            The selected services expand to too many pods for one request. Select fewer services, or pin individual
+            pods instead of whole services.
+          </Typography.Text>
+          <Button size="small" onClick={() => onSearchChange({ ...search, services: [], pods: [] })}>
+            Clear selection
+          </Button>
         </Space>
       }
     />

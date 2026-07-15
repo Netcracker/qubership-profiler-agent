@@ -196,6 +196,11 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
 // --- Handlers ---
 
 export const handlers = [
+  http.get('/api/v1/config', async () => {
+    await pace();
+    return HttpResponse.json({ dumps_collector_url: 'https://dumps-collector-petclinic.example.com' });
+  }),
+
   http.get('/api/v1/pods', async ({ request }) => {
     await pace();
     const sp = new URL(request.url).searchParams;

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { TreeWire } from '../../msgpack/tree-wire';
 import { buildTreeModel } from '../model';
-import { applyAdjustments, factorByMethod, parseAdjustConfig } from './adjust';
-import { applyCategories, parseCategoryConfig } from './categories';
+import { applyAdjustments, factorByMethod, invalidAdjustLines, parseAdjustConfig } from './adjust';
+import { applyCategories, invalidCategoryLines, parseCategoryConfig } from './categories';
 import { computeFlatProfile } from './flat-profile';
 import { findUsages, incomingCalls, outgoingCalls } from './merge';
 
@@ -188,6 +188,16 @@ describe('adjust duration', () => {
     expect(serviceB.durationMs).toBe(4000);
     expect(model.root.durationMs).toBe(100 + 500 + 4000);
   });
+
+  it('flags a line with no pattern, or a factor that is neither a number nor a fraction', () => {
+    expect(invalidAdjustLines('not-a-valid-rule')).toEqual([1]);
+    expect(invalidAdjustLines('abc *Query.run*')).toEqual([1]);
+    expect(invalidAdjustLines('1/10 *Query.run*')).toEqual([]);
+  });
+
+  it('reports 1-based line numbers, skipping blanks and comments', () => {
+    expect(invalidAdjustLines('# ok\n1/10 *Query.run*\n\nbroken\n2 s.ServiceB.other\nalso broken')).toEqual([4, 6]);
+  });
 });
 
 describe('setup categories', () => {
@@ -220,5 +230,14 @@ describe('setup categories', () => {
     expect(serviceA.category?.name).toBe('narrow');
     expect(serviceB.category?.name).toBe('broad');
     expect(serviceA.category?.color).toMatch(/^hsl\(/);
+  });
+
+  it('flags a line with no pattern', () => {
+    expect(invalidCategoryLines('invalidlinewithoutpattern')).toEqual([1]);
+    expect(invalidCategoryLines('db >s.ServiceA.doWork*')).toEqual([]);
+  });
+
+  it('reports 1-based line numbers, skipping blanks and comments', () => {
+    expect(invalidCategoryLines('# ok\nweb e.Entry.handle*\n\nbroken\nbilling s.ServiceB.other*')).toEqual([4]);
   });
 });
