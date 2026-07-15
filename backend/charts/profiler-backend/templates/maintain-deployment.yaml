@@ -1,3 +1,6 @@
+{{- if not (has .Values.maintain.mode (list "deployment" "cronjob")) }}
+{{- fail (printf "maintain.mode must be \"deployment\" or \"cronjob\", got %q — an unsupported value would silently render no maintainer, dropping retention and compaction (PR 708 review #13)" .Values.maintain.mode) }}
+{{- end }}
 {{- if eq .Values.maintain.mode "deployment" }}
 # Singleton maintenance loop (03-lifecycle.md §8.1). One replica is enough —
 # and correct: two maintainers PUT identical objects (deterministic keys), so

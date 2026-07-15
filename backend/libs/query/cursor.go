@@ -15,10 +15,11 @@ import (
 const cursorVersion = 1
 
 // cursorToken is the opaque /calls pagination cursor (02 §2.3.1): the frozen
-// query, the last-emitted position, and the issue time for the TTL. The
-// wide-query guard verdict rides implicitly — a cursor exists only for a
-// query that passed the guard on page 1 (§2.3.2). It is URL-safe base64 of
-// JSON; an HMAC signature is deferred per the contract.
+// query, the last-emitted position, and the issue time for the TTL. It is
+// URL-safe base64 of JSON; an HMAC signature is deferred per the contract, so
+// the token is client-forgeable — the wide-query guard therefore re-runs on
+// the frozen query on every page rather than trusting a page-1 verdict to
+// ride along (§2.3.2, PR 708 review #2).
 type cursorToken struct {
 	V        int              `json:"v"`
 	Query    model.CallsQuery `json:"q"`

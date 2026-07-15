@@ -6,11 +6,14 @@ package hotstore
 
 import (
 	"fmt"
+	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func indexRow(pod string, tsMs int64, seq int, durationMs int, errorFlag bool) CallIndexRow {
@@ -46,11 +49,60 @@ func TestPartitionCacheLRU(t *testing.T) {
 		assert.Len(t, rows, 1, "an evicted bucket reopens and still holds its row")
 	}
 
-	db, err := store.db.partition(buckets[0])
+	require.NoError(t, store.db.withPartition(buckets[0], func(db *gorm.DB) error {
+		sqlDb, err := db.DB()
+		require.NoError(t, err)
+		assert.Equal(t, 2, sqlDb.Stats().MaxOpenConnections, "the partition pool is capped (№24)")
+		return nil
+	}))
+}
+
+// TestPartitionCacheKeepsBorrowedHandlesOpen pins PR 708 review #4: a handle
+// evicted while a worker is mid-query is not closed under it. Many goroutines
+// each churn a distinct bucket through a cache far smaller than their count, so
+// eviction constantly unlinks borrowed handles; before the ref-counted defer
+// this surfaced as "sql: database is closed".
+func TestPartitionCacheKeepsBorrowedHandlesOpen(t *testing.T) {
+	store, err := Open(Config{DataDir: t.TempDir(), PartitionCacheSize: 2})
 	require.NoError(t, err)
-	sqlDb, err := db.DB()
-	require.NoError(t, err)
-	assert.Equal(t, 2, sqlDb.Stats().MaxOpenConnections, "the partition pool is capped (№24)")
+	defer func() { _ = store.Close() }()
+
+	const n = 8
+	buckets := make([]int64, n)
+	for i := range buckets {
+		buckets[i] = store.cfg.Bucket(janitorCallTs) + int64(i)
+		require.NoError(t, store.db.InsertCall(buckets[i],
+			indexRow("pod-b", store.cfg.BucketStartMs(buckets[i]), i+1, 10, false)))
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for _, bucket := range buckets {
+		wg.Add(1)
+		go func(b int64) {
+			defer wg.Done()
+			for r := 0; r < 60; r++ {
+				if err := store.db.withPartition(b, func(db *gorm.DB) error {
+					// Hold the handle across two queries with a yield between, so
+					// another goroutine's acquire evicts this bucket mid-borrow.
+					var min *int64
+					if err := db.Raw(`SELECT MIN(ts_ms) FROM call_index`).Scan(&min).Error; err != nil {
+						return err
+					}
+					runtime.Gosched()
+					return db.Raw(`SELECT MAX(ts_ms) FROM call_index`).Scan(&min).Error
+				}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(bucket)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("a borrowed partition was closed under eviction: %v", err)
+	}
 }
 
 // TestCallsPageFiltersAndLimit pins №15: the SQL page carries the pushable

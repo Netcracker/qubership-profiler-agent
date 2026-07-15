@@ -1,4 +1,4 @@
-import { DownloadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, EyeOutlined } from '@ant-design/icons';
 import { Alert, Button, Empty, Input, Layout, Modal, Result, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
@@ -11,6 +11,9 @@ import { HotspotsView } from '../tree/hotspots-view';
 import { parseMethod } from '../tree/method-info';
 import { buildTreeModel } from '../tree/model';
 import type { TreeModel, TreeNode } from '../tree/model';
+import { ParamValueModal } from '../tree/param-value-viewer';
+import type { ParamValueTarget } from '../tree/param-value-viewer';
+import type { ParamValueStat } from '../tree/params-summary';
 import { summariseParams } from '../tree/params-summary';
 import { applyAdjustments, factorByMethod, invalidAdjustLines, parseAdjustConfig } from '../tree/transforms/adjust';
 import { applyCategories, invalidCategoryLines, parseCategoryConfig } from '../tree/transforms/categories';
@@ -65,6 +68,34 @@ const CATEGORY_PLACEHOLDER = `# <category> <method pattern>; '>' assigns the chi
 # create_order com.acme.orders.CheckoutFlow.placeOrder
 # db >*.PgPreparedStatement.*`;
 
+/** A Parameters-tab table row: metadata and SQL shapes are top-level, binds nest under their SQL (09 §3.3). */
+interface ParamSummaryRow extends ParamValueStat {
+  key: string;
+  kind: 'metadata' | 'sql' | 'bind';
+  children?: ParamSummaryRow[];
+}
+
+function paramSummaryRows(model: TreeModel): ParamSummaryRow[] {
+  const summary = summariseParams(model);
+  const metadataRows = summary.metadata.map(
+    (m): ParamSummaryRow => ({ ...m, key: `m:${m.keyIdx}:${m.value}`, kind: 'metadata' }),
+  );
+  const sqlRows = summary.sql.map((s): ParamSummaryRow => {
+    const { binds, ...stat } = s;
+    const rowKey = `s:${s.keyIdx}:${s.value}`;
+    return {
+      ...stat,
+      key: rowKey,
+      kind: 'sql',
+      children:
+        binds.length > 0
+          ? binds.map((b): ParamSummaryRow => ({ ...b, key: `${rowKey}:b:${b.keyIdx}:${b.value}`, kind: 'bind' }))
+          : undefined,
+    };
+  });
+  return [...metadataRows, ...sqlRows];
+}
+
 export function TreePage() {
   const { pk: pkRaw } = useParams<{ pk: string }>();
   const [searchParams] = useSearchParams();
@@ -91,6 +122,7 @@ export function TreePage() {
   const [categoryModal, setCategoryModal] = useState<string | null>(null);
   const [opTabs, setOpTabs] = useState<OpTabSpec[]>([]);
   const [activeTab, setActiveTab] = useState('tree');
+  const [paramValue, setParamValue] = useState<ParamValueTarget | null>(null);
   const nextTabId = useRef(1);
 
   const wire = state.kind === 'ready' ? state.wire : null;
@@ -110,7 +142,7 @@ export function TreePage() {
   const categoryModalInvalidLines = useMemo(() => invalidCategoryLines(categoryModal ?? ''), [categoryModal]);
 
   const profiles = useMemo(() => (model === null ? [] : computeFlatProfile(model)), [model]);
-  const paramStats = useMemo(() => (model === null ? [] : summariseParams(model)), [model]);
+  const paramRows = useMemo(() => (model === null ? [] : paramSummaryRows(model)), [model]);
   // The root call's HTTP context (web.method/web.url), when the call carries
   // one — the header otherwise shows only the technical root method, which
   // for Tomcat/Reactor entry points is not the primary thing a reader wants
@@ -384,27 +416,49 @@ export function TreePage() {
                   children: (
                     <Table
                       size="small"
-                      rowKey={(r) => `${r.keyIdx}:${r.value}`}
-                      dataSource={paramStats}
+                      rowKey="key"
+                      dataSource={paramRows}
                       pagination={{ pageSize: 50, showSizeChanger: false }}
                       columns={[
                         {
                           title: 'Key',
                           width: 160,
-                          render: (_, r) => <Tag>{model.paramKeys[r.keyIdx] ?? r.keyIdx}</Tag>,
+                          render: (_, r) => (
+                            <Tag color={r.kind === 'sql' ? 'purple' : r.kind === 'bind' ? 'geekblue' : undefined}>
+                              {model.paramKeys[r.keyIdx] ?? r.keyIdx}
+                            </Tag>
+                          ),
                         },
                         {
                           title: 'Value',
-                          render: (_, r) => (
-                            <Typography.Text ellipsis style={{ maxWidth: 640 }} title={r.value}>
-                              {r.value}
-                              {r.unresolved ? (
-                                <Tag color="orange" style={{ marginLeft: 8 }}>
-                                  unresolved
-                                </Tag>
-                              ) : null}
-                            </Typography.Text>
-                          ),
+                          render: (_, r) => {
+                            const key = model.paramKeys[r.keyIdx] ?? `param ${r.keyIdx}`;
+                            const isOther = r.value === '::other';
+                            return (
+                              <Space size={4}>
+                                <Typography.Text
+                                  type={isOther ? 'secondary' : undefined}
+                                  italic={isOther}
+                                  ellipsis
+                                  style={{ maxWidth: 560 }}
+                                  title={r.value}
+                                >
+                                  {r.value}
+                                </Typography.Text>
+                                {r.unresolved ? <Tag color="orange">unresolved</Tag> : null}
+                                {!isOther ? (
+                                  <Button
+                                    size="small"
+                                    type="text"
+                                    icon={<EyeOutlined />}
+                                    title="View full value"
+                                    aria-label="View full value"
+                                    onClick={() => setParamValue({ key, value: r.value })}
+                                  />
+                                ) : null}
+                              </Space>
+                            );
+                          },
                         },
                         {
                           title: 'Time',
@@ -510,6 +564,8 @@ export function TreePage() {
             />
           ) : null}
         </Modal>
+
+        <ParamValueModal target={paramValue} onClose={() => setParamValue(null)} />
       </Layout.Content>
     </Layout>
   );

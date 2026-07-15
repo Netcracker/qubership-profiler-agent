@@ -106,9 +106,6 @@ func (s *Service) handleCalls(c echo.Context) error {
 			return badRequest(c, errDetail)
 		}
 		q = parsed
-		if rej := s.guardSpan(q, s.cfg.WideRangeLimit); rej != nil {
-			return s.sendGuardRejection(c, rej)
-		}
 	} else {
 		tok, err := decodeCursor(params.Get("cursor"), s.cfg.CursorTTL)
 		if err != nil {
@@ -121,6 +118,16 @@ func (s *Service) handleCalls(c echo.Context) error {
 		}
 		q = tok.Query
 		after = &tok.Pos
+	}
+
+	// The span guard runs on every page, not just page 1: the cursor carries
+	// the frozen query unauthenticated (HMAC deferred, 02 §2.3.1), so a forged
+	// cursor could otherwise smuggle a wide query past both guard layers
+	// (PR 708 review #2). A cursor we minted for a query that already passed on
+	// page 1 re-passes here — the window is identical — so honest pagination is
+	// unaffected; guardCost runs after cold discovery below on the same footing.
+	if rej := s.guardSpan(q, s.cfg.WideRangeLimit); rej != nil {
+		return s.sendGuardRejection(c, rej)
 	}
 
 	limit, errDetail := parseLimit(params.Get("limit"), s.cfg)
@@ -146,10 +153,12 @@ func (s *Service) handleCalls(c echo.Context) error {
 		if err != nil {
 			return err
 		}
-		if firstPage {
-			if rej := guardCost(q, discovery.Files, s.cfg.MaxScanFiles, s.cfg.MaxScanBytes); rej != nil {
-				return s.sendGuardRejection(c, rej)
-			}
+		// Like the span guard, the cost guard runs on every page so a forged
+		// cursor cannot skip it (PR 708 review #2). A later page's cold window
+		// is bounded by the cutoff, so its file set is a subset of page 1's —
+		// an honest cursor that passed page 1 passes here too.
+		if rej := guardCost(q, discovery.Files, s.cfg.MaxScanFiles, s.cfg.MaxScanBytes); rej != nil {
+			return s.sendGuardRejection(c, rej)
 		}
 		scan, err := s.cold.Calls(ctx, discovery, coldQ, after, limit)
 		if err != nil {
@@ -217,6 +226,9 @@ func (s *Service) handlePods(c echo.Context) error {
 	fromMs, toMs, errDetail := model.ParseWindow(c.QueryParams())
 	if errDetail != "" {
 		return badRequest(c, errDetail)
+	}
+	if rej := guardPodsSpan(fromMs, toMs, s.cfg.PodsRangeLimit); rej != nil {
+		return s.sendGuardRejection(c, rej)
 	}
 
 	hotPods, hotOK, hotFail, hotReasons := s.hotPods(ctx, fromMs, toMs)

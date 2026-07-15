@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { App as AntdApp } from 'antd';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TreeNodeWire, TreeWire } from '../msgpack/tree-wire';
 import { buildTreeModel } from './model';
@@ -180,5 +181,92 @@ describe('TreeView pass-through chains', () => {
     fireEvent.click(screen.getAllByText(/⤴/).find((el) => el.textContent === '⤴3')!);
     expect(visibleLabels()).toEqual(before);
     expect(screen.getByText(/⤵/).textContent).toBe('⤵3');
+  });
+});
+
+describe('TreeView parameter value viewer', () => {
+  // Short enough to stay under the reformat threshold (param-value-viewer.ts
+  // beautifySql, ported from the old UI's printReformatted) — these two
+  // tests cover the viewer/copy basics without the reformat toggle.
+  const SQL_TEXT = "SELECT id FROM orders WHERE id = 1";
+  // Long, single-line, and reformats to something different — exercises the
+  // view-original/view-reformatted toggle.
+  const LONG_SQL_TEXT = "SELECT id, total FROM orders WHERE status = 'open' AND total > 100";
+
+  function wireWithSqlParam(value: string): TreeWire {
+    return {
+      v: 1,
+      methods: [...METHODS],
+      params: ['sql'],
+      root: {
+        methodIdx: 0,
+        durationMs: 1000,
+        selfDurationMs: 1000,
+        suspensionMs: 0,
+        selfSuspensionMs: 0,
+        executions: 1,
+        selfExecutions: 1,
+        params: [{ paramIdx: 0, groups: [{ value, durationMs: 500, executions: 1 }] }],
+      },
+    };
+  }
+
+  afterEach(cleanup);
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+  });
+
+  it('opens the full-value viewer with SQL highlighting from an inline param row', () => {
+    render(
+      <AntdApp>
+        <TreeView model={buildTreeModel(wireWithSqlParam(SQL_TEXT))} />
+      </AntdApp>,
+    );
+    // The row itself still truncates via CSS ellipsis; the button is the
+    // only way to reach the full, untruncated text.
+    expect(screen.getByTitle(SQL_TEXT)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('View full value'));
+    expect(screen.getByText('Full value — sql')).toBeInTheDocument();
+    // Rendered inside the modal, not just the ellipsised row label, via
+    // highlight.js (hljs-keyword class, not just an inline style).
+    const select = screen.getAllByText('SELECT').find((el) => el.className === 'hljs-keyword');
+    expect(select).toBeDefined();
+    // No reformat toggle for a value under the threshold.
+    expect(screen.queryByText('view original')).toBeNull();
+  });
+
+  it('copies the full param value to the clipboard', async () => {
+    render(
+      <AntdApp>
+        <TreeView model={buildTreeModel(wireWithSqlParam(SQL_TEXT))} />
+      </AntdApp>,
+    );
+    fireEvent.click(screen.getByTitle('View full value'));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(SQL_TEXT);
+  });
+
+  it('reformats a long single-line SQL value, with a toggle back to the original', () => {
+    render(
+      <AntdApp>
+        <TreeView model={buildTreeModel(wireWithSqlParam(LONG_SQL_TEXT))} />
+      </AntdApp>,
+    );
+    fireEvent.click(screen.getByTitle('View full value'));
+
+    // Reformatted (multi-line) is shown by default, matching the old UI.
+    const toggle = screen.getByText('view original');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(expect.stringContaining('\n'));
+
+    fireEvent.click(toggle);
+    expect(screen.getByText('view reformatted')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(LONG_SQL_TEXT);
   });
 });

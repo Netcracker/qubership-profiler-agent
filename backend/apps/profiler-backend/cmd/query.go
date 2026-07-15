@@ -106,6 +106,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		Config: query.Config{
 			CursorTTL:          cfg.CursorTTL,
 			WideRangeLimit:     cfg.WideRangeLimit,
+			PodsRangeLimit:     cfg.PodsRangeLimit,
 			MaxScanFiles:       cfg.MaxScanFiles,
 			MaxScanBytes:       int64(cfg.MaxScanBytes),
 			DurationThresholds: cfg.DurationThresholds,

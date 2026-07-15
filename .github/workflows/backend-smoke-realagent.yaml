@@ -5,10 +5,12 @@ name: Backend Smoke (real agent)
 # against the docker-compose backend stack and asserts the adversarial
 # method/param strings round-trip byte-exact (finding №30, focus V harness).
 #
-# NON-BLOCKING for now: the job is expected to FAIL until the focus-A decoder
-# bugs land (readChar signedness and the empty dictionary word). The failing
-# assertion is the deliverable, so continue-on-error keeps the pipeline green
-# on this known failure. Flip to required after Focus A lands.
+# NON-BLOCKING for now: the two decoder bugs this job was written to pin
+# (readChar signedness and the empty dictionary word) have since landed in
+# 21af58ea, so the E2E is now expected to PASS. continue-on-error stays only
+# until the job has proven stable across a few runs — it builds the Java agent
+# and brings the docker-compose stack up, so it is heavier and flakier than the
+# unit gates. Flip to required once it is reliably green.
 
 on:
   push:
@@ -35,10 +37,10 @@ defaults:
 
 jobs:
   smoke-realagent:
-    name: Real-agent E2E (non-blocking until Focus A)
+    name: Real-agent E2E (non-blocking)
     runs-on: ubuntu-latest
-    # Known-red on the focus-A decoder bugs; do not fail the pipeline on it.
-    # Flip to required after Focus A lands.
+    # The decoder bugs this job pinned have landed, so it should pass; kept
+    # non-blocking only until it is proven stable. Flip to required then.
     continue-on-error: true
     steps:
       - name: Checkout code
@@ -62,8 +64,10 @@ jobs:
       # Brings the docker-compose stack up, builds+runs the real agent, then
       # tears the stack down. docker compose ships in the runner image.
       - name: Run the real-agent E2E
+        # `defaults.run.working-directory` is already `backend`, so `-C backend`
+        # made Make look for `backend/backend` and the job never actually ran.
         # language=bash
-        run: make -C backend smoke-realagent
+        run: make smoke-realagent
 
       - name: Dump collector logs on failure
         if: failure()

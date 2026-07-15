@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
@@ -58,19 +59,58 @@ func suggestedFilters(q model.CallsQuery) []string {
 	return out
 }
 
+// windowSpanMs returns the window width in milliseconds and whether the int64
+// subtraction wrapped. Comparing in milliseconds — instead of the original
+// time.Duration(to-from)*time.Millisecond — is what keeps the guard sound:
+// the nanosecond multiply overflowed int64 for a far-future `to`, wrapping
+// the span negative so a wide window slipped past the guard (PR 708 review
+// #1). ParseWindow guarantees to > from, so a real span is positive; a
+// non-positive result means the difference itself overflowed and must count
+// as unboundedly wide.
+func windowSpanMs(fromMs, toMs int64) (span int64, overflow bool) {
+	span = toMs - fromMs
+	return span, span <= 0
+}
+
+// spanText renders a millisecond span for a guard message without the
+// time.Duration overflow a far-future window triggers on the ms→ns multiply.
+func spanText(span int64, overflow bool) string {
+	const maxDurationMs = int64(math.MaxInt64) / int64(time.Millisecond)
+	if overflow || span < 0 || span > maxDurationMs {
+		return fmt.Sprintf("%dms", span)
+	}
+	return (time.Duration(span) * time.Millisecond).String()
+}
+
 // guardSpan is layer 1 (02 §2.3.2): a window wider than the limit with no
 // file-pruning filter is rejected before any I/O — the discovery LIST for
 // such a query is itself the cost being avoided.
 func (s *Service) guardSpan(q model.CallsQuery, limit time.Duration) *guardRejection {
-	span := time.Duration(q.ToMs-q.FromMs) * time.Millisecond
-	if span <= limit || s.hasNarrowingFilter(q) {
+	span, overflow := windowSpanMs(q.FromMs, q.ToMs)
+	if (!overflow && span <= limit.Milliseconds()) || s.hasNarrowingFilter(q) {
 		return nil
 	}
 	return &guardRejection{
 		Layer: guardLayerSpan,
 		Detail: fmt.Sprintf("time span %s exceeds PROFILER_WIDE_RANGE_LIMIT %s and no file-pruning filter is present",
-			span, limit),
+			spanText(span, overflow), limit),
 		SuggestedFilters: suggestedFilters(q),
+	}
+}
+
+// guardPodsSpan is the /pods analogue of the span layer: /pods walks one UTC
+// day per day in the window and issues one S3 LIST per day, so an unbounded
+// window fans out into unbounded LIST work (PR 708 review #3). /pods carries
+// no file-pruning filter, so the window width is the only bound.
+func guardPodsSpan(fromMs, toMs int64, limit time.Duration) *guardRejection {
+	span, overflow := windowSpanMs(fromMs, toMs)
+	if !overflow && span <= limit.Milliseconds() {
+		return nil
+	}
+	return &guardRejection{
+		Layer: guardLayerSpan,
+		Detail: fmt.Sprintf("time span %s exceeds PROFILER_MAX_PODS_RANGE %s",
+			spanText(span, overflow), limit),
 	}
 }
 

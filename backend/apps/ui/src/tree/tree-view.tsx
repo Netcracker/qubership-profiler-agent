@@ -1,4 +1,4 @@
-import { MoreOutlined } from '@ant-design/icons';
+import { EyeOutlined, MoreOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
@@ -9,6 +9,8 @@ import { parseMethod } from './method-info';
 import type { MethodInfo } from './method-info';
 import { totalExecutions } from './model';
 import type { TreeModel, TreeNode } from './model';
+import { ParamValueModal } from './param-value-viewer';
+import type { ParamValueTarget } from './param-value-viewer';
 import { searchTree } from './search';
 import { stacktraceText } from './stacktrace';
 import { VirtualList } from './virtual-list';
@@ -167,6 +169,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
   const [query, setQuery] = useState('');
   const [hoverNode, setHoverNode] = useState<TreeNode | null>(null);
   const [stacktrace, setStacktrace] = useState<string | null>(null);
+  const [paramValue, setParamValue] = useState<ParamValueTarget | null>(null);
 
   const search = useMemo(() => searchTree(model, query), [model, query]);
 
@@ -413,6 +416,17 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
           {row.group.value}
         </Typography.Text>
         {row.group.unresolved === true ? <Tag color="orange">unresolved</Tag> : null}
+        {!isOther ? (
+          <Button
+            size="small"
+            type="text"
+            icon={<EyeOutlined />}
+            title="View full value"
+            aria-label="View full value"
+            style={{ width: 22, minWidth: 22, height: 22, padding: 0, color: '#999' }}
+            onClick={() => setParamValue({ key, value: row.group.value })}
+          />
+        ) : null}
       </div>
     );
   };
@@ -489,6 +503,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
       >
         <pre style={{ maxHeight: 400, overflow: 'auto', fontSize: 12 }}>{stacktrace}</pre>
       </Modal>
+      <ParamValueModal target={paramValue} onClose={() => setParamValue(null)} />
     </div>
   );
 }
