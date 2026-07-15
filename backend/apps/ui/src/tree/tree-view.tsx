@@ -1,5 +1,4 @@
-import { LoginOutlined, LogoutOutlined, MoreOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Dropdown, Input, Modal, Popover, Space, Tag, Typography } from 'antd';
+import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
@@ -123,29 +122,49 @@ export interface TreeViewOps {
   addCategory: (node: TreeNode) => void;
 }
 
+/** Which way the tree grows; picks the menu button's arrow (old `tree.rv`). */
+export type TreeDirection = 'top-down' | 'bottom-up';
+
 interface TreeViewProps {
   model: TreeModel;
+  /** 'bottom-up' on caller trees (incoming calls, hotspots); default 'top-down'. */
+  direction?: TreeDirection;
   /** Auto-expansion hit the row budget; the view degraded, not froze. */
   onCapped?: (capped: boolean) => void;
   /** Absent on derived trees (op results), which stay read-only. */
   ops?: TreeViewOps;
+  /** Expansion seed replacing the 10% auto-expansion (the hotspot grouping). */
+  initialExpanded?: ReadonlySet<number>;
+  /** Builds a `notComputed` node's children right before it expands. */
+  computeChildren?: (node: TreeNode) => void;
 }
 
-export function TreeView({ model, onCapped, ops }: TreeViewProps) {
+export function TreeView({ model, direction = 'top-down', onCapped, ops, initialExpanded, computeChildren }: TreeViewProps) {
   const { message } = App.useApp();
   const dict = useMethodDict(model);
   const [containerRef, height] = useElementHeight<HTMLDivElement>(480);
   const ctrlHeld = useCtrlHeld();
 
-  const initial = useMemo(() => initialExpansion(model, ROW_BUDGET), [model]);
+  const initial = useMemo(
+    () =>
+      initialExpanded !== undefined
+        ? { expanded: new Set(initialExpanded), capped: false }
+        : initialExpansion(model, ROW_BUDGET),
+    [model, initialExpanded],
+  );
   useEffect(() => onCapped?.(initial.capped), [initial.capped, onCapped]);
 
   const [expanded, setExpanded] = useState<Set<number>>(initial.expanded);
+  // A rebuilt model regrows lazy children from scratch; stale expansion
+  // state would show grafted rows that no longer exist.
+  useEffect(() => {
+    if (initialExpanded !== undefined) setExpanded(new Set(initialExpanded));
+  }, [initialExpanded]);
   const [revealedChains, setRevealedChains] = useState<Set<number>>(new Set());
   const [expandedParams, setExpandedParams] = useState<Set<string>>(new Set());
   const [marked, setMarked] = useState<Set<number>>(new Set());
   const [query, setQuery] = useState('');
-  const [hoverNode, setHoverNode] = useState<number | null>(null);
+  const [hoverNode, setHoverNode] = useState<TreeNode | null>(null);
   const [stacktrace, setStacktrace] = useState<string | null>(null);
 
   const search = useMemo(() => searchTree(model, query), [model, query]);
@@ -160,6 +179,8 @@ export function TreeView({ model, onCapped, ops }: TreeViewProps) {
   }, [model, expanded, revealedChains, expandedParams, search]);
 
   const toggleNode = (row: NodeRow): void => {
+    // Lazy children (hotspots): build them before the expansion walks them.
+    if (!row.expanded && row.node.notComputed === true) computeChildren?.(row.node);
     setExpanded((prev) => {
       const next = new Set(prev);
       if (row.expanded) {
@@ -173,16 +194,47 @@ export function TreeView({ model, onCapped, ops }: TreeViewProps) {
     });
   };
 
+  /** Node ids along the dominant-child chain: head, interiors, chain end. */
+  const chainIds = (head: TreeNode, levels: number): number[] => {
+    const ids = [head.id];
+    let cur = head;
+    for (let i = 0; i < levels && cur.children.length > 0; i++) {
+      cur = cur.children[0]!;
+      ids.push(cur.id);
+    }
+    return ids;
+  };
+
   const revealChain = (row: NodeRow): void => {
-    setRevealedChains((prev) => new Set(prev).add(row.node.id));
+    const ids = chainIds(row.node, row.skippedLevels);
+    // Every chain node except the end is marked revealed, or its own
+    // (shorter) chain would re-skip the levels below it — the old renderer
+    // threaded an `uncollapsed` flag down the chain for the same reason.
+    setRevealedChains((prev) => {
+      const next = new Set(prev);
+      for (const id of ids.slice(0, -1)) next.add(id);
+      return next;
+    });
     setExpanded((prev) => {
       const next = new Set(prev);
-      let cur = row.node;
-      for (let i = 0; i < row.skippedLevels && cur.children.length > 0; i++) {
-        next.add(cur.id);
-        cur = cur.children[0]!;
-        next.add(cur.id);
-      }
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  };
+
+  /** Inverse of revealChain: back to the “N levels skipped” row. */
+  const collapseChain = (row: NodeRow): void => {
+    const ids = chainIds(row.node, row.node.collapseLevels);
+    setRevealedChains((prev) => {
+      const next = new Set(prev);
+      for (const id of ids.slice(0, -1)) next.delete(id);
+      return next;
+    });
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      // Prune what the reveal added — the interior chain nodes and the chain
+      // end. The head stays expanded, so the skip shows through again.
+      for (const id of ids.slice(1)) next.delete(id);
       return next;
     });
   };
@@ -210,8 +262,8 @@ export function TreeView({ model, onCapped, ops }: TreeViewProps) {
           paddingLeft: row.depth * 16,
           background: marked.has(node.id) ? '#fff1f0' : isMatch ? '#fffbe6' : node.category?.color,
         }}
-        onMouseEnter={() => setHoverNode(node.id)}
-        onMouseLeave={() => setHoverNode((cur) => (cur === node.id ? null : cur))}
+        onMouseEnter={() => setHoverNode(node)}
+        onMouseLeave={() => setHoverNode((cur) => (cur?.id === node.id ? null : cur))}
       >
         <Button
           size="small"
@@ -222,64 +274,6 @@ export function TreeView({ model, onCapped, ops }: TreeViewProps) {
         >
           {row.hasChildren ? (row.expanded ? '−' : '+') : '·'}
         </Button>
-        {row.skippedLevels > 0 ? (
-          <Tag
-            style={{ cursor: 'pointer', marginInlineEnd: 0 }}
-            title={`${row.skippedLevels} pass-through level${row.skippedLevels > 1 ? 's' : ''} skipped — click to reveal`}
-            onClick={() => revealChain(row)}
-          >
-            ⤵{row.skippedLevels}
-          </Tag>
-        ) : null}
-        <span style={{ width: 62, minWidth: 62 }}>
-          {barWidth >= 0.6 ? (
-            <span
-              style={{
-                display: 'inline-block',
-                width: barWidth,
-                height: 8,
-                background: '#91caff',
-                borderRadius: 2,
-              }}
-            />
-          ) : null}
-        </span>
-        <Typography.Text style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {formatDurationMs(node.durationMs)} ({formatDurationMs(node.selfDurationMs)})
-        </Typography.Text>
-        {node.suspensionMs > 0 ? (
-          <Typography.Text type="secondary" title="suspension total (self)">
-            ⏸ {formatDurationMs(node.suspensionMs)} ({formatDurationMs(node.selfSuspensionMs)})
-          </Typography.Text>
-        ) : null}
-        {node.selfExecutions !== 1 || node.childExecutions > 0 ? (
-          <Typography.Text type="secondary" title={`invocations: ${node.selfExecutions} direct, ${totalExecutions(node)} total`}>
-            ×{formatCount(node.selfExecutions)}
-          </Typography.Text>
-        ) : null}
-        <Typography.Text ellipsis style={{ flex: 1 }} title={info.original}>
-          {info.signature}
-        </Typography.Text>
-        {ops !== undefined && hoverNode === node.id ? (
-          <>
-            <Button
-              size="small"
-              type="text"
-              icon={<LoginOutlined />}
-              title="Incoming calls"
-              style={{ width: 22, minWidth: 22 }}
-              onClick={() => ops.incoming(node)}
-            />
-            <Button
-              size="small"
-              type="text"
-              icon={<LogoutOutlined />}
-              title="Outgoing calls"
-              style={{ width: 22, minWidth: 22 }}
-              onClick={() => ops.outgoing(node)}
-            />
-          </>
-        ) : null}
         <Dropdown
           trigger={['click']}
           menu={{
@@ -315,17 +309,72 @@ export function TreeView({ model, onCapped, ops }: TreeViewProps) {
             },
           }}
         >
-          <Button size="small" type="text" icon={<MoreOutlined />} style={{ width: 22, minWidth: 22 }} />
+          {/* The old UI's direction arrow doubling as the operations menu
+              (BUTTON_ID_MENU): left of the bar, so it never scrolls away. */}
+          <Button
+            size="small"
+            type="text"
+            title="Operations"
+            style={{ width: 22, minWidth: 22, height: 22, padding: 0, color: '#999' }}
+          >
+            {direction === 'bottom-up' ? '↖' : '↘'}
+          </Button>
         </Dropdown>
+        {row.skippedLevels > 0 ? (
+          <Tag
+            style={{ cursor: 'pointer', marginInlineEnd: 0 }}
+            title={`${row.skippedLevels} pass-through level${row.skippedLevels > 1 ? 's' : ''} skipped — click to reveal`}
+            onClick={() => revealChain(row)}
+          >
+            ⤵{row.skippedLevels}
+          </Tag>
+        ) : node.collapseLevels > 0 && revealedChains.has(node.id) && search === null ? (
+          <Tag
+            style={{ cursor: 'pointer', marginInlineEnd: 0 }}
+            title={`${node.collapseLevels} pass-through level${node.collapseLevels > 1 ? 's' : ''} revealed — click to fold back`}
+            onClick={() => collapseChain(row)}
+          >
+            ⤴{node.collapseLevels}
+          </Tag>
+        ) : null}
+        {barWidth >= 0.6 ? (
+          <span
+            style={{
+              display: 'inline-block',
+              width: barWidth,
+              height: 8,
+              background: '#91caff',
+              borderRadius: 2,
+            }}
+          />
+        ) : null}
+        <Typography.Text style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatDurationMs(node.durationMs)} ({formatDurationMs(node.selfDurationMs)})
+        </Typography.Text>
+        {node.suspensionMs > 0 ? (
+          <Typography.Text type="secondary" title="suspension total (self)">
+            ⏸ {formatDurationMs(node.suspensionMs)} ({formatDurationMs(node.selfSuspensionMs)})
+          </Typography.Text>
+        ) : null}
+        {node.selfExecutions !== 1 || node.childExecutions > 0 ? (
+          <Typography.Text type="secondary" title={`invocations: ${node.selfExecutions} direct, ${totalExecutions(node)} total`}>
+            ×{formatCount(node.selfExecutions)}
+          </Typography.Text>
+        ) : null}
+        <Typography.Text ellipsis style={{ flex: 1 }} title={info.original}>
+          {info.bareSignature === '' ? (
+            info.original
+          ) : (
+            <>
+              {/* font-size:0 hides the package yet keeps it selectable, so
+                  copying the row yields the qualified name (old span.p). */}
+              <span style={{ fontSize: 0 }}>{info.packagePrefix}</span>
+              {info.bareSignature}
+            </>
+          )}
+        </Typography.Text>
       </div>
     );
-    if (ctrlHeld && hoverNode === node.id) {
-      return (
-        <Popover open placement="top" content={<StatsContent node={node} dict={dict} />}>
-          {content}
-        </Popover>
-      );
-    }
     return content;
   };
 
@@ -393,6 +442,27 @@ export function TreeView({ model, onCapped, ops }: TreeViewProps) {
           renderRow={(row) => (row.kind === 'node' ? renderNodeRow(row) : renderParamRow(row))}
         />
       </div>
+      {/* The stats float in their own layer instead of wrapping the row in a
+          Popover — reparenting the row would drop the user's text selection
+          (the whole point of the copyable package span). */}
+      {ctrlHeld && hoverNode !== null ? (
+        <div
+          style={{
+            position: 'fixed',
+            right: 24,
+            bottom: 24,
+            zIndex: 1000,
+            background: '#fff',
+            border: '1px solid #d9d9d9',
+            borderRadius: 8,
+            boxShadow: '0 6px 16px rgba(0, 0, 0, 0.12)',
+            padding: 12,
+            pointerEvents: 'none',
+          }}
+        >
+          <StatsContent node={hoverNode} dict={dict} />
+        </div>
+      ) : null}
       <Modal
         open={stacktrace !== null}
         title="Stacktrace"

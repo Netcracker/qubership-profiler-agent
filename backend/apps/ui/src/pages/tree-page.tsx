@@ -1,12 +1,13 @@
 import { DownloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Drawer, Empty, Input, Layout, Modal, Result, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
-import { useMemo, useState } from 'react';
+import { Alert, Button, Empty, Input, Layout, Modal, Result, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
+import { useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 
 import { parsePkPath, pkToPath } from '../api/pk';
 import type { CallPK } from '../api/types';
 import { formatCount, formatDurationMs, formatTs } from '../calls/format';
-import { HotspotsView, nodeTitle } from '../tree/hotspots-view';
+import { HotspotsView } from '../tree/hotspots-view';
+import { parseMethod } from '../tree/method-info';
 import { buildTreeModel } from '../tree/model';
 import type { TreeModel, TreeNode } from '../tree/model';
 import { summariseParams } from '../tree/params-summary';
@@ -16,7 +17,7 @@ import { computeFlatProfile } from '../tree/transforms/flat-profile';
 import type { CategoryProfile } from '../tree/transforms/flat-profile';
 import { findUsages, incomingCalls, outgoingCalls } from '../tree/transforms/merge';
 import { TreeView } from '../tree/tree-view';
-import type { TreeViewOps } from '../tree/tree-view';
+import type { TreeDirection, TreeViewOps } from '../tree/tree-view';
 import { useTree } from '../tree/use-tree';
 import { parseTreeSearch } from '../url/search-params';
 
@@ -25,9 +26,35 @@ import { parseTreeSearch } from '../url/search-params';
 // / Setup categories configs. The model rebuilds from the decoded wire on
 // every config change, so the transforms stay pure and re-applicable.
 
-type OpResult =
-  | { kind: 'tree'; title: string; model: TreeModel }
-  | { kind: 'hotspots'; title: string; model: TreeModel; profiles: CategoryProfile[] };
+/**
+ * A derived view lives as a closeable tab (old dynamic_tabs). The tab holds
+ * the recipe, not the result: the view re-derives from the current model, so
+ * Adjust/Setup changes flow into open tabs like they did in the old UI.
+ */
+interface OpTabSpec {
+  key: string;
+  op: 'incoming' | 'outgoing' | 'usages' | 'local';
+  methodIdx: number;
+  category?: string;
+}
+
+const OP_META: Record<OpTabSpec['op'], { label: string; direction: TreeDirection }> = {
+  incoming: { label: 'Incoming', direction: 'bottom-up' },
+  outgoing: { label: 'Outgoing', direction: 'top-down' },
+  usages: { label: 'Usages', direction: 'top-down' },
+  local: { label: 'Hotspots', direction: 'top-down' },
+};
+
+interface OpView {
+  spec: OpTabSpec;
+  /** Bumps per (re-)derivation — keys the view so a rebuild remounts it. */
+  seq: number;
+  label: string;
+  fullTitle: string;
+  derived: TreeModel;
+  profiles: CategoryProfile[] | null;
+  direction: TreeDirection;
+}
 
 const ADJUST_PLACEHOLDER = `# <factor> <method pattern>, '*' wildcards, e.g.:
 # 1/10 com.acme.billing.InvoiceService.createInvoice
@@ -61,7 +88,9 @@ export function TreePage() {
   const [categoryText, setCategoryText] = useState('');
   const [adjustModal, setAdjustModal] = useState<string | null>(null);
   const [categoryModal, setCategoryModal] = useState<string | null>(null);
-  const [op, setOp] = useState<OpResult | null>(null);
+  const [opTabs, setOpTabs] = useState<OpTabSpec[]>([]);
+  const [activeTab, setActiveTab] = useState('tree');
+  const nextTabId = useRef(1);
 
   const wire = state.kind === 'ready' ? state.wire : null;
   const model = useMemo(() => {
@@ -76,34 +105,22 @@ export function TreePage() {
   const profiles = useMemo(() => (model === null ? [] : computeFlatProfile(model)), [model]);
   const paramStats = useMemo(() => (model === null ? [] : summariseParams(model)), [model]);
 
-  const openIncoming = (methodIdx: number, category?: string): void => {
-    if (model === null) return;
-    const result = incomingCalls(model, methodIdx, category);
-    setOp({ kind: 'tree', title: `Incoming calls · ${nodeTitle(result, result.root)}`, model: result });
+  const openOpTab = (op: OpTabSpec['op'], methodIdx: number, category?: string): void => {
+    const key = `z${nextTabId.current++}`;
+    setOpTabs((prev) => [...prev, { key, op, methodIdx, category }]);
+    setActiveTab(key);
+  };
+
+  const closeOpTab = (key: string): void => {
+    setOpTabs((prev) => prev.filter((t) => t.key !== key));
+    setActiveTab((cur) => (cur === key ? 'tree' : cur));
   };
 
   const ops: TreeViewOps = {
-    incoming: (node) => openIncoming(node.methodIdx),
-    outgoing: (node) => {
-      if (model === null) return;
-      const result = outgoingCalls(model, node.methodIdx);
-      setOp({ kind: 'tree', title: `Outgoing calls · ${nodeTitle(model, node)}`, model: result });
-    },
-    findUsages: (node) => {
-      if (model === null) return;
-      const result = findUsages(model, node.methodIdx);
-      setOp({ kind: 'tree', title: `Find usages · ${nodeTitle(model, node)}`, model: result });
-    },
-    localHotspots: (node) => {
-      if (model === null) return;
-      const scoped = outgoingCalls(model, node.methodIdx);
-      setOp({
-        kind: 'hotspots',
-        title: `Local hotspots · ${nodeTitle(model, node)}`,
-        model: scoped,
-        profiles: computeFlatProfile(scoped),
-      });
-    },
+    incoming: (node) => openOpTab('incoming', node.methodIdx),
+    outgoing: (node) => openOpTab('outgoing', node.methodIdx),
+    findUsages: (node) => openOpTab('usages', node.methodIdx),
+    localHotspots: (node) => openOpTab('local', node.methodIdx),
     adjust: (node) => {
       if (model === null) return;
       const method = model.methods[node.methodIdx] ?? '';
@@ -113,10 +130,51 @@ export function TreePage() {
     addCategory: (node) => {
       if (model === null) return;
       const method = model.methods[node.methodIdx] ?? '';
-      const name = nodeTitle(model, node).split('(')[0]!.split('.').slice(-2).join('_').replace(/\s/g, '');
+      const bare = parseMethod(method).bareSignature || method;
+      const name = bare.split('(')[0]!.split('.').slice(-2).join('_').replace(/\s/g, '');
       setCategoryModal(`${categoryText === '' ? '' : `${categoryText}\n`}${name} ${method}`);
     },
   };
+
+  // Re-derived when the model changes, so an open tab follows Adjust/Setup
+  // edits. Cached per tab otherwise: re-deriving on every tab open/close
+  // would mint fresh node ids and wipe the other tabs' expansion state.
+  const deriveCache = useRef(new Map<string, { model: TreeModel; view: OpView }>());
+  const viewSeq = useRef(0);
+  const opViews = useMemo(() => {
+    if (model === null) return [];
+    const views = opTabs.map((spec) => {
+      const cached = deriveCache.current.get(spec.key);
+      if (cached !== undefined && cached.model === model) return cached.view;
+      const meta = OP_META[spec.op];
+      const word = model.methods[spec.methodIdx] ?? '';
+      const info = parseMethod(word);
+      const short = info.bareSignature === '' ? word : info.bareSignature.replace(/\(.*$/, '');
+      const derived =
+        spec.op === 'incoming'
+          ? incomingCalls(model, spec.methodIdx, spec.category)
+          : spec.op === 'usages'
+            ? findUsages(model, spec.methodIdx)
+            : outgoingCalls(model, spec.methodIdx);
+      const view: OpView = {
+        spec,
+        seq: viewSeq.current++,
+        label: `${meta.direction === 'bottom-up' ? '↖' : '↘'} ${meta.label} · ${short}`,
+        fullTitle: word,
+        derived,
+        profiles: spec.op === 'local' ? computeFlatProfile(derived) : null,
+        direction: meta.direction,
+      };
+      deriveCache.current.set(spec.key, { model, view });
+      return view;
+    });
+    // Closed tabs leave the cache with them.
+    const alive = new Set(opTabs.map((t) => t.key));
+    for (const key of [...deriveCache.current.keys()]) {
+      if (!alive.has(key)) deriveCache.current.delete(key);
+    }
+    return views;
+  }, [model, opTabs]);
 
   if (parseError !== null || pk === null) {
     return (
@@ -231,11 +289,18 @@ export function TreePage() {
             </Space>
             <Tabs
               style={{ flex: 1, minHeight: 0 }}
-              defaultActiveKey="tree"
+              type="editable-card"
+              hideAdd
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              onEdit={(key, action) => {
+                if (action === 'remove' && typeof key === 'string') closeOpTab(key);
+              }}
               items={[
                 {
                   key: 'tree',
                   label: 'Call Tree',
+                  closable: false,
                   children: (
                     <div style={{ height: 'calc(100vh - 200px)' }}>
                       <TreeView model={model} onCapped={setCapped} ops={ops} />
@@ -245,15 +310,17 @@ export function TreePage() {
                 {
                   key: 'hotspots',
                   label: 'Hotspots',
+                  closable: false,
                   children: (
-                    <div style={{ height: 'calc(100vh - 200px)', overflow: 'auto' }}>
-                      <HotspotsView model={model} profiles={profiles} onIncoming={(idx, cat) => openIncoming(idx, cat)} />
+                    <div style={{ height: 'calc(100vh - 200px)' }}>
+                      <HotspotsView model={model} profiles={profiles} />
                     </div>
                   ),
                 },
                 {
                   key: 'params',
                   label: 'Parameters',
+                  closable: false,
                   children: (
                     <Table
                       size="small"
@@ -298,28 +365,25 @@ export function TreePage() {
                     />
                   ),
                 },
+                ...opViews.map((v) => ({
+                  key: v.spec.key,
+                  label: <span title={v.fullTitle}>{v.label}</span>,
+                  children: hasNoOccurrences(v.derived.root) ? (
+                    <Empty description="The method does not occur in this tree." />
+                  ) : v.profiles !== null ? (
+                    <div style={{ height: 'calc(100vh - 200px)' }}>
+                      <HotspotsView key={v.seq} model={v.derived} profiles={v.profiles} />
+                    </div>
+                  ) : (
+                    <div style={{ height: 'calc(100vh - 200px)' }}>
+                      <TreeView key={v.seq} model={v.derived} direction={v.direction} />
+                    </div>
+                  ),
+                })),
               ]}
             />
           </>
         ) : null}
-
-        <Drawer
-          open={op !== null}
-          onClose={() => setOp(null)}
-          title={op?.title}
-          width="75%"
-          destroyOnHidden
-        >
-          {op === null ? null : hasNoOccurrences(op.model.root) ? (
-            <Empty description="The method does not occur in this tree." />
-          ) : op.kind === 'tree' ? (
-            <div style={{ height: 'calc(100vh - 140px)' }}>
-              <TreeView model={op.model} />
-            </div>
-          ) : (
-            <HotspotsView model={op.model} profiles={op.profiles} />
-          )}
-        </Drawer>
 
         <Modal
           open={adjustModal !== null}

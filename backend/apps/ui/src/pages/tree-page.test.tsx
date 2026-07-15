@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -12,7 +12,10 @@ import { TreePage } from './tree-page';
 // merged rows; a cold bare PK and a truncated blob surface their 09 §5 states.
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  cleanup();
+});
 afterAll(() => server.close());
 
 function firstCall(predicate: (c: CallJSON) => boolean, toMs: number): CallJSON {
@@ -55,8 +58,34 @@ describe('TreePage', () => {
     );
     // The synthetic tree always roots at CoyoteAdapter.service.
     expect(await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 })).toBeInTheDocument();
-    // The degenerate entry chain is skipped: the reveal badge is present.
-    expect(await screen.findByText(/⤵/)).toBeInTheDocument();
+    // The degenerate entry chain is skipped: reveal badges are present.
+    expect((await screen.findAllByText(/⤵/)).length).toBeGreaterThan(0);
+  });
+
+  it('keeps derived views as closeable tabs', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(
+      `/tree/${encodeURIComponent(pkToPath(call.pk))}?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}`,
+    );
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    // Open Outgoing calls from the root row's operations menu.
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    fireEvent.click(await screen.findByText('Outgoing calls'));
+    const outgoingTab = await screen.findByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ });
+    expect(outgoingTab).toBeInTheDocument();
+
+    // A second operation adds a tab instead of replacing the first.
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    fireEvent.click((await screen.findAllByText('Incoming calls'))[0]!);
+    const incomingTab = await screen.findByRole('tab', { name: /Incoming · CoyoteAdapter\.service/ });
+    expect(incomingTab).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
+
+    // Closing the incoming tab keeps the outgoing one open.
+    fireEvent.click(incomingTab.closest('.ant-tabs-tab')!.querySelector('.ant-tabs-tab-remove')!);
+    expect(screen.queryByRole('tab', { name: /Incoming · CoyoteAdapter\.service/ })).toBeNull();
+    expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
   });
 
   it('shows the cold-call state for a bare PK outside the hot window', async () => {

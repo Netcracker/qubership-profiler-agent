@@ -317,18 +317,20 @@ export function findCall(pk: CallPK, nowMs: number): CallJSON | null {
 
 // --- Trees ---
 
+// Arg lists carry no space after the comma — the agent's dictionary words
+// never do (line_parser.go), and the mock is the contract.
 const TREE_METHODS = [
-  'void org.apache.catalina.connector.CoyoteAdapter.service(Request, Response) (CoyoteAdapter.java:340) [catalina.jar]',
-  'void com.acme.web.ApiFilter.doFilter(ServletRequest, ServletResponse, FilterChain) (ApiFilter.java:52) [app.jar]',
+  'void org.apache.catalina.connector.CoyoteAdapter.service(Request,Response) (CoyoteAdapter.java:340) [catalina.jar]',
+  'void com.acme.web.ApiFilter.doFilter(ServletRequest,ServletResponse,FilterChain) (ApiFilter.java:52) [app.jar]',
   'Invoice com.acme.billing.InvoiceService.createInvoice(CreateInvoiceRequest) (InvoiceService.java:88) [billing.jar]',
   'TaxBreakdown com.acme.billing.TaxCalculator.calculate(Invoice) (TaxCalculator.java:31) [billing.jar]',
   'Order com.acme.orders.CheckoutFlow.placeOrder(Cart) (CheckoutFlow.java:120) [orders.jar]',
-  'boolean com.acme.orders.InventoryService.reserve(Sku, int) (InventoryService.java:64) [orders.jar]',
+  'boolean com.acme.orders.InventoryService.reserve(Sku,int) (InventoryService.java:64) [orders.jar]',
   'ResultSet org.postgresql.jdbc.PgPreparedStatement.executeQuery() (PgPreparedStatement.java:107) [postgresql.jar]',
   'int org.postgresql.jdbc.PgPreparedStatement.executeUpdate() (PgPreparedStatement.java:132) [postgresql.jar]',
   'Response com.acme.gateway.PaymentGateway.authorize(PaymentRequest) (PaymentGateway.java:75) [gateway.jar]',
   'void com.acme.audit.AuditWriter.append(AuditEvent) (AuditWriter.java:19) [app.jar]',
-  'void org.springframework.web.servlet.DispatcherServlet.doDispatch(HttpServletRequest, HttpServletResponse) (DispatcherServlet.java:1089) [spring-webmvc.jar]',
+  'void org.springframework.web.servlet.DispatcherServlet.doDispatch(HttpServletRequest,HttpServletResponse) (DispatcherServlet.java:1089) [spring-webmvc.jar]',
   'Object com.acme.web.OrderController.handle(OrderRequest) (OrderController.java:44) [app.jar]',
 ];
 
@@ -373,6 +375,13 @@ export function treeForCall(call: CallJSON): TreeWire {
     return groups.sort((a, b) => b.durationMs - a.durationMs);
   };
 
+  // Long calls grow deep and wide, so the virtualiser has thousands of
+  // visible rows to prove itself on (07 §5.4 scale check).
+  const large = call.duration_ms > 10_000;
+  const maxDepth = large ? 11 : 6;
+  const minFanout = large ? 2 : 1;
+  const maxFanout = large ? 4 : 3;
+
   const build = (methodIdx: number, durationMs: number, executions: number, depth: number): TreeNodeWire => {
     const suspension = call.suspend_ms > 0 ? Math.floor(durationMs * 0.02) : 0;
     const node: TreeNodeWire = {
@@ -389,11 +398,11 @@ export function treeForCall(call: CallJSON): TreeWire {
       node.params = [{ paramIdx: 0, groups: sqlGroups(durationMs, executions) }];
       return node;
     }
-    if (depth >= 6 || durationMs < 4) return node;
+    if (depth >= maxDepth || durationMs < 4) return node;
 
-    const fanout = 1 + Math.floor(r() * 3);
+    const fanout = minFanout + Math.floor(r() * maxFanout);
     const children: TreeNodeWire[] = [];
-    let left = Math.floor(durationMs * (0.55 + r() * 0.4));
+    let left = Math.floor(durationMs * (large ? 0.75 + r() * 0.2 : 0.55 + r() * 0.4));
     let childExecutions = 0;
     let childSuspension = 0;
     for (let i = 0; i < fanout && left >= 2; i++) {
