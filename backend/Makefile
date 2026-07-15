@@ -309,6 +309,51 @@ smoke:
 	docker compose down -v --remove-orphans; \
 	exit $$status
 
+# In-cluster smoke on kind (CI target). For OrbStack localdev:
+#   make kind-smoke KIND_CONTEXT=orbstack KIND_SKIP_LOAD=1
+.PHONY: kind-smoke
+kind-smoke:
+	deploy/kind-smoke.sh
+
+# helm template (monitoring objects ON, so the CRD manifests render too)
+# validated by kubeconform: a local binary when present, docker otherwise;
+# CRD schemas come from the datree catalog.
+.PHONY: helm-lint
+helm-lint:
+	@echo "==> helm lint charts/profiler-backend..."
+	helm lint charts/profiler-backend
+	@echo "==> Rendering with monitoring enabled and validating with kubeconform..."
+	@rm -rf .helm-render
+	helm template profiler-backend charts/profiler-backend \
+		-f deploy/values-kind.yaml \
+		--set metrics.serviceMonitor.enabled=true \
+		--set metrics.prometheusRule.enabled=true \
+		--output-dir .helm-render
+	@if command -v kubeconform >/dev/null 2>&1; then \
+		kubeconform -strict -summary \
+			-schema-location default \
+			-schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+			.helm-render; \
+	else \
+		docker run --rm -v "$(CURDIR)/.helm-render:/manifests:ro" ghcr.io/yannh/kubeconform:latest \
+			-strict -summary \
+			-schema-location default \
+			-schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+			/manifests; \
+	fi
+	@rm -rf .helm-render
+
+# promtool unit tests over the alert rules the PrometheusRule ships.
+.PHONY: rules-test
+rules-test:
+	@if command -v promtool >/dev/null 2>&1; then \
+		promtool test rules charts/profiler-backend/tests/prometheus/rules_test.yaml; \
+	else \
+		docker run --rm -v "$(CURDIR)/charts/profiler-backend:/chart:ro" \
+			--entrypoint promtool prom/prometheus:latest \
+			test rules /chart/tests/prometheus/rules_test.yaml; \
+	fi
+
 # =============================================================================
 # CHARTS TARGETS
 # =============================================================================

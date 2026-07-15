@@ -1,0 +1,26 @@
+# L4 entry point for agent TCP connections. Stickiness is per TCP connection
+# by nature — one connection is one pod-restart (01 §1 V6) — so no session
+# affinity is configured; an agent reconnect intentionally lands wherever DNS
+# takes it and opens a fresh pod-restart (04 §3.4).
+#
+# The type is a Helm value so the same chart runs everywhere: ClusterIP for
+# in-cluster agents (kind, CI), NodePort to reach the collector from the host,
+# LoadBalancer on OrbStack, which ships a built-in LB for localdev.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-collector-agent
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "collector") | nindent 4 }}
+spec:
+  type: {{ .Values.collector.agentService.type }}
+  selector:
+    {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  ports:
+    - name: agent
+      port: {{ .Values.collector.agentPort }}
+      targetPort: agent
+      protocol: TCP
+      {{- if and (eq .Values.collector.agentService.type "NodePort") .Values.collector.agentService.nodePort }}
+      nodePort: {{ .Values.collector.agentService.nodePort }}
+      {{- end }}

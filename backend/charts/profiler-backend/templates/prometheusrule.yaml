@@ -1,0 +1,15 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+# The rule groups live in files/prometheus-rules.yaml so `promtool test rules`
+# validates the same bytes this object ships.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "alerts") | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- .Files.Get "files/prometheus-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+{{- end }}

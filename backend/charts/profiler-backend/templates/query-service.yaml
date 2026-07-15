@@ -1,0 +1,16 @@
+# External API entry point (/api/v1). Exposure beyond the cluster (Ingress,
+# Route, LB) is operator-supplied per cluster convention (04 §4, §12).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-query
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "query") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "query") | nindent 4 }}
+  ports:
+    - name: external
+      port: {{ .Values.query.port }}
+      targetPort: external

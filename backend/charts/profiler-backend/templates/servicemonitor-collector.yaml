@@ -1,0 +1,23 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+# Scrapes /metrics on the internal port. The endpoint answers through
+# LOADING/RECOVERY, but a not-ready pod is absent from the headless service's
+# DNS — ServiceMonitor targets Endpoints, which include not-ready addresses,
+# so recovery is observable.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-collector
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "collector") | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "collector") | nindent 6 }}
+  endpoints:
+    - port: internal
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

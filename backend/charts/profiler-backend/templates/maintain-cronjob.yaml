@@ -1,0 +1,41 @@
+{{- if eq .Values.maintain.mode "cronjob" }}
+# One-shot maintenance runs (03-lifecycle.md §8.2). No /metrics surface: the
+# pod exits right after its pass — switch maintain.mode=deployment for a
+# scrapeable singleton loop.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-maintain
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "maintain") | nindent 4 }}
+spec:
+  schedule: {{ .Values.maintain.schedule | quote }}
+  # Never overlap with the previous run: concurrent maintainers are safe by
+  # construction (deterministic keys) but wasteful.
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "profiler-backend.labels" (dict "root" . "component" "maintain") | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: profiler-backend
+              image: {{ include "profiler-backend.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args: ["maintain", "--run-now"]
+              env:
+                {{- include "profiler-backend.maintainEnv" . | nindent 16 }}
+              volumeMounts:
+                {{- include "profiler-backend.s3CredentialMount" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.maintain.resources | nindent 16 }}
+          volumes:
+            {{- include "profiler-backend.s3CredentialVolume" . | nindent 12 }}
+{{- end }}

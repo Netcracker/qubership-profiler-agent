@@ -1,0 +1,130 @@
+# Default values for the profiler-backend chart.
+#
+# Portability: the defaults carry no kind- or OrbStack-specific assumptions.
+# The two knobs that differ between local clusters are Helm values only:
+#   - collector.storage.storageClassName / minio.storage.storageClassName
+#     (empty = the cluster's default StorageClass)
+#   - collector.agentService.type (ClusterIP everywhere; NodePort for kind
+#     port-mappings; LoadBalancer on OrbStack, which ships a built-in LB)
+
+image:
+  registry: ""
+  repository: profiler-backend
+  tag: dev
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+s3:
+  # Endpoint URL; an https:// scheme enables TLS. Leave empty with
+  # minio.enabled=true to use the in-cluster dev MinIO.
+  endpoint: ""
+  bucket: profiler-data
+  auth:
+    # Name of an existing Secret with keys `access-key` and `secret-key`.
+    # Takes precedence over the inline pair below.
+    existingSecret: ""
+    # Inline credentials render into a chart-managed Secret — dev/smoke only.
+    accessKey: ""
+    secretKey: ""
+    # Where the workloads mount the Secret; S3_ACCESS_KEY_FILE and
+    # S3_SECRET_KEY_FILE point into this directory. The credentials are never
+    # injected as env (01-write-contract.md §9, 04 §6).
+    mountPath: /etc/profiler/s3
+
+collector:
+  replicas: 2
+  agentPort: 1715
+  internalPort: 8081
+  # Must cover the 03-lifecycle.md §5.4 shutdown budget (~95 s).
+  terminationGracePeriodSeconds: 100
+  storage:
+    # The PVC must exceed chunksStagingMaxBytes: the budget bounds only the
+    # trace/sql/xml segment files, while the WALs, the call-index SQLite
+    # partitions, the seal scratch, and the hot-retention parquet share the
+    # same PV outside it (04 §3.5). A budget-sized PVC hits ENOSPC before
+    # eviction ever engages.
+    size: 20Gi
+    # Empty string omits storageClassName, selecting the cluster's default
+    # StorageClass (kind: local-path; OrbStack: its default). An explicit ""
+    # in the PVC would mean "no dynamic provisioning" — the template never
+    # renders that.
+    storageClassName: ""
+  chunksStagingMaxBytes: 10GB
+  hotRetention: 15m
+  # L4 entry point for agent TCP (port 1715). Per-connection stickiness is
+  # inherent to TCP; client-IP affinity is not needed — an agent reconnect is
+  # a fresh pod-restart by design (04 §3.4).
+  agentService:
+    type: ClusterIP
+    # Optional fixed nodePort when type=NodePort (empty = auto-assign).
+    nodePort: ""
+  # Extra environment (name → value), e.g. PROFILER_SEAL_CHECK_INTERVAL: 2s
+  env: {}
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+query:
+  replicas: 2
+  port: 8080
+  # 03-lifecycle.md §7.3 shutdown budget.
+  terminationGracePeriodSeconds: 45
+  env: {}
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+maintain:
+  # cronjob: one pod per run (batch/v1 CronJob, --run-now).
+  # deployment: singleton loop pod; the only mode with a /metrics surface.
+  mode: cronjob
+  schedule: "0 * * * *"
+  # PROFILER_MAINTAIN_CHECK_INTERVAL for deployment mode.
+  checkInterval: 5m
+  metricsPort: 8081
+  env: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# Per-class retention TTLs (01-write-contract.md §6.4, §9), consumed by the
+# maintain workload.
+retention:
+  shortCleanTTL: 1d
+  normalCleanTTL: 7d
+  longCleanTTL: 30d
+  anyErrorTTL: 30d
+  corruptedTTL: 7d
+  dictionaryTTL: 35d
+
+# In-cluster MinIO for dev and smoke runs. Storage is an emptyDir — data dies
+# with the pod. Point s3.endpoint at a real object store for anything else.
+minio:
+  enabled: false
+  image: minio/minio:latest
+  consolePort: 9001
+
+metrics:
+  serviceMonitor:
+    # Requires the monitoring.coreos.com CRDs (prometheus-operator).
+    enabled: false
+    interval: 30s
+    additionalLabels: {}
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}

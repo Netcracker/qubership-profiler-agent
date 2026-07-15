@@ -1,0 +1,61 @@
+# kind / CI values for charts/profiler-backend: one replica of everything,
+# in-cluster MinIO, fast loops so the smoke completes in minutes.
+#
+#   kind load docker-image profiler-backend:dev
+#   helm install profiler backend/charts/profiler-backend -f backend/deploy/values-kind.yaml
+
+collector:
+  replicas: 1
+  storage:
+    # storageClassName stays empty: kind's default class (local-path).
+    size: 2Gi
+  # Keep the segment budget well under the 2Gi PVC — the WALs, SQLite
+  # partitions, and hot-retention parquet share the volume outside the budget
+  # (04 §3.5). A budget equal to the PVC would make the eviction path
+  # unreachable and fill the PV first.
+  chunksStagingMaxBytes: 512MB
+  terminationGracePeriodSeconds: 30
+  env:
+    PROFILER_SEAL_CHECK_INTERVAL: 2s
+    PROFILER_UPLOAD_CHECK_INTERVAL: 2s
+    PROFILER_SHUTDOWN_DRAIN_GRACE: 1s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+query:
+  replicas: 1
+  env:
+    PROFILER_SHUTDOWN_DRAIN_GRACE: 1s
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+maintain:
+  # deployment mode is the only one with a /metrics surface; the smoke
+  # asserts the maintain series exist.
+  mode: deployment
+  checkInterval: 1m
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
+
+minio:
+  enabled: true
+
+s3:
+  auth:
+    accessKey: minioadmin
+    secretKey: minioadmin

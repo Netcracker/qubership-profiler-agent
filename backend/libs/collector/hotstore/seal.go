@@ -56,8 +56,8 @@ type (
 		Truncated map[string]int // truncated_reason → row count
 	}
 
-	// SealCounters are process-lifetime seal metrics. They back the future
-	// Prometheus counters (TODO seam: collector app wiring task).
+	// SealCounters are process-lifetime seal metrics; they back the
+	// profiler_seal_* Prometheus series (apps/profiler-backend/pkg/metrics).
 	SealCounters struct {
 		Rows      int64
 		Files     int64

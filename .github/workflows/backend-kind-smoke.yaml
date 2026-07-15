@@ -1,0 +1,79 @@
+---
+name: Backend Kind Smoke
+
+on:
+  push:
+    branches-ignore:
+      - 'renovate/**'
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-kind-smoke.yaml'
+  pull_request:
+    branches:
+      - '**'
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-kind-smoke.yaml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  chart-validate:
+    name: Chart lint, kubeconform, promtool
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # helm ships in the runner image; kubeconform and promtool run via the
+      # docker fallbacks built into the Make targets.
+      - name: helm lint + kubeconform
+        # language=bash
+        run: make helm-lint
+
+      - name: promtool test rules
+        # language=bash
+        run: make rules-test
+
+  kind-smoke:
+    name: In-cluster smoke (kind)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+
+      # A pinned kind release binary instead of a marketplace action: the
+      # smoke script creates and manages the cluster itself.
+      - name: Install kind
+        # language=bash
+        run: |
+          curl -fsSLo /tmp/kind https://kind.sigs.k8s.io/dl/v0.30.0/kind-linux-amd64
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+          kind version
+
+      - name: Run the kind smoke
+        # language=bash
+        run: make kind-smoke
+
+      - name: Dump cluster state on failure
+        if: failure()
+        # language=bash
+        run: |
+          kubectl --context kind-profiler-smoke get pods -A -o wide || true
+          kubectl --context kind-profiler-smoke describe pods -l app.kubernetes.io/instance=profiler-backend || true
+          kubectl --context kind-profiler-smoke logs -l app.kubernetes.io/instance=profiler-backend --all-containers --tail=200 --prefix || true

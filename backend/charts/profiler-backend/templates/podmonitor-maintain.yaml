@@ -1,0 +1,22 @@
+{{- if and .Values.metrics.serviceMonitor.enabled (eq .Values.maintain.mode "deployment") }}
+# The maintain loop pod has no Service (nothing routes to it), so a PodMonitor
+# scrapes it directly. CronJob mode has no scrape surface at all — the pod
+# exits right after its pass.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-maintain
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "maintain") | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "maintain") | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

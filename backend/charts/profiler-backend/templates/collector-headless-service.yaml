@@ -1,0 +1,22 @@
+# Governing headless Service: one A-record per READY collector pod. The query
+# service resolves it per request for the fan-out (02 §7.1), and
+# publishNotReadyAddresses=false keeps LOADING/RECOVERY/DRAINING pods out of
+# DNS (03 §4).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "profiler-backend.collectorHeadless" . }}
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "collector") | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: false
+  selector:
+    {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  ports:
+    - name: agent
+      port: {{ .Values.collector.agentPort }}
+      targetPort: agent
+    - name: internal
+      port: {{ .Values.collector.internalPort }}
+      targetPort: internal
