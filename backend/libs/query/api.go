@@ -47,6 +47,12 @@ func (s *Service) routes(e *echo.Echo) {
 	// gzip is per-route: /tree wants it (02 §2.5.5), while /trace serves raw
 	// bytes with Range support, which the middleware would break.
 	e.GET("/api/v1/calls/:pk/tree", s.handleCallTree, middleware.Gzip())
+	if s.ui != nil {
+		// The embedded single-page app (07 §6); /api/v1, /metrics, and the
+		// health routes stay untouched.
+		e.GET("/ui", s.handleUI, middleware.Gzip())
+		e.GET("/ui/*", s.handleUI, middleware.Gzip())
+	}
 }
 
 func sendProblem(c echo.Context, p problem) error {

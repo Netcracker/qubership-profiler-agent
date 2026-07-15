@@ -11,6 +11,7 @@ import (
 	appenv "github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/health"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/metrics"
+	ui "github.com/Netcracker/qubership-profiler-backend/apps/ui"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
@@ -63,6 +64,13 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		log.Warning(ctx, "collector service %q does not resolve yet: %s", cfg.CollectorService, err)
 	}
 
+	// The embedded UI (07 §6) is optional: a binary built without the npm
+	// step still serves /api/v1 and only warns.
+	uiAssets, uiErr := ui.Dist()
+	if uiErr != nil {
+		log.Warning(ctx, "/ui disabled: %s", uiErr)
+	}
+
 	reg := metrics.NewRegistry()
 	svc := query.New(query.Options{
 		Config: query.Config{
@@ -78,6 +86,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		},
 		ColdStore: query.NewS3ObjectReader(mc),
 		Metrics:   query.NewMetrics(reg),
+		UI:        uiAssets,
 	})
 
 	gate := health.NewGate("/api/v1")

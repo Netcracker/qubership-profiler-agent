@@ -158,7 +158,7 @@ func (s *Service) pointProblem(c echo.Context, pk model.PK, hints pointHints, fe
 // blob, immutable per PK, with Range support. The §7.4 partial envelope does
 // not apply — the blob is either present or absent.
 func (s *Service) handleCallTrace(c echo.Context) error {
-	pk, err := model.ParsePKPath(c.Param("pk"))
+	pk, err := pkParam(c)
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
@@ -186,7 +186,7 @@ func (s *Service) handleCallTrace(c echo.Context) error {
 // values are inlined (or explicitly marked unresolved, never dropped).
 func (s *Service) handleCallTree(c echo.Context) error {
 	ctx := c.Request().Context()
-	pk, err := model.ParsePKPath(c.Param("pk"))
+	pk, err := pkParam(c)
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
