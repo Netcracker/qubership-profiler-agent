@@ -59,10 +59,50 @@ pending (see open issues).
   - [x] `libs/collector/hotstore` — seal writer on `GenericWriter`: ZSTD kept, row order kept, `profiler.schema_version = 2` stamped into the footer metadata, page bounds skipped for the blob-sized columns
   - [x] `libs/query/cold` — reader on `GenericReader` with native name-based projection (the `ColumnBuffers` deletion hack is gone), read errors checked and wrapped, the `source.ParquetFile` adapter replaced by the object's own `ReadAt` + `Size`
   - [x] Integration tests ported; the coldread read-offset assertion (no read starts inside a `trace_blob` chunk, with the unprojected positive control) survives against the new reader; new `schemaevolution_test.go` pins narrow-file → current-struct null-fill on both cold read paths
-- [ ] Budgets and janitors: segment refcounts/eviction, idle accumulator timeout, memory budget (`01` §4.6)
-- [ ] Collector app wiring: `profiler-backend collect` subcommand, readiness states, Prometheus metrics (`03` §2)
+- [x] **App wiring + dev stack + end-to-end smoke** (seventh slice, Stage 1 closer; branch `feat/stage1-app-wiring`)
+  - [x] `apps/profiler-backend` — the single Go binary of `04` §2 with `collect` and `query` subcommands (cobra + `oklog/run`, the dumps-collector pattern); env parsing per `01` §9 / `02` §9 / `03` §10 in `pkg/envconfig`, covering only the knobs the composed services honour (`2GB`-style sizes and the duration-threshold pair get decoders)
+  - [x] `collect` — the internal port binds at process start behind a `pkg/health` gate serving `/internal/v1/health/{ready,live}` (`03` §2/§4: LOADING/RECOVERY answer 503, the hotread handler mounts at READY); recovery completes before the agent TCP listener starts; the seal and upload loops default ON (15 s / 30 s); SIGTERM flips DRAINING and holds the drain grace, a second signal skips it
+  - [x] `query` — S3 access verified at boot (`03` §7.1, FATAL on failure), replica discovery from `COLLECTOR_HEADLESS_SVC`, the same gate on `/api/v1/health/*`, 15 s in-flight bound at shutdown (§7.3)
+  - [x] `backend/docker-compose.yaml` (`04` §11.1) — MinIO (healthcheck) + collector + query from one image (`apps/profiler-backend/Dockerfile`: distroless static, `/data` owned by 65532 so the named volume inherits it); the services create the bucket themselves (idempotent `MakeBucket`)
+  - [x] Smoke `libs/tests/smoke` (build tag `smoke`; `make smoke`): a `libs/emulator` agent sends dictionary + trace + calls + suspend over real TCP; the hot phase asserts `/api/v1/calls` and `/tree` answer while `parquet/v1/` is still empty in MinIO; the cold phase ages a bucket two hours back, waits for the parquet and dictionary-snapshot objects, runs `docker compose stop collector`, and asserts the wide range and `/tree?ts_ms&retention_class` answer from S3 alone; a final phase restarts the collector and re-reads the hot rows through recovery
+- [x] **Lifecycle janitors: hot retention, WAL purge, disk budget, snapshot quarantine** (eighth slice; branch `feat/stage1-lifecycle-janitors`)
+  - [x] `libs/collector/hotstore` — `JanitorPass`/`RunJanitorLoop` (`janitor.go`): aged local parquet deleted per `01` §6.3 (`uploaded_at + hot_retention`), call-index partitions dropped oldest-first behind a contiguity barrier (see the decisions log — zero-gap across the hot→cold drop), WALs purged per `03` §3.9 step 18 (closed + snapshots uploaded + nothing hot left + grace; the pod-restart dir and in-RAM state go with them), disk-budget eviction per `01` §4.6 (refcount-0 first, then oldest referenced, never an open segment; the row stays `evicted` so the seal records `disk_budget`)
+  - [x] `libs/collector/hotstore` — snapshot/manifest quarantine mirroring the slice-3 parquet path: permanent 4xx on a dictionary/suspend object sets the new `dict_upload_failed_at` and parks the body under `upload-failed/<s3-key>`; a rejected pods manifest is parked the same way and the parquet still commits `uploaded_at`
+  - [x] `libs/collector/hotstore` — dropped-bucket escape hatch: `InsertCall` into a dropped partition resurrects it (`dropped_at` cleared, one retry over a racing drop), so a very late Call re-enters the seal loop instead of landing invisible
+  - [x] `apps/profiler-backend` — `PROFILER_HOT_RETENTION`, `PROFILER_CHUNKS_STAGING_MAX_BYTES`, `PROFILER_WAL_PURGE_GRACE`, `PROFILER_JANITOR_CHECK_INTERVAL` (default 30 s, ON) wired into `collect`; the janitor loop joins the seal/upload loops in `collector.Service`
+  - [x] Tests: `hotstore/janitor_test.go` (lifecycle gates in order, quarantine contiguity barrier, deterministic eviction order, partition resurrect) and `libs/tests/integration/janitor_test.go` — zero-gap acceptance (`/api/v1/calls` returns the same rows before and after the hot drop, hot window provably empty, S3 LIST provably consulted; recovery over the purged PV comes up clean and cold still answers), disk-budget eviction sealing `truncated_reason=disk_budget` next to a surviving blob, snapshot/manifest quarantine stopping the retry and pinning the WALs
+- [x] **Maintain job: S3-side compaction + per-class TTL** (ninth slice; branch `feat/stage1-maintain`)
+  - [x] `libs/maintain` — stateless S3-only worker (`01` §6.6, §6.4): per class, LIST → TTL sweep → per-`(bucket, class)` compaction groups; patch and cross-pod-restart compaction are one code path (every row keeps its own PK, so the merge does not care whose file a row came from)
+  - [x] `libs/maintain/compact.go` — write → grace → delete as three separate passes: a fresh compaction only PUTs the merged object (`maintain-<hashOfInputs>` producer key, `01` §7); a later pass recognises the output by recomputing the hash over the remaining group members and deletes the inputs once `now - LastModified(output) ≥ PROFILER_COMPACTION_DELETE_GRACE`; the merge restores `(ts_ms DESC, pk ASC)` with PK-dedup and rewrites through the full `CallV2` schema (all columns, ZSTD, schema stamp via the new shared `storageparquet.CallV2WriterOptions`)
+  - [x] `libs/maintain/ttl.go` — parquet expiry by the key's `timeMax` stamp alone (widened +999 ms, so the comparison errs on the keep side); `dictionaries`/`pods`/`suspend` snapshots aged from the end of the key's UTC day against `PROFILER_RETENTION_DICTIONARY_TTL`
+  - [x] `libs/query/cold` — mid-read 404 backstop (`02` §5.1): a listed object deleted between the LIST and the column reads now degrades to an empty result (existence re-check on the error path) instead of a spurious `partial`; before this, the §5.1 rule held only for a delete before the first byte
+  - [x] `libs/query/cold` — point fetch sees compacted objects: `ParseKey` now parses the `<replica>` token (everything left of the hash, dashes and all) into `FileRef`, and `FetchCall` treats a file whose replica is the reserved `maintain` token (`01` §7) as a candidate for every PK — read whole and matched row-by-row — instead of pruning it by a hash that covers the compaction's inputs, not one pod-restart. Before this, `/calls/{pk}/tree` and `/trace` answered 404 for a call whose bucket had been compacted cold-side
+  - [x] `apps/profiler-backend` — `maintain` subcommand: singleton loop with `PROFILER_MAINTAIN_CHECK_INTERVAL` (immediate first pass), `--run-now` one-shot for a k8s CronJob (`03` §8.2); env: `PROFILER_COMPACTION_{MIN_AGE,MIN_FILES,DELETE_GRACE,MAX_BYTES}`, per-class retention TTLs with a `d` suffix decoder (`35d`)
+  - [x] Tests: `libs/maintain/maintain_test.go` (grace lifecycle on a fake store with a steerable clock, unsettled/small/oversized guards, residue convergence, TTL boundaries, key parsing incl. discovery round-trip) and `libs/tests/integration/maintain_minio_test.go` (`integration` tag) — seeded per-pod-restart + patch files compact to one object with the identical PK set, order, columns, and floor/ceil key stamps; `/api/v1/calls` answers the same rows through every write → grace → delete phase with a concurrent reader; a point fetch (the `/tree`, `/trace` path) finds a PK that, after the inputs are deleted, lives only in the `maintain-`keyed object; converged bucket re-pass is a no-op; TTL deletes only expired parquet and snapshots
+- [ ] Budgets, remaining: idle accumulator timeout, memory budget (`01` §4.6 — `PROFILER_IDLE_ACCUMULATOR_TIMEOUT`, `PROFILER_MEM_BUDGET`)
+- [ ] Prometheus metrics (`03` §2; `01` §5.1 expects dropped/truncated-call counters — `UploadStats`, `SealCounters`, the new `JanitorStats`, and the ingest decode-error paths are the seams)
 
 ## Decisions log
+
+### 2026-07-04 — compacted objects are identified by the reserved `maintain` replica token, not a hash sentinel
+
+**Question:** The cold point fetch (`FetchCall`) prunes a candidate whose
+key-encoded pod-restart hash cannot match the PK. A cross-pod-restart
+compaction keys its output by the hash of its *inputs*, so that hash matches
+no live PK and the object was skipped. How should the point-fetch path
+recognise a compacted object it must read whole?
+
+**Choice:** By the key's `<replica>` slot. `ParseKey` now parses the replica
+(everything left of the hash, dashes included) into `FileRef`, and `FetchCall`
+treats a file whose replica is the reserved `maintain` token (`01` §7) as a
+candidate for every PK — read whole, matched row-by-row. The `scan.go` comment
+that anticipated "compaction may blank the hash later" was wrong: the contract
+never blanks the hash; it substitutes the reserved replica token.
+
+**Reason:** The replica token is already the contract's marker for a compacted
+producer (`01` §6.6, §7); no key change or hash sentinel is needed. The list
+path (`/calls`) is unaffected — it never filters by hash — so only the point
+endpoints (`/tree`, `/trace`) needed the fix.
 
 ### 2026-07-03 — calls.wal record body is length-prefixed JSON, not raw wire bytes
 
@@ -500,8 +540,202 @@ Consequences:
   `go mod tidy` then dropped `xitongsys/parquet-go` and
   `xitongsys/parquet-go-source`.
 
+### 2026-07-04 — the Go binary lives at apps/profiler-backend; collect and query are subcommands
+
+`04` §2 pins one image / one binary with per-workload subcommands, and the
+slice-4 decision deferred the executable to the app-wiring task. The paths
+`apps/collector` (legacy Java collector) and `apps/query` (React UI) are
+taken until their Stage 4/5 retirement, so the binary and its wiring live in
+`apps/profiler-backend` (`main.go`, `cmd/`, `pkg/envconfig`, `pkg/health`).
+`maintain` and `all` (`03` §8-§9) are not implemented yet.
+
+### 2026-07-04 — readiness is an app-level gate in front of the API handlers
+
+`03` §2 binds the ports during LOADING with probes answering 503, but the
+libs services bind their own listeners only inside `Run`, after recovery. The
+app therefore owns both HTTP servers: a `health.Gate` answers
+`<prefix>/health/{ready,live}` from the §2 state machine and hands everything
+else to the hotread/query handler mounted at READY
+(`collector.Options.InternalAPIAddr` stays empty; the libs surface is
+unchanged). The "no agent traffic before recovery" invariant needs no gate —
+`collector.New` completes recovery before `Run` binds the agent TCP listener.
+The §5.2 per-connection drain (`COMMAND_CLOSE`, 5 s) remains open.
+
+### 2026-07-04 — loop pacing envs: PROFILER_SEAL_CHECK_INTERVAL / PROFILER_UPLOAD_CHECK_INTERVAL
+
+`01` §6.1 defines the seal trigger but no poll cadence, and `hotstore.Config`
+deliberately leaves the intervals zero so tests can seal explicitly. The app
+wiring names the knobs `PROFILER_SEAL_CHECK_INTERVAL` (default 15 s) and
+`PROFILER_UPLOAD_CHECK_INTERVAL` (default 30 s) — ON by default, because a
+collector that never seals is not a collector. Both subcommands verify S3
+connectivity at boot and treat a failure as FATAL; the compose stack orders
+startup on MinIO health instead of retrying in-process.
+
+### 2026-07-04 — the smoke proves the cold tier by stopping the collector
+
+With no hot-retention janitor, every call stays in the hot index, so a
+wide-range read alone cannot prove rows came from S3. The smoke
+(`libs/tests/smoke`, driven by `make smoke`) checks the tiers by
+construction instead: the hot phase asserts `/calls` and `/tree` answer while
+`parquet/v1/` is still empty in MinIO, and the cold phase stops the collector
+container before reading the aged bucket back — the answer can only come from
+the parquet and dictionary-snapshot objects. The final phase restarts the
+collector and re-reads the hot rows, exercising recovery over the compose
+volume.
+
+### 2026-07-04 — hot drop is contiguous oldest-first; the hot index outlives the local parquet question
+
+**Question:** `02` §3 lists recently sealed local parquet as a hot source for
+calls "already moved out of the hot index", and the slice-5 open issue pinned
+that the parquet source must land together with the janitor that starts
+dropping partitions. Read local parquet from the hot API, or never drop a
+partition before its rows stop needing a hot source?
+
+**Choice:** the second. A call-index partition is dropped only when every
+`parquet_local` row of its bucket is gone — which requires `uploaded_at` set
+AND `uploaded_at + hot_retention` elapsed, the same §6.3 clock that deletes
+the local file — and drops walk oldest-first with a contiguity barrier: the
+first bucket that is unsealed, pending, quarantined, or merely young stops
+the walk. The hot index therefore covers everything the local parquet covers
+at every instant, `/internal/v1/calls` keeps its single SQLite source, and
+the `02` §3 "recently sealed local parquet" source is dead code we never
+build. The barrier is what keeps `hot_window_oldest` truthful for the §4.3
+cutoff: a quarantined bucket pins itself AND every newer bucket in the hot
+tier, so no row is ever hot-invisible while its cold copy is unconfirmed —
+the zero-gap invariant. The cost: one stuck upload keeps later partitions on
+the PV until a human resolves it (bounded by partition size, not segment
+size). The local parquet file itself now serves only as re-seal insurance
+between seal and upload; past upload it is dead weight until its §6.3 clock
+deletes it.
+
+### 2026-07-04 — WAL purge waits for the hot drop; env name PROFILER_WAL_PURGE_GRACE
+
+`01` §3.5 / `03` §3.9 step 18 gate the WAL purge on "fully flushed + grace"
+but name no env and no interaction with the hot tier. Implemented gates:
+closed + `dict_uploaded_at` set + no `parquet_local` row with `uploaded_at`
+NULL + **no indexed calls left in any live partition** + `max(closed_at,
+dict_uploaded_at) + PROFILER_WAL_PURGE_GRACE` (default 1 h) elapsed. The
+added no-indexed-calls gate means the purge strictly follows the partition
+drop, so a restart never leaves hot rows whose dictionary WAL is gone (the
+hot `/tree` would render placeholders); it also makes it safe to release the
+pod-restart's in-RAM state and remove its directory in the same step —
+after the purge the pod-restart exists only in S3 and recovery has nothing
+to resurrect. The grace is measured from close/snapshot-upload, not from
+`max(uploaded_at)`: the hot-retention janitor deletes aged parquet rows
+before the grace expires, so their timestamps are not durable inputs.
+
+### 2026-07-04 — snapshot quarantine = dict_upload_failed_at; manifest quarantine unblocks the parquet
+
+The slice-3 open issue: a permanent 4xx on a dictionary, suspend, or pods
+manifest object retried forever. Mirrored the parquet quarantine with one
+asymmetry. Dictionary/suspend: the rejected body is written under
+`upload-failed/<s3-key>`, and the new `pod_restarts.dict_upload_failed_at`
+takes the pod-restart out of the snapshot queue while `dict_uploaded_at`
+stays NULL — so the WAL purge never fires and the WALs (the only remaining
+decodable source) wait on the PV with the quarantined body. Pods manifest:
+the body is parked the same way, but the file's `uploaded_at` still commits —
+the parquet object IS durable, and blocking it would re-PUT a confirmed
+object forever for a listing-only artifact; the marker file's existence
+stops further manifest PUTs for that (day, pod-restart). Degradation: cold
+`/pods` misses that day's entry until a human uploads the parked body; the
+calls themselves stay discoverable. Refcounts are untouched on every path.
+
+### 2026-07-04 — disk budget counts on-disk bytes of all three streams; eviction marks, never deletes rows
+
+`01` §4.6 words the budget as "trace-segment disk usage";
+`03` §3.2 pins that `sql`/`xml` are "refcounted and evicted like trace". The
+janitor accounts the compressed on-disk size (stat, not `logical_size` — the
+budget guards the PV) of every non-evicted segment across all three streams
+and evicts in the deterministic order refcount-0 first, then referenced,
+each oldest-first by `created_at` with the catalog key as tie-break; open
+segments are skipped (a live gzip writer owns the file). Eviction removes
+the file but keeps the catalog row as `status='evicted'` with its refcount:
+the seal pass already maps a missing/evicted segment to
+`truncated_reason=disk_budget`, and a pinned refcount must survive for the
+upload release to balance. In-RAM `chunk_index` entries of evicted segments
+are not released — that is the memory-budget task's job.
+
+### 2026-07-04 — a dropped partition resurrects on a late insert
+
+A Call whose bucket was already dropped (theoretically possible only with a
+pathological agent clock: the bucket aged a full `hot_retention` past upload)
+would land in a partition file that `Buckets()` never lists — invisible to
+the seal loop, permanently. `partition()` therefore clears `dropped_at` when
+it re-opens a dropped bucket, and `InsertCall` retries once with a fresh
+handle when a concurrent janitor drop closed the cached one. The
+resurrected bucket is unsealed again, so the janitor leaves it to the seal
+loop and the whole seal→upload→drop cycle repeats for the late row.
+
+### 2026-07-04 — maintain's delete-grace is stateless: hash-of-inputs + output LastModified
+
+**Question:** `01` §6.6 orders write → grace → delete, but the maintainer is
+stateless (`03` §8) and may restart — or run twice — between the write and
+the delete. Where does the grace timer live?
+
+**Choice:** nowhere locally. A compaction pass only PUTs the merged object,
+keyed `maintain-<hash(sorted input keys)>` (`01` §7 hash-of-inputs). A later
+pass recognises the output by recomputing the hash over the *other* members
+of its `(bucket, class)` group and deletes those inputs only when
+`now - LastModified(output) ≥ PROFILER_COMPACTION_DELETE_GRACE` — S3 itself
+carries the clock.
+
+**Reason:** every intermediate state is one the read path already tolerates
+(both copies visible → PK-dedup; inputs gone → the output answers), so a
+crash between any two steps loses nothing. The key is deterministic over the
+input set, so two racing maintainers PUT the same object — the singleton
+deployment is an optimisation, not a correctness requirement. A group whose
+maintain object matches no subset (stragglers arrived, or a delete was cut
+short) recompacts wholesale, even below `PROFILER_COMPACTION_MIN_FILES`, so
+a bucket converges to exactly one object; the merge's PK-dedup absorbs the
+duplicated rows.
+
+### 2026-07-04 — maintain envs: check interval 5m, min age 30m, min files 4, max group 256MB
+
+`01` §9 pins only `PROFILER_COMPACTION_DELETE_GRACE` (5m); `03` §10 sketches
+a 1h `PROFILER_MAINTAIN_INTERVAL` for the cron mode. Implemented as the loop
+knob `PROFILER_MAINTAIN_CHECK_INTERVAL` (default 5m, mirroring the
+collector's `*_CHECK_INTERVAL` family; the delete step lands on the first
+tick past the grace, so the interval should not dwarf the grace) plus
+`PROFILER_COMPACTION_MIN_AGE` (30m — hot retention 15m + margins, the
+late-arrival window a bucket must clear before compaction),
+`PROFILER_COMPACTION_MIN_FILES` (4), and `PROFILER_COMPACTION_MAX_BYTES`
+(256MB), a safety valve: the merge materialises every input row in RAM, so
+an oversized group is skipped with a warning rather than OOMing the
+singleton. The maintain TTL envs accept the contract's `d` suffix (`35d`);
+`PROFILER_TIME_BUCKET` is parsed by maintain too — the settled check needs
+the bucket end and the key carries only the start. Implementation choices,
+not contract changes.
+
+### 2026-07-04 — a 404 racing the column reads is the §5.1 empty case, fixed in cold
+
+The maintain acceptance test (a reader hammering `/calls` while the
+compaction deletes its inputs) surfaced a gap in the `02` §5.1 backstop: the
+cold scan mapped a listed-then-deleted key to an empty result only when the
+delete landed before the first byte (`Open`/`Stat`). A delete racing the
+column reads — any TTL sweep does this to a slow reader, no compaction
+needed — surfaced as a raw S3 error and a spurious `partial: true`.
+`readRows` now re-checks existence on the error path (`gone`, one extra
+round-trip on failures only) and degrades to the empty result §5.1 pins. The
+row set stays complete in the compaction case by construction: inputs are
+deleted only after their compacted copy has been listable for the whole
+grace. A `query`-side fix landed with the maintain slice because its
+acceptance depends on it; the contract text needed no change.
+
 ## Open issues
 
+- **Maintain LISTs each whole class prefix every pass.** O(objects alive in
+  the class) keys per tick, paged serially within the prefix (`02` §5.5).
+  Fine at MVP scale; bound the walk to the TTL window's hour prefixes, or a
+  manifest, if it profiles.
+- **A compaction group is merged in RAM and written as one object.** No
+  `PROFILER_PARQUET_MAX_SIZE` split of the output; a group over
+  `PROFILER_COMPACTION_MAX_BYTES` is skipped with a warning and stays
+  fragmented. A streaming k-way merge (inputs are already sorted) with a
+  size-split output is the upgrade path.
+- **The seal writer does not use `CallV2WriterOptions` yet.** The shared
+  helper landed with the maintain slice for the compactor; `hotstore/seal.go`
+  still carries the identical option list inline. Converge on the next
+  collector touch so the writer invariants cannot drift.
 - **`stage1-plan.md` does not exist yet.** This slice was specified directly
   by the user; the remaining Stage 1 tasks (seal pass, S3, read API, budgets,
   app wiring) need a plan document with dependencies and acceptance criteria.
@@ -517,27 +751,29 @@ Consequences:
   sealed files on disk leaves them orphaned — re-reading parquet footers
   (`03` §3.2 step 4) is not implemented. Orphans re-seal from the WAL, so the
   cost is duplicate rows collapsed by PK-dedup, plus leaked local files.
-- **Snapshot and manifest PUTs have no quarantine.** A permanent 4xx on a
-  dictionary, suspend, or pods-manifest object logs and retries on every
-  pass; only parquet files move to `upload-failed/`. Harmless while the
-  bucket policy matches the parquet PUTs, noisy if it ever diverges.
-- **WAL purge after upload is not implemented.** `01` §3.6 step 4 and `03`
-  §3.9 step 18 delete a closed pod-restart's WALs once its dictionary and
-  parquet are uploaded and the hold-back grace has elapsed; closed
-  pod-restarts currently keep their WALs on the PV.
-- **No hot-retention janitor yet.** Uploaded parquet stays on the PV past
-  `PROFILER_HOT_RETENTION` (`01` §6.3) and call partitions are never dropped;
-  both belong to the budgets/janitors task.
 - **Upload backoff state is per-pass.** Attempts restart on every pass, with
   no jitter and no per-file cross-pass schedule. `UploadStats` is the seam
-  for the Prometheus counters that land with the app wiring task.
+  for the Prometheus counters that land with the metrics task.
 - **`server.Service.Stop()` waits for live agent connections** and is bounded
   only by the socket read timeout (~40 s). The `03` §5.2 drain (send
-  `COMMAND_CLOSE`, 5 s per-connection timeout) is not implemented yet; it
-  belongs to the collector app wiring task.
+  `COMMAND_CLOSE`, 5 s per-connection timeout) is not implemented; the app
+  wiring shipped without it, so on SIGTERM agents see a closed socket after
+  the drain grace instead of a polite close.
 - **Ingest decode errors only log.** A malformed calls/dictionary record skips
-  the record; there is no metric yet. Prometheus counters land with the app
-  wiring task (`01` §5.1 expects counters for dropped/truncated calls).
+  the record; there is no metric yet. Prometheus counters land with the
+  metrics task (`01` §5.1 expects counters for dropped/truncated calls).
+- **`collect` env coverage is partial.** `PROFILER_PARQUET_MAX_SIZE`,
+  `PROFILER_SEAL_CONCURRENCY`, `PROFILER_MEM_BUDGET`,
+  `PROFILER_IDLE_ACCUMULATOR_TIMEOUT`, and `S3_PATH_PREFIX` are not parsed
+  because nothing behind them is implemented yet (remaining budgets tasks);
+  `PROFILER_STARTUP_LOCK_WAIT` is likewise absent — the flock fails fast
+  instead of waiting the `03` §3.1 30 s. (`PROFILER_HOT_RETENTION` and
+  `PROFILER_CHUNKS_STAGING_MAX_BYTES` landed with the janitors slice; the
+  retention TTLs landed with the maintain slice, parsed by `maintain` only —
+  `collect` has no consumer for them.)
+- **The smoke runs only locally.** `make smoke` needs the Docker CLI and a
+  fresh compose stack (it stops and restarts the collector container); no CI
+  job runs it yet.
 - **`params.wal` phrase-length quirk.** The agent's params/suspend phrase
   length includes bytes (version byte, suspend base time) that the pipe
   decoders do not subtract; single-phrase streams parse fine, which is what
@@ -563,11 +799,6 @@ Consequences:
   re-scan). Row-group `ts_ms` pruning from the sorted layout (`01` §5.2),
   parallel per-file scans, and streaming reads are deferred until profiling
   shows the need.
-- **Hot `/internal/v1/calls` does not read sealed local parquet** (`02` §3
-  source 4). Safe today because call partitions are never dropped, so the
-  index covers everything; the parquet source MUST land in the same task as
-  the hot-retention janitor that starts dropping partitions, or aged calls
-  become invisible to the hot tier before their S3 copy is preferred anyway.
 - **Hot /calls materializes each overlapping partition's window rows** before
   sorting in Go (no SQL-level keyset; see the collation decision). Bounded by
   a partition's ~5 minutes of calls per page, but worth a pushed-down seek
@@ -577,8 +808,20 @@ Consequences:
   "may have more", which can cost one extra empty page with a non-null
   cursor — explicitly allowed by §2.3.1's termination rule.
 - **`/internal/v1/calls/{pk}` probes every partition.** A bare PK carries no
-  time hint (`02` §2.2 suggests a `call_ref`); with few partitions per
-  replica the point SELECTs are cheap, revisit when the janitor lands.
+  time hint (`02` §2.2 suggests a `call_ref`); the janitor now bounds the
+  partition count to roughly `hot_retention / PROFILER_TIME_BUCKET`, so the
+  point SELECTs stay cheap.
+- **The disk-budget pass stats every segment file on every tick.** O(catalog)
+  `stat` calls per `PROFILER_JANITOR_CHECK_INTERVAL`; cache the sizes in the
+  catalog if it ever profiles.
+- **A quarantined manifest's parked body carries first-failure bounds.** The
+  marker file stops further PUT attempts, so a later seal of the same
+  (day, pod-restart) never refreshes the parked `time_max_ms`; whoever
+  uploads the body manually gets slightly narrow bounds. The rows themselves
+  are unaffected.
+- **Eviction leaves in-RAM chunk refs of evicted segments.** The seal and the
+  trace endpoint tolerate them (they map to `disk_budget` / 404), but the
+  memory they hold is only released by the future memory-budget task.
 - **Fan-out health probes run on every page.** Two HTTP round-trips per
   replica per page (hot-window + calls); a short-TTL cache of the hot-window
   report is the obvious lever if page latency ever matters.

@@ -1,0 +1,71 @@
+# Dev stack for the profiler backend (docs/design/04-storage-layout.md §11.1):
+# one collector, one query, MinIO as the S3 target. The services create the
+# bucket themselves on first connect, so MinIO needs no init container.
+#
+#   docker compose up --build -d
+#   make smoke        # end-to-end proof against this stack
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # console
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  collector:
+    image: profiler-backend:dev
+    build:
+      context: .
+      dockerfile: apps/profiler-backend/Dockerfile
+    command: ["collect"]
+    environment:
+      PROFILER_DATA_DIR: /data
+      STATEFULSET_ORDINAL: collector-0
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: profiler-data
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      # Fast loops and a short drain keep the dev feedback cycle tight.
+      PROFILER_SEAL_CHECK_INTERVAL: 2s
+      PROFILER_UPLOAD_CHECK_INTERVAL: 2s
+      PROFILER_SHUTDOWN_DRAIN_GRACE: 1s
+    ports:
+      - "1715:1715" # agent TCP
+      - "8081:8081" # /internal/v1
+    volumes:
+      - collector-data:/data
+    depends_on:
+      minio:
+        condition: service_healthy
+    stop_grace_period: 30s
+
+  query:
+    image: profiler-backend:dev
+    build:
+      context: .
+      dockerfile: apps/profiler-backend/Dockerfile
+    command: ["query"]
+    environment:
+      COLLECTOR_HEADLESS_SVC: collector
+      PROFILER_INTERNAL_API_PORT: "8081"
+      PROFILER_SHUTDOWN_DRAIN_GRACE: 1s
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: profiler-data
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+    ports:
+      - "8080:8080" # /api/v1
+    depends_on:
+      minio:
+        condition: service_healthy
+
+volumes:
+  collector-data:
