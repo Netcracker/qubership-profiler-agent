@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-collector
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "collector") | nindent 4 }}
+spec:
+  replicas: {{ .Values.collector.replicas }}
+  # Ordered rollout: at most one collector in LOADING/RECOVERY at a time, so
+  # the cluster never loses more than one replica's hot window (04 §3.1).
+  podManagementPolicy: OrderedReady
+  serviceName: {{ include "profiler-backend.collectorHeadless" . }}
+  selector:
+    matchLabels:
+      {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "collector") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "profiler-backend.labels" (dict "root" . "component" "collector") | nindent 8 }}
+    spec:
+      # Covers the 03-lifecycle.md §5.4 shutdown budget: drain grace +
+      # per-connection close + pending-upload bound (~95 s).
+      terminationGracePeriodSeconds: {{ .Values.collector.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: profiler-backend
+          image: {{ include "profiler-backend.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["collect"]
+          ports:
+            - name: agent
+              containerPort: {{ .Values.collector.agentPort }}
+              protocol: TCP
+            - name: internal
+              containerPort: {{ .Values.collector.internalPort }}
+              protocol: TCP
+          env:
+            - name: PROFILER_DATA_DIR
+              value: /data
+            - name: PROFILER_AGENT_PORT
+              value: {{ .Values.collector.agentPort | quote }}
+            - name: PROFILER_INTERNAL_API_PORT
+              value: {{ .Values.collector.internalPort | quote }}
+            - name: PROFILER_HOT_RETENTION
+              value: {{ .Values.collector.hotRetention | quote }}
+            - name: PROFILER_CHUNKS_STAGING_MAX_BYTES
+              value: {{ .Values.collector.chunksStagingMaxBytes | quote }}
+            # The pod name ("...-collector-0") names this replica in sealed
+            # file names and S3 keys (01 §7, 04 §3.2).
+            - name: STATEFULSET_ORDINAL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "profiler-backend.fullname" . }}-config
+                  key: s3-endpoint
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "profiler-backend.fullname" . }}-config
+                  key: s3-bucket
+            {{- include "profiler-backend.s3CredentialEnv" . | nindent 12 }}
+            {{- include "profiler-backend.extraEnv" .Values.collector.env | nindent 12 }}
+          # Readiness follows the 03 §2 state machine: 503 through
+          # LOADING/RECOVERY/DRAINING, 200 only at READY. Agent traffic and
+          # query fan-out reach the pod only when it is READY.
+          readinessProbe:
+            httpGet:
+              path: /internal/v1/health/ready
+              port: internal
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          # Liveness is recovery-independent: /health/live answers 200 through
+          # LOADING and RECOVERY and fails only on FATAL (03 §4). Gating
+          # liveness on READY would kill the pod mid-recovery and loop it
+          # forever — only readiness waits for READY.
+          livenessProbe:
+            httpGet:
+              path: /internal/v1/health/live
+              port: internal
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            {{- include "profiler-backend.s3CredentialMount" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.collector.resources | nindent 12 }}
+      volumes:
+        {{- include "profiler-backend.s3CredentialVolume" . | nindent 8 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.collector.storage.storageClassName }}
+        # Set only when non-empty: an explicit "" would mean "no dynamic
+        # provisioning", while omitting the field selects the cluster's
+        # default StorageClass (kind, OrbStack, and clouds all have one).
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.collector.storage.size }}

@@ -1,0 +1,82 @@
+# promtool unit tests for files/prometheus-rules.yaml (run via
+# `make rules-test`). The forced-quarantine scenario is the Stage 1 deploy
+# acceptance check: a stuck quarantine must page, an empty one must not.
+rule_files:
+  - ../../files/prometheus-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # Forced quarantine: two parquet files land in upload-failed/ at t=6m and
+  # stay. The alert must hold its 15m `for` window and then fire; it must NOT
+  # fire while the window is still open.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_hotstore_quarantine_objects{kind="parquet"}'
+        values: "0x5 2x40"
+      - series: 'profiler_hotstore_quarantine_objects{kind="snapshot"}'
+        values: "0x45"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProfilerStuckQuarantine
+        exp_alerts: [] # non-zero for only 4m — the 15m for-window is open
+      - eval_time: 25m
+        alertname: ProfilerStuckQuarantine
+        exp_alerts:
+          - exp_labels:
+              kind: parquet
+              severity: warning
+            exp_annotations:
+              summary: "Objects stuck in upload quarantine"
+              description: "parquet objects sit in upload-failed/ awaiting manual resolution; while they wait, hot-tier cleanup behind them is pinned."
+
+  # A quarantine that never fills must never page.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_hotstore_quarantine_objects{kind="parquet"}'
+        values: "0x60"
+      - series: 'profiler_hotstore_quarantine_objects{kind="snapshot"}'
+        values: "0x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ProfilerStuckQuarantine
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: ProfilerQuarantineAgeHigh
+        exp_alerts: []
+
+  # Age escalation: the oldest quarantined object crosses one hour.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_hotstore_quarantine_oldest_age_seconds{kind="snapshot"}'
+        values: "0+60x80" # ages one minute per minute from t=0
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: ProfilerQuarantineAgeHigh
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: ProfilerQuarantineAgeHigh
+        exp_alerts:
+          - exp_labels:
+              kind: snapshot
+              severity: critical
+            exp_annotations:
+              summary: "Upload quarantine unresolved for over an hour"
+              description: "The oldest quarantined snapshot object has waited over an hour; the collector PV keeps accumulating state it cannot release."
+
+  # Disk budget: 9.5 GB used against a 10 GB budget crosses the 90% line.
+  - interval: 1m
+    input_series:
+      - series: "profiler_hotstore_segments_disk_bytes"
+        values: "9500000000x30"
+      - series: "profiler_hotstore_segments_disk_budget_bytes"
+        values: "10000000000x30"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ProfilerDiskBudgetNearFull
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Hot-store segments near the disk budget"
+              description: "Segment files exceed 90% of PROFILER_CHUNKS_STAGING_MAX_BYTES; the janitor will start evicting segments and calls will seal with truncated_reason=disk_budget."

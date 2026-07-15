@@ -91,6 +91,34 @@ func compose(t *testing.T, args ...string) {
 	require.NoError(t, err, "docker compose %v: %s", args, out)
 }
 
+// stopCollector / startCollector take the collector away out-of-band for the
+// cold phase. Default: the compose container. The SMOKE_COLLECTOR_{STOP,START}_CMD
+// hooks switch the mechanism without forking the test — the kind smoke
+// (deploy/kind-smoke.sh) scales the StatefulSet to zero instead.
+func stopCollector(t *testing.T) {
+	t.Helper()
+	if cmd := os.Getenv("SMOKE_COLLECTOR_STOP_CMD"); cmd != "" {
+		runShell(t, cmd)
+		return
+	}
+	compose(t, "stop", "collector")
+}
+
+func startCollector(t *testing.T) {
+	t.Helper()
+	if cmd := os.Getenv("SMOKE_COLLECTOR_START_CMD"); cmd != "" {
+		runShell(t, cmd)
+		return
+	}
+	compose(t, "start", "collector")
+}
+
+func runShell(t *testing.T, script string) {
+	t.Helper()
+	out, err := exec.Command("sh", "-c", script).CombinedOutput()
+	require.NoError(t, err, "sh -c %q: %s", script, out)
+}
+
 func TestStage1EndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
 	defer cancel()
@@ -158,6 +186,13 @@ func TestStage1EndToEnd(t *testing.T) {
 	tree := fetchTree(t, handle.PK, nil)
 	assertHotTree(t, tree)
 
+	// /metrics is part of the deploy acceptance: the key series must exist on
+	// both services (the names are the dashboard/alert contract).
+	assertMetricsContain(t, internalURL+"/metrics",
+		"profiler_seal_rows_total", "profiler_hotstore_quarantine_objects")
+	assertMetricsContain(t, queryURL+"/metrics",
+		"profiler_query_cold_lists_total", "profiler_query_fanout_replica_request_seconds")
+
 	// A clean close finalizes the pod-restart; its bucket still seals only
 	// when it ages out, which keeps the hot rows hot for the rest of the run.
 	require.NoError(t, ac.CommandClose())
@@ -198,8 +233,8 @@ func TestStage1EndToEnd(t *testing.T) {
 	waitPrefixNonEmpty(t, ctx, mc, "parquet/v1/", 90*time.Second)
 	waitPrefixNonEmpty(t, ctx, mc, "dictionaries/v1/", 90*time.Second)
 
-	compose(t, "stop", "collector")
-	t.Cleanup(func() { compose(t, "start", "collector") })
+	stopCollector(t)
+	t.Cleanup(func() { startCollector(t) })
 
 	coldRows := pollCalls(t, podCold, coldBase-60_000, nowMs, 2, time.Minute)
 	coldByMethod := map[string]callRow{}
@@ -225,7 +260,7 @@ func TestStage1EndToEnd(t *testing.T) {
 
 	// --- Recovery: the restarted collector recovers the PV and the hot rows
 	// come back (their bucket may have sealed meanwhile; either tier serves).
-	compose(t, "start", "collector")
+	startCollector(t)
 	waitReady(t, internalURL+"/internal/v1/health/ready", 2*time.Minute)
 	pollCalls(t, podHot, hotBase-60_000, nowMs+60_000, 2, time.Minute)
 }
@@ -261,20 +296,34 @@ func waitReady(t *testing.T, url string, timeout time.Duration) {
 	}, timeout, 500*time.Millisecond, "service at %s must report READY", url)
 }
 
+// connectAgent dials and initializes with a retry: behind a kubectl
+// port-forward the local accept succeeds before the backend stream exists, so
+// the first connection can die with an EOF while the tunnel (or the collector
+// endpoint) warms up.
 func connectAgent(t *testing.T, ctx context.Context, pod string) *emulator.AgentConnection {
 	t.Helper()
-	ac := emulator.PrepareAgent(ctx, nil, noopListener{}, pod)
-	err := ac.Prepare(emulator.ConnectionOpts{
-		ProtocolAddress: agentAddr,
-		Timeout: profio.TcpTimeout{
-			ConnectTimeout: 10 * time.Second,
-			SessionTimeout: 60 * time.Second,
-			ReadTimeout:    5 * time.Second,
-			WriteTimeout:   5 * time.Second,
-		},
-	}).Connect()
-	require.NoError(t, err)
-	require.NoError(t, ac.InitializeConnection(model.PROTOCOL_VERSION_V3, nsSmoke, svcSmoke, pod))
+	var ac *emulator.AgentConnection
+	require.Eventually(t, func() bool {
+		ac = emulator.PrepareAgent(ctx, nil, noopListener{}, pod)
+		if err := ac.Prepare(emulator.ConnectionOpts{
+			ProtocolAddress: agentAddr,
+			Timeout: profio.TcpTimeout{
+				ConnectTimeout: 10 * time.Second,
+				SessionTimeout: 60 * time.Second,
+				ReadTimeout:    5 * time.Second,
+				WriteTimeout:   5 * time.Second,
+			},
+		}).Connect(); err != nil {
+			t.Logf("agent connect to %s: %s", agentAddr, err)
+			return false
+		}
+		if err := ac.InitializeConnection(model.PROTOCOL_VERSION_V3, nsSmoke, svcSmoke, pod); err != nil {
+			t.Logf("agent init on %s: %s", agentAddr, err)
+			_ = ac.Close()
+			return false
+		}
+		return true
+	}, 30*time.Second, time.Second, "agent must connect and initialize against %s", agentAddr)
 	require.Equal(t, model.PROTOCOL_VERSION_V2, ac.ServerVersion(),
 		"the collector must reply V2 (06-wire-protocol-server.md §3)")
 	return ac
@@ -390,6 +439,21 @@ func assertHotTree(t *testing.T, tree *calltree.Tree) {
 	require.Len(t, tree.Root.Params, 1)
 	assert.Equal(t, "request.id", tree.Params[tree.Root.Params[0].ParamIdx])
 	assert.Equal(t, []string{"req-hot-1"}, tree.Root.Params[0].Values)
+}
+
+// assertMetricsContain scrapes a /metrics endpoint and requires the named
+// series (or their HELP lines) to be present.
+func assertMetricsContain(t *testing.T, url string, series ...string) {
+	t.Helper()
+	resp, err := http.Get(url)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "/metrics: %s", body)
+	for _, s := range series {
+		assert.Contains(t, string(body), s, "series %s missing from %s", s, url)
+	}
 }
 
 func assertPrefixEmpty(t *testing.T, ctx context.Context, mc *minio.Client, prefix string) {

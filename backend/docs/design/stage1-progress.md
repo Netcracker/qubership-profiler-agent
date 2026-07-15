@@ -79,8 +79,16 @@ pending (see open issues).
   - [x] `libs/query/cold` — point fetch sees compacted objects: `ParseKey` now parses the `<replica>` token (everything left of the hash, dashes and all) into `FileRef`, and `FetchCall` treats a file whose replica is the reserved `maintain` token (`01` §7) as a candidate for every PK — read whole and matched row-by-row — instead of pruning it by a hash that covers the compaction's inputs, not one pod-restart. Before this, `/calls/{pk}/tree` and `/trace` answered 404 for a call whose bucket had been compacted cold-side
   - [x] `apps/profiler-backend` — `maintain` subcommand: singleton loop with `PROFILER_MAINTAIN_CHECK_INTERVAL` (immediate first pass), `--run-now` one-shot for a k8s CronJob (`03` §8.2); env: `PROFILER_COMPACTION_{MIN_AGE,MIN_FILES,DELETE_GRACE,MAX_BYTES}`, per-class retention TTLs with a `d` suffix decoder (`35d`)
   - [x] Tests: `libs/maintain/maintain_test.go` (grace lifecycle on a fake store with a steerable clock, unsettled/small/oversized guards, residue convergence, TTL boundaries, key parsing incl. discovery round-trip) and `libs/tests/integration/maintain_minio_test.go` (`integration` tag) — seeded per-pod-restart + patch files compact to one object with the identical PK set, order, columns, and floor/ceil key stamps; `/api/v1/calls` answers the same rows through every write → grace → delete phase with a concurrent reader; a point fetch (the `/tree`, `/trace` path) finds a PK that, after the inputs are deleted, lives only in the `maintain-`keyed object; converged bucket re-pass is a no-op; TTL deletes only expired parquet and snapshots
+- [x] **Deploy track: Helm chart, Prometheus metrics, alerts, file-mounted S3 creds** (tenth slice; branch `feat/stage1-deploy-metrics`)
+  - [x] Contracts first (separate commit): `01` §9 gains `S3_ACCESS_KEY_FILE`/`S3_SECRET_KEY_FILE` (exactly one source per credential), `04` switches the Secret to a volume mount, pins the liveness-is-recovery-independent probe rule, the PVC > segment-budget rule, and the new-chart placement (§9)
+  - [x] `pkg/envconfig` — file-based credentials: `S3.Params()` resolves env-or-file, trims trailing whitespace, fails on both-or-neither; all three subcommands updated
+  - [x] Metrics seams: janitor counter accumulator + `SegmentsDiskUsage` + `EvictedChunkRefs` (risk B-3, measured each janitor pass) + `QuarantineStats` (count + oldest age for parquet and snapshot quarantines) on the Store; `UploadStats.FailedPuts`; `collector.Service.Uploader()`; `libs/query.Metrics` (nil-safe: fan-out histogram, cold-LIST counter via an ObjectStore decorator, partial counter, guard rejections by layer); `maintain.Job.OnPass`
+  - [x] `/metrics` endpoints (`apps/profiler-backend/pkg/metrics`, namespace `profiler`, low-cardinality labels only): collect on the internal port outside the health gate (scrapable during LOADING/RECOVERY), query on the external port (it has no internal one), maintain on `PROFILER_METRICS_PORT` in loop mode; series names pinned by a Go test and catalogued in the chart README
+  - [x] Helm chart `backend/charts/profiler-backend` — collector StatefulSet (RWO `volumeClaimTemplates`, storageClassName omitted when empty, recovery-independent liveness, `terminationGracePeriodSeconds` 100), headless + agent Services (type via values: ClusterIP/NodePort/LoadBalancer), query Deployment + Service, maintain CronJob/Deployment switch, optional dev MinIO (same file-mounted Secret via `MINIO_ROOT_*_FILE`), ServiceMonitor/PodMonitor + PrometheusRule
+  - [x] Alerts in `files/prometheus-rules.yaml` (stuck quarantine, quarantine age, disk-budget near-full, hot-window lag, upload failures) with `promtool test rules` coverage incl. the forced-quarantine scenario; `make helm-lint` (helm lint + kubeconform over the monitoring-enabled render) and `make rules-test`
+  - [x] kind smoke (`make kind-smoke`, CI: `.github/workflows/backend-kind-smoke.yaml`): image build + `kind load` + `helm install` with `deploy/values-kind.yaml`, pod-spec assert that no `S3_(ACCESS|SECRET)_KEY` env exists, then the shared `libs/tests/smoke` suite over resilient port-forwards — hot phase, `/metrics` series, cold phase via `kubectl scale sts --replicas=0` (the `SMOKE_COLLECTOR_{STOP,START}_CMD` hooks), recovery; OrbStack runbook in the chart README (`KIND_CONTEXT=orbstack KIND_SKIP_LOAD=1`, agent Service as LoadBalancer via `deploy/values-orbstack.yaml`)
 - [ ] Budgets, remaining: idle accumulator timeout, memory budget (`01` §4.6 — `PROFILER_IDLE_ACCUMULATOR_TIMEOUT`, `PROFILER_MEM_BUDGET`)
-- [ ] Prometheus metrics (`03` §2; `01` §5.1 expects dropped/truncated-call counters — `UploadStats`, `SealCounters`, the new `JanitorStats`, and the ingest decode-error paths are the seams)
+- [ ] Ingest decode-error counters (`01` §5.1 dropped-call counters; the decode paths still only log — the remaining metrics gap)
 
 ## Decisions log
 
@@ -721,6 +729,69 @@ deleted only after their compacted copy has been listable for the whole
 grace. A `query`-side fix landed with the maintain slice because its
 acceptance depends on it; the contract text needed no change.
 
+### 2026-07-04 — S3 credentials come from Secret-mounted files; env stays for dev
+
+**Question:** `01` §9 / `04` had the credentials as `S3_ACCESS_KEY`/`S3_SECRET_KEY`
+env, which puts them into pod specs, `kubectl describe`, and env-block dumps.
+
+**Choice:** k8s workloads mount the Secret as a volume and point
+`S3_ACCESS_KEY_FILE`/`S3_SECRET_KEY_FILE` at it; the env forms survive for
+dev/compose. For each credential exactly one source must be set — both or
+neither is an error, because silent precedence would mask a misconfigured
+deployment. File bodies are trimmed of trailing whitespace (Secret files end
+with newlines). The contracts were updated first, in their own commit
+(WORKFLOW §8). The dev MinIO consumes the same Secret through its
+`MINIO_ROOT_*_FILE` convention, so no manifest anywhere carries the values.
+
+**Limitation:** the minio-go client is built once at boot, so a rotated
+Secret needs a pod restart to take effect — recorded as an open issue.
+
+### 2026-07-04 — the Stage 1 chart is new (charts/profiler-backend); legacy charts wait for Stage 4/5
+
+`04` §9 (draft) prescribed rewriting the existing sub-charts in place, but
+`collector/`, `query/`, and `maintenance/` still deploy the live Java stack —
+rewriting them at Stage 1 would break it long before the Go backend replaces
+it. Mirroring the `apps/profiler-backend` placement decision, the chart lands
+as a new self-contained `backend/charts/profiler-backend` (three workloads,
+shared ConfigMap/Secret, optional dev MinIO, monitoring objects), and `04` §9
+now records the table as the eventual end-state. User-confirmed, contract
+updated in the same docs commit as the creds change.
+
+### 2026-07-04 — metric names are a stable contract: namespace profiler, snapshot reads, janitor-pass gauges
+
+The series names (`profiler_<subsystem>_*`, catalogued in the chart README)
+are referenced by the shipped alerts and future dashboards, so they are
+pinned by a unit test; labels stay low-cardinality (`reason`, `kind`,
+`layer`, `result` — never pod/PK/replica). Collect-side series read the
+existing lifetime snapshots at scrape time (no lock across I/O); the four
+quarantine gauges come from one custom collector so a scrape costs one
+SQLite read, and a failed read emits NO series rather than a fake zero that
+would clear the stuck-quarantine alert. The disk-usage and dangling-chunk-ref
+gauges are measured by the janitor pass, so their freshness is the janitor
+interval (30 s default) — fine for alerting, and it keeps the scrape path
+off the PV. Placement quirks: query serves /metrics on the external port
+(it has no internal one; the ingress publishes only /api/v1), and maintain
+has a scrape surface only in deployment mode — a `--run-now` CronJob pod
+exits before any scrape (both recorded in `04` §12).
+
+### 2026-07-04 — kind and OrbStack share one chart and one smoke; the delta is values + two env hooks
+
+Portability is confined to values: `storageClassName` renders only when
+non-empty (an explicit `""` means "no dynamic provisioning", omission means
+the cluster default — kind's local-path, OrbStack's own), and the agent
+Service type is `ClusterIP`/`NodePort`/`LoadBalancer` (OrbStack ships a
+built-in LB; TCP stickiness is per-connection by nature, no affinity
+needed). The in-cluster smoke reuses `libs/tests/smoke` unchanged except for
+two shell hooks (`SMOKE_COLLECTOR_{STOP,START}_CMD`) that replace `docker
+compose stop collector` with `kubectl scale sts --replicas=0`, plus
+`/metrics` assertions that now run in the compose smoke too.
+`deploy/kind-smoke.sh` drives it over resilient port-forward loops (a
+port-forward dies with its pod; the loop reconnects), and asserts from the
+rendered pod specs that no credential env exists. CI:
+`.github/workflows/backend-kind-smoke.yaml` (chart validation + the smoke),
+pinned action SHAs, kind installed as a pinned release binary rather than a
+marketplace action.
+
 ## Open issues
 
 - **Maintain LISTs each whole class prefix every pass.** O(objects alive in
@@ -752,16 +823,27 @@ acceptance depends on it; the contract text needed no change.
   (`03` §3.2 step 4) is not implemented. Orphans re-seal from the WAL, so the
   cost is duplicate rows collapsed by PK-dedup, plus leaked local files.
 - **Upload backoff state is per-pass.** Attempts restart on every pass, with
-  no jitter and no per-file cross-pass schedule. `UploadStats` is the seam
-  for the Prometheus counters that land with the metrics task.
+  no jitter and no per-file cross-pass schedule.
+- **A rotated S3 Secret needs a pod restart.** The minio-go client reads the
+  credential files once at boot; a file-watching credentials provider
+  (minio-go `credentials.Provider` with an mtime check) is the upgrade path.
+- **Maintain in CronJob mode has no scrape surface.** Its pass stats go to
+  the log only; deployment mode carries the counters. If per-run metrics
+  matter operationally, a Pushgateway or a textfile collector is the lever.
+- **Alert thresholds are baked into the chart's rules file.** `for:` windows
+  and thresholds in `files/prometheus-rules.yaml` are not values-templated —
+  promtool tests the exact shipped bytes. Templating them means moving the
+  tests to the rendered output.
 - **`server.Service.Stop()` waits for live agent connections** and is bounded
   only by the socket read timeout (~40 s). The `03` §5.2 drain (send
   `COMMAND_CLOSE`, 5 s per-connection timeout) is not implemented; the app
   wiring shipped without it, so on SIGTERM agents see a closed socket after
   the drain grace instead of a polite close.
 - **Ingest decode errors only log.** A malformed calls/dictionary record skips
-  the record; there is no metric yet. Prometheus counters land with the
-  metrics task (`01` §5.1 expects counters for dropped/truncated calls).
+  the record; there is no counter yet (`01` §5.1 expects dropped-call
+  counters). The deploy-track metrics covered seal/upload/janitor/query/
+  maintain; the ingest decode paths are the remaining gap (tracked as the
+  open status item above).
 - **`collect` env coverage is partial.** `PROFILER_PARQUET_MAX_SIZE`,
   `PROFILER_SEAL_CONCURRENCY`, `PROFILER_MEM_BUDGET`,
   `PROFILER_IDLE_ACCUMULATOR_TIMEOUT`, and `S3_PATH_PREFIX` are not parsed
@@ -771,9 +853,10 @@ acceptance depends on it; the contract text needed no change.
   `PROFILER_CHUNKS_STAGING_MAX_BYTES` landed with the janitors slice; the
   retention TTLs landed with the maintain slice, parsed by `maintain` only —
   `collect` has no consumer for them.)
-- **The smoke runs only locally.** `make smoke` needs the Docker CLI and a
-  fresh compose stack (it stops and restarts the collector container); no CI
-  job runs it yet.
+- **The compose smoke runs only locally.** `make smoke` needs the Docker CLI
+  and a fresh compose stack. The in-cluster variant runs in CI
+  (`backend-kind-smoke.yaml` → `make kind-smoke`), so the end-to-end path is
+  covered; the compose flavour stays a local convenience.
 - **`params.wal` phrase-length quirk.** The agent's params/suspend phrase
   length includes bytes (version byte, suspend base time) that the pipe
   decoders do not subtract; single-phrase streams parse fine, which is what

@@ -1,0 +1,52 @@
+{{- if eq .Values.maintain.mode "deployment" }}
+# Singleton maintenance loop (03-lifecycle.md §8.1). One replica is enough —
+# and correct: two maintainers PUT identical objects (deterministic keys), so
+# this is an optimisation, not a lock.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-maintain
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "maintain") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "maintain") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "profiler-backend.labels" (dict "root" . "component" "maintain") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: profiler-backend
+          image: {{ include "profiler-backend.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["maintain"]
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.maintain.metricsPort }}
+              protocol: TCP
+          env:
+            - name: PROFILER_MAINTAIN_CHECK_INTERVAL
+              value: {{ .Values.maintain.checkInterval | quote }}
+            - name: PROFILER_METRICS_PORT
+              value: {{ .Values.maintain.metricsPort | quote }}
+            {{- include "profiler-backend.maintainEnv" . | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            {{- include "profiler-backend.s3CredentialMount" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.maintain.resources | nindent 12 }}
+      volumes:
+        {{- include "profiler-backend.s3CredentialVolume" . | nindent 8 }}
+{{- end }}

@@ -1,0 +1,21 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-query
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "query") | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "query") | nindent 6 }}
+  endpoints:
+    # query serves /metrics on the external port — it has no internal one
+    # (04 §12); the ingress publishes /api/v1 only.
+    - port: external
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

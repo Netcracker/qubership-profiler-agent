@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-query
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "query") | nindent 4 }}
+spec:
+  replicas: {{ .Values.query.replicas }}
+  selector:
+    matchLabels:
+      {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "query") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "profiler-backend.labels" (dict "root" . "component" "query") | nindent 8 }}
+    spec:
+      # 03-lifecycle.md §7.3: drain grace + 15 s in-flight bound.
+      terminationGracePeriodSeconds: {{ .Values.query.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: profiler-backend
+          image: {{ include "profiler-backend.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["query"]
+          ports:
+            - name: external
+              containerPort: {{ .Values.query.port }}
+              protocol: TCP
+          env:
+            - name: PROFILER_EXTERNAL_API_PORT
+              value: {{ .Values.query.port | quote }}
+            - name: COLLECTOR_HEADLESS_SVC
+              value: {{ include "profiler-backend.collectorHeadless" . | quote }}
+            - name: PROFILER_INTERNAL_API_PORT
+              value: {{ .Values.collector.internalPort | quote }}
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "profiler-backend.fullname" . }}-config
+                  key: s3-endpoint
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "profiler-backend.fullname" . }}-config
+                  key: s3-bucket
+            {{- include "profiler-backend.s3CredentialEnv" . | nindent 12 }}
+            {{- include "profiler-backend.extraEnv" .Values.query.env | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: external
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: external
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            {{- include "profiler-backend.s3CredentialMount" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.query.resources | nindent 12 }}
+      volumes:
+        {{- include "profiler-backend.s3CredentialVolume" . | nindent 8 }}

@@ -1,0 +1,39 @@
+# OrbStack localdev values for charts/profiler-backend. Differences from
+# kind: the agent Service is a LoadBalancer (OrbStack ships a built-in LB, so
+# the collector's TCP port gets a host-reachable IP), and images need no
+# `kind load` — OrbStack's k8s shares the host Docker daemon.
+#
+#   docker build -f backend/apps/profiler-backend/Dockerfile -t profiler-backend:dev backend
+#   helm install profiler backend/charts/profiler-backend -f backend/deploy/values-orbstack.yaml
+
+collector:
+  replicas: 1
+  storage:
+    # storageClassName stays empty: OrbStack's default class.
+    size: 5Gi
+  # See values-kind.yaml: the budget must stay well under the PVC (04 §3.5).
+  chunksStagingMaxBytes: 1GB
+  terminationGracePeriodSeconds: 30
+  agentService:
+    type: LoadBalancer
+  env:
+    PROFILER_SEAL_CHECK_INTERVAL: 2s
+    PROFILER_UPLOAD_CHECK_INTERVAL: 2s
+    PROFILER_SHUTDOWN_DRAIN_GRACE: 1s
+
+query:
+  replicas: 1
+  env:
+    PROFILER_SHUTDOWN_DRAIN_GRACE: 1s
+
+maintain:
+  mode: deployment
+  checkInterval: 1m
+
+minio:
+  enabled: true
+
+s3:
+  auth:
+    accessKey: minioadmin
+    secretKey: minioadmin

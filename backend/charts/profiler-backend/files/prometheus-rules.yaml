@@ -1,0 +1,57 @@
+# Baseline profiler-backend alerts. This file is the single source: the
+# PrometheusRule template embeds it verbatim, and `make rules-test` runs
+# `promtool test rules` against it (tests/prometheus/rules_test.yaml).
+groups:
+  - name: profiler-backend
+    rules:
+      # Quarantine only shrinks on manual intervention (01 §8): a rejected
+      # parquet file pins its bucket and every newer bucket in the hot tier
+      # (the contiguity barrier), and a rejected snapshot pins the WALs. Any
+      # sustained non-zero count needs a human.
+      - alert: ProfilerStuckQuarantine
+        expr: sum by (kind) (profiler_hotstore_quarantine_objects) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Objects stuck in upload quarantine"
+          description: "{{ $labels.kind }} objects sit in upload-failed/ awaiting manual resolution; while they wait, hot-tier cleanup behind them is pinned."
+      - alert: ProfilerQuarantineAgeHigh
+        expr: max by (kind) (profiler_hotstore_quarantine_oldest_age_seconds) > 3600
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Upload quarantine unresolved for over an hour"
+          description: "The oldest quarantined {{ $labels.kind }} object has waited over an hour; the collector PV keeps accumulating state it cannot release."
+      # The segment budget only covers part of the PV (04 §3.5); nearing it
+      # means evictions (data loss as truncated_reason=disk_budget) are close.
+      - alert: ProfilerDiskBudgetNearFull
+        expr: >-
+          profiler_hotstore_segments_disk_bytes
+            / profiler_hotstore_segments_disk_budget_bytes > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hot-store segments near the disk budget"
+          description: "Segment files exceed 90% of PROFILER_CHUNKS_STAGING_MAX_BYTES; the janitor will start evicting segments and calls will seal with truncated_reason=disk_budget."
+      # The oldest hot row should age out at hot_retention (15m default); a
+      # lag far past it means the seal→upload→drop pipeline is stuck (a
+      # quarantined upload pins everything newer, 02 §4.3).
+      - alert: ProfilerHotWindowLagHigh
+        expr: profiler_hotstore_hot_window_lag_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hot window is not draining"
+          description: "The oldest row in the hot index is over 30 minutes old — twice the default hot retention. The hot→cold handoff (seal, upload, or janitor drop) is stuck."
+      - alert: ProfilerUploadFailures
+        expr: increase(profiler_upload_put_failures_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 uploads are failing"
+          description: "PUT attempts to S3 failed within the last 10 minutes; pending parquet stays on the PV and retries with backoff."
