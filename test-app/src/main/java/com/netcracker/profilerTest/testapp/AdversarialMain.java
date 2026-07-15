@@ -17,7 +17,7 @@ import java.time.Duration;
  * string surface the backend decodes: method names, parameter keys and
  * parameter values all flow through the shared agent dictionary
  * ({@code MethodDictionary} / {@link ProfilerData#resolveTag(String)}), which
- * the dumper serialises to the {@code dictionary} stream in id order.
+ * the dumper serializes to the {@code dictionary} stream in id order.
  *
  * <p>The workload is split into two independent top-level calls, one per bug,
  * so each backend assertion is unambiguous:

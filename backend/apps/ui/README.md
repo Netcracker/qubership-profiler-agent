@@ -36,7 +36,7 @@ host toolchain. End to end: `make query-ui` in `it-e2e/`.
 |------|----------|
 | `src/api/` | Wire types mirroring `backend/libs/query/model/wire.go`, PK path codec, typed fetch |
 | `src/msgpack/` | Hand-written decoder for the `/tree` merged-v1 envelope (02 §2.5), mirror encoder for tests/mock |
-| `src/url/` | URL-as-state: parse/serialise the 09 §6 query scheme |
+| `src/url/` | URL-as-state: parse/serialize the 09 §6 query scheme |
 | `src/mocks/` | MSW handlers + deterministic synthetic dataset; the mock mirrors the backend's RFC 7807 bodies |
 | `src/shell/`, `src/pages/` | App shell and the three routes: `/ui/calls`, `/ui/pods`, `/ui/tree/:pk` |
 

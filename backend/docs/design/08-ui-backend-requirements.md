@@ -53,7 +53,7 @@ agent still sends them and whether `CallV2` keeps them; expose in `CallJSON` if 
 | R5 | B | Return a **merged** tree, not a raw one, server-side in `calltree.Build`. Merge sibling invocations of the same method under a parent into one node carrying `selfExecutions` and total `executions` (self + children). | A raw tree is unbounded — a 1M-iteration loop is 1M nodes (the user-guide notes 1–10M calls per request). The old UI always merged. This gates both payload size and render viability. |
 | R6 | B | Per-node self and total duration (`selfDurationMs`, `durationMs`). | Self-time is `durationMs − Σ children.durationMs`; the backend computes it during the merge. |
 | R7 | B | Per-node self and total suspension (`selfSuspensionMs`, `suspensionMs`). | The agent records suspension as a global pod-restart stop-the-world timeline, not per method. The tree builder attributes it by intersecting each node's `[enter, exit]` work interval with the timeline, at build time (`calltree.Build`). **Data-path gap:** `calltree.Build` today takes only `(blob, recordIndex, Options)` — designing the suspend-timeline input and its hot/cold retrieval is part of R7 and precedes 5.2. |
-| R11 | B | Aggregate node params into a mini-tree at merge. Group high-cardinality values (SQL, binds) by a normalised signature, keep the top-N groups by time with per-group `durationMs` / `executions`, bucket the rest into `::other`, and nest binds under their SQL. | A single node can hold thousands of SQL texts; shipping them raw defeats the merge. The old UI capped at top-256 + `::other` and grouped similar SQL by stripping string literals and digits (`profiler-ui/src/profiler.mjs:3469`). The exact contract — group key, attribution, the 256-group cap and eviction, bind nesting, and the deviations from the Java `parsers/` `Hotspot` aggregation — is formalised in `02-read-contract.md` §2.5.3. |
+| R11 | B | Aggregate node params into a mini-tree at merge. Group high-cardinality values (SQL, binds) by a normalized signature, keep the top-N groups by time with per-group `durationMs` / `executions`, bucket the rest into `::other`, and nest binds under their SQL. | A single node can hold thousands of SQL texts; shipping them raw defeats the merge. The old UI capped at top-256 + `::other` and grouped similar SQL by stripping string literals and digits (`profiler-ui/src/profiler.mjs:3469`). The exact contract — group key, attribution, the 256-group cap and eviction, bind nesting, and the deviations from the Java `parsers/` `Hotspot` aggregation — is formalized in `02-read-contract.md` §2.5.3. |
 
 First/last invocation offsets are not needed — dropped from the node model.
 
@@ -77,7 +77,7 @@ click per level — otherwise a typical deep stack is unusable.
   consistent (not a fan-out), and the node carries no params/tags. Levels accumulate down the chain, so a
   long pass-through chain collapses to one expansion. This is a simplification: `sortNode` also uses several
   negative collapse states, a self-duration mode for bottom-up, tag presence, and execution fan-out — port the
-  exact logic and its behaviour tests, and document any deviations.
+  exact logic and its behavior tests, and document any deviations.
 - **Initial cutoff:** hide children below 10% of the parent's duration or 10% of the parent's calls.
 
 This is a pure client-side transform, but it reads per-node self-duration and execution counts, so it depends
@@ -158,4 +158,4 @@ the disposition is recorded here so it is not lost.
   (trusted context); the deployed UI uploads a file or references a dump already in our storage by id
   (`dumps-collector` writes thread/heap/GC/top dumps to S3). An arbitrary URL or server-local path is the
   arbitrary-read risk to avoid.
-- All modes feed the canonical `/tree` contract, so one tree UI renders live calls and every analysed dump.
+- All modes feed the canonical `/tree` contract, so one tree UI renders live calls and every analyzed dump.

@@ -142,6 +142,6 @@ Before this document is merged and Stage 1.1 starts, please confirm or correct:
 - [ ] Handshake reply fixed at `PROTOCOL_VERSION_V2`; `V3` explicitly forbidden (§3).
 - [ ] Ack policy — one byte per `RCV_DATA` / `REQUEST_ACK_FLUSH`, value `0` in MVP, no diagnostic-command dispatch (§5).
 - [ ] `INIT_STREAM_V2` response semantics, especially non-nil stable handle and `requiredRotationSize` as the segment-size lever (§4).
-- [ ] Unknown-stream and unknown-command behaviour — `ACK_ERROR_MAGIC` / null-UUID + close (§6).
+- [ ] Unknown-stream and unknown-command behavior — `ACK_ERROR_MAGIC` / null-UUID + close (§6).
 - [ ] Deprecated `0x01` / `0x08` — reserved but not implemented; reject with close (§2).
 - [x] `libs/server` brought into conformance (§8), with a regression test (§9).

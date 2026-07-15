@@ -128,7 +128,7 @@ Every metric column of `CallV2` (`01-write-contract.md` §5.2) is projected into
 seal pass re-derives it from the full `suspend.wal` (`01-write-contract.md` §5.1 step 4), which is one more
 reason the §6.3 dedup prefers the cold copy.
 
-`trace_blob_size` reports the blob's byte length, and is `0` when `truncated_reason != null` (the blob was dropped under pressure; see §4.6 of `01-write-contract.md`). On the cold list path the exact length is not available — `CallV2` (`01-write-contract.md` §5.2) carries no size column and the list projection does not read the blob — so the field is `null` there, and blob presence is `truncated_reason == null`; a client that needs the exact size fetches the blob via `/tree` or `/trace`. Adding a `trace_blob_size INT32` column to `CallV2` is the option if the list must carry the exact size — an additive change, backward-readable by column name (`01-write-contract.md` §5.2): rows sealed before the column read back as `null`, which degrades to today's behaviour.
+`trace_blob_size` reports the blob's byte length, and is `0` when `truncated_reason != null` (the blob was dropped under pressure; see §4.6 of `01-write-contract.md`). On the cold list path the exact length is not available — `CallV2` (`01-write-contract.md` §5.2) carries no size column and the list projection does not read the blob — so the field is `null` there, and blob presence is `truncated_reason == null`; a client that needs the exact size fetches the blob via `/tree` or `/trace`. Adding a `trace_blob_size INT32` column to `CallV2` is the option if the list must carry the exact size — an additive change, backward-readable by column name (`01-write-contract.md` §5.2): rows sealed before the column read back as `null`, which degrades to today's behavior.
 
 ### 2.3.1 Cursor: ordering and stable pagination
 
@@ -149,7 +149,7 @@ The query is frozen at the first page so the window does not drift as wall-clock
 
 **Fan-out and merge.** One global position is enough; no per-source continuation state is kept. For each page `query` re-issues the full fan-out (every hot replica plus the cold LIST), each source seeks past the cursor position and returns up to `limit` rows, and `query` runs a k-way merge, dedups by PK, then truncates to `limit`. Dedup runs before the truncation and before `next_cursor` is computed, so an overlap-window duplicate neither consumes a page slot nor strands the cursor between its two copies. Deep pagination costs one fan-out per page and re-scans cold parquet (no secondary index, §5.4); a stateful scroll cursor is deferred until profiling shows this is too slow.
 
-**Consistency of a pagination session.** A page reflects a snapshot as of the position it reports, not a globally consistent snapshot of the whole window. Data written below an already-passed position — a late call that re-seals an older bucket into a patch file (`01-write-contract.md` §6.6) — is not surfaced in that pagination session. This is the eventual-consistency envelope of §4.3, made explicit for pagination: the profiler favours bounded, slightly stale results over holding a read snapshot open across many seconds.
+**Consistency of a pagination session.** A page reflects a snapshot as of the position it reports, not a globally consistent snapshot of the whole window. Data written below an already-passed position — a late call that re-seals an older bucket into a patch file (`01-write-contract.md` §6.6) — is not surfaced in that pagination session. This is the eventual-consistency envelope of §4.3, made explicit for pagination: the profiler favors bounded, slightly stale results over holding a read snapshot open across many seconds.
 
 **Termination.** `next_cursor` is `null` only when the seek position passes `from` and the window is exhausted. A page may come back empty in the middle of the range — its rows aged out of the hot tier and were deleted from the cold tier by a retention-class TTL between fetches — while a non-null `next_cursor` still points further down; the client keeps paging. An empty page is not an end-of-stream signal on its own.
 
@@ -176,7 +176,7 @@ The exemption check runs the same class derivation discovery uses, so a filter t
 
 The rejection body (§8) carries the estimate and a per-class byte breakdown, so the caller sees which axis dominates — usually `short_clean` — and which filter would cut it.
 
-**Evaluated on every page.** The guard runs on page 1 against the parsed query and on pages 2..N against the query frozen in the cursor (§2.3.1). Until the cursor is HMAC-signed it is client-forgeable, so re-checking is the only thing that stops a hand-minted cursor from smuggling a wide query straight into cold discovery. Re-checking does not penalise honest pagination: a cursor `query` minted for a query that already cleared page 1 carries the same window, so the span layer re-passes, and a later page's cold window is bounded by the dynamic cutoff (§4.3) — its discovered file set is a subset of page 1's, so the cost estimate cannot grow past the page-1 verdict.
+**Evaluated on every page.** The guard runs on page 1 against the parsed query and on pages 2..N against the query frozen in the cursor (§2.3.1). Until the cursor is HMAC-signed it is client-forgeable, so re-checking is the only thing that stops a hand-minted cursor from smuggling a wide query straight into cold discovery. Re-checking does not penalize honest pagination: a cursor `query` minted for a query that already cleared page 1 carries the same window, so the span layer re-passes, and a later page's cold window is bounded by the dynamic cutoff (§4.3) — its discovered file set is a subset of page 1's, so the cost estimate cannot grow past the page-1 verdict.
 
 ### 2.4 Trace blob — lazy endpoint
 
@@ -282,7 +282,7 @@ The `methods` and `params` arrays carry only strings that this specific tree ref
 | 8 | `children` | `[Node]` | no | Omitted for leaf nodes. |
 | 9+ | reserved | — | — | Future additions (e.g. `cpuMs`, `memBytes`) use the next free numbers. |
 
-> **v1 redefined (Stage 5, 2026-07-05).** The original v1 modelled a *raw* per-invocation tree
+> **v1 redefined (Stage 5, 2026-07-05).** The original v1 modeled a *raw* per-invocation tree
 > (`enterMsRel` + a plain `durationMs`, no aggregation). No consumer shipped against it, so v1 is redefined
 > here as the merged tree the UI needs (`08-ui-backend-requirements.md` R5–R7) rather than bumped to `v: 2`.
 > `enterMsRel` and first/last-invocation offsets are dropped; raw per-invocation fidelity stays available via
@@ -310,10 +310,10 @@ hold thousands of SQL texts and binds, so values fold into groups server-side.
 
 **Aggregation semantics** (ported from the Java `parsers/` `Hotspot` / `TreeBuilderTrace`, deviations noted):
 
-- **Group key.** Values group per param by the normalised signature when the param is SQL-shaped —
+- **Group key.** Values group per param by the normalized signature when the param is SQL-shaped —
   it arrived as `PARAM_BIG_DEDUP` (the deduplicated big-value stream carries SQL by construction,
   `01-write-contract.md` §4.4) or its key word is `binds` — and by the exact value otherwise. The
-  normalisation is the old UI's `signatures.sql` (`profiler-ui/src/profiler.mjs:3469`): drop commas, strip
+  normalization is the old UI's `signatures.sql` (`profiler-ui/src/profiler.mjs:3469`): drop commas, strip
   single-quoted literals (`''` escapes included) and digits, abbreviate every word to its first character,
   strip whitespace. *Deviation:* the Java aggregation keyed a group by an invocation's whole value-set; the
   per-value key is what makes the signature axis work, and one invocation's duration is attributed to a
