@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/glebarez/sqlite"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -202,12 +203,16 @@ type (
 	}
 
 	// metaDb wraps metadata.sqlite plus the per-bucket partition handles.
+	// parts is an LRU of at most cfg.PartitionCacheSize open handles (№24);
+	// partsUse carries the recency tick that picks the eviction victim.
 	metaDb struct {
 		cfg  Config
 		meta *gorm.DB
 
-		mu    sync.Mutex
-		parts map[int64]*gorm.DB
+		mu       sync.Mutex
+		parts    map[int64]*gorm.DB
+		partsUse map[int64]int64
+		useTick  int64
 	}
 )
 
@@ -261,7 +266,8 @@ func openMetaDb(cfg Config) (*metaDb, error) {
 			return nil, errors.Wrapf(err, "migrate: %s", alter)
 		}
 	}
-	return &metaDb{cfg: cfg, meta: db, parts: map[int64]*gorm.DB{}}, nil
+	return &metaDb{cfg: cfg, meta: db,
+		parts: map[int64]*gorm.DB{}, partsUse: map[int64]int64{}}, nil
 }
 
 func (m *metaDb) Close() error {
@@ -279,6 +285,7 @@ func (m *metaDb) Close() error {
 		closeGorm(p)
 	}
 	m.parts = map[int64]*gorm.DB{}
+	m.partsUse = map[int64]int64{}
 	closeGorm(m.meta)
 	return firstErr
 }
@@ -353,27 +360,68 @@ func (m *metaDb) NextParquetSeq(podRestart string, timeBucketMs int64, retention
 // RecordSealedFile registers one sealed parquet file and pins its source
 // segments: refcount += rows per segment, with the per-file mapping kept in
 // parquet_segments so the upload task can decrement the same amounts
-// (01-write-contract.md §6.2, 03-lifecycle.md §3.2).
+// (01-write-contract.md §6.2, 03-lifecycle.md §3.2). The seal pass itself
+// commits through CommitSealPass; this single-file form remains for callers
+// that record a file with no watermark to move (tests, future repair paths).
 func (m *metaDb) RecordSealedFile(row parquetLocalRow, segRows map[segKey]int) error {
 	return m.meta.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`INSERT INTO parquet_local
-			(path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
-			 time_min_ms, time_max_ms, file_size, sealed_at, uploaded_at, s3_key)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-			row.Path, row.PodRestart, row.TimeBucketMs, row.RetentionClass, row.Seq, row.RowCount,
-			row.TimeMinMs, row.TimeMaxMs, row.FileSize, row.SealedAtMs, row.S3Key).Error; err != nil {
-			return errors.Wrap(err, "record sealed parquet")
+		return recordSealedFileTx(tx, row, segRows)
+	})
+}
+
+// recordSealedFileTx is the shared body of RecordSealedFile and
+// CommitSealPass; it must run inside the caller's transaction.
+func recordSealedFileTx(tx *gorm.DB, row parquetLocalRow, segRows map[segKey]int) error {
+	if err := tx.Exec(`INSERT INTO parquet_local
+		(path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
+		 time_min_ms, time_max_ms, file_size, sealed_at, uploaded_at, s3_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+		row.Path, row.PodRestart, row.TimeBucketMs, row.RetentionClass, row.Seq, row.RowCount,
+		row.TimeMinMs, row.TimeMaxMs, row.FileSize, row.SealedAtMs, row.S3Key).Error; err != nil {
+		return errors.Wrap(err, "record sealed parquet")
+	}
+	for sk, rows := range segRows {
+		if err := tx.Exec(`INSERT INTO parquet_segments (path, pod_restart, stream, rolling_seq, row_count)
+			VALUES (?, ?, ?, ?, ?)`,
+			row.Path, row.PodRestart, sk.stream, sk.seq, rows).Error; err != nil {
+			return errors.Wrap(err, "record sealed-file segment refs")
 		}
-		for sk, rows := range segRows {
-			if err := tx.Exec(`INSERT INTO parquet_segments (path, pod_restart, stream, rolling_seq, row_count)
-				VALUES (?, ?, ?, ?, ?)`,
-				row.Path, row.PodRestart, sk.stream, sk.seq, rows).Error; err != nil {
-				return errors.Wrap(err, "record sealed-file segment refs")
+		if err := tx.Exec(`UPDATE segments SET refcount = refcount + ?
+			WHERE pod_restart = ? AND stream = ? AND rolling_seq = ?`,
+			rows, row.PodRestart, sk.stream, sk.seq).Error; err != nil {
+			return errors.Wrap(err, "pin sealed-file segments")
+		}
+	}
+	return nil
+}
+
+// sealCommit pairs one finished class file with its segment refcounts for the
+// pass-level commit.
+type sealCommit struct {
+	row     parquetLocalRow
+	segRows map[segKey]int
+}
+
+// CommitSealPass records every class file of one seal pass AND advances the
+// bucket's watermark in a single transaction (№6). A kill -9 anywhere before
+// the commit leaves no watermark and no parquet_local rows, so the retry
+// re-seals the identical row set into the identical file names; a crash after
+// it re-seals nothing. Splitting the watermark from the file records (the old
+// per-file RecordSealedFile + separate UpsertSealState) let a crash in between
+// re-seal already-recorded rows under a new seq — cross-class duplicates
+// nothing downstream dedups.
+func (m *metaDb) CommitSealPass(podRestart string, bucket int64, commits []sealCommit, watermark, sealedAtMs int64) error {
+	return m.meta.Transaction(func(tx *gorm.DB) error {
+		for _, c := range commits {
+			if err := recordSealedFileTx(tx, c.row, c.segRows); err != nil {
+				return err
 			}
-			if err := tx.Exec(`UPDATE segments SET refcount = refcount + ?
-				WHERE pod_restart = ? AND stream = ? AND rolling_seq = ?`,
-				rows, row.PodRestart, sk.stream, sk.seq).Error; err != nil {
-				return errors.Wrap(err, "pin sealed-file segments")
+			if err := tx.Exec(`INSERT INTO seal_state (pod_restart, bucket, retention_class, watermark, last_sealed_at, dirty)
+				VALUES (?, ?, ?, ?, ?, 0)
+				ON CONFLICT (pod_restart, bucket, retention_class)
+				DO UPDATE SET watermark = excluded.watermark, last_sealed_at = excluded.last_sealed_at, dirty = 0`,
+				podRestart, bucket, c.row.RetentionClass, watermark, sealedAtMs).Error; err != nil {
+				return errors.Wrap(err, "advance seal watermark")
 			}
 		}
 		return nil
@@ -433,6 +481,87 @@ func (m *metaDb) PendingUploads() ([]ParquetLocalFile, error) {
 		FROM parquet_local WHERE uploaded_at IS NULL AND upload_failed_at IS NULL
 		ORDER BY path`).Scan(&rows).Error
 	return rows, err
+}
+
+// PendingParquetBytes sums the file sizes of every sealed file not confirmed
+// in S3 — pending or quarantined, both still on the PV — the parquet half of
+// the №2 pending-upload budget.
+func (m *metaDb) PendingParquetBytes() (int64, error) {
+	var n int64
+	err := m.meta.Raw(`SELECT COALESCE(SUM(file_size), 0) FROM parquet_local
+		WHERE uploaded_at IS NULL`).Scan(&n).Error
+	return n, errors.Wrap(err, "sum pending parquet bytes")
+}
+
+// PartitionPaths lists the live call-index partition files — the partition
+// half of the №2 pending-upload budget; the caller stats them.
+func (m *metaDb) PartitionPaths() ([]string, error) {
+	var paths []string
+	err := m.meta.Raw(`SELECT path FROM call_partitions WHERE dropped_at IS NULL
+		ORDER BY bucket`).Scan(&paths).Error
+	return paths, err
+}
+
+// QuarantinedParquet lists the quarantined sealed files, oldest failure
+// first — the order the №2 quarantine cap evicts in.
+func (m *metaDb) QuarantinedParquet() ([]ParquetLocalFile, error) {
+	var rows []ParquetLocalFile
+	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
+		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
+		upload_failed_at AS upload_failed_at_ms, s3_key
+		FROM parquet_local WHERE upload_failed_at IS NOT NULL
+		ORDER BY upload_failed_at, path`).Scan(&rows).Error
+	return rows, err
+}
+
+// RequeueQuarantinedParquet returns quarantined files whose last rejection is
+// older than cutoffMs to the upload queue — the №2 slow re-test: a
+// "permanent" rejection is often operational (expired credentials, missing
+// bucket) and heals. The file stays under upload-failed/; a repeat rejection
+// re-quarantines it in place.
+func (m *metaDb) RequeueQuarantinedParquet(cutoffMs int64) (int64, error) {
+	res := m.meta.Exec(`UPDATE parquet_local SET upload_failed_at = NULL
+		WHERE upload_failed_at IS NOT NULL AND upload_failed_at <= ?`, cutoffMs)
+	return res.RowsAffected, errors.Wrap(res.Error, "requeue quarantined parquet")
+}
+
+// RequeueQuarantinedSnapshots is the snapshot half of the №2 slow re-test:
+// clearing dict_upload_failed_at puts the pod-restart back into
+// DictPendingPodRestarts; a repeat rejection re-quarantines it.
+func (m *metaDb) RequeueQuarantinedSnapshots(cutoffMs int64) (int64, error) {
+	res := m.meta.Exec(`UPDATE pod_restarts SET dict_upload_failed_at = NULL
+		WHERE dict_upload_failed_at IS NOT NULL AND dict_upload_failed_at <= ?
+		  AND dict_uploaded_at IS NULL`, cutoffMs)
+	return res.RowsAffected, errors.Wrap(res.Error, "requeue quarantined snapshots")
+}
+
+// AbandonQuarantinedSnapshots gives up on snapshot uploads whose rejection is
+// older than cutoffMs (the №2 quarantine age cap): dict_uploaded_at is
+// stamped so the WAL purge unblocks. dict_upload_failed_at stays as the
+// record of the loss; the rejected body waits under upload-failed/.
+func (m *metaDb) AbandonQuarantinedSnapshots(cutoffMs, nowMs int64) (int64, error) {
+	res := m.meta.Exec(`UPDATE pod_restarts SET dict_uploaded_at = ?
+		WHERE dict_uploaded_at IS NULL AND dict_upload_failed_at IS NOT NULL
+		  AND dict_upload_failed_at <= ?`, nowMs, cutoffMs)
+	return res.RowsAffected, errors.Wrap(res.Error, "abandon quarantined snapshots")
+}
+
+// UploadBacklog reports the pending-upload gauges in ONE query: how many
+// sealed files are still owed to S3 (not uploaded, not quarantined) and the
+// sealed_at of the oldest of them. oldestSealedMs is nil when the queue is
+// empty. Feeds upload_backlog and upload_lag_seconds.
+func (m *metaDb) UploadBacklog() (count int64, oldestSealedMs *int64, err error) {
+	var row struct {
+		N            int64
+		OldestSealed *int64
+	}
+	err = m.meta.Raw(`SELECT COUNT(*) AS n, MIN(sealed_at) AS oldest_sealed
+		FROM parquet_local WHERE uploaded_at IS NULL AND upload_failed_at IS NULL`).
+		Scan(&row).Error
+	if err != nil {
+		return 0, nil, errors.Wrap(err, "read upload backlog")
+	}
+	return row.N, row.OldestSealed, nil
 }
 
 // MarkUploaded implements 01-write-contract.md §6.2 step 3 after a confirmed
@@ -553,6 +682,79 @@ func (m *metaDb) HasUnsealedCalls(podRestart string) (bool, error) {
 	return false, nil
 }
 
+// PurgeCallsPastWalEnd deletes the pod-restart's index rows whose
+// calls_wal_offset lies at or past the WAL's valid end (№8): after a power
+// loss the SQLite index can run ahead of a truncated calls.wal, and such a row
+// would poison every seal of its bucket — loadSealRows can never find its
+// record. The rows' data is gone with the torn WAL tail; dropping them is the
+// 03 §4 "degrade, not fail" choice. Returns how many rows were dropped.
+func (m *metaDb) PurgeCallsPastWalEnd(podRestart string, walEnd int64) (int64, error) {
+	buckets, err := m.Buckets()
+	if err != nil {
+		return 0, err
+	}
+	var purged int64
+	for _, bucket := range buckets {
+		db, err := m.partition(bucket)
+		if err != nil {
+			return purged, err
+		}
+		res := db.Exec(`DELETE FROM call_index WHERE pod_restart = ? AND calls_wal_offset >= ?`,
+			podRestart, walEnd)
+		if res.Error != nil {
+			return purged, errors.Wrapf(res.Error, "purge poisoned index rows of bucket %d", bucket)
+		}
+		purged += res.RowsAffected
+	}
+	return purged, nil
+}
+
+// UnsealedPodRestarts lists every pod-restart that still holds indexed calls
+// past its seal watermark, in one sweep over the partitions — the bulk form of
+// HasUnsealedCalls the disk-budget eviction uses to keep segments a future
+// seal will read out of the eviction order (№7).
+func (m *metaDb) UnsealedPodRestarts() (map[string]bool, error) {
+	buckets, err := m.Buckets()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, bucket := range buckets {
+		maxOffsets, err := m.MaxWalOffsets(bucket)
+		if err != nil {
+			return nil, err
+		}
+		for podRestart, maxOffset := range maxOffsets {
+			if out[podRestart] {
+				continue
+			}
+			watermark, err := m.SealWatermark(podRestart, bucket)
+			if err != nil {
+				return nil, err
+			}
+			if maxOffset >= watermark {
+				out[podRestart] = true
+			}
+		}
+	}
+	return out, nil
+}
+
+// SegmentRefcount re-reads one segment's current refcount and status; the
+// disk-budget eviction re-checks its candidates against this right before the
+// unlink, because its candidate list may predate a seal commit that pinned the
+// segment (№7).
+func (m *metaDb) SegmentRefcount(podRestart, stream string, seq int) (refcount int, status string, err error) {
+	var row struct {
+		Refcount int
+		Status   string
+	}
+	err = m.meta.Raw(`SELECT refcount, status FROM segments
+		WHERE pod_restart = ? AND stream = ? AND rolling_seq = ?`,
+		podRestart, stream, seq).Scan(&row).Error
+	return row.Refcount, row.Status, err
+}
+
 // DeleteSegment removes one segment's catalog row; the refcount guard keeps a
 // racing seal (which pins under its own transaction) safe.
 func (m *metaDb) DeleteSegment(podRestart, stream string, seq int) error {
@@ -617,16 +819,42 @@ func (m *metaDb) partitionPath(bucket int64) string {
 // Re-opening a dropped bucket resurrects it (dropped_at cleared): the only
 // path that reaches a dropped bucket is InsertCall with a very late Call, and
 // its row must re-enter the seal loop rather than land in an invisible file.
+// The handle cache is a bounded LRU (№24): past PartitionCacheSize the
+// least-recently-used handle closes — in-flight queries on it finish on their
+// borrowed connection; the next use reopens the file.
 func (m *metaDb) partition(bucket int64) (*gorm.DB, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.useTick++
 	if db, ok := m.parts[bucket]; ok {
+		m.partsUse[bucket] = m.useTick
 		return db, nil
+	}
+	for len(m.parts) >= m.cfg.PartitionCacheSize {
+		victim, oldest := int64(0), int64(0)
+		for b, tick := range m.partsUse {
+			if oldest == 0 || tick < oldest {
+				victim, oldest = b, tick
+			}
+		}
+		if db, ok := m.parts[victim]; ok {
+			if sqlDb, err := db.DB(); err == nil {
+				_ = sqlDb.Close()
+			}
+		}
+		delete(m.parts, victim)
+		delete(m.partsUse, victim)
 	}
 	path := m.partitionPath(bucket)
 	db, err := openSqlite(path)
 	if err != nil {
 		return nil, err
+	}
+	// One writer plus one reader saturates a per-bucket SQLite file; an
+	// unbounded pool across cached buckets held hundreds of file handles (№24).
+	if sqlDb, err := db.DB(); err == nil {
+		sqlDb.SetMaxOpenConns(2)
+		sqlDb.SetMaxIdleConns(2)
 	}
 	if err := db.Exec(partitionSchema).Error; err != nil {
 		return nil, errors.Wrapf(err, "migrate partition %s", path)
@@ -654,6 +882,7 @@ func (m *metaDb) partition(bucket int64) (*gorm.DB, error) {
 		return nil, errors.Wrap(err, "resurrect partition")
 	}
 	m.parts[bucket] = db
+	m.partsUse[bucket] = m.useTick
 	return db, nil
 }
 
@@ -666,6 +895,7 @@ func (m *metaDb) dropCachedPartition(bucket int64) {
 			_ = sqlDb.Close()
 		}
 		delete(m.parts, bucket)
+		delete(m.partsUse, bucket)
 	}
 }
 
@@ -711,19 +941,79 @@ func (m *metaDb) MinTsMs(bucket int64) (*int64, error) {
 	return min, err
 }
 
-// CallsInWindow reads one partition's rows with ts_ms in [fromMs, toMs).
-func (m *metaDb) CallsInWindow(bucket, fromMs, toMs int64) ([]CallIndexRow, error) {
+// callsQueryWhere renders the SQL-pushable predicates of q (№15): the ts
+// window, the duration bounds, the error flag, the retention classes, and
+// the pod filter (pod_restart is "<pod_id>/<restartMs>", so a pod matches by
+// prefix). The method filter stays in Go — it matches the
+// dictionary-resolved name, which SQL does not have.
+func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
+	where := "ts_ms >= ? AND ts_ms < ?"
+	args := []any{fromMs, toMs}
+	if q.DurationMinMs > 0 {
+		where += " AND duration_ms >= ?"
+		args = append(args, q.DurationMinMs)
+	}
+	if q.DurationMaxMs > 0 {
+		where += " AND duration_ms <= ?"
+		args = append(args, q.DurationMaxMs)
+	}
+	if q.ErrorOnly {
+		where += " AND error_flag = 1"
+	}
+	if len(q.RetentionClasses) > 0 {
+		where += " AND retention_class IN (?" + strings.Repeat(",?", len(q.RetentionClasses)-1) + ")"
+		for _, c := range q.RetentionClasses {
+			args = append(args, c)
+		}
+	}
+	if len(q.Pods) > 0 {
+		parts := make([]string, len(q.Pods))
+		for i, p := range q.Pods {
+			parts[i] = `pod_restart LIKE ? ESCAPE '\'`
+			args = append(args, escapeLikePrefix(p)+"/%")
+		}
+		where += " AND (" + strings.Join(parts, " OR ") + ")"
+	}
+	return where, args
+}
+
+// escapeLikePrefix escapes the LIKE metacharacters in a literal prefix.
+// Kubernetes names cannot carry them, but the query text is caller input.
+func escapeLikePrefix(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+// CallsPage reads one partition's rows for the hot /calls path (№15): the
+// filters push into SQL and the result is bounded to the top `limit` ts
+// values plus the complete tie group at the boundary, newest first — so the
+// caller can finish the (ts_ms DESC, pk ASC) order with the shared
+// comparator and page further down with toMs = the last row's ts_ms. Fewer
+// than `limit` rows back means the window is exhausted.
+func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, limit int) ([]CallIndexRow, error) {
 	db, err := m.partition(bucket)
 	if err != nil {
 		return nil, err
 	}
-	var rows []CallIndexRow
-	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
+	where, args := callsQueryWhere(q, fromMs, toMs)
+	// The subquery finds the ts of the limit-th newest matching row; the outer
+	// SELECT takes everything at or above it, so a tie group is never split
+	// across pages (splitting one would break the keyset order at the cut).
+	sql := `SELECT pod_restart, trace_file_index, buffer_offset, record_index,
 		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
 		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
 		transactions, logs_generated, logs_written, file_read, file_written,
 		net_read, net_written, params_json, calls_wal_offset
-		FROM call_index WHERE ts_ms >= ? AND ts_ms < ?`, fromMs, toMs).Scan(&rows).Error
+		FROM call_index WHERE ` + where + `
+		AND ts_ms >= COALESCE((SELECT MIN(ts_ms) FROM (
+			SELECT ts_ms FROM call_index WHERE ` + where + ` ORDER BY ts_ms DESC LIMIT ?)), ?)
+		ORDER BY ts_ms DESC`
+	allArgs := make([]any, 0, 2*len(args)+2)
+	allArgs = append(allArgs, args...)
+	allArgs = append(allArgs, args...)
+	allArgs = append(allArgs, limit, fromMs)
+	var rows []CallIndexRow
+	err = db.Raw(sql, allArgs...).Scan(&rows).Error
 	return rows, err
 }
 
@@ -885,9 +1175,10 @@ type QuarantineStats struct {
 	SnapshotOldestMs *int64
 }
 
-// QuarantineStats reports how much quarantined state waits for a human. Both
-// populations only shrink on manual intervention, so a non-zero count is an
-// alerting signal, not a transient.
+// QuarantineStats reports how much quarantined state waits for resolution.
+// The populations shrink on manual intervention, on a successful №2 re-test,
+// or on the №2 cap (dropped parquet, abandoned snapshots) — a sustained
+// non-zero count is still the alerting signal.
 func (m *metaDb) QuarantineStats() (QuarantineStats, error) {
 	var out QuarantineStats
 	row := struct {
@@ -900,8 +1191,11 @@ func (m *metaDb) QuarantineStats() (QuarantineStats, error) {
 	}
 	out.ParquetCount, out.ParquetOldestMs = row.N, row.Oldest
 	row.N, row.Oldest = 0, nil
+	// An abandoned snapshot (dict_uploaded_at stamped by the age cap) is
+	// resolved-by-loss, not waiting — it leaves the gauge.
 	if err := m.meta.Raw(`SELECT COUNT(*) AS n, MIN(dict_upload_failed_at) AS oldest
-		FROM pod_restarts WHERE dict_upload_failed_at IS NOT NULL`).Scan(&row).Error; err != nil {
+		FROM pod_restarts WHERE dict_upload_failed_at IS NOT NULL AND dict_uploaded_at IS NULL`).
+		Scan(&row).Error; err != nil {
 		return out, errors.Wrap(err, "count quarantined snapshots")
 	}
 	out.SnapshotCount, out.SnapshotOldestMs = row.N, row.Oldest

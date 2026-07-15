@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"sort"
+	"unicode/utf16"
 )
 
 // callsHeaderMagic marks a versioned calls file. The agent writes
@@ -158,12 +159,24 @@ func putZigZag(buf *bytes.Buffer, v int64) {
 	putVarInt(buf, uint64((v<<1)^(v>>63)))
 }
 
+// putVarString mirrors the agent's DataOutputStreamEx.write(String)
+// (common/.../dump/DataOutputStreamEx.java): a varint length that is the UTF-16
+// code-unit count — Java's s.length(), not the code-point count — followed by
+// writeChars, two big-endian bytes per code unit.
+//
+// The distinction matters for non-BMP characters. An emoji is one Go rune but
+// two UTF-16 code units (a surrogate pair), so the length is 2 and both halves
+// go on the wire. Encoding by rune instead would write length 1 and truncate
+// the rune to a single 16-bit unit — a string the real agent never emits, which
+// is why the earlier rune-based encoder hid the readChar-signedness and
+// surrogate-pair decoder bugs. For BMP-only strings the two encodings are
+// byte-identical, so existing ASCII fixtures are unaffected.
 func putVarString(buf *bytes.Buffer, s string) {
-	runes := []rune(s)
-	putVarInt(buf, uint64(len(runes)))
-	for _, r := range runes {
+	units := utf16.Encode([]rune(s))
+	putVarInt(buf, uint64(len(units)))
+	for _, u := range units {
 		var b [2]byte
-		binary.BigEndian.PutUint16(b[:], uint16(r))
+		binary.BigEndian.PutUint16(b[:], u)
 		buf.Write(b[:])
 	}
 }

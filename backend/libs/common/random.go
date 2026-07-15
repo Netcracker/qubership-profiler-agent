@@ -14,6 +14,16 @@ func RandomUuid() Uuid {
 	return ToUuid(c)
 }
 
+// RandomUuidChecked is RandomUuid but surfaces the crypto/rand failure instead
+// of swallowing it. A silently zero UUID handed to the agent as a stream handle
+// is read as the null handle, which the agent rejects and reconnects on — a
+// tight reconnect loop with no error logged anywhere (wire-LOW). Callers where
+// a zero UUID is protocol-fatal use this variant.
+func RandomUuidChecked() (Uuid, error) {
+	c, err := RandomUuidVal()
+	return ToUuid(c), err
+}
+
 // RandomUuidVal generate UUID ([]byte) with simple uuid {0xC3,0x69,0x07,0xB4,0xD2,0xF3,0xA4,0xB0,0x1F,0xB5,0x19,0x7D,0x08,0x1D,0xF0,0xB1}
 func RandomUuidVal() (UUID, error) {
 	b := make([]byte, 16)

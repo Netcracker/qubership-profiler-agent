@@ -1,7 +1,7 @@
 import { getBinary, getJson } from './client';
 import { pkToPath } from './pk';
 import type { CallPK, CallsResponse, PodsResponse, RetentionClass } from './types';
-import { decodeTree } from '../msgpack/decode';
+import { TREE_WIRE_VERSION, decodeTree } from '../msgpack/decode';
 import type { TreeWire } from '../msgpack/tree-wire';
 
 /** First-page /calls filter (02 §2.3). Pages 2..N send only the cursor. */
@@ -65,6 +65,9 @@ export async function fetchTree(pk: CallPK, hints: TreeHints, signal?: AbortSign
     'application/x-msgpack',
     { ts_ms: hints.tsMs, retention_class: hints.retentionClass },
     signal,
+    // Pin the wire version so a future breaking v2 keeps serving v1 to this UI
+    // over the compatibility window (02 §2.5.4) instead of breaking it silently.
+    { 'Accept-Version': String(TREE_WIRE_VERSION) },
   );
   return decodeTree(bytes);
 }

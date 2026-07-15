@@ -6,12 +6,15 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
@@ -24,6 +27,11 @@ import (
 // pod-restart found on disk is treated as closed: the crash broke its TCP
 // connection and the agent has reconnected elsewhere as a fresh pod-restart.
 // Sealing and upload retries (steps 3.6-3.9) land with the seal pass.
+//
+// 03 §4 is "degrade, not fail" (№26): a pod-restart whose on-disk state does
+// not recover is quarantined under recovery-failed/ instead of crash-looping
+// the whole collector, and the pod-restarts rescan in parallel so a PV full
+// of gzip segments does not serialize the port opening on one core.
 func (s *Store) Recover(ctx context.Context) error {
 	if err := s.db.CloseAllOpen(time.Now().UnixMilli()); err != nil {
 		return errors.Wrap(err, "close open pod-restarts")
@@ -33,29 +41,113 @@ func (s *Store) Recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, key := range keys {
-		pr, err := s.recoverPodRestart(ctx, key)
-		if err != nil {
-			return errors.Wrapf(err, "recover pod-restart %s", key)
-		}
-		s.mu.Lock()
-		s.pods[key.String()] = pr
-		s.mu.Unlock()
+	workers := runtime.GOMAXPROCS(0)
+	if workers > 8 {
+		workers = 8 // gunzip-bound; more workers only contend on SQLite
 	}
-	return s.reconcileParquetLocal(ctx)
+	if workers > len(keys) {
+		workers = len(keys)
+	}
+	var (
+		wg       sync.WaitGroup
+		jobs     = make(chan PodRestartKey)
+		fatalMu  sync.Mutex
+		fatalErr error
+	)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for key := range jobs {
+				if ctx.Err() != nil {
+					continue
+				}
+				pr, err := s.recoverPodRestart(ctx, key)
+				if err != nil {
+					if qErr := s.quarantinePodRestart(ctx, key, err); qErr != nil {
+						fatalMu.Lock()
+						if fatalErr == nil {
+							fatalErr = qErr
+						}
+						fatalMu.Unlock()
+					}
+					continue
+				}
+				s.mu.Lock()
+				s.pods[key.String()] = pr
+				s.mu.Unlock()
+			}
+		}()
+	}
+	for _, key := range keys {
+		jobs <- key
+	}
+	close(jobs)
+	wg.Wait()
+	if fatalErr != nil {
+		return fatalErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.reconcileParquetLocal(ctx); err != nil {
+		return err
+	}
+	// The backpressure gates must reflect the backlog a previous process left
+	// behind before the TCP listener opens (№2).
+	return s.refreshBackpressure(ctx)
+}
+
+// quarantinePodRestart implements the №26 degrade path: the pod-restart's
+// directory moves under recovery-failed/ for a human, its index rows leave
+// the partitions (they would poison every seal and pin the contiguity
+// barrier), and its snapshot uploads quarantine like a permanent S3 rejection
+// so no loop waits on state that is gone. Only a filesystem/SQLite failure of
+// the quarantine itself is returned — that one still fails recovery.
+func (s *Store) quarantinePodRestart(ctx context.Context, key PodRestartKey, cause error) error {
+	log.Error(ctx, cause, "recovery: pod-restart %s does not recover; quarantining its directory", key)
+	dir := key.dir(s.cfg.DataDir)
+	dest := filepath.Join(s.cfg.DataDir, "recovery-failed",
+		fmt.Sprintf("%s_%s_%s_%d", key.Namespace, key.Service, key.PodName, key.RestartTimeMs))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return errors.Wrap(err, "create recovery-failed dir")
+	}
+	if err := os.RemoveAll(dest); err != nil { // a previous quarantine of the same key
+		return errors.Wrap(err, "clear stale quarantine")
+	}
+	if err := os.Rename(dir, dest); err != nil {
+		return errors.Wrap(err, "quarantine pod-restart dir")
+	}
+	removeEmptyParents(filepath.Join(s.cfg.DataDir, "pods"), filepath.Dir(dir))
+	purged, err := s.db.PurgeCallsPastWalEnd(key.String(), 0)
+	if err != nil {
+		return err
+	}
+	if err := s.db.SetDictUploadFailed(key.String(), time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	log.Warning(ctx, "recovery: quarantined %s under %s (%d index rows dropped); its calls are lost to the hot tier",
+		key, dest, purged)
+	return nil
 }
 
 // reconcileParquetLocal implements 03-lifecycle.md §3.6 step 10 (second half):
 // a parquet_local row whose file is missing on disk is cleared, releasing the
-// segment refs it pinned, so the bucket re-seals its rows. (Rebuilding
-// parquet_local from orphan files' footers — the §3.2 step-4 repair — is not
-// implemented yet; see the Stage 1 open issues.)
+// segment refs it pinned, so the bucket re-seals its rows; a sealed FILE with
+// no catalog row — a crash between the №6 rename and the pass commit — is
+// removed, because its rows re-seal from the watermark and normally reproduce
+// the same name, but a dictionary grown between the passes can shift a row's
+// class and leave the old name orphaned forever. (Rebuilding parquet_local
+// from orphan files' footers — the §3.2 step-4 repair — is not implemented
+// yet; see the Stage 1 open issues.)
 func (s *Store) reconcileParquetLocal(ctx context.Context) error {
 	paths, err := s.db.ParquetLocalPaths()
 	if err != nil {
 		return err
 	}
+	catalogued := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
+		catalogued[path] = struct{}{}
 		if _, err := os.Stat(path); err == nil {
 			continue
 		}
@@ -63,6 +155,20 @@ func (s *Store) reconcileParquetLocal(ctx context.Context) error {
 		if err := s.db.DropParquetLocal(path); err != nil {
 			return err
 		}
+	}
+	sealedRoot := filepath.Join(s.cfg.DataDir, "parquet")
+	err = filepath.WalkDir(sealedRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".parquet") {
+			return nil //nolint:nilerr // a missing root means nothing sealed yet
+		}
+		if _, ok := catalogued[path]; ok {
+			return nil
+		}
+		log.Warning(ctx, "sealed parquet %s has no catalog row (crash before the seal commit); removing the orphan", path)
+		return os.Remove(path)
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return errors.Wrap(err, "sweep orphan sealed parquet")
 	}
 	return nil
 }
@@ -150,7 +256,7 @@ func (s *Store) recoverPodRestart(ctx context.Context, key PodRestartKey) (*PodR
 	}
 	// params.wal is validated (and its torn tail truncated) even though this
 	// slice keeps nothing from it in RAM.
-	if err := replayIfPresent(filepath.Join(pr.dir, "params.wal"), func(int64, []byte) error { return nil }); err != nil {
+	if _, err := replayIfPresent(filepath.Join(pr.dir, "params.wal"), func(int64, []byte) error { return nil }); err != nil {
 		return nil, err
 	}
 	// suspend.wal is replayed into the RAM pause mirror BEFORE reconcileCalls,
@@ -168,39 +274,30 @@ func (s *Store) recoverPodRestart(ctx context.Context, key PodRestartKey) (*PodR
 	if err := pr.reconcileCalls(); err != nil {
 		return nil, err
 	}
+	// Recovered pod-restarts are all closed; the dictionary served the
+	// reconciliation above and reloads lazily from now on (№1), so recovering
+	// a PV full of pod-restarts does not front-load their words into RAM.
+	pr.unloadDictionary()
 	return pr, nil
 }
 
 // replayIfPresent replays a WAL, treating a missing file as empty: a crash
-// between TCP accept and the first record leaves no WAL (03 §3.4).
-func replayIfPresent(path string, apply func(offset int64, body []byte) error) error {
+// between TCP accept and the first record leaves no WAL (03 §3.4). clean
+// mirrors ReplayWal: a verified footer was found.
+func replayIfPresent(path string, apply func(offset int64, body []byte) error) (clean bool, err error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil
+		return false, nil
 	}
-	_, err := ReplayWal(path, apply)
-	return err
+	return ReplayWal(path, apply)
 }
 
 // replayDictionary rebuilds the in-RAM dictionary from dictionary.wal
 // (01 §3.2: varint(word_id) varint(word_len) word_bytes).
 func (pr *PodRestart) replayDictionary() error {
-	return replayIfPresent(filepath.Join(pr.dir, "dictionary.wal"), func(_ int64, body []byte) error {
-		id, n := binary.Uvarint(body)
-		if n <= 0 {
-			return errors.New("dictionary.wal: bad word_id varint")
-		}
-		wordLen, m := binary.Uvarint(body[n:])
-		if m <= 0 || n+m+int(wordLen) != len(body) {
-			return errors.New("dictionary.wal: word length does not match the record")
-		}
-		word := string(body[n+m:])
-		pr.dict[int(id)] = word
-		pr.dictIds[word] = int(id)
-		if int(id) >= pr.nextWordId {
-			pr.nextWordId = int(id) + 1
-		}
-		return nil
+	_, err := replayIfPresent(filepath.Join(pr.dir, "dictionary.wal"), func(_ int64, body []byte) error {
+		return pr.applyDictRecordLocked(body)
 	})
+	return err
 }
 
 // rescanSegments implements 03 §3.5: walk the hot-store segments, rebuild the
@@ -306,12 +403,17 @@ func (pr *PodRestart) rescanSegment(ctx context.Context, stream string, seq int)
 // reconcileCalls implements the 03 §3.4 step-7 reconciliation: any calls.wal
 // record past the highest indexed calls_wal_offset (a crash hit between the
 // WAL append and the SQLite insert) is re-indexed into its bucket's partition.
+// The inverse skew is repaired too (№8): after a power loss the index can run
+// AHEAD of a truncated calls.wal (SQLite synced, the WAL tail did not), and
+// such rows would poison every seal of their bucket — loadSealRows can never
+// find their records. They are dropped together with the torn tail.
 func (pr *PodRestart) reconcileCalls() error {
 	maxOffset, indexed, err := pr.store.db.MaxCallsWalOffset(pr.Key.String())
 	if err != nil {
 		return err
 	}
-	return replayIfPresent(filepath.Join(pr.dir, "calls.wal"), func(offset int64, body []byte) error {
+	walPath := filepath.Join(pr.dir, "calls.wal")
+	clean, err := replayIfPresent(walPath, func(offset int64, body []byte) error {
 		if indexed && offset <= maxOffset {
 			return nil
 		}
@@ -321,6 +423,28 @@ func (pr *PodRestart) reconcileCalls() error {
 		}
 		return pr.indexCall(rec.TsMs, rec.Call, offset)
 	})
+	if err != nil {
+		return err
+	}
+	// ReplayWal already truncated any torn tail, so the file ends at the last
+	// valid record (or at the footer on a clean close): everything indexed at
+	// or past that end has no record left to seal from.
+	validEnd := int64(0)
+	if info, err := os.Stat(walPath); err == nil {
+		validEnd = info.Size()
+		if clean {
+			validEnd -= walFooterSize
+		}
+	}
+	purged, err := pr.store.db.PurgeCallsPastWalEnd(pr.Key.String(), validEnd)
+	if err != nil {
+		return err
+	}
+	if purged > 0 {
+		log.Warning(context.Background(), "recovery: dropped %d index rows of %s pointing past the end of calls.wal; their records were lost with the torn tail (№8)",
+			purged, pr.Key)
+	}
+	return nil
 }
 
 // countingReader counts the bytes its inner reader delivered.

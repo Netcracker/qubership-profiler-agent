@@ -162,11 +162,15 @@ func parseAfter(tsRaw, pkRaw string) (*model.Position, string) {
 
 // queryCalls walks the call partitions newest-first. Partitions are disjoint
 // ts ranges, so their per-partition sorted runs concatenate into the global
-// (ts_ms DESC, pk ASC) order and the walk stops at limit. The PK order is
-// applied in Go with the shared model comparator: the partitions key rows by
-// the scalar pod_restart string, whose byte order diverges from the
-// component-wise §2.3.1 collation (a pod name that prefixes another compares
-// through the '/' separator, and restart_time_ms would compare as text).
+// (ts_ms DESC, pk ASC) order and the walk stops at limit. The SQL-pushable
+// filters and the page bound run inside the partition (№15) — a request no
+// longer loads a whole bucket; the pages descend by ts until the limit fills
+// or the bucket exhausts, so the Go-side filters (method, the after-PK seek)
+// can reject rows without losing deeper ones. The PK order is applied in Go
+// with the shared model comparator: the partitions key rows by the scalar
+// pod_restart string, whose byte order diverges from the component-wise
+// §2.3.1 collation (a pod name that prefixes another compares through the
+// '/' separator, and restart_time_ms would compare as text).
 func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
 	cfg := a.store.Config()
 	buckets, err := a.store.Buckets()
@@ -178,62 +182,71 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 		toMs = after.TsMs + 1 // the seek admits no row above the cursor ts
 	}
 
-	dicts := map[string]map[int]string{}
 	var out []model.CallRow
-	for i := len(buckets) - 1; i >= 0; i-- {
+	for i := len(buckets) - 1; i >= 0 && len(out) < limit; i-- {
 		bucket := buckets[i]
 		start := cfg.BucketStartMs(bucket)
 		if start >= toMs || start+cfg.TimeBucket.Milliseconds() <= q.FromMs {
 			continue
 		}
-		idxRows, err := a.store.CallsInWindow(bucket, q.FromMs, toMs)
-		if err != nil {
-			return nil, err
-		}
-		rows := make([]model.CallRow, 0, len(idxRows))
-		for _, idx := range idxRows {
-			row, err := a.toCallRow(idx, dicts)
+		var rows []model.CallRow
+		pageToMs := toMs
+		for len(out)+len(rows) < limit {
+			want := limit - len(out) - len(rows)
+			idxRows, err := a.store.CallsPage(bucket, q, q.FromMs, pageToMs, want)
 			if err != nil {
 				return nil, err
 			}
-			if !q.Match(row) {
-				continue
+			if len(idxRows) == 0 {
+				break
 			}
-			if after != nil && !row.Position().After(*after) {
-				continue
+			for _, idx := range idxRows {
+				row, err := a.toCallRow(idx)
+				if err != nil {
+					return nil, err
+				}
+				if !q.Match(row) {
+					continue
+				}
+				if after != nil && !row.Position().After(*after) {
+					continue
+				}
+				rows = append(rows, row)
 			}
-			rows = append(rows, row)
+			// Rows come newest-first with complete tie groups: fewer rows than
+			// asked means the window is exhausted; otherwise the next page
+			// starts strictly below the last ts.
+			pageToMs = idxRows[len(idxRows)-1].TsMs
+			if len(idxRows) < want || pageToMs <= q.FromMs {
+				break
+			}
 		}
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Position().Before(rows[j].Position()) })
 		out = append(out, rows...)
-		if len(out) >= limit {
-			return out[:limit], nil
-		}
+	}
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
 
 // toCallRow maps an index row to the merged row shape: the method resolves
-// against the pod-restart's dictionary (a missing word keeps the "#<id>"
+// with a targeted DictWord lookup against the pod-restart's dictionary (№15
+// — no full-map copy per request; a missing word keeps the "#<id>"
 // placeholder, as the write path does), params decode from the indexed JSON.
 // error_flag, retention_class, and suspend_ms are the provisional index
 // values — the seal re-derives them for the cold copy, which is why the §6.3
 // dedup prefers cold.
-func (a *API) toCallRow(idx hotstore.CallIndexRow, dicts map[string]map[int]string) (model.CallRow, error) {
+func (a *API) toCallRow(idx hotstore.CallIndexRow) (model.CallRow, error) {
 	key, err := hotstore.ParsePodRestartKey(idx.PodRestart)
 	if err != nil {
 		return model.CallRow{}, err
 	}
-	dict, ok := dicts[idx.PodRestart]
-	if !ok {
-		if pr, live := a.store.PodRestart(key); live {
-			dict = pr.Dictionary()
+	method := fmt.Sprintf("#%d", idx.MethodId)
+	if pr, live := a.store.PodRestart(key); live {
+		if w, ok := pr.DictWord(idx.MethodId); ok {
+			method = w
 		}
-		dicts[idx.PodRestart] = dict
-	}
-	method, ok := dict[idx.MethodId]
-	if !ok {
-		method = fmt.Sprintf("#%d", idx.MethodId)
 	}
 	row := model.CallRow{
 		PK: model.PK{
@@ -289,7 +302,7 @@ func (a *API) handleCall(c echo.Context) error {
 	if !ok {
 		return notFound(c, "this replica holds no call "+pk.PathString())
 	}
-	row, err := a.toCallRow(idx, map[string]map[int]string{})
+	row, err := a.toCallRow(idx)
 	if err != nil {
 		return err
 	}
@@ -418,7 +431,10 @@ type suspendTimeline struct {
 }
 
 type suspendTimelineEvent struct {
-	StartMs    int64 `json:"start_ms"`
+	// EndMs is the pause end (the agent timestamps a delay after detecting it);
+	// the pause spans [EndMs − DurationMs, EndMs]. Same shape as the cold
+	// suspend/v1 snapshot so a consumer parses one format on either tier (№4).
+	EndMs      int64 `json:"end_ms"`
 	DurationMs int   `json:"duration_ms"`
 }
 
@@ -443,7 +459,7 @@ func (a *API) handleSuspend(c echo.Context) error {
 	pauses := pr.SuspendPauses()
 	body := suspendTimeline{Events: make([]suspendTimelineEvent, 0, len(pauses))}
 	for _, p := range pauses {
-		body.Events = append(body.Events, suspendTimelineEvent{StartMs: p.TimeMs, DurationMs: p.DurationMs})
+		body.Events = append(body.Events, suspendTimelineEvent{EndMs: p.TimeMs, DurationMs: p.DurationMs})
 	}
 	return c.JSON(http.StatusOK, body)
 }

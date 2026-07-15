@@ -69,7 +69,9 @@ type (
 
 	suspendBody struct {
 		Events []struct {
-			StartMs    int64 `json:"start_ms"`
+			// EndMs is the pause end; the pause spans [EndMs − DurationMs, EndMs]
+			// (calltree treats SuspendInterval.TimeMs as the end) (№4).
+			EndMs      int64 `json:"end_ms"`
 			DurationMs int64 `json:"duration_ms"`
 		} `json:"events"`
 	}
@@ -231,7 +233,7 @@ func (c *Client) Suspend(ctx context.Context, baseURL string, tuple model.PodTup
 	}
 	pauses = make([]calltree.SuspendInterval, 0, len(body.Events))
 	for _, e := range body.Events {
-		pauses = append(pauses, calltree.SuspendInterval{TimeMs: e.StartMs, DurationMs: e.DurationMs})
+		pauses = append(pauses, calltree.SuspendInterval{TimeMs: e.EndMs, DurationMs: e.DurationMs})
 	}
 	return pauses, true, nil
 }

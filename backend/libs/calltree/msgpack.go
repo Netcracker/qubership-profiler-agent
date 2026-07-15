@@ -256,6 +256,11 @@ func Decode(data []byte) (*Tree, int64, error) {
 	if tree.Root == nil {
 		return nil, 0, errors.New("envelope has no root node")
 	}
+	// One envelope per frame: trailing bytes mean a truncated stream, a framing
+	// bug, or an adversarial append, none of which should decode as success.
+	if d.pos != len(data) {
+		return nil, 0, errors.Errorf("%d trailing bytes after the envelope", len(data)-d.pos)
+	}
 	return tree, version, nil
 }
 
@@ -580,7 +585,16 @@ func (d *decoder) int() (int64, error) {
 		return int64(v), err
 	case 0xcf:
 		v, err := d.uintN(8)
-		return int64(v), err
+		if err != nil {
+			return 0, err
+		}
+		// The tree carries only non-negative metrics; a uint64 past MaxInt64
+		// would wrap negative on the cast and re-emit a negative count. Reject
+		// it so a corrupted frame fails instead of round-tripping garbage.
+		if v > math.MaxInt64 {
+			return 0, errors.Errorf("uint64 %d overflows int64", v)
+		}
+		return int64(v), nil
 	case 0xd0:
 		v, err := d.uintN(1)
 		return int64(int8(v)), err

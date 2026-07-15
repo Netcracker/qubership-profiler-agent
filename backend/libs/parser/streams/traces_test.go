@@ -13,6 +13,7 @@ import (
 )
 
 func TestReadTrace_TestService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.ERROR)
 	t1 := time.Date(2023, 7, 24, 12, 25, 0, 0, time.UTC)
 	t2 := time.Date(2023, 7, 24, 12, 29, 0, 0, time.UTC)
@@ -47,6 +48,7 @@ func TestReadTrace_TestService(t *testing.T) {
 //\nblock #1. threadId=   1, real time: 1691167327716 - 16:42:07.716 , offset=8 / 8\ncall  [  1: 0] tagId=9|'void com.netcracker.profiler.agent.Profiler.startDumper() (Profiler.java:20) [profi
 
 func TestReadTrace_5minService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.ERROR)
 	t1 := time.Date(2023, 8, 4, 16, 42, 6, 615000000, time.UTC)
 	t2 := time.Date(2023, 8, 4, 16, 48, 0, 317000000, time.UTC)

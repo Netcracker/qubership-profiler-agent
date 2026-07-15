@@ -13,7 +13,9 @@ import (
 // alongside the dictionary snapshot (01-write-contract.md §3.6).
 type suspendSnapshot struct {
 	Events []struct {
-		StartMs    int64 `json:"start_ms"`
+		// EndMs is the pause end; the pause spans [EndMs − DurationMs, EndMs]
+		// (calltree treats SuspendInterval.TimeMs as the end) (№4).
+		EndMs      int64 `json:"end_ms"`
 		DurationMs int64 `json:"duration_ms"`
 	} `json:"events"`
 }
@@ -37,7 +39,7 @@ func Suspend(ctx context.Context, store ObjectStore, tuple model.PodTuple) ([]ca
 	}
 	pauses := make([]calltree.SuspendInterval, 0, len(snap.Events))
 	for _, e := range snap.Events {
-		pauses = append(pauses, calltree.SuspendInterval{TimeMs: e.StartMs, DurationMs: e.DurationMs})
+		pauses = append(pauses, calltree.SuspendInterval{TimeMs: e.EndMs, DurationMs: e.DurationMs})
 	}
 	return pauses, true, nil
 }

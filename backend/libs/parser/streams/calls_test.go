@@ -14,6 +14,7 @@ import (
 )
 
 func TestReadCalls_TestService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.TRACE)
 	t1 := time.Date(2023, 7, 24, 12, 25, 0, 0, time.UTC)
 	t2 := time.Date(2023, 7, 24, 12, 29, 0, 0, time.UTC)
@@ -48,6 +49,7 @@ func TestReadCalls_TestService(t *testing.T) {
 }
 
 func TestReadCalls_5minService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	t1 := time.Date(2023, 8, 4, 16, 41, 0, 0, time.UTC)
 	t2 := time.Date(2023, 8, 4, 16, 43, 0, 0, time.UTC)

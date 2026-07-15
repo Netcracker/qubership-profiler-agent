@@ -392,6 +392,11 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
         >
           {row.hasChildren ? (row.expanded ? '−' : '+') : '·'}
         </Button>
+        {/* Duration and invocations sit left of the value, the way the old
+            renderSimpleTag laid tags out (duration, count, then the value). */}
+        <Typography.Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatDurationMs(row.group.durationMs)} ×{formatCount(row.group.executions)}
+        </Typography.Text>
         <Tag style={{ marginInlineEnd: 0 }}>{key}</Tag>
         <Typography.Text
           type={isOther ? 'secondary' : undefined}
@@ -403,9 +408,6 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
           {row.group.value}
         </Typography.Text>
         {row.group.unresolved === true ? <Tag color="orange">unresolved</Tag> : null}
-        <Typography.Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {formatDurationMs(row.group.durationMs)} ×{formatCount(row.group.executions)}
-        </Typography.Text>
       </div>
     );
   };

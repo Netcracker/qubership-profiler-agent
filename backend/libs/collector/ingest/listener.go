@@ -7,6 +7,7 @@ package ingest
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
@@ -18,9 +19,31 @@ import (
 )
 
 type (
+	// IngestStats is a snapshot of the ingest counters (№21). It replaces the
+	// no-op metric stubs the Listener carried; RegisterIngest exposes each field
+	// on the shared Prometheus registry Focus V set up.
+	IngestStats struct {
+		// CommandsReceived counts agent commands the server dispatched to the
+		// listener; CommandErrors counts those that returned an error.
+		CommandsReceived uint64
+		CommandErrors    uint64
+		// BytesRead is the total RCV_DATA payload bytes routed into streams.
+		BytesRead uint64
+		// DecoderErrors counts streams a decoder rejected as malformed or
+		// gzip-wrapped (the agent then resends from scratch, 06 §6).
+		DecoderErrors uint64
+	}
+
 	// Listener implements server.Listener on top of a hotstore.Store.
 	Listener struct {
 		store *hotstore.Store
+
+		// Ingest counters (№21). Atomic so the /metrics scrape reads them
+		// without taking the pod lock.
+		commandsReceived atomic.Uint64
+		commandErrors    atomic.Uint64
+		bytesRead        atomic.Uint64
+		decoderErrors    atomic.Uint64
 
 		mu   sync.Mutex
 		pods map[common.Uuid]*podIngest // keyed by the connection's pod UUID
@@ -29,6 +52,7 @@ type (
 	// podIngest is the per-connection routing state: which stream file each
 	// RCV_DATA handle feeds.
 	podIngest struct {
+		l  *Listener // for the shared ingest counters (№21)
 		pr *hotstore.PodRestart
 
 		mu       sync.Mutex
@@ -61,6 +85,7 @@ func (l *Listener) RegisterPod(pod *server.ConnectedPod) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.pods[pod.Uuid] = &podIngest{
+		l:        l,
 		pr:       pr,
 		byHandle: map[common.Uuid]*fileIngest{},
 		active:   map[string]*fileIngest{},
@@ -97,6 +122,10 @@ func (l *Listener) RegisterStream(ctx context.Context,
 		if err := pi.finalize(prev); err != nil {
 			return errors.Wrapf(err, "finalize rotated %s file", streamType)
 		}
+		// The agent will not send RCV_DATA for the rotated file again; drop its
+		// handle so byHandle does not grow one dead entry per rotation for the
+		// life of the connection (wire-LOW).
+		delete(pi.byHandle, prev.handle)
 	}
 
 	if streamType == model.StreamDictionary && resetRequired != 0 {
@@ -111,6 +140,7 @@ func (l *Listener) RegisterStream(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	fi.handle = handleId
 	pi.byHandle[handleId] = fi
 	pi.active[streamType] = fi
 	return nil
@@ -120,6 +150,12 @@ func (l *Listener) RegisterStream(ctx context.Context,
 // payload arrives as a string because the framing layer reads it that way; the
 // bytes pass through unmodified.
 func (l *Listener) AppendData(ctx context.Context, pod *server.ConnectedPod, handleId common.Uuid, chunk string) (int, error) {
+	if l.store.IngestPaused() {
+		// №2 backpressure: refuse BEFORE writing anything, so the server
+		// answers ACK_ERROR and the agent keeps the payload buffered in its
+		// own files and retries after reconnecting.
+		return 0, errors.Errorf("hot store over the pending-upload budget; refusing data of %v", pod.Uuid)
+	}
 	pi, err := l.pod(pod)
 	if err != nil {
 		return 0, err
@@ -133,6 +169,7 @@ func (l *Listener) AppendData(ctx context.Context, pod *server.ConnectedPod, han
 	if err := fi.write([]byte(chunk)); err != nil {
 		return 0, err
 	}
+	l.bytesRead.Add(uint64(len(chunk)))
 	return len(chunk), nil
 }
 
@@ -184,10 +221,28 @@ func (l *Listener) Close(ctx context.Context) {
 	}
 }
 
-// Metrics-oriented callbacks: nothing to observe yet (TODO seam: Prometheus
-// counters land with the collector app wiring).
+// IngestStatsSnapshot returns the ingest counters for the /metrics scrape (№21).
+func (l *Listener) IngestStatsSnapshot() IngestStats {
+	return IngestStats{
+		CommandsReceived: l.commandsReceived.Load(),
+		CommandErrors:    l.commandErrors.Load(),
+		BytesRead:        l.bytesRead.Load(),
+		DecoderErrors:    l.decoderErrors.Load(),
+	}
+}
+
+// noteDecoderError records that a stream decoder rejected its input as malformed
+// or gzip-wrapped (№21). The connection goroutine surfaces the same failure to
+// the agent as ACK_ERROR_MAGIC via the pipe error.
+func (l *Listener) noteDecoderError() { l.decoderErrors.Add(1) }
+
+// Metric callbacks (№21): real counters registered by RegisterIngest.
 func (l *Listener) SentCommand(ctx context.Context, c model.Command) {}
 func (l *Listener) ReceivedCommand(ctx context.Context, c model.Command, latency time.Duration, err error) {
+	l.commandsReceived.Add(1)
+	if err != nil {
+		l.commandErrors.Add(1)
+	}
 }
 func (l *Listener) Read(ctx context.Context, bytes int, latency time.Duration, err error)  {}
 func (l *Listener) Write(ctx context.Context, bytes int, latency time.Duration, err error) {}

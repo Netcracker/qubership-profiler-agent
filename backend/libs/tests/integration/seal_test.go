@@ -142,8 +142,10 @@ func TestSealPass(t *testing.T) {
 	// Now the dictionary, the pauses, and the params metadata arrive.
 	sendStream(t, ac, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
 	sendStream(t, ac, model.StreamSuspend, 0, wire.SuspendStream(baseMs, []wire.SuspendEvent{
-		{DeltaMs: 50, AmountMs: 30}, // pause [base+50, base+80)
-		{DeltaMs: 55, AmountMs: 20}, // pause [base+105, base+125)
+		// DeltaMs is the delta to the pause END; a pause spans [end−amount, end]
+		// (the agent timestamps a delay after detecting it, №4).
+		{DeltaMs: 50, AmountMs: 30}, // end base+50 → pause [base+20, base+50)
+		{DeltaMs: 55, AmountMs: 20}, // end base+105 → pause [base+85, base+105)
 	}))
 	sendStream(t, ac, model.StreamParams, 0, wire.ParamsStream([]wire.ParamDef{
 		{Name: "request.id", IsIndex: true, Order: 1},
@@ -253,15 +255,16 @@ func TestSealPass(t *testing.T) {
 	})
 
 	t.Run("suspend_ms intersects the call interval with the pauses", func(t *testing.T) {
+		// Pauses [20,50) and [85,105) (their ends are what the agent records, №4).
 		c1 := readCallV2(t, filesByClass[hotstore.RetentionNormalClean].Path)[0]
-		assert.Equal(t, int32(35), c1.SuspendMs, "C1 [10, 110]: [50,80) gives 30, [105,110) gives 5")
+		assert.Equal(t, int32(50), c1.SuspendMs, "C1 [10, 110]: [20,50) gives 30, [85,105) gives 20")
 		short := readCallV2(t, filesByClass[hotstore.RetentionShortClean].Path)
 		assert.Equal(t, int32(0), short[0].SuspendMs, "P [5, 6] overlaps no pause")
-		assert.Equal(t, int32(5), short[1].SuspendMs, "C2 [5, 55]: [50,55) gives 5")
+		assert.Equal(t, int32(30), short[1].SuspendMs, "C2 [5, 55]: [20,50) gives 30")
 		c4 := readCallV2(t, filesByClass[hotstore.RetentionAnyError].Path)[0]
 		assert.Equal(t, int32(50), c4.SuspendMs, "C4 [20, 720] covers both pauses: 30 + 20")
 		c5 := readCallV2(t, filesByClass[hotstore.RetentionLongClean].Path)[0]
-		assert.Equal(t, int32(50), c5.SuspendMs, "suspend_ms is derived even for a truncated blob")
+		assert.Equal(t, int32(40), c5.SuspendMs, "C5 [30, 2030]: [30,50) gives 20, [85,105) gives 20")
 	})
 
 	t.Run("evicted segment seals as NULL blob with disk_budget", func(t *testing.T) {

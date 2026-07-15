@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
+	"github.com/Netcracker/qubership-profiler-backend/libs/common"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/pipe"
 	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
@@ -22,6 +23,10 @@ const noPhraseLimit = 1 << 30
 // io.Pipe (everything except sql/xml, which are stored without parsing).
 type fileIngest struct {
 	stream string
+	// handle is the RCV_DATA handle this file is keyed by in podIngest.byHandle;
+	// stored so a rotation or a stream close can drop the dead entry instead of
+	// letting it accumulate until disconnect (wire-LOW).
+	handle common.Uuid
 	seg    *hotstore.Segment
 	pw     *io.PipeWriter
 	done   chan struct{}
@@ -68,8 +73,9 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 		if err != nil {
 			return nil, err
 		}
-		return startDecoder(streamType, seg, func(prd *io.PipeReader) {
-			decodeTrace(ctx, pr, seg, prd)
+		return pi.startDecoder(ctx, streamType, seg, func(src io.Reader) error {
+			decodeTrace(ctx, pr, seg, src)
+			return nil
 		}), nil
 
 	case model.StreamSql, model.StreamXml:
@@ -81,26 +87,38 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 		return &fileIngest{stream: streamType, seg: seg}, nil
 
 	case model.StreamCalls:
-		return startDecoder(streamType, nil, func(prd *io.PipeReader) {
-			for item := range pipe.CallsPipeReader(ctx, pipe.NewPipeReader(prd, false)) {
+		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
+			for item := range pipe.CallsPipeReader(ctx, pipe.NewPipeReader(src, false)) {
 				if err := pr.AppendCall(item.Time.UnixMilli(), item.Call); err != nil {
-					log.Error(ctx, err, "index call of %v", pr.Key)
+					// №2: swallowing a write failure here (ENOSPC on calls.wal
+					// being the canonical case) silently loses calls. Failing the
+					// stream tears the connection down through the pipe, so the
+					// agent re-sends after reconnect instead of losing the tail.
+					return errors.Wrapf(err, "index call of %v", pr.Key)
 				}
 			}
+			return nil
 		}), nil
 
 	case model.StreamDictionary:
-		return startDecoder(streamType, nil, func(prd *io.PipeReader) {
-			for item := range pipe.DictionaryPipeReader(ctx, pipe.NewPipeReader(prd, false), noPhraseLimit) {
+		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
+			// A malformed dictionary is fatal: every trace tag references it by
+			// id, so a shifted or truncated dictionary corrupts every later name.
+			// The reader reports whether it stopped clean or on a bad byte, and a
+			// non-clean stop fails the stream so the agent resends the whole
+			// dictionary with resetRequired (06 §6, №21).
+			rd := pipe.NewPipeReader(src, false)
+			for item := range pipe.DictionaryPipeReader(ctx, rd, noPhraseLimit) {
 				if _, err := pr.AppendDictionaryWord(item.Value); err != nil {
 					log.Error(ctx, err, "append dictionary word of %v", pr.Key)
 				}
 			}
+			return rd.Err()
 		}), nil
 
 	case model.StreamParams:
-		return startDecoder(streamType, nil, func(prd *io.PipeReader) {
-			for item := range pipe.ParamsPipeReader(ctx, pipe.NewPipeReader(prd, false)) {
+		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
+			for item := range pipe.ParamsPipeReader(ctx, pipe.NewPipeReader(src, false)) {
 				err := pr.AppendParam(hotstore.ParamRecord{
 					Name: item.Name, IsIndex: item.IsIndex, IsList: item.IsList,
 					Order: item.Order, Signature: item.Signature,
@@ -109,15 +127,17 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 					log.Error(ctx, err, "append param of %v", pr.Key)
 				}
 			}
+			return nil
 		}), nil
 
 	case model.StreamSuspend:
-		return startDecoder(streamType, nil, func(prd *io.PipeReader) {
-			for item := range pipe.SuspendPipeReader(ctx, pipe.NewPipeReader(prd, false)) {
+		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
+			for item := range pipe.SuspendPipeReader(ctx, pipe.NewPipeReader(src, false)) {
 				if err := pr.AppendSuspend(item.Time.UnixMilli(), item.Amount); err != nil {
 					log.Error(ctx, err, "append suspend of %v", pr.Key)
 				}
 			}
+			return nil
 		}), nil
 
 	default:
@@ -127,15 +147,46 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 	}
 }
 
-// startDecoder runs one decode goroutine over a pipe. After the decoder stops
-// — EOF or a malformed stream — the pipe keeps draining so the connection
-// goroutine can never block on a dead decoder.
-func startDecoder(stream string, seg *hotstore.Segment, decode func(*io.PipeReader)) *fileIngest {
+// errGzipChannel marks a stream whose bytes open with the gzip magic. Channel
+// gzip is off by default (ProtocolConst.ZIPPING_ENABLED = false); when a
+// deployment turns it on the WHOLE channel is one gzip stream and the demuxer
+// here would parse compressed garbage. Fail loudly instead (06 §7, №21).
+var errGzipChannel = errors.New("stream begins with the gzip magic (0x1F 0x8B): channel gzip is not supported")
+
+// gzipMagic is the two-byte header every gzip member starts with (RFC 1952).
+var gzipMagic = []byte{0x1F, 0x8B}
+
+// startDecoder runs one decode goroutine over a pipe. The decode func returns
+// an error when it rejects the stream (malformed, or gzip-wrapped); the wrapper
+// then CloseWithError the read end, so the connection goroutine's next write
+// surfaces the failure and the server answers ACK_ERROR_MAGIC (06 §6, №21).
+// After the decoder stops the pipe keeps draining so the connection goroutine
+// can never block on a dead decoder.
+func (pi *podIngest) startDecoder(ctx context.Context, stream string, seg *hotstore.Segment, decode func(io.Reader) error) *fileIngest {
 	prd, pwr := io.Pipe()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		decode(prd)
+		// Sniff the first two bytes for the gzip magic, then feed the decoder the
+		// original byte stream (head re-prepended) so it sees no gap.
+		var head [2]byte
+		n, readErr := io.ReadFull(prd, head[:])
+		src := io.MultiReader(bytes.NewReader(head[:n]), prd)
+
+		var err error
+		switch {
+		case readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF:
+			err = readErr // a torn stream, not a short one
+		case n == 2 && bytes.Equal(head[:], gzipMagic):
+			err = errGzipChannel
+		default:
+			err = decode(src)
+		}
+		if err != nil {
+			log.Error(ctx, err, "%s decoder of %v rejected the stream; asking the agent to resend", stream, pi.pr.Key)
+			pi.l.noteDecoderError()
+			_ = prd.CloseWithError(err)
+		}
 		_, _ = io.Copy(io.Discard, prd)
 	}()
 	return &fileIngest{stream: stream, seg: seg, pw: pwr, done: done}
@@ -144,15 +195,15 @@ func startDecoder(stream string, seg *hotstore.Segment, decode func(*io.PipeRead
 // decodeTrace parses one trace file: the 8-byte timer epoch, then logical
 // chunks delimited by EVENT_FINISH_RECORD, each indexed into
 // chunk_index[threadId] (01 §4.3).
-func decodeTrace(ctx context.Context, pr *hotstore.PodRestart, seg *hotstore.Segment, prd *io.PipeReader) {
+func decodeTrace(ctx context.Context, pr *hotstore.PodRestart, seg *hotstore.Segment, src io.Reader) {
 	var header [8]byte
-	if _, err := io.ReadFull(prd, header[:]); err != nil {
+	if _, err := io.ReadFull(src, header[:]); err != nil {
 		log.Error(ctx, err, "trace file of %v ended before the epoch header", pr.Key)
 		return
 	}
 	pr.SetTimerStart(int64(binary.BigEndian.Uint64(header[:])))
 
-	reader := pipe.NewPipeReader(io.MultiReader(bytes.NewReader(header[:]), prd), false)
+	reader := pipe.NewPipeReader(io.MultiReader(bytes.NewReader(header[:]), src), false)
 	for item := range pipe.TracesPipeReader(ctx, reader) {
 		if !item.Complete {
 			continue // a truncated tail chunk is never indexed

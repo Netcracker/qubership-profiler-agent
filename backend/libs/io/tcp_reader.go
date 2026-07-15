@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/common"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 )
 
 type (
@@ -77,6 +80,16 @@ func (tr *TcpReader) ReadFixedString(ctx context.Context) (string, error) {
 	if tr.err != nil {
 		return "", tr.err
 	}
+	// The agent's FieldIOReader.Field rejects any field longer than
+	// DATA_BUFFER_SIZE, so a length past that ceiling is a malformed or hostile
+	// client. Refuse it instead of make()-ing up to 4 GiB from one wire number;
+	// the caller replies ACK_ERROR_MAGIC and closes (06 §2, №13).
+	if length > model.DataBufferSize {
+		tr.err = fmt.Errorf("fixed-string length %d exceeds max %d at pos %d",
+			length, model.DataBufferSize, tr.pos)
+		tr.eof = true
+		return "", tr.err
+	}
 	data := make([]byte, length)
 	tr.read(ctx, data)
 	return string(data), tr.err
@@ -89,10 +102,12 @@ func (tr *TcpReader) readLen(ctx context.Context) uint32 {
 }
 
 func (tr *TcpReader) readChar(ctx context.Context) string {
-	var op int16
+	var op uint16
 	tr.read(ctx, &op)
-	//return string(op)
-	return string(rune(op))
+	// One UTF-16 code unit, decoded like the agent's DataInputStreamEx.readChar.
+	// A lone surrogate half decodes to U+FFFD here; callers that read whole
+	// strings collect the units and decode the run so pairs reassemble.
+	return string(utf16.Decode([]uint16{op}))
 }
 
 func (tr *TcpReader) read(ctx context.Context, o interface{}) {

@@ -56,6 +56,14 @@ jobs:
         # language=bash
         run: make apps-test
 
+      # libs-test compiles and runs every package under the backend module
+      # root (backend/libs/**), which `make apps-test` never touches. Legacy
+      # parser/generator tests that depend on uncommitted captured fixtures
+      # skip themselves on a clean checkout (see WORKFLOW.md §6).
+      - name: libs-test
+        # language=bash
+        run: go test ./...
+
       - name: tools-build
         # language=bash
         run: make tools-build

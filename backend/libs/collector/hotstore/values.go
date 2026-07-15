@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/pkg/errors"
@@ -152,10 +153,12 @@ func readVarString(r io.Reader) (string, int64, error) {
 		return "", consumed, errors.Wrap(err, "read var-string chars")
 	}
 	consumed += int64(len(raw))
-	value := make([]rune, n)
-	for i := range value {
-		// The agent writes 2-byte chars; mirror the pipe reader's readChar.
-		value[i] = rune(int16(binary.BigEndian.Uint16(raw[2*i:])))
+	// The agent writes each char as one UTF-16 code unit; decode the run as a
+	// whole so surrogate pairs reassemble into full runes (mirror
+	// PipeReader.ReadVarString, not a signed per-char cast).
+	units := make([]uint16, n)
+	for i := range units {
+		units[i] = binary.BigEndian.Uint16(raw[2*i:])
 	}
-	return string(value), consumed, nil
+	return string(utf16.Decode(units)), consumed, nil
 }

@@ -152,6 +152,44 @@ func TestPrepareTcpReader(t *testing.T) {
 	})
 }
 
+// TestReadFixedStringLengthCap pins №13: a length prefix past the agent's
+// DATA_BUFFER_SIZE ceiling must be rejected with an error, never allocated. A
+// naive make([]byte, length) would try to reserve up to 4 GiB from one
+// wire-supplied number, so the guard must fire before the allocation.
+func TestReadFixedStringLengthCap(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("oversized length prefix errors, not OOM", func(t *testing.T) {
+		// A 4-byte big-endian length of 0xFFFFFFFF, then no payload: a hostile
+		// client. The reader must refuse before make().
+		buf := bytes.NewReader([]byte{0xFF, 0xFF, 0xFF, 0xFF})
+		tr := PrepareTcpReader(buf)
+		got, err := tr.ReadFixedString(ctx)
+		assert.Error(t, err, "a length past the cap is refused")
+		assert.Empty(t, got)
+		assert.True(t, tr.EOF(), "the reader is done after a length-cap breach")
+	})
+
+	t.Run("length at the cap is accepted", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("x"), 1024) // DATA_BUFFER_SIZE
+		var b bytes.Buffer
+		b.Write([]byte{0x00, 0x00, 0x04, 0x00}) // length 1024
+		b.Write(payload)
+		tr := PrepareTcpReader(&b)
+		got, err := tr.ReadFixedString(ctx)
+		assert.NoError(t, err)
+		assert.Len(t, got, 1024)
+	})
+
+	t.Run("length one past the cap is refused", func(t *testing.T) {
+		var b bytes.Buffer
+		b.Write([]byte{0x00, 0x00, 0x04, 0x01}) // length 1025
+		tr := PrepareTcpReader(&b)
+		_, err := tr.ReadFixedString(ctx)
+		assert.Error(t, err)
+	})
+}
+
 func prepareChannel(t *testing.T) (*TcpWriter, *TcpReader) {
 	buf := &bytes.Buffer{}
 	tw := PrepareTcpWriter(buf)

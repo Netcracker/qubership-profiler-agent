@@ -24,6 +24,7 @@ func (m *MinioClient) ListObjects(ctx context.Context) ([]*minio.ObjectInfo, err
 	for object := range objectCh {
 		if object.Err != nil {
 			log.Error(ctx, object.Err, "[%s] couldn't get the list of objects", bucketName)
+			ObserveError(operationTypeList)
 			return nil, object.Err
 		}
 		objects = append(objects, common.Ref(object))
@@ -48,6 +49,7 @@ func (m *MinioClient) ListObjectsWithPrefix(ctx context.Context, prefix string) 
 	for object := range objectCh {
 		if object.Err != nil {
 			log.Error(ctx, object.Err, "[%s] couldn't get the list of objects with prefix %s", bucketName, prefix)
+			ObserveError(operationTypeList)
 			return nil, object.Err
 		}
 		objects = append(objects, common.Ref(object))
@@ -68,30 +70,35 @@ func (m *MinioClient) GetObject(ctx context.Context, objectName, localPath strin
 	object, err := m.Client.GetObject(ctx, bucketName, objectName, opts)
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't get object [%s]", bucketName, objectName)
+		ObserveError(operationTypeGet)
 		return err
 	}
 	defer object.Close()
 
 	if err := os.MkdirAll(localPath, 0700); err != nil && !os.IsExist(err) {
 		log.Error(ctx, err, "[%s] couldn't create local directory '%s'", bucketName, localPath)
+		ObserveError(operationTypeGet)
 		return err
 	}
 
 	localFile, err := os.Create(fmt.Sprintf("%s/%s", localPath, objectName))
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't open local file '%s' for object [%s/%s]", bucketName, localFile, objectName)
+		ObserveError(operationTypeGet)
 		return err
 	}
 	defer localFile.Close()
 
 	if _, err = io.Copy(localFile, object); err != nil {
 		log.Error(ctx, err, "[%s] couldn't save local file '%s' for object [%s/%s]", bucketName, localFile, objectName)
+		ObserveError(operationTypeGet)
 		return err
 	}
 
 	fstat, err := localFile.Stat()
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't get stat for local file '%s'", bucketName, localFile)
+		ObserveError(operationTypeGet)
 		return err
 	}
 
@@ -109,6 +116,7 @@ func (m *MinioClient) PutObject(ctx context.Context, filename, objectName string
 	object, err := os.Open(filename)
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't open file '%s'", bucketName, filename)
+		ObserveError(operationTypePut)
 		return nil, err
 	}
 	defer object.Close()
@@ -116,6 +124,7 @@ func (m *MinioClient) PutObject(ctx context.Context, filename, objectName string
 	objectStat, err := object.Stat()
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't get stat for file '%s'", bucketName, filename)
+		ObserveError(operationTypePut)
 		return nil, err
 	}
 
@@ -124,6 +133,7 @@ func (m *MinioClient) PutObject(ctx context.Context, filename, objectName string
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't upload file '%s' [%d bytes] as object '%s'",
 			bucketName, filename, objectStat.Size(), objectName)
+		ObserveError(operationTypePut)
 		return nil, err
 	}
 
@@ -146,6 +156,7 @@ func (m *MinioClient) RemoveObject(ctx context.Context, objectName, versionId st
 	err := m.Client.RemoveObject(ctx, bucketName, objectName, opts)
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't remove object [%s]", bucketName, objectName)
+		ObserveError(operationTypeRemove)
 		return err
 	}
 
@@ -173,6 +184,7 @@ func (m *MinioClient) RemoveObjects(ctx context.Context, objList []*minio.Object
 	for obj := range removeObjCh {
 		if obj.Err != nil {
 			log.Error(ctx, obj.Err, "[%s] couldn't remove object [%s]", bucketName, obj.ObjectName)
+			ObserveError(operationTypeRemoveMany)
 			errs[obj.ObjectName] = obj.Err
 		} else {
 			successfulObjs--

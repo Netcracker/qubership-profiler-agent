@@ -12,9 +12,12 @@ import (
 )
 
 func TestSuspendOverlapMs(t *testing.T) {
+	// SuspendPause.TimeMs is the pause END (the agent timestamps a delay after
+	// detecting it; the reference SuspendLog builds start = date − delay), so
+	// each pause spans [TimeMs − DurationMs, TimeMs] (№4).
 	pauses := []SuspendPause{
-		{TimeMs: 150, DurationMs: 30}, // [150, 180)
-		{TimeMs: 300, DurationMs: 20}, // [300, 320)
+		{TimeMs: 180, DurationMs: 30}, // [150, 180)
+		{TimeMs: 320, DurationMs: 20}, // [300, 320)
 	}
 	for _, tc := range []struct {
 		name       string
@@ -24,15 +27,43 @@ func TestSuspendOverlapMs(t *testing.T) {
 	}{
 		{"no overlap before", 10, 50, 0},
 		{"call covers both pauses", 100, 400, 50},
-		{"partial head", 160, 10, 10},
-		{"partial tail", 100, 60, 10},
+		{"partial head", 160, 10, 10}, // [160,170) ∩ [150,180) = 10
+		{"partial tail", 100, 60, 10}, // [100,160) ∩ [150,180) = 10
 		{"between pauses", 200, 50, 0},
-		{"call inside a pause", 155, 10, 10},
+		{"call inside a pause", 155, 10, 10}, // [155,165) ⊂ [150,180)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, suspendOverlapMs(pauses, tc.tsMs, tc.durationMs))
 		})
 	}
+}
+
+// TestSuspendOverlapMsInversion is the №4 invariant: a call ending exactly when
+// a pause ends must see the full pause. The agent records the pause end, so a
+// pause {end: 10000, duration: 500} spans [9500, 10000]; a call [9500, 10000]
+// fully overlaps it. The old START-based reader built [10000, 10500] and scored
+// 0, attributing the pause to the NEXT call instead.
+func TestSuspendOverlapMsInversion(t *testing.T) {
+	assert.Equal(t, 500, suspendOverlapMs([]SuspendPause{{TimeMs: 10000, DurationMs: 500}}, 9500, 500))
+}
+
+func TestSuspendOverlapMsNormalizesOverlap(t *testing.T) {
+	// Two pauses ending at 30 and 40 with duration 20 span [10,30) and [20,40);
+	// together they cover [10,40) = 30 ms of wall clock, not the raw sum of 40.
+	// normalizeSuspendPauses folds them before suspendOverlapMs intersects, so
+	// duplicated or overlapping suspend.wal records (recovery replay, agent
+	// hiccups) cannot inflate suspend_ms.
+	raw := []SuspendPause{{TimeMs: 40, DurationMs: 20}, {TimeMs: 30, DurationMs: 20}}
+
+	norm := normalizeSuspendPauses(raw)
+	require.Len(t, norm, 1)
+	// The merged pause spans [10,40): end 40, duration 30.
+	assert.Equal(t, SuspendPause{TimeMs: 40, DurationMs: 30}, norm[0])
+
+	// A 50 ms call covering the whole window sees 30 ms once normalized...
+	assert.Equal(t, 30, suspendOverlapMs(norm, 0, 50))
+	// ...whereas the un-normalized input double-counts the [20,30) overlap.
+	assert.Equal(t, 40, suspendOverlapMs(raw, 0, 50))
 }
 
 func TestBlobBufferSpill(t *testing.T) {

@@ -10,7 +10,9 @@ package calltree
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sort"
+	"unicode/utf16"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/pipe"
 	"github.com/pkg/errors"
@@ -170,18 +172,25 @@ func Build(blob []byte, recordIndex int, opts Options) (*Tree, error) {
 // pauses, so overlapMs can binary-search and never double-counts. The input
 // is not mutated; agent pauses are already sorted and disjoint in practice,
 // making this a cheap copy.
+//
+// SuspendInterval.TimeMs is the pause END (the agent timestamps a delay after
+// detecting it; the reference SuspendLog builds start = date − delay), so a
+// pause spans [TimeMs − DurationMs, TimeMs]. The merge keys off that start and
+// keeps the (end, duration) representation (№4).
 func normalizeSuspend(pauses []SuspendInterval) []SuspendInterval {
 	if len(pauses) == 0 {
 		return nil
 	}
 	sorted := append([]SuspendInterval(nil), pauses...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].TimeMs < sorted[j].TimeMs })
+	start := func(p SuspendInterval) int64 { return p.TimeMs - p.DurationMs }
+	sort.Slice(sorted, func(i, j int) bool { return start(sorted[i]) < start(sorted[j]) })
 	out := sorted[:1]
 	for _, p := range sorted[1:] {
 		last := &out[len(out)-1]
-		if p.TimeMs <= last.TimeMs+last.DurationMs {
-			if end := p.TimeMs + p.DurationMs; end > last.TimeMs+last.DurationMs {
-				last.DurationMs = end - last.TimeMs
+		if start(p) <= last.TimeMs { // p starts before or as the previous pause ends
+			if p.TimeMs > last.TimeMs { // extend the merged end, keeping the earlier start
+				last.DurationMs = p.TimeMs - start(*last)
+				last.TimeMs = p.TimeMs
 			}
 			continue
 		}
@@ -192,22 +201,26 @@ func normalizeSuspend(pauses []SuspendInterval) []SuspendInterval {
 
 // overlapMs sums the intersection of [fromMs, toMs) with the normalized
 // timeline — the same arithmetic the seal pass applies to whole calls
-// (01 §5.1 step 4), here per invocation.
+// (01 §5.1 step 4), here per invocation. Each pause spans
+// [TimeMs − DurationMs, TimeMs] (TimeMs is the pause end).
 func overlapMs(pauses []SuspendInterval, fromMs, toMs int64) int64 {
+	// A normalized timeline is sorted by start; find the first pause whose end
+	// is past fromMs (earlier pauses cannot intersect [fromMs, toMs)).
 	first := sort.Search(len(pauses), func(i int) bool {
-		return pauses[i].TimeMs+pauses[i].DurationMs > fromMs
+		return pauses[i].TimeMs > fromMs
 	})
 	total := int64(0)
 	for _, p := range pauses[first:] {
-		if p.TimeMs >= toMs {
+		start := p.TimeMs - p.DurationMs
+		if start >= toMs {
 			break
 		}
 		lo, hi := fromMs, toMs
-		if p.TimeMs > lo {
-			lo = p.TimeMs
+		if start > lo {
+			lo = start
 		}
-		if end := p.TimeMs + p.DurationMs; end < hi {
-			hi = end
+		if p.TimeMs < hi {
+			hi = p.TimeMs
 		}
 		if hi > lo {
 			total += hi - lo
@@ -425,6 +438,12 @@ func (w *callWalk) chunk(chunk []byte, timerStart int64, firstChunk bool) (int, 
 		if n <= 0 {
 			return 0, errors.Errorf("torn varint at chunk offset %d", pos)
 		}
+		// A corrupt blob can encode a length/ref above MaxInt64; the int64 cast
+		// would wrap negative and defeat every downstream bounds check (a
+		// negative make() panics). Reject it here so no caller sees a negative.
+		if v > math.MaxInt64 {
+			return 0, errors.Errorf("varint at chunk offset %d overflows int64", pos)
+		}
 		pos += n
 		return int64(v), nil
 	}
@@ -470,16 +489,22 @@ func (w *callWalk) chunk(chunk []byte, timerStart int64, firstChunk bool) (int, 
 				if err != nil {
 					return pos, err
 				}
-				if pos+2*int(runes) > len(chunk) {
+				// Each rune is 2 bytes in the chunk, so a valid count cannot
+				// exceed the remaining bytes / 2. Checking against that budget
+				// (rather than pos+2*runes) also avoids overflowing the multiply
+				// before make() sees the count.
+				if runes > int64(len(chunk)-pos)/2 {
 					return pos, errors.New("torn tag string value")
 				}
-				value := make([]rune, runes)
-				for i := range value {
-					// The agent writes 2-byte chars; mirror the pipe reader.
-					value[i] = rune(int16(binary.BigEndian.Uint16(chunk[pos+2*i:])))
+				// The agent writes each char as one UTF-16 code unit; decode the
+				// run as a whole so surrogate pairs reassemble into full runes
+				// (mirror PipeReader.ReadVarString, not a signed per-char cast).
+				units := make([]uint16, runes)
+				for i := range units {
+					units[i] = binary.BigEndian.Uint16(chunk[pos+2*i:])
 				}
 				pos += 2 * int(runes)
-				ev.value = string(value)
+				ev.value = string(utf16.Decode(units))
 			case pipe.ParamBig, pipe.ParamBigDedup:
 				seq, err := uvarint()
 				if err != nil {

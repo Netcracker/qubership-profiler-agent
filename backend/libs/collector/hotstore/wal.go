@@ -17,6 +17,11 @@ import (
 // first), and a CRC32 footer written on clean close. A zero-length record
 // marks the footer, so replay can tell a footer from a truncated tail; the
 // contract does not pin the footer bytes.
+//
+// Every record carries its own trailing CRC32 (over the length prefix and the
+// body), so replay detects mid-file corruption on every read, not only on a
+// clean footer (№26). A record whose CRC does not match is treated as the
+// start of a torn tail.
 type Wal struct {
 	mu   sync.Mutex
 	f    *os.File
@@ -57,15 +62,16 @@ func (w *Wal) Append(body []byte) (offset int64, err error) {
 	offset = w.size
 	var lenBuf [binary.MaxVarintLen64]byte
 	n := binary.PutUvarint(lenBuf[:], uint64(len(body)))
-	if _, err = w.f.Write(lenBuf[:n]); err != nil {
-		return 0, errors.Wrap(err, "wal append")
+	recCrc := crc32.Update(crc32.Checksum(lenBuf[:n], crc32.IEEETable), crc32.IEEETable, body)
+	var crcBuf [4]byte
+	binary.BigEndian.PutUint32(crcBuf[:], recCrc)
+	for _, part := range [][]byte{lenBuf[:n], body, crcBuf[:]} {
+		if _, err = w.f.Write(part); err != nil {
+			return 0, errors.Wrap(err, "wal append")
+		}
+		w.crc = crc32.Update(w.crc, crc32.IEEETable, part)
 	}
-	if _, err = w.f.Write(body); err != nil {
-		return 0, errors.Wrap(err, "wal append")
-	}
-	w.crc = crc32.Update(w.crc, crc32.IEEETable, lenBuf[:n])
-	w.crc = crc32.Update(w.crc, crc32.IEEETable, body)
-	w.size += int64(n + len(body))
+	w.size += int64(n + len(body) + 4)
 
 	w.unsynced++
 	if w.unsynced >= w.fsyncRecords || time.Since(w.lastSync) >= w.fsyncInterval {
@@ -120,8 +126,10 @@ func (w *Wal) Close() error {
 // ReplayWal reads records from the WAL at path, calling apply for each with
 // its offset and body. A structurally invalid tail — a torn record from a
 // crash — is truncated in place and replay succeeds with what precedes it; a
-// present-but-mismatching CRC footer fails the replay (01-write-contract.md
-// §3.2). clean reports whether a verified footer was found.
+// record whose own CRC32 mismatches is treated the same way (№26: mid-file
+// corruption cannot silently replay). A present-but-mismatching CRC footer
+// fails the replay (01-write-contract.md §3.2). clean reports whether a
+// verified footer was found.
 func ReplayWal(path string, apply func(offset int64, body []byte) error) (clean bool, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -146,11 +154,16 @@ func ReplayWal(path string, apply func(offset int64, body []byte) error) (clean 
 			}
 			return true, nil
 		}
-		end := pos + n + int(recLen)
+		bodyEnd := pos + n + int(recLen)
+		end := bodyEnd + 4
 		if recLen > uint64(len(data)) || end > len(data) {
-			break // torn record body at the tail
+			break // torn record body or CRC at the tail
 		}
-		if err := apply(int64(pos), data[pos+n:end]); err != nil {
+		stored := binary.BigEndian.Uint32(data[bodyEnd:end])
+		if stored != crc32.Checksum(data[pos:bodyEnd], crc32.IEEETable) {
+			break // corrupt record: everything from here on is untrusted
+		}
+		if err := apply(int64(pos), data[pos+n:bodyEnd]); err != nil {
 			return false, err
 		}
 		crc = crc32.Update(crc, crc32.IEEETable, data[pos:end])
@@ -164,6 +177,38 @@ func ReplayWal(path string, apply func(offset int64, body []byte) error) (clean 
 		}
 	}
 	return false, nil
+}
+
+// walFooterSize is the clean-close footer: a zero varint plus the 4-byte CRC32.
+const walFooterSize = 1 + 4
+
+// ReadWalRecordAt reads the one record starting at offset via positioned reads,
+// without touching the rest of the file — the seal pass reads only the records
+// its index rows point at instead of re-reading the whole WAL per bucket (№9).
+// The record's own CRC32 is verified (№26). read reports the bytes fetched.
+func ReadWalRecordAt(r io.ReaderAt, offset int64) (body []byte, read int64, err error) {
+	var hdr [binary.MaxVarintLen64]byte
+	hn, err := r.ReadAt(hdr[:], offset)
+	if hn == 0 && err != nil {
+		return nil, 0, errors.Wrapf(err, "wal record at %d", offset)
+	}
+	recLen, n := binary.Uvarint(hdr[:hn])
+	if n <= 0 {
+		return nil, int64(hn), errors.Errorf("wal record at %d: torn length varint", offset)
+	}
+	if recLen == 0 {
+		return nil, int64(hn), errors.Errorf("wal record at %d: offset points at the footer", offset)
+	}
+	buf := make([]byte, int(recLen)+4)
+	if _, err := io.ReadFull(io.NewSectionReader(r, offset+int64(n), int64(len(buf))), buf); err != nil {
+		return nil, int64(hn), errors.Wrapf(err, "wal record at %d: torn body", offset)
+	}
+	crc := crc32.Update(crc32.Checksum(hdr[:n], crc32.IEEETable), crc32.IEEETable, buf[:recLen])
+	if stored := binary.BigEndian.Uint32(buf[recLen:]); stored != crc {
+		return nil, int64(hn) + int64(len(buf)), errors.Errorf(
+			"wal record at %d: CRC mismatch: stored %08x, computed %08x", offset, stored, crc)
+	}
+	return buf[:recLen], int64(hn) + int64(len(buf)), nil
 }
 
 var _ io.Closer = (*Wal)(nil)

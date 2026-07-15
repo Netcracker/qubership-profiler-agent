@@ -1,6 +1,7 @@
 package calltree
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -126,6 +127,27 @@ func TestDecodeSkipsUnknownFields(t *testing.T) {
 	assert.Equal(t, int64(7), tree.Root.DurationMs)
 	assert.Equal(t, int64(3), tree.Root.SelfExecutions)
 	assert.Equal(t, []string{"m"}, tree.Methods)
+}
+
+func TestDecodeRejectsIntOverflow(t *testing.T) {
+	// int() reads any msgpack integer as int64. A uint64 past MaxInt64 (0xcf +
+	// eight bytes) must be rejected, not wrapped negative and re-emitted.
+	d := &decoder{data: []byte{0xcf, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}
+	_, err := d.int()
+	require.Error(t, err)
+
+	// The MaxInt64 boundary still decodes exactly.
+	ok := &decoder{data: []byte{0xcf, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}
+	v, err := ok.int()
+	require.NoError(t, err)
+	assert.Equal(t, int64(math.MaxInt64), v)
+}
+
+func TestDecodeRejectsTrailingBytes(t *testing.T) {
+	// One envelope per frame: a valid tree followed by any extra byte is a
+	// framing error, not a success that silently ignores the tail.
+	_, _, err := Decode(append(Encode(sampleTree()), 0x00))
+	require.Error(t, err)
 }
 
 // FuzzDecode pins the decoder's failure mode on corrupted payloads: an error,

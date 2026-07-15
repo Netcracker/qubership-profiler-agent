@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/common"
@@ -30,6 +31,9 @@ type (
 
 		conn       net.Conn
 		acceptedAt time.Time
+		// closed makes Close idempotent: the handler's deferred Close and a
+		// shutdown-driven Service.Stop race for the same socket.
+		closed atomic.Bool
 
 		socketReader *io.TcpReader
 		socketWriter *io.TcpWriter
@@ -45,6 +49,16 @@ type (
 )
 
 func (sc *ConnectionHandler) Handle() {
+	// One misbehaving connection must never take the whole collector down. A
+	// decoder or handler panic (a nil deref, a bad index) is contained here:
+	// log it, then fall through to the deferred Close so only this connection
+	// dies while every other agent keeps streaming (№5 backstop).
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error(sc.ctx, fmt.Errorf("panic: %v", r),
+				"connection handler recovered from a panic; closing this connection")
+		}
+	}()
 	defer func() {
 		_ = sc.Close()
 		// The TCP connection IS the pod-restart: once it drops, the agent
@@ -92,8 +106,6 @@ func (sc *ConnectionHandler) HandleCommand(ctx context.Context) (err error) {
 	case model.COMMAND_REQUEST_ACK_FLUSH:
 		err = sc.CommandAckFlush(ctx)
 		break
-	case model.COMMAND_SKIP:
-		break // do nothing
 	case model.COMMAND_CLOSE:
 		log.Debug(ctx, " * command close [%v] ", op)
 		err = errAgentClosed
@@ -174,7 +186,11 @@ func (sc *ConnectionHandler) CommandGetProtocolVersion(ctx context.Context) (err
 		return
 	}
 
-	sc.pod = &ConnectedPod{Uuid: common.RandomUuid(), Namespace: namespace, Service: service, PodName: podName,
+	podUuid, err := common.RandomUuidChecked()
+	if err != nil {
+		return errors.Wrap(err, "generate pod uuid")
+	}
+	sc.pod = &ConnectedPod{Uuid: podUuid, Namespace: namespace, Service: service, PodName: podName,
 		RestartTimeMs: sc.acceptedAt.UnixMilli()}
 	if err = sc.listener.RegisterPod(sc.pod); err != nil {
 		// No ack protocol exists at handshake time; closing the socket makes
@@ -190,6 +206,13 @@ func (sc *ConnectionHandler) CommandGetProtocolVersion(ctx context.Context) (err
 
 func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) {
 	log.Debug(sc.ctx, "Receiving COMMAND_INIT_STREAM_V2")
+	// The handshake sets sc.pod; without it the listener has no pod-restart to
+	// register a stream against, and AppendData below would deref a nil pod and
+	// crash the whole collector. Refuse the out-of-order command (№5).
+	if sc.pod == nil {
+		_ = sc.writeAck(ctx, model.ACK_ERROR_MAGIC, true)
+		return errors.New("INIT_STREAM_V2 before the GET_PROTOCOL_VERSION handshake")
+	}
 	// req
 	var streamType string
 	streamType, err = sc.socketReader.ReadFixedString(ctx)
@@ -216,9 +239,16 @@ func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) 
 	}
 
 	// The collector owns the handle and the rotation policy (06 §4). The handle
-	// must be non-nil and stable: the agent keys every RCV_DATA by it. The
-	// rolling sequence echoes the agent's request; a reset restarts from it.
-	handleId := common.RandomUuid()
+	// must be non-nil and stable: the agent keys every RCV_DATA by it. A zero
+	// handle is read as the null UUID and drives the agent into a reconnect
+	// loop, so surface a crypto/rand failure rather than emit one (wire-LOW).
+	// The rolling sequence echoes the agent's request; a reset restarts from it.
+	handleId, err := common.RandomUuidChecked()
+	if err != nil {
+		_ = sc.socketWriter.WriteUuid(ctx, common.Uuid{})
+		_ = sc.socketWriter.Flush()
+		return errors.Wrap(err, "generate stream handle")
+	}
 	rotationPeriod := sc.opts.RotationPeriod
 	requiredRotationSize := sc.opts.RequiredRotationSize
 	if requiredRotationSize == 0 {
@@ -260,6 +290,13 @@ func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) 
 
 func (sc *ConnectionHandler) CommandRcvData(ctx context.Context) (err error) {
 	log.Trace(sc.ctx, "Receiving COMMAND_RCV_DATA")
+	// A pre-handshake RCV_DATA has no registered pod-restart; routing it would
+	// deref a nil sc.pod inside the listener and crash the collector. Signal the
+	// agent to reconnect from a clean handshake instead (№5).
+	if sc.pod == nil {
+		_ = sc.writeAck(ctx, model.ACK_ERROR_MAGIC, true)
+		return errors.New("RCV_DATA before the GET_PROTOCOL_VERSION handshake")
+	}
 	var handleId common.Uuid
 	handleId, err = sc.socketReader.ReadUuid(ctx)
 	if err != nil {
@@ -403,6 +440,9 @@ func (sc *ConnectionHandler) Write(data []byte) (n int, err error) {
 }
 
 func (sc *ConnectionHandler) Close() (err error) {
+	if sc.closed.Swap(true) {
+		return nil // already closed by the other side of the Stop/Handle race
+	}
 	if sc.conn != nil {
 		err = sc.conn.Close()
 		if err != nil {

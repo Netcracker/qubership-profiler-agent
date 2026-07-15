@@ -34,6 +34,8 @@ Every command the agent can send, what the collector reads, what it writes back,
 
 The collector must reject any other command byte: log it, write `ACK_ERROR_MAGIC`, and close (§6). A silent skip corrupts stream framing, because the next byte is a field of the unknown command, not a new command.
 
+There is **no `0x00` command.** `ProtocolConst.java` defines no `COMMAND_SKIP`, and no agent emits a `0x00` byte, so the collector treats a leading `0x00` as an unknown command — `ACK_ERROR_MAGIC` + close — rather than swallowing it. Swallowing it would desynchronise the framing exactly as any other silent skip does.
+
 ## 3. Handshake — respond `PROTOCOL_VERSION_V2`, never `V3`
 
 The agent opens every connection with `GET_PROTOCOL_VERSION_V2`, sending its own version `PROTOCOL_VERSION_V3` = `100705` (`DefaultCollectorClient.java:134-139`). The reply selects the dictionary wire format for the rest of the connection:
@@ -94,9 +96,16 @@ The collector signals an unrecoverable condition with `ACK_ERROR_MAGIC` = `-1` a
 
 Reconnect is always a fresh pod-restart on the collector side: a new TCP accept, a new `restartTime`, a full dictionary re-sent by the agent with `resetRequired = 1` (`01-write-contract.md` §3.7). The collector therefore never needs to preserve per-connection state across a drop.
 
-## 7. Channel gzip
+## 7. Channel gzip — asymmetric: gunzip the request, never gzip the reply
 
-`ProtocolConst.ZIPPING_ENABLED` is `false` by default (`ProtocolConst.java:46`). When on, the whole multiplexed channel — commands, fields, and payloads — is one GZIP stream, so the collector must gunzip the socket before it can read a single command byte, and gzip its replies symmetrically (`DefaultCollectorClient.java:122-128`). The MVP targets the default (off); a gunzip/gzip wrapper around the socket is the only change needed if a deployment turns it on. Cross-reference: `01-write-contract.md` §1 and `backend/CLAUDE.md`.
+`ProtocolConst.ZIPPING_ENABLED` is `false` by default (`ProtocolConst.java`). When on, the agent gzips **only what it sends**: it wraps its output stream in a `GZIPOutputStream` but reads the collector's replies through a plain `BufferedInputStream`, never a `GZIPInputStream` (`DefaultCollectorClient.java:120-131`). The channel is therefore asymmetric — the agent-to-collector direction is one GZIP stream, the collector-to-agent direction is plain bytes.
+
+Two rules follow, and they are not symmetric:
+
+- **Gunzip the request stream.** With zipping on, the whole agent-to-collector direction — commands, fields, and payloads — is one GZIP stream, so the collector must gunzip the socket before it can read a single command byte. A gunzip wrapper around the read side is the only change needed to accept a zipping agent.
+- **Never gzip the reply stream.** The collector writes its handshake reply, stream handles, and ack bytes as plain bytes regardless of the request encoding. Gzipping the reply would break the unmodified agent, which reads replies without a `GZIPInputStream` — the handshake `readLong` would decode compressed bytes as a bogus version and drop the socket. Symmetric gzip is wrong here precisely because the agent is not symmetric.
+
+The MVP targets the default (off). Cross-reference: `01-write-contract.md` §1 and `backend/CLAUDE.md`.
 
 ## 8. Conformance of the `libs/server` implementation
 

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
 )
 
@@ -42,12 +43,12 @@ func (s *Store) HotWindowOldestMs() (int64, bool, error) {
 	return 0, false, nil
 }
 
-// CallsInWindow reads one partition's index rows with ts_ms in [fromMs, toMs).
-// Rows come back unordered: the caller applies the (ts_ms DESC, pk ASC) order
-// with the shared component-wise comparator — the scalar pod_restart string
-// does NOT collate like the PK components (02 §2.3.1).
-func (s *Store) CallsInWindow(bucket, fromMs, toMs int64) ([]CallIndexRow, error) {
-	return s.db.CallsInWindow(bucket, fromMs, toMs)
+// CallsPage reads one partition's rows with the query's filters pushed into
+// SQL and the result bounded to the top `limit` ts values plus the boundary
+// tie group, newest first (№15). Ties still need the caller's component-wise
+// sort — the scalar pod_restart string does not collate like the PK.
+func (s *Store) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, limit int) ([]CallIndexRow, error) {
+	return s.db.CallsPage(bucket, q, fromMs, toMs, limit)
 }
 
 // FindCall looks one call up by its PK across the partitions (/internal/v1

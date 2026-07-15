@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
+	"github.com/Netcracker/qubership-profiler-backend/libs/collector/ingest"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -38,6 +39,15 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 		func() int64 { return store.SealCountersSnapshot().Rows }, nil)
 	counter("seal", "files_total", "Parquet files produced by seal passes.",
 		func() int64 { return store.SealCountersSnapshot().Files }, nil)
+	counter("seal", "loop_errors_total",
+		"Failed seal passes (the loop logged and retried on the next tick). A sustained rate means sealing is wedged.",
+		func() int64 { return store.SealLoopErrors() }, nil)
+	counter("seal", "lost_big_values_total",
+		"Big-parameter values a seal could not resolve because their value segment was evicted or torn (№7); each loss truncates its row with disk_budget.",
+		func() int64 { return store.SealCountersSnapshot().LostBigValues }, nil)
+	counter("seal", "skipped_buckets_total",
+		"Pod-restart buckets a seal pass skipped after a failure (№8). Retried every pass; a sustained rate marks a poisoned bucket.",
+		func() int64 { return store.SealSkippedBuckets() }, nil)
 	for _, reason := range truncatedReasons {
 		reason := reason
 		counter("seal", "truncated_rows_total",
@@ -67,6 +77,13 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 			func(s hotstore.UploadStats) int64 { return s.ManifestPuts })
 		upload("swept_segments_total", "Refcount-0 segments unlinked by the post-upload sweep (03 §3.7 step 14).",
 			func(s hotstore.UploadStats) int64 { return s.SegmentsDeleted })
+		upload("requeued_files_total", "Quarantined parquet files re-queued by the slow re-test (№2).",
+			func(s hotstore.UploadStats) int64 { return s.RequeuedFiles })
+		upload("requeued_snapshots_total", "Quarantined snapshot uploads re-queued by the slow re-test (№2).",
+			func(s hotstore.UploadStats) int64 { return s.RequeuedSnapshots })
+		counter("upload", "loop_errors_total",
+			"Failed upload passes (whole-pass failures the loop retried), distinct from per-file put_failures_total.",
+			func() int64 { return uploader.LoopErrors() }, nil)
 	}
 
 	janitor := func(name, help string, value func(hotstore.JanitorStats) int64) {
@@ -83,6 +100,24 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 		func(s hotstore.JanitorStats) int64 { return s.SegmentsEvicted })
 	janitor("evicted_bytes_total", "Bytes freed by disk-budget evictions.",
 		func(s hotstore.JanitorStats) int64 { return s.EvictedBytes })
+	janitor("quarantine_dropped_total",
+		"Quarantined parquet files dropped by the age/size cap (№2) — bounded, logged data loss that unpins the WAL purge.",
+		func(s hotstore.JanitorStats) int64 { return s.QuarantineDropped })
+	janitor("snapshots_abandoned_total",
+		"Snapshot uploads abandoned past the quarantine age cap (№2), unblocking the pod-restart's WAL purge.",
+		func(s hotstore.JanitorStats) int64 { return s.SnapshotsAbandoned })
+	janitor("dicts_unloaded_total",
+		"Closed pod-restarts whose dictionary maps the mem budget unloaded (№1); they reload from the WAL on demand.",
+		func(s hotstore.JanitorStats) int64 { return s.DictionariesUnloaded })
+	janitor("chunk_indexes_released_total",
+		"Fully-sealed closed pod-restarts whose chunk index the mem budget released (№1); hot trace reads fall through to cold.",
+		func(s hotstore.JanitorStats) int64 { return s.ChunkIndexesReleased })
+	janitor("mem_pressure_seals_total",
+		"Pod-restart buckets early-sealed by the mem budget (01 §6.1 trigger 3) to unpin their chunk indexes.",
+		func(s hotstore.JanitorStats) int64 { return s.MemPressureSeals })
+	counter("janitor", "loop_errors_total",
+		"Failed janitor passes (the loop logged and retried on the next tick). A sustained rate means retention/eviction is wedged.",
+		func() int64 { return store.JanitorLoopErrors() }, nil)
 
 	gauge("hotstore", "segments_disk_bytes",
 		"On-disk bytes of the hot-store segment files, as of the last janitor pass.",
@@ -103,7 +138,105 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 			return time.Since(time.UnixMilli(oldest)).Seconds()
 		}, nil)
 
+	gauge("hotstore", "inram_bytes",
+		"In-RAM pod-restart state (dictionaries, chunk indexes, pause mirrors), as of the last janitor mem-budget step (№1).",
+		func() float64 { bytes, _ := store.MemUsage(); return float64(bytes) }, nil)
+	gauge("hotstore", "mem_budget_bytes",
+		"Configured in-RAM budget (PROFILER_MEM_BUDGET).",
+		func() float64 { _, budget := store.MemUsage(); return float64(budget) }, nil)
+	gauge("hotstore", "pending_parquet_bytes",
+		"Sealed parquet bytes not confirmed in S3 (pending + quarantined), as of the last backpressure refresh (№2).",
+		func() float64 { parquet, _, _ := store.PendingUploadUsage(); return float64(parquet) }, nil)
+	gauge("hotstore", "partitions_disk_bytes",
+		"On-disk bytes of the live call-index partitions, as of the last backpressure refresh (№2).",
+		func() float64 { _, partitions, _ := store.PendingUploadUsage(); return float64(partitions) }, nil)
+	gauge("hotstore", "pending_budget_bytes",
+		"Configured pending-upload budget (PROFILER_PENDING_UPLOAD_MAX_BYTES): sealing pauses once pending parquet reaches half of it, ingest once the whole backlog reaches it.",
+		func() float64 { _, _, budget := store.PendingUploadUsage(); return float64(budget) }, nil)
+	gauge("backpressure", "seal_paused",
+		"1 while the seal loop is paused by the pending-upload budget (№2).",
+		func() float64 { return boolGauge(store.SealPaused()) }, nil)
+	gauge("backpressure", "ingest_paused",
+		"1 while ingest refuses agent data under the pending-upload budget (№2); the agent buffers and retries.",
+		func() float64 { return boolGauge(store.IngestPaused()) }, nil)
+
+	gauge("store", "pods_size",
+		"Pod-restarts the hot store tracks in RAM. The mem budget (№1) bounds each entry's footprint; the entry itself lives until the WAL purge, so sustained growth past the purge horizon still signals a leak.",
+		func() float64 { return float64(store.PodsSize()) }, nil)
+
+	gauge("seal", "queue_depth",
+		"Pod-restart buckets waiting to be sealed, as of the last SealDue pass. Grows while backpressure pauses sealing (№2).",
+		func() float64 { return float64(store.SealQueueDepth()) }, nil)
+
 	reg.MustRegister(&quarantineCollector{store: store})
+	reg.MustRegister(&backlogCollector{store: store})
+}
+
+func boolGauge(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// RegisterIngest wires the agent-ingest counters (№21) onto the same registry.
+// Every value reads an atomic snapshot at scrape time — no lock is held. These
+// replace the no-op metric stubs the ingest listener carried before.
+func RegisterIngest(reg prometheus.Registerer, listener *ingest.Listener) {
+	if listener == nil {
+		return
+	}
+	counter := func(name, help string, value func(ingest.IngestStats) int64) {
+		reg.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+			Namespace: namespace, Subsystem: "ingest", Name: name, Help: help,
+		}, func() float64 { return float64(value(listener.IngestStatsSnapshot())) }))
+	}
+	counter("commands_total", "Agent commands dispatched to the ingest listener.",
+		func(s ingest.IngestStats) int64 { return int64(s.CommandsReceived) })
+	counter("command_errors_total", "Agent commands the listener failed (unknown command, decode error, pre-handshake data).",
+		func(s ingest.IngestStats) int64 { return int64(s.CommandErrors) })
+	counter("bytes_total", "RCV_DATA payload bytes routed into stream files.",
+		func(s ingest.IngestStats) int64 { return int64(s.BytesRead) })
+	counter("decoder_errors_total", "Streams a decoder rejected as malformed or gzip-wrapped; the agent resends from scratch (06 §6).",
+		func(s ingest.IngestStats) int64 { return int64(s.DecoderErrors) })
+}
+
+// backlogCollector emits the upload-backlog gauges from ONE UploadBacklog read
+// per scrape (a single COUNT/MIN query), instead of one query per series.
+type backlogCollector struct {
+	store *hotstore.Store
+}
+
+var (
+	uploadBacklogDesc = prometheus.NewDesc(
+		namespace+"_upload_backlog",
+		"Sealed parquet files still owed to S3 (uploaded_at IS NULL, not quarantined). Sustained growth means the upload loop cannot keep up.",
+		nil, nil)
+	uploadLagDesc = prometheus.NewDesc(
+		namespace+"_upload_lag_seconds",
+		"Age of the oldest pending upload (now - sealed_at); 0 when the queue is empty.",
+		nil, nil)
+)
+
+func (c *backlogCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- uploadBacklogDesc
+	ch <- uploadLagDesc
+}
+
+func (c *backlogCollector) Collect(ch chan<- prometheus.Metric) {
+	count, oldestSealedMs, err := c.store.UploadBacklog()
+	if err != nil {
+		// Emit nothing rather than a fake zero: an absent series marks a broken
+		// read, a zero would silently clear a backlog alert.
+		log.Error(context.Background(), err, "metrics: cannot read upload backlog")
+		return
+	}
+	ch <- prometheus.MustNewConstMetric(uploadBacklogDesc, prometheus.GaugeValue, float64(count))
+	lag := 0.0
+	if oldestSealedMs != nil {
+		lag = time.Since(time.UnixMilli(*oldestSealedMs)).Seconds()
+	}
+	ch <- prometheus.MustNewConstMetric(uploadLagDesc, prometheus.GaugeValue, lag)
 }
 
 // quarantineCollector emits the four stuck-quarantine gauges from ONE
@@ -122,11 +255,16 @@ var (
 		namespace+"_hotstore_quarantine_oldest_age_seconds",
 		"Age of the oldest quarantined object of each kind; 0 when the kind is empty.",
 		[]string{"kind"}, nil)
+	quarantineSizeDesc = prometheus.NewDesc(
+		namespace+"_quarantine_size",
+		"Total objects stuck in quarantine across all kinds (parquet + snapshot). A single non-zero alerting signal over the per-kind breakdown.",
+		nil, nil)
 )
 
 func (c *quarantineCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- quarantineObjectsDesc
 	ch <- quarantineAgeDesc
+	ch <- quarantineSizeDesc
 }
 
 func (c *quarantineCollector) Collect(ch chan<- prometheus.Metric) {
@@ -151,4 +289,6 @@ func (c *quarantineCollector) Collect(ch chan<- prometheus.Metric) {
 		float64(stats.SnapshotCount), "snapshot")
 	ch <- prometheus.MustNewConstMetric(quarantineAgeDesc, prometheus.GaugeValue,
 		age(stats.SnapshotOldestMs), "snapshot")
+	ch <- prometheus.MustNewConstMetric(quarantineSizeDesc, prometheus.GaugeValue,
+		float64(stats.ParquetCount+stats.SnapshotCount))
 }

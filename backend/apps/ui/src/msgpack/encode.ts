@@ -93,6 +93,24 @@ function writeInt(w: Writer, v: number): void {
   return w.u64(BigInt.asUintN(64, BigInt(v)));
 }
 
+// writeBigInt emits a full 64-bit integer, the inverse of the decoder's
+// bigint path (decode.ts narrowInt). It exists so tests and the mock can carry
+// a value outside the safe JS range — an unknown field the UI must skip per
+// §2.5.1 — which writeInt refuses.
+function writeBigInt(w: Writer, v: bigint): void {
+  const MIN = -(2n ** 63n);
+  const MAX = 2n ** 64n - 1n;
+  if (v < MIN || v > MAX) {
+    throw new Error(`cannot encode ${v} as a 64-bit MessagePack integer`);
+  }
+  if (v >= 0n) {
+    w.byte(0xcf);
+    return w.u64(v);
+  }
+  w.byte(0xd3);
+  return w.u64(BigInt.asUintN(64, v));
+}
+
 function writeString(w: Writer, s: string): void {
   const bs = utf8.encode(s);
   if (bs.length <= 31) {
@@ -151,6 +169,7 @@ function writeBin(w: Writer, bs: Uint8Array): void {
 function writeValue(w: Writer, v: MsgValue): void {
   if (v === null) return w.byte(0xc0);
   if (typeof v === 'boolean') return w.byte(v ? 0xc3 : 0xc2);
+  if (typeof v === 'bigint') return writeBigInt(w, v);
   if (typeof v === 'number') {
     if (Number.isInteger(v)) return writeInt(w, v);
     w.byte(0xcb);

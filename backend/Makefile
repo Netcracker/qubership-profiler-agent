@@ -309,6 +309,32 @@ smoke:
 	docker compose down -v --remove-orphans; \
 	exit $$status
 
+# Real-agent E2E: drives the ACTUAL Java profiler agent (built from this repo,
+# needs a JDK + Gradle) against the same dev stack and asserts the adversarial
+# method/param strings round-trip byte-exact. This is the acceptance gate for
+# the decoder fixes and currently FAILS on two known bugs (readChar signedness
+# and the empty dictionary word); see libs/tests/smoke_realagent and
+# ../scripts/e2e-realagent/README.md.
+.PHONY: smoke-realagent
+smoke-realagent:
+	@echo "==> Starting the dev stack..."
+	docker compose down -v --remove-orphans
+	docker compose up --build -d
+	@echo "==> Running the real-agent E2E test (builds the Java agent)..."
+	@status=0; go test -tags smoke_realagent -count=1 -timeout 20m -v ./libs/tests/smoke_realagent/... || status=$$?; \
+	docker compose down -v --remove-orphans; \
+	exit $$status
+
+# Pure-Go adversarial decoder gate: the no-JDK, no-docker counterpart of
+# smoke-realagent. The wire helpers now emit faithful UTF-16, so they surface
+# the same two decoder bugs (readChar signedness and the empty dictionary word)
+# without building the Java agent or bringing the stack up. Like smoke-realagent
+# it FAILS today; the failing assertions are the deliverable.
+.PHONY: adversarial
+adversarial:
+	@echo "==> Running the pure-Go adversarial decoder gate..."
+	go test -tags adversarial -count=1 -v ./libs/tests/adversarial/...
+
 # In-cluster smoke on kind (CI target). For OrbStack localdev:
 #   make kind-smoke KIND_CONTEXT=orbstack KIND_SKIP_LOAD=1
 .PHONY: kind-smoke

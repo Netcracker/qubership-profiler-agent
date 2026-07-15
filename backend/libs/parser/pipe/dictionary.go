@@ -34,10 +34,12 @@ func DictionaryPipeReader(ctx context.Context, b *PipeReader, limitPhrases int) 
 				break
 			}
 			lengthOfPhrase -= bytes
-			if len(st) > 0 {
-				ch <- DictionaryItem{Id: lines, Value: st, pos: pos}
-				lines++
-			}
+			// Register EVERY entry, including the empty string. The agent assigns
+			// ids by arrival order (DictionaryPhraseReader visits each readString),
+			// so skipping an empty word without advancing the id shifts every
+			// later id by one and resolves the wrong method/param name (№20).
+			ch <- DictionaryItem{Id: lines, Value: st, pos: pos}
+			lines++
 		}
 		log.Debug(ctx, " * read: EOF. %d lines, %d phrases of %d original bytes", lines, phrases, b.Position())
 	}()
@@ -64,9 +66,10 @@ func DictionaryV2PipeReader(ctx context.Context, b *PipeReader) <-chan Dictionar
 				break // EOF
 			}
 			strLen += len(st)
-			if len(st) > 0 {
-				ch <- DictionaryItem{id, st, pos}
-			}
+			// Register EVERY entry, empty ones too: the agent writes an explicit
+			// id per record here, but an empty word is still a real dictionary
+			// entry the tree may reference. Dropping it loses that word (№20).
+			ch <- DictionaryItem{id, st, pos}
 			i++
 		}
 		log.Debug(ctx, " * read: EOF. %d lines, %d string chars of %d original bytes", i, strLen, b.Position())

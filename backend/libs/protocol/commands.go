@@ -4,8 +4,11 @@ type (
 	Command byte
 )
 
+// Command bytes, numerically identical to
+// proto-definition/.../transport/ProtocolConst.java. The Java protocol has no
+// 0x00 byte, so a leading 0x00 on the wire is not a command — the server treats
+// it as unknown and tears the connection down (06 §2).
 const (
-	COMMAND_SKIP                    Command = 0x00
 	COMMAND_INIT_STREAM             Command = 0x01
 	COMMAND_INIT_STREAM_V2          Command = 0x15
 	COMMAND_RCV_DATA                Command = 0x02

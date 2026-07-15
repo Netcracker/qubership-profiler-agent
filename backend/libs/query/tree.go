@@ -98,29 +98,18 @@ func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints)
 	if !hints.hasTs {
 		return out
 	}
-	q := model.CallsQuery{
-		FromMs:           hints.tsMs,
-		ToMs:             hints.tsMs + 1,
-		RetentionClasses: hints.classes,
+
+	// The retention_class hint only sharpens pruning; it is optional (09 §5,
+	// 02 §2.2). Seal can reclassify a call after the UI baked the old class
+	// into the /tree URL — a late call.red registration bumps an error call
+	// out of its clean class — so the hinted prefix would then hold nothing
+	// and a bookmarked link would 404 forever (№16). Try the hinted class
+	// first for the cheaper LIST, then fall back to scanning every class
+	// before giving up.
+	row, ok := s.discoverAndFetch(ctx, pk, hints.tsMs, hints.classes, &out)
+	if !ok && len(hints.classes) > 0 && out.failed == 0 {
+		row, ok = s.discoverAndFetch(ctx, pk, hints.tsMs, nil, &out)
 	}
-	discovery, err := s.cold.Discover(ctx, q)
-	if err != nil {
-		out.failed++
-		out.reasons = append(out.reasons, fmt.Sprintf("s3 discovery: %v", err))
-		return out
-	}
-	out.reasons = append(out.reasons, discovery.PartialReasons...)
-	if discovery.Prefixes > 0 && discovery.FailedPrefixes == discovery.Prefixes {
-		out.failed++
-		return out
-	}
-	row, ok, err := cold.FetchCall(ctx, s.cold.Store, discovery.Files, pk)
-	if err != nil {
-		out.failed++
-		out.reasons = append(out.reasons, fmt.Sprintf("s3 fetch: %v", err))
-		return out
-	}
-	out.succeeded++
 	if !ok {
 		return out
 	}
@@ -134,6 +123,38 @@ func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints)
 		out.blob = row.TraceBlob
 	}
 	return out
+}
+
+// discoverAndFetch runs one cold discovery+fetch pass over the given retention
+// classes (nil = every class) for the point at tsMs. It records discovery
+// failures and partial reasons on out, and reports the row plus whether the PK
+// was found. A false result with out.failed unchanged means an honest cold
+// miss — the caller may widen the class set and retry (№16).
+func (s *Service) discoverAndFetch(ctx context.Context, pk model.PK, tsMs int64, classes []string, out *pointFetch) (*storageparquet.CallV2, bool) {
+	q := model.CallsQuery{
+		FromMs:           tsMs,
+		ToMs:             tsMs + 1,
+		RetentionClasses: classes,
+	}
+	discovery, err := s.cold.Discover(ctx, q)
+	if err != nil {
+		out.failed++
+		out.reasons = append(out.reasons, fmt.Sprintf("s3 discovery: %v", err))
+		return nil, false
+	}
+	out.reasons = append(out.reasons, discovery.PartialReasons...)
+	if discovery.Prefixes > 0 && discovery.FailedPrefixes == discovery.Prefixes {
+		out.failed++
+		return nil, false
+	}
+	row, ok, err := cold.FetchCall(ctx, s.cold.Store, discovery.Files, pk)
+	if err != nil {
+		out.failed++
+		out.reasons = append(out.reasons, fmt.Sprintf("s3 fetch: %v", err))
+		return nil, false
+	}
+	out.succeeded++
+	return row, ok
 }
 
 // pointProblem maps a miss to the §8 status: 504 only when at least one
@@ -220,6 +241,9 @@ func (s *Service) handleCallTree(c echo.Context) error {
 		}
 		values, err := s.hotBigValues(ctx, fetch.replicaURL, tuple, fetch.blob, int(pk.RecordIndex))
 		if err != nil {
+			if errors.Is(err, errValuesUnavailable) {
+				return gatewayTimeout(c, append(fetch.reasons, fmt.Sprintf("collector %s values: %v", fetch.replicaURL, err)))
+			}
 			return err
 		}
 		bigValue = values
@@ -277,9 +301,18 @@ func (s *Service) handleCallTree(c echo.Context) error {
 	return c.Blob(http.StatusOK, "application/x-msgpack", body)
 }
 
-// hotBigValues resolves the blob's big-parameter references against the
-// replica that served it, in one batched round-trip. A failed batch degrades
-// to unresolved markers — the tree still renders (01 §4.6 spirit).
+// errValuesUnavailable marks a big-parameter fetch that failed in transport
+// (timeout, non-200, decode) rather than "the reference is genuinely absent".
+// §2.5.3 forbids serving a tree whose SQL silently degraded to unresolved
+// groups on such a failure, so handleCallTree answers 504 like the dictionary
+// and suspend transport paths — not a 200 with corrupted R11 aggregation.
+var errValuesUnavailable = errors.New("big-parameter values unavailable")
+
+// hotBigValues resolves the blob's big-parameter references against the replica
+// that served it, in one batched round-trip. References the replica cannot
+// resolve are simply absent from a successful response and render as
+// unresolved; a transport/decode/non-200 failure instead returns
+// errValuesUnavailable, so the caller fails the tree rather than corrupting it.
 func (s *Service) hotBigValues(ctx context.Context, baseURL string, tuple model.PodTuple, blob []byte, recordIndex int) (func(stream string, seq int, offset int64) (string, bool), error) {
 	refs, err := calltree.CollectBigRefs(blob, recordIndex)
 	if err != nil {
@@ -294,7 +327,7 @@ func (s *Service) hotBigValues(ctx context.Context, baseURL string, tuple model.
 	}
 	values, err := s.hot.Values(ctx, baseURL, tuple, keys)
 	if err != nil {
-		values = nil // degrade: every reference renders as unresolved
+		return nil, fmt.Errorf("%w: %v", errValuesUnavailable, err)
 	}
 	return func(stream string, seq int, offset int64) (string, bool) {
 		v, ok := values[fmt.Sprintf("%s:%d:%d", stream, seq, offset)]

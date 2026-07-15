@@ -161,8 +161,8 @@ func TestUploadPass(t *testing.T) {
 
 	sendStream(t, ac, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
 	sendStream(t, ac, model.StreamSuspend, 0, wire.SuspendStream(baseMs, []wire.SuspendEvent{
-		{DeltaMs: 50, AmountMs: 30}, // pause at base+50
-		{DeltaMs: 55, AmountMs: 20}, // pause at base+105
+		{DeltaMs: 50, AmountMs: 30}, // pause ending at base+50 (№4)
+		{DeltaMs: 55, AmountMs: 20}, // pause ending at base+105
 	}))
 	sendStream(t, ac, model.StreamTrace, 0, file1)
 	sendStream(t, ac, model.StreamTrace, 1, file2)
@@ -288,10 +288,10 @@ func TestUploadPass(t *testing.T) {
 			"the wire dictionary is one id space, so both arrays carry the full word list")
 
 		assert.JSONEq(t, fmt.Sprintf(
-			`{"restart_time_ms":%d,"timer_start_ms":%d,"events":[{"start_ms":%d,"duration_ms":30},{"start_ms":%d,"duration_ms":20}]}`,
+			`{"restart_time_ms":%d,"timer_start_ms":%d,"events":[{"end_ms":%d,"duration_ms":30},{"end_ms":%d,"duration_ms":20}]}`,
 			key.RestartTimeMs, timerStartMs, baseMs+50, baseMs+105),
 			string(fake.object(t, suspendKey)),
-			"suspend pauses carry absolute times accumulated from the stream deltas")
+			"suspend pauses carry the absolute pause-end times accumulated from the stream deltas (№4)")
 
 		manifest := func(timeMinMs, timeMaxMs int64) string {
 			return fmt.Sprintf(

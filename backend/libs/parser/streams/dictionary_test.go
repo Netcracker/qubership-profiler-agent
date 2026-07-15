@@ -13,6 +13,7 @@ import (
 )
 
 func TestReadDictionary_TestService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	testDictionaryFile := filepath.Join(ResourceDir, "test-service", "test-service.dictionary.protocol")
 	expectedDictionaryLog := filepath.Join(ResourceDir, "test-service", "test-service.dictionary.expected.txt")
@@ -31,6 +32,7 @@ func TestReadDictionary_TestService(t *testing.T) {
 }
 
 func TestReadDictionary_5minService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	testDictionaryFile := filepath.Join(ResourceDir, "u5min", "u5min-service.dictionary.protocol")
 	expectedDictionaryLog := filepath.Join(ResourceDir, "u5min", "u5min-service.dictionary.expected.txt")

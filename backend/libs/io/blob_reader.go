@@ -119,12 +119,15 @@ func (b *BlobReader) readLen(ctx context.Context) (uint32, error) {
 	return op, err
 }
 
-func (b *BlobReader) readChar(ctx context.Context) (string, error) {
-	var op int16
+// readChar reads one UTF-16 code unit (unsigned uint16, like the agent's
+// DataInputStreamEx.readChar). It is unsigned so a code unit >= U+8000 is not
+// sign-extended and a surrogate half survives for utf16.Decode; the caller
+// (ReadVarString) collects the run and decodes it as a whole.
+func (b *BlobReader) readChar(ctx context.Context) (uint16, error) {
+	var op uint16
 	err := b.read(ctx, &op)
 	b.Next(2)
-	//return string(op)
-	return string(rune(op)), err
+	return op, err
 }
 
 func (b *BlobReader) read(ctx context.Context, o interface{}) error {

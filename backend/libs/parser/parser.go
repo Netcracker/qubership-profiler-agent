@@ -82,8 +82,6 @@ func ParseProtocol(ctx context.Context, r io.Reader, wr io.Writer, listener List
 			break
 		case model.COMMAND_REQUEST_ACK_FLUSH:
 			break // do nothing
-		case model.COMMAND_SKIP:
-			break // do nothing
 		case model.COMMAND_CLOSE:
 			//data.next() // do nothing
 			if listener != nil {

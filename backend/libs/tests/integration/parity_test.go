@@ -74,7 +74,9 @@ func TestHotColdCallJSONParity(t *testing.T) {
 	require.True(t, ok)
 	sendStream(t, ac, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
 	sendStream(t, ac, model.StreamSuspend, 0, wire.SuspendStream(baseMs, []wire.SuspendEvent{
-		{DeltaMs: 10, AmountMs: 20},
+		// DeltaMs is the delta to the pause END; end base+30, dur 20 → the pause
+		// spans [base+10, base+30) (the agent records the pause end, №4).
+		{DeltaMs: 30, AmountMs: 20},
 	}))
 	// Barrier: the suspend stream decodes on its own pipeline; the pause must
 	// be in RAM before the calls below are indexed for the tiers to agree.

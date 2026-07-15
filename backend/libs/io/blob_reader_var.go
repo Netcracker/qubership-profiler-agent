@@ -2,7 +2,7 @@ package io
 
 import (
 	"context"
-	"strings"
+	"unicode/utf16"
 )
 
 // complex parsing
@@ -113,10 +113,12 @@ func (b *BlobReader) ReadVarString(ctx context.Context) (int, int, string) {
 		//+ " chars; position = " + position);
 		return 0, 0, ""
 	}
-	var sb strings.Builder
+	// Collect the UTF-16 code units and decode once so surrogate pairs
+	// reassemble into full runes (see PipeReader.ReadVarString).
+	units := make([]uint16, 0, length)
 	for i := 0; i < length; i++ {
-		char, _ := b.readChar(ctx)
-		sb.WriteString(char)
+		u, _ := b.readChar(ctx)
+		units = append(units, u)
 	}
-	return length, b.pos - curr, sb.String()
+	return length, b.pos - curr, string(utf16.Decode(units))
 }

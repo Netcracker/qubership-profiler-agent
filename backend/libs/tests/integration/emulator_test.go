@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/common"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
 	"github.com/Netcracker/qubership-profiler-backend/libs/io"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
@@ -62,6 +63,47 @@ func TestEmulator(t *testing.T) {
 
 		_, err = ac.CommandInitStream("bogus", 0, false)
 		assert.Error(t, err, "unknown stream must not yield a valid handle")
+	})
+
+	// №5: a data command before the handshake used to deref a nil sc.pod and
+	// crash the whole collector. The server must reject it (ACK_ERROR_MAGIC +
+	// close) and stay up for every other agent.
+	t.Run("pre-handshake data does not crash the server", func(t *testing.T) {
+		t.Run("RCV_DATA before handshake is refused", func(t *testing.T) {
+			ac, err := prepareAgent(t, ctx)
+			require.NoError(t, err)
+			// No InitializeConnection: send RCV_DATA straight away. The ack for
+			// RCV_DATA drains via WaitForAcks, which reads ACK_ERROR_MAGIC.
+			sendErr := ac.CommandRcvStringData(model.StreamDictionary, common.RandomUuid(), "word")
+			ackErr := ac.WaitForAcks()
+			assert.True(t, sendErr != nil || ackErr != nil,
+				"the server signals ACK_ERROR_MAGIC and closes (send err %v, ack err %v)", sendErr, ackErr)
+			_ = ac.Close()
+		})
+
+		t.Run("INIT_STREAM before handshake is refused", func(t *testing.T) {
+			ac, err := prepareAgent(t, ctx)
+			require.NoError(t, err)
+			_, err = ac.CommandInitStream(model.StreamDictionary, 0, false)
+			assert.Error(t, err, "the server signals ACK_ERROR_MAGIC and closes")
+			_ = ac.Close()
+		})
+
+		// The server survived both pre-handshake attacks: a fresh connection
+		// still completes a normal handshake and flush cycle.
+		t.Run("a healthy connection still works afterwards", func(t *testing.T) {
+			ac, err := prepareAgent(t, ctx)
+			require.NoError(t, err)
+			err = ac.InitializeConnection(model.PROTOCOL_VERSION_V3, ns, svc, "pod-after-attack")
+			require.NoError(t, err, "the server must still accept a handshake")
+			assert.Equal(t, model.PROTOCOL_VERSION_V2, ac.ServerVersion())
+
+			handle, err := ac.CommandInitStream(model.StreamDictionary, 0, false)
+			require.NoError(t, err)
+			require.NoError(t, ac.CommandRcvData(model.StreamDictionary, handle, []byte("word")))
+			require.NoError(t, ac.Flush())
+			require.NoError(t, ac.WaitForAcks())
+		})
 	})
 }
 

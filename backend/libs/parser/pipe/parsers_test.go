@@ -35,6 +35,14 @@ func (suite *IntegrationTestSuite) TearDownSuite() {
 }
 
 func TestIntegration(t *testing.T) {
+	// The ui5min.protocol fixture is a real pod capture the project never
+	// commits (WORKFLOW.md §6: "Never commit a captured wire-protocol dump"),
+	// so on a clean checkout it is missing and the suite cannot run.
+	fixture := filepath.Join("../", "../", "tests", "resources", TestFile)
+	if _, err := os.Stat(fixture); os.IsNotExist(err) {
+		t.Skip("missing captured fixture libs/tests/resources/" + TestFile +
+			" (real pod dumps are never committed; see WORKFLOW.md §6)")
+	}
 	suite.Run(t, new(IntegrationTestSuite))
 }
 

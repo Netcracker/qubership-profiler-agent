@@ -38,6 +38,10 @@ type Config struct {
 	// SealCheckInterval paces the seal loop (§6.1). Zero disables the loop:
 	// the collector app wiring enables it; tests seal explicitly.
 	SealCheckInterval time.Duration
+	// SealConcurrency bounds the seal passes one SealDue runs in parallel
+	// (PROFILER_SEAL_CONCURRENCY, §6.1). Each (pod-restart, bucket) pair still
+	// seals exactly once; the pool only widens across pairs.
+	SealConcurrency int
 	// UploadCheckInterval paces the S3 upload loop (§6.2, 03 §3.8). Zero
 	// disables it, mirroring SealCheckInterval; tests drive Uploader.Pass.
 	UploadCheckInterval time.Duration
@@ -63,6 +67,34 @@ type Config struct {
 	// budget). Zero disables the loop, mirroring SealCheckInterval: the collect
 	// wiring enables it; tests drive JanitorPass explicitly.
 	JanitorCheckInterval time.Duration
+	// MemBudgetBytes caps the hot store's in-RAM pod-restart state
+	// (PROFILER_MEM_BUDGET, §4.6). Over budget the janitor unloads closed
+	// pod-restarts' dictionaries and, once fully sealed, their chunk indexes;
+	// both reload or degrade explicitly (№1).
+	MemBudgetBytes int64
+	// PendingUploadMaxBytes bounds the un-uploaded backlog on the PV — sealed
+	// parquet still owed to S3 plus the live call-index partitions — when S3
+	// falls behind (№2). Once the pending parquet alone reaches half the
+	// budget the seal loop pauses (the data stays in WALs and segments); once
+	// the whole backlog reaches the full budget ingest refuses RCV_DATA with
+	// ACK_ERROR before writing, so the agent buffers and retries.
+	PendingUploadMaxBytes int64
+	// QuarantineRetestInterval is how often a permanently-rejected upload is
+	// re-tested (№2): "permanent" rejections are often operational (expired
+	// credentials, missing bucket) and heal without a human.
+	QuarantineRetestInterval time.Duration
+	// QuarantineMaxAge / QuarantineMaxBytes cap the upload-failed/ quarantine
+	// (№2). Past either cap the janitor drops the oldest quarantined parquet —
+	// bounded, loudly-logged data loss — so a rejection can neither fill the
+	// PV nor pin the WAL purge forever.
+	QuarantineMaxAge   time.Duration
+	QuarantineMaxBytes int64
+	// UploadConcurrency bounds the parallel S3 PUT workers of one upload pass
+	// (№25): a single slow PUT must not head-of-line-block the whole backlog.
+	UploadConcurrency int
+	// PartitionCacheSize caps the open per-bucket SQLite handles (№24); the
+	// least-recently-used handle closes when a new bucket needs a slot.
+	PartitionCacheSize int
 }
 
 // Normalize fills unset fields with the contract defaults.
@@ -91,6 +123,9 @@ func (c Config) Normalize() Config {
 	if c.SealSpillBytes <= 0 {
 		c.SealSpillBytes = 16 << 20
 	}
+	if c.SealConcurrency <= 0 {
+		c.SealConcurrency = 4
+	}
 	if c.UploadRetryAttempts <= 0 {
 		c.UploadRetryAttempts = 5
 	}
@@ -105,6 +140,27 @@ func (c Config) Normalize() Config {
 	}
 	if c.WalPurgeGrace <= 0 {
 		c.WalPurgeGrace = time.Hour
+	}
+	if c.MemBudgetBytes <= 0 {
+		c.MemBudgetBytes = 2 << 30
+	}
+	if c.PendingUploadMaxBytes <= 0 {
+		c.PendingUploadMaxBytes = 2 << 30
+	}
+	if c.QuarantineRetestInterval <= 0 {
+		c.QuarantineRetestInterval = time.Hour
+	}
+	if c.QuarantineMaxAge <= 0 {
+		c.QuarantineMaxAge = 7 * 24 * time.Hour
+	}
+	if c.QuarantineMaxBytes <= 0 {
+		c.QuarantineMaxBytes = 1 << 30
+	}
+	if c.UploadConcurrency <= 0 {
+		c.UploadConcurrency = 4
+	}
+	if c.PartitionCacheSize <= 0 {
+		c.PartitionCacheSize = 8
 	}
 	return c
 }
