@@ -19,13 +19,18 @@ type (
 	Options struct {
 		Store  hotstore.Config
 		Server server.ConnectionOpts
+		// ObjectStore is the S3 target of the upload loop (01-write-contract.md
+		// §6.2). Nil disables uploads, mirroring the opt-in seal loop; the
+		// collector app wiring passes an S3ObjectStore.
+		ObjectStore hotstore.ObjectStore
 	}
 
 	// Service is the running write path: exclusive PV owner plus TCP listener.
 	Service struct {
-		store  *hotstore.Store
-		ingest *ingest.Listener
-		tcp    *server.Service
+		store    *hotstore.Store
+		ingest   *ingest.Listener
+		tcp      *server.Service
+		uploader *hotstore.Uploader
 	}
 )
 
@@ -42,11 +47,15 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		return nil, err
 	}
 	listener := ingest.NewListener(store)
-	return &Service{
+	svc := &Service{
 		store:  store,
 		ingest: listener,
 		tcp:    server.PrepareServer(ctx, opts.Server, listener),
-	}, nil
+	}
+	if opts.ObjectStore != nil {
+		svc.uploader = hotstore.NewUploader(store, opts.ObjectStore)
+	}
+	return svc, nil
 }
 
 // Store exposes the hot store for the read API and for tests.
@@ -70,6 +79,15 @@ func (s *Service) Run(ctx context.Context) error {
 	if interval := s.store.Config().SealCheckInterval; interval > 0 {
 		gr.Add(func() error {
 			return s.store.RunSealLoop(ctx, interval)
+		}, func(error) {
+			cancel()
+		})
+	}
+	// Same opt-in pattern for the upload loop (01 §6.2, 03 §3.8-§3.9); its
+	// first tick re-triggers whatever a previous process left pending.
+	if interval := s.store.Config().UploadCheckInterval; s.uploader != nil && interval > 0 {
+		gr.Add(func() error {
+			return s.uploader.Run(ctx, interval)
 		}, func(error) {
 			cancel()
 		})
