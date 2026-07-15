@@ -1,17 +1,23 @@
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons';
-import { Alert, Button, Empty, Input, Layout, Modal, Result, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
+import { App, Alert, Button, Empty, Input, Layout, Modal, Result, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 
 import { httpTitleFromNodeParams } from '../api/http-title';
 import { parsePkPath, pkToPath } from '../api/pk';
-import type { CallPK } from '../api/types';
+import type { CallPK, RetentionClass } from '../api/types';
+import { buildExportHtml, downloadHtml } from '../export/build-export';
+import { bytesToBase64, RESTORE_VERSION } from '../export/restore';
+import type { SerializedTab } from '../export/restore';
+import type { TreeWire } from '../msgpack/tree-wire';
+import type { TreeState } from '../tree/use-tree';
 import { formatCount, formatDurationMs, formatTs } from '../calls/format';
+import { useZone } from '../ui/timezone';
 import { HotspotsView } from '../tree/hotspots-view';
 import { parseMethod } from '../tree/method-info';
-import { buildTreeModel } from '../tree/model';
+import { buildTreeModel, findNodeById } from '../tree/model';
 import type { TreeModel, TreeNode } from '../tree/model';
-import { ParamValueModal } from '../tree/param-value-viewer';
+import { detectLanguage, InlineHighlight, ParamValueModal } from '../tree/param-value-viewer';
 import type { ParamValueTarget } from '../tree/param-value-viewer';
 import type { ParamValueStat } from '../tree/params-summary';
 import { summariseParams } from '../tree/params-summary';
@@ -19,11 +25,12 @@ import { applyAdjustments, factorByMethod, invalidAdjustLines, parseAdjustConfig
 import { applyCategories, invalidCategoryLines, parseCategoryConfig } from '../tree/transforms/categories';
 import { computeFlatProfile } from '../tree/transforms/flat-profile';
 import type { CategoryProfile } from '../tree/transforms/flat-profile';
-import { findUsages, incomingCalls, outgoingCalls } from '../tree/transforms/merge';
+import { findUsages, incomingCalls, localHotspots, outgoingCalls } from '../tree/transforms/merge';
 import { TreeView } from '../tree/tree-view';
 import type { TreeDirection, TreeViewOps } from '../tree/tree-view';
 import { useTree } from '../tree/use-tree';
 import { parseTreeSearch } from '../url/search-params';
+import styles from './tree-page.module.css';
 
 // Call Tree route (09 §3): tabs Call Tree · Hotspots · Parameters, the
 // per-node operations backed by the 5.3 transforms, and the Adjust duration
@@ -40,6 +47,9 @@ interface OpTabSpec {
   op: 'incoming' | 'outgoing' | 'usages' | 'local';
   methodIdx: number;
   category?: string;
+  // The selected node's stable id, so Local Hotspots scopes to that exact
+  // subtree instead of every occurrence of the method (PR 708 review #7).
+  nodeId?: number;
 }
 
 const OP_META: Record<OpTabSpec['op'], { label: string; direction: TreeDirection }> = {
@@ -96,34 +106,71 @@ function paramSummaryRows(model: TreeModel): ParamSummaryRow[] {
   return [...metadataRows, ...sqlRows];
 }
 
-export function TreePage() {
+/**
+ * When present, the page renders an exported offline copy (10b): it skips the
+ * fetch and the router and drives everything off this embedded wire and view
+ * state, so a downloaded HTML reopens exactly as it was saved.
+ */
+export interface TreeRestore {
+  wire: TreeWire;
+  pk: CallPK;
+  tsMs: number | null;
+  retentionClass: RetentionClass | null;
+  adjustText: string;
+  categoryText: string;
+  tabs: SerializedTab[];
+  activeTab: string;
+}
+
+export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
+  const { message } = App.useApp();
+  const zone = useZone();
   const { pk: pkRaw } = useParams<{ pk: string }>();
   const [searchParams] = useSearchParams();
-  const hints = parseTreeSearch(searchParams);
+  const routedHints = parseTreeSearch(searchParams);
 
-  let pk: CallPK | null = null;
+  let pk: CallPK | null;
   let parseError: string | null = null;
-  try {
-    pk = parsePkPath(pkRaw ?? '');
-  } catch (e) {
-    parseError = e instanceof Error ? e.message : String(e);
+  if (restore !== undefined) {
+    pk = restore.pk;
+  } else {
+    pk = null;
+    try {
+      pk = parsePkPath(pkRaw ?? '');
+    } catch (e) {
+      parseError = e instanceof Error ? e.message : String(e);
+    }
   }
+  const tsMs = restore !== undefined ? restore.tsMs : routedHints.tsMs;
+  const retentionClass = restore !== undefined ? restore.retentionClass : routedHints.retentionClass;
 
-  const { state, refetch } = useTree(pk, {
-    tsMs: hints.tsMs ?? undefined,
-    retentionClass: hints.retentionClass ?? undefined,
+  // An exported copy skips the fetch: pk=null keeps useTree idle, and the
+  // embedded wire drives the page instead.
+  const { state: fetchedState, refetch } = useTree(restore !== undefined ? null : pk, {
+    tsMs: tsMs ?? undefined,
+    retentionClass: retentionClass ?? undefined,
   });
+  const state: TreeState =
+    restore !== undefined ? { kind: 'ready', wire: restore.wire, bytes: new Uint8Array() } : fetchedState;
   const [capped, setCapped] = useState(false);
 
-  // Applied configs; the modals edit drafts.
-  const [adjustText, setAdjustText] = useState('');
-  const [categoryText, setCategoryText] = useState('');
+  // Applied configs; the modals edit drafts. An exported copy seeds them so it
+  // reopens with the same Adjust/Setup and derived tabs the user had.
+  const [adjustText, setAdjustText] = useState(restore?.adjustText ?? '');
+  const [categoryText, setCategoryText] = useState(restore?.categoryText ?? '');
   const [adjustModal, setAdjustModal] = useState<string | null>(null);
   const [categoryModal, setCategoryModal] = useState<string | null>(null);
-  const [opTabs, setOpTabs] = useState<OpTabSpec[]>([]);
-  const [activeTab, setActiveTab] = useState('tree');
+  const [opTabs, setOpTabs] = useState<OpTabSpec[]>(() =>
+    (restore?.tabs ?? []).map((t, i) => ({ key: `r${i}`, ...t })),
+  );
+  const [activeTab, setActiveTab] = useState(restore?.activeTab ?? 'tree');
   const [paramValue, setParamValue] = useState<ParamValueTarget | null>(null);
+  const [exporting, setExporting] = useState(false);
   const nextTabId = useRef(1);
+
+  // Raw bytes only exist for a freshly fetched tree; the exported copy hides the
+  // download button, so it needs none.
+  const treeBytes = restore === undefined && fetchedState.kind === 'ready' ? fetchedState.bytes : null;
 
   const wire = state.kind === 'ready' ? state.wire : null;
   const model = useMemo(() => {
@@ -152,9 +199,9 @@ export function TreePage() {
     [model],
   );
 
-  const openOpTab = (op: OpTabSpec['op'], methodIdx: number, category?: string): void => {
+  const openOpTab = (op: OpTabSpec['op'], methodIdx: number, category?: string, nodeId?: number): void => {
     const key = `z${nextTabId.current++}`;
-    setOpTabs((prev) => [...prev, { key, op, methodIdx, category }]);
+    setOpTabs((prev) => [...prev, { key, op, methodIdx, category, nodeId }]);
     setActiveTab(key);
   };
 
@@ -167,7 +214,7 @@ export function TreePage() {
     incoming: (node) => openOpTab('incoming', node.methodIdx),
     outgoing: (node) => openOpTab('outgoing', node.methodIdx),
     findUsages: (node) => openOpTab('usages', node.methodIdx),
-    localHotspots: (node) => openOpTab('local', node.methodIdx),
+    localHotspots: (node) => openOpTab('local', node.methodIdx, undefined, node.id),
     adjust: (node) => {
       if (model === null) return;
       const method = model.methods[node.methodIdx] ?? '';
@@ -197,12 +244,18 @@ export function TreePage() {
       const word = model.methods[spec.methodIdx] ?? '';
       const info = parseMethod(word);
       const short = info.bareSignature === '' ? word : info.bareSignature.replace(/\(.*$/, '');
+      // Local Hotspots scopes to the selected node's subtree; the node id is
+      // stable across model rebuilds, so it resolves after Adjust/Setup edits.
+      // A missing node (id not found) falls back to the whole-method merge.
+      const localNode = spec.nodeId === undefined ? null : findNodeById(model.root, spec.nodeId);
       const derived =
         spec.op === 'incoming'
           ? incomingCalls(model, spec.methodIdx, spec.category)
           : spec.op === 'usages'
             ? findUsages(model, spec.methodIdx)
-            : outgoingCalls(model, spec.methodIdx);
+            : spec.op === 'local' && localNode !== null
+              ? localHotspots(model, localNode)
+              : outgoingCalls(model, spec.methodIdx);
       const view: OpView = {
         spec,
         seq: viewSeq.current++,
@@ -225,63 +278,66 @@ export function TreePage() {
 
   if (parseError !== null || pk === null) {
     return (
-      <Layout style={{ minHeight: '100vh' }}>
-        <Layout.Content style={{ padding: 24 }}>
+      <Layout className={styles.errorLayout}>
+        <Layout.Content className={styles.errorContent}>
           <Alert type="error" showIcon title="Malformed call reference" description={parseError} />
         </Layout.Content>
       </Layout>
     );
   }
 
-  const traceHref = (() => {
-    const sp = new URLSearchParams();
-    if (hints.tsMs !== null) sp.set('ts_ms', String(hints.tsMs));
-    if (hints.retentionClass !== null) sp.set('retention_class', hints.retentionClass);
-    const qs = sp.toString();
-    return `/api/v1/calls/${encodeURIComponent(pkToPath(pk))}/trace${qs === '' ? '' : `?${qs}`}`;
-  })();
+  // Bake the tree the page already holds into a self-contained HTML file that
+  // reopens offline (10b, option 2). The old "Raw trace" download handed back
+  // opaque bytes the browser cannot render; this hands back the rendered page.
+  const handleExport = async (): Promise<void> => {
+    if (treeBytes === null || pk === null) return;
+    setExporting(true);
+    try {
+      const html = await buildExportHtml({
+        v: RESTORE_VERSION,
+        pkPath: pkToPath(pk),
+        tsMs,
+        retentionClass,
+        treeB64: bytesToBase64(treeBytes),
+        adjustText,
+        categoryText,
+        tabs: opTabs.map((t): SerializedTab => ({ op: t.op, methodIdx: t.methodIdx, category: t.category, nodeId: t.nodeId })),
+        activeTab,
+      });
+      downloadHtml(html, `profiler-tree-${pkToPath(pk).replace(/[^\w.-]+/g, '_')}.html`);
+    } catch (e) {
+      message.error(`Could not build the download. ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
-    <Layout style={{ height: '100vh' }}>
-      <Layout.Header
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 16,
-          color: '#fff',
-          height: 'auto',
-          minHeight: 64,
-          paddingTop: 12,
-          paddingBottom: 12,
-        }}
-      >
-        <Space wrap style={{ minWidth: 0, flex: '1 1 auto' }}>
+    <Layout className={styles.layout}>
+      <Layout.Header className={styles.header}>
+        <Space wrap className={styles.headerLeft}>
           <Typography.Title
             level={5}
             title={`${pk.pod_namespace} / ${pk.pod_service} / ${pk.pod_name}`}
-            style={{
-              margin: 0,
-              color: '#fff',
-              maxWidth: 'min(60vw, 520px)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
+            className={styles.headerTitle}
           >
             {pk.pod_namespace} / {pk.pod_service} / {pk.pod_name}
           </Typography.Title>
           {httpContext !== null ? (
-            <Tag color="green" title="From the root call's web.method/web.url params">
+            <Tag color="success" title="From the root call's web.method/web.url params">
               {httpContext}
             </Tag>
           ) : null}
-          {hints.tsMs !== null ? <Tag>{formatTs(hints.tsMs)}</Tag> : null}
-          {model !== null ? <Tag color="blue">{formatDurationMs(model.root.durationMs)}</Tag> : null}
-          {hints.retentionClass !== null ? <Tag>{hints.retentionClass}</Tag> : null}
+          {tsMs !== null ? <Tag>{formatTs(tsMs, zone)}</Tag> : null}
+          {model !== null ? <Tag color="processing">{formatDurationMs(model.root.durationMs)}</Tag> : null}
+          {retentionClass !== null ? <Tag>{retentionClass}</Tag> : null}
+          {restore !== undefined ? <Tag color="warning">offline copy</Tag> : null}
         </Space>
-        <Space wrap style={{ flex: '0 0 auto' }}>
+        {/* flex '0 1 auto' + minWidth 0 lets this group shrink below its
+            one-row width so `wrap` can wrap the buttons; '0 0 auto' pinned it
+            to max-content and pushed Raw trace off a narrow viewport
+            (PR 708 review #9). */}
+        <Space wrap className={styles.headerRight}>
           <Button
             size="small"
             disabled={model === null}
@@ -298,21 +354,27 @@ export function TreePage() {
           >
             Setup categories
           </Button>
-          <Button
-            size="small"
-            icon={<DownloadOutlined />}
-            disabled={model === null}
-            title={model === null ? 'No trace located for this call yet' : undefined}
-            href={model === null ? undefined : traceHref}
-            download
-          >
-            Raw trace
-          </Button>
+          {restore === undefined ? (
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              disabled={model === null}
+              title={
+                model === null
+                  ? 'No tree loaded yet — nothing to download'
+                  : 'Download a self-contained HTML copy that reopens offline'
+              }
+              onClick={() => void handleExport()}
+            >
+              Download HTML
+            </Button>
+          ) : null}
         </Space>
       </Layout.Header>
-      <Layout.Content style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <Layout.Content className={styles.content}>
         {state.kind === 'loading' ? (
-          <div style={{ display: 'grid', placeItems: 'center', flex: 1 }}>
+          <div className={styles.centerBox}>
             <Spin description="Fetching and decoding the call tree." />
           </div>
         ) : state.kind === 'cold' ? (
@@ -349,7 +411,7 @@ export function TreePage() {
           />
         ) : model !== null ? (
           <>
-            <Space orientation="vertical" style={{ width: '100%' }} size={4}>
+            <Space orientation="vertical" className={styles.fullWidth} size={4}>
               {model.hasUnresolvedParams ? (
                 <Alert
                   type="warning"
@@ -363,7 +425,7 @@ export function TreePage() {
                   type="warning"
                   showIcon
                   title="Large tree — automatic expansion was limited"
-                  description="Branches are still expandable by hand; the raw trace download carries full fidelity."
+                  description="Branches are still expandable by hand."
                 />
               ) : null}
               {adjustText.trim() !== '' && hasAdjustRules ? (
@@ -380,7 +442,7 @@ export function TreePage() {
               ) : null}
             </Space>
             <Tabs
-              style={{ flex: 1, minHeight: 0 }}
+              className={styles.tabs}
               type="editable-card"
               hideAdd
               activeKey={activeTab}
@@ -394,7 +456,7 @@ export function TreePage() {
                   label: 'Call Tree',
                   closable: false,
                   children: (
-                    <div style={{ height: 'calc(100vh - 200px)' }}>
+                    <div className={styles.tabPane}>
                       <TreeView model={model} onCapped={setCapped} ops={ops} />
                     </div>
                   ),
@@ -404,7 +466,7 @@ export function TreePage() {
                   label: 'Hotspots',
                   closable: false,
                   children: (
-                    <div style={{ height: 'calc(100vh - 200px)' }}>
+                    <div className={styles.tabPane}>
                       <HotspotsView model={model} profiles={profiles} />
                     </div>
                   ),
@@ -424,7 +486,7 @@ export function TreePage() {
                           title: 'Key',
                           width: 160,
                           render: (_, r) => (
-                            <Tag color={r.kind === 'sql' ? 'purple' : r.kind === 'bind' ? 'geekblue' : undefined}>
+                            <Tag color={r.kind === 'sql' ? 'processing' : undefined}>
                               {model.paramKeys[r.keyIdx] ?? r.keyIdx}
                             </Tag>
                           ),
@@ -434,18 +496,19 @@ export function TreePage() {
                           render: (_, r) => {
                             const key = model.paramKeys[r.keyIdx] ?? `param ${r.keyIdx}`;
                             const isOther = r.value === '::other';
+                            const language = isOther ? null : detectLanguage(key, r.value);
                             return (
                               <Space size={4}>
                                 <Typography.Text
                                   type={isOther ? 'secondary' : undefined}
                                   italic={isOther}
-                                  ellipsis
-                                  style={{ maxWidth: 560 }}
+                                  ellipsis={language === null}
+                                  className={styles.paramValueCell}
                                   title={r.value}
                                 >
-                                  {r.value}
+                                  {language === null ? r.value : <InlineHighlight language={language} value={r.value} />}
                                 </Typography.Text>
-                                {r.unresolved ? <Tag color="orange">unresolved</Tag> : null}
+                                {r.unresolved ? <Tag color="warning">unresolved</Tag> : null}
                                 {!isOther ? (
                                   <Button
                                     size="small"
@@ -485,11 +548,11 @@ export function TreePage() {
                   children: hasNoOccurrences(v.derived.root) ? (
                     <Empty description="The method does not occur in this tree." />
                   ) : v.profiles !== null ? (
-                    <div style={{ height: 'calc(100vh - 200px)' }}>
+                    <div className={styles.tabPane}>
                       <HotspotsView key={v.seq} model={v.derived} profiles={v.profiles} />
                     </div>
                   ) : (
-                    <div style={{ height: 'calc(100vh - 200px)' }}>
+                    <div className={styles.tabPane}>
                       <TreeView key={v.seq} model={v.derived} direction={v.direction} />
                     </div>
                   ),
@@ -525,7 +588,7 @@ export function TreePage() {
             <Alert
               type="warning"
               showIcon
-              style={{ marginTop: 8 }}
+              className={styles.alertGap}
               title={`Line${adjustModalInvalidLines.length === 1 ? '' : 's'} ${adjustModalInvalidLines.join(', ')} will be ignored`}
               description="Expected <factor> <method pattern>, for example 1/10 *Query.run*."
             />
@@ -558,7 +621,7 @@ export function TreePage() {
             <Alert
               type="warning"
               showIcon
-              style={{ marginTop: 8 }}
+              className={styles.alertGap}
               title={`Line${categoryModalInvalidLines.length === 1 ? '' : 's'} ${categoryModalInvalidLines.join(', ')} will be ignored`}
               description="Expected <category> <method pattern>, for example db >s.Dao.select*."
             />

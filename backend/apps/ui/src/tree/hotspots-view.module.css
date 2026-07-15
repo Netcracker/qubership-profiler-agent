@@ -1,0 +1,11 @@
+.hotspots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+}
+
+.treeContainer {
+  flex: 1;
+  min-height: 0;
+}

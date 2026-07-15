@@ -5,16 +5,21 @@ import { CallsPage } from './pages/calls-page';
 import { PodsPage } from './pages/pods-page';
 import { TreePage } from './pages/tree-page';
 import { AppShell } from './shell/app-shell';
+import { profilerTheme } from './theme/profiler-theme';
+
+// The router base follows the build-time base (vite base → BASE_URL, 07 §6),
+// so '/' and '/ui' are one config switch: '/' yields no basename.
+const basename = import.meta.env.BASE_URL.replace(/\/+$/, '') || undefined;
 
 /**
- * One SPA served at /ui (07 §6): /ui/calls, /ui/pods under the shell, and
- * /ui/tree/:pk standalone — it opens in a new tab and carries its own header.
+ * One SPA served under the base: {base}calls, {base}pods under the shell, and
+ * {base}tree/:pk standalone — it opens in a new tab and carries its own header.
  */
 export function App() {
   return (
-    <ConfigProvider>
+    <ConfigProvider theme={profilerTheme}>
       <AntdApp>
-        <BrowserRouter basename="/ui">
+        <BrowserRouter basename={basename}>
           <Routes>
             <Route element={<AppShell />}>
               <Route path="/calls" element={<CallsPage />} />

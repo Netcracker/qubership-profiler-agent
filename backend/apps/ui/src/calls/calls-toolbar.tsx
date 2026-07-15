@@ -6,11 +6,14 @@ import type { CallsSearchState } from '../url/search-params';
 import { defaultColumnPrefs } from './column-prefs';
 import type { ColumnPrefs } from './column-prefs';
 import { buildCallColumns, DEFAULT_COLUMN_ORDER } from './columns';
+import { formatDurationFilter, parseDurationFilter } from './duration-filter';
+import styles from './calls-toolbar.module.css';
 
-// Calls filter bar (09 §2.3): duration chips (>500ms default), errors-only,
-// hide system/proxy, method-substring query, column management. These narrow
-// an already-applied window, so they commit to the URL — and refetch —
-// immediately; the expensive selection + period setup stays Apply-gated.
+// Calls filter bar (09 §2.3): duration chips (>500ms default) plus a free-text
+// duration expression, errors-only, hide system/proxy, method-substring query,
+// column management. These narrow an already-applied window, so they commit to
+// the URL — and refetch — immediately; the expensive selection + period setup
+// stays Apply-gated.
 
 export const DURATION_CHIPS = [
   { label: 'All', value: 0 },
@@ -20,6 +23,11 @@ export const DURATION_CHIPS = [
   { label: '>3s', value: 3000 },
   { label: '>5s', value: 5000 },
 ];
+
+/** The chip and the text field share one filter; a preset sets a lower bound. */
+function durationText(search: CallsSearchState): string {
+  return formatDurationFilter({ minMs: search.durationMinMs || null, maxMs: search.durationMaxMs || null });
+}
 
 interface CallsToolbarProps {
   search: CallsSearchState;
@@ -44,12 +52,12 @@ function ColumnSettings({ prefs, onPrefsChange }: Pick<CallsToolbarProps, 'prefs
   // no visible way back, so that last checkbox stays checked and disabled.
   const visibleCount = prefs.order.length - prefs.hidden.length;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
+    <div className={styles.columnSettings}>
       {prefs.order.map((key, i) => {
         const visible = !prefs.hidden.includes(key);
         const title = COLUMN_TITLES.get(key) ?? key;
         return (
-          <Space key={key} style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Space key={key} className={styles.rowBetween}>
             <Checkbox
               checked={visible}
               disabled={visible && visibleCount === 1}
@@ -94,6 +102,33 @@ export function CallsToolbar({ search, onSearchChange, prefs, onPrefsChange, dis
   // The query commits on Enter or the search button, not per keystroke.
   const [queryDraft, setQueryDraft] = useState(search.query);
 
+  // The duration expression (old-UI grammar: >400ms, <100ms, 100ms..200ms)
+  // commits on Enter or blur; a preset chip fills it too. `null` bounds mean
+  // "unbounded", which the URL stores as 0.
+  const [durationDraft, setDurationDraft] = useState(() => durationText(search));
+  const [durationError, setDurationError] = useState(false);
+
+  // A preset chip is "selected" only when the committed filter is exactly that
+  // lower bound with no upper bound; a custom expression selects no chip.
+  const selectedChip =
+    search.durationMaxMs === 0 ? DURATION_CHIPS.find((c) => c.value === search.durationMinMs)?.value : undefined;
+
+  // Resync the draft when the committed filter changes under us (a preset
+  // click, back/forward, a shared link), the same way the query draft does.
+  useEffect(() => {
+    setDurationDraft(formatDurationFilter({ minMs: search.durationMinMs || null, maxMs: search.durationMaxMs || null }));
+    setDurationError(false);
+  }, [search.durationMinMs, search.durationMaxMs]);
+
+  const commitDuration = (raw: string): void => {
+    const bound = parseDurationFilter(raw);
+    if (bound === null) {
+      setDurationError(true);
+      return;
+    }
+    onSearchChange({ ...search, durationMinMs: bound.minMs ?? 0, durationMaxMs: bound.maxMs ?? 0 });
+  };
+
   // Resync the draft when the committed query changes under us (back/forward,
   // a shared link, a banner action), or the input would keep showing stale text.
   useEffect(() => {
@@ -111,14 +146,31 @@ export function CallsToolbar({ search, onSearchChange, prefs, onPrefsChange, dis
   };
 
   return (
-    <Space wrap style={{ padding: '8px 0' }}>
+    <Space wrap className={styles.toolbar}>
       <Radio.Group
         optionType="button"
         size="small"
-        value={search.durationMinMs}
+        value={selectedChip}
         disabled={disabled}
-        onChange={(e) => onSearchChange({ ...search, durationMinMs: e.target.value as number })}
+        onChange={(e) => onSearchChange({ ...search, durationMinMs: e.target.value as number, durationMaxMs: 0 })}
         options={DURATION_CHIPS.map((c) => ({ label: c.label, value: c.value }))}
+      />
+      <Input
+        size="small"
+        className={styles.durationInput}
+        status={durationError ? 'error' : undefined}
+        placeholder=">400ms · 100ms..200ms"
+        aria-label="Duration filter"
+        value={durationDraft}
+        disabled={disabled}
+        onChange={(e) => {
+          setDurationDraft(e.target.value);
+          setDurationError(false);
+        }}
+        onPressEnter={() => commitDuration(durationDraft)}
+        // Blur reverts an unparseable draft to the committed value so the field
+        // never sticks on invalid text the user has walked away from.
+        onBlur={() => (parseDurationFilter(durationDraft) === null ? setDurationDraft(durationText(search)) : commitDuration(durationDraft))}
       />
       <Space size={4}>
         <Switch
@@ -142,7 +194,7 @@ export function CallsToolbar({ search, onSearchChange, prefs, onPrefsChange, dis
         placeholder="Method substring"
         allowClear
         size="small"
-        style={{ width: 260 }}
+        className={styles.methodInput}
         value={queryDraft}
         disabled={disabled}
         onChange={(e) => handleQueryChange(e.target.value)}

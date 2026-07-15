@@ -4,6 +4,7 @@ import type { Key } from 'react';
 
 import type { ServiceNode } from './group-pods';
 import type { PodsState } from './use-pods';
+import styles from './discovery-rail.module.css';
 
 // Left rail (09 §2.1): namespace → service → pod tree with a tri-state
 // checkbox per service. The service is the selection unit — pods are
@@ -15,6 +16,12 @@ export interface RailSelection {
   services: string[];
   /** Individually selected pods, `namespace/service/pod`. */
   pods: string[];
+}
+
+/** Order-insensitive equality — selecting A then B equals selecting B then A. */
+export function selectionEquals(a: RailSelection, b: RailSelection): boolean {
+  const csv = (xs: string[]): string => [...xs].sort().join(',');
+  return csv(a.services) === csv(b.services) && csv(a.pods) === csv(b.pods);
 }
 
 interface DiscoveryRailProps {
@@ -132,7 +139,7 @@ export function DiscoveryRail({ pods, selection, onSelectionChange }: DiscoveryR
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', padding: 12 }}>
+    <div className={styles.rail}>
       <Input.Search
         placeholder="Filter services"
         allowClear
@@ -140,7 +147,7 @@ export function DiscoveryRail({ pods, selection, onSelectionChange }: DiscoveryR
         onChange={(e) => setSearch(e.target.value)}
       />
       {pods.kind === 'loading' ? (
-        <Spin style={{ marginTop: 24 }} />
+        <Spin className={styles.spinTop} />
       ) : pods.kind === 'error' ? (
         <Alert type="error" title="Cannot load pods" description={pods.message} showIcon />
       ) : pods.kind === 'idle' ? (
@@ -160,7 +167,7 @@ export function DiscoveryRail({ pods, selection, onSelectionChange }: DiscoveryR
             onCheck={handleCheck}
             expandedKeys={expandedKeys ?? visible.map((ns) => nsKey(ns.namespace))}
             onExpand={setExpandedKeys}
-            style={{ overflow: 'auto', flex: 1 }}
+            className={styles.tree}
           />
         </>
       )}

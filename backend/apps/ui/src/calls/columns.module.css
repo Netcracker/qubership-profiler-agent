@@ -1,0 +1,12 @@
+/* Duration heat dot; its background colour is data-driven and stays inline. */
+.heatDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  margin-right: 6px;
+}
+
+.podCell {
+  white-space: nowrap;
+}

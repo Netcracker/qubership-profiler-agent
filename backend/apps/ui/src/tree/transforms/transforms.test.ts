@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { TreeWire } from '../../msgpack/tree-wire';
-import { buildTreeModel } from '../model';
+import { buildTreeModel, findNodeById } from '../model';
 import { applyAdjustments, factorByMethod, invalidAdjustLines, parseAdjustConfig } from './adjust';
 import { applyCategories, invalidCategoryLines, parseCategoryConfig } from './categories';
 import { computeFlatProfile } from './flat-profile';
-import { findUsages, incomingCalls, outgoingCalls } from './merge';
+import { findUsages, incomingCalls, localHotspots, outgoingCalls } from './merge';
 
 // Synthetic model (durations consistent; wire executions = self + children):
 //   Entry(1000, self 100)
@@ -150,6 +150,42 @@ describe('outgoingCalls', () => {
     expect(outgoing.root.selfExecutions).toBe(2);
     expect(outgoing.root.durationMs).toBe(100);
     expect(outgoing.root.children).toHaveLength(0);
+  });
+});
+
+describe('localHotspots (PR 708 review #7)', () => {
+  it('scopes to the selected node subtree, not every occurrence of the method', () => {
+    const model = buildTreeModel(fixture());
+    // Query.run (methodIdx 2) appears under both ServiceA (×30) and ServiceB
+    // (×10). The node under ServiceA has the stable pre-order id 2.
+    const underServiceA = findNodeById(model.root, 2)!;
+    expect(underServiceA.methodIdx).toBe(2);
+    expect(underServiceA.selfExecutions).toBe(30);
+
+    const local = localHotspots(model, underServiceA);
+    expect(local.root.methodIdx).toBe(2);
+    expect(local.root.selfDurationMs).toBe(300);
+    expect(local.root.selfExecutions).toBe(30);
+    expect(local.root.children).toHaveLength(0);
+
+    // The whole-method merge would double it — the bug this fix closes.
+    expect(outgoingCalls(model, 2).root.selfExecutions).toBe(40);
+  });
+
+  it('folds self-recursion within the selected subtree, and one occurrence stays one', () => {
+    const model = buildTreeModel(fixture());
+    // The outer Util.recurse (id 3) has a nested self-recursive child (id 4).
+    const outer = findNodeById(model.root, 3)!;
+    expect(outer.methodIdx).toBe(4);
+    const folded = localHotspots(model, outer);
+    expect(folded.root.selfDurationMs).toBe(100); // 50 own + 50 nested, folded
+    expect(folded.root.selfExecutions).toBe(2);
+    expect(folded.root.children).toHaveLength(0);
+
+    // Selecting the inner occurrence alone keeps only its own 50ms.
+    const inner = localHotspots(model, findNodeById(model.root, 4)!);
+    expect(inner.root.selfDurationMs).toBe(50);
+    expect(inner.root.selfExecutions).toBe(1);
   });
 });
 

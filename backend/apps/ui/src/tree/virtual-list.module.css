@@ -1,0 +1,17 @@
+/* Scroll viewport; its height is passed in and stays inline. */
+.viewport {
+  overflow: auto;
+  position: relative;
+}
+
+/* Full-height spacer; total height is computed and stays inline. */
+.spacer {
+  position: relative;
+}
+
+/* Absolutely-positioned row; top and height are computed and stay inline. */
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+}

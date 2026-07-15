@@ -1,0 +1,23 @@
+/* height (not min-height): the data screens clamp to the viewport so the
+   virtualised table body is the only scroller. */
+.shell {
+  height: 100vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+/* Descendant selector beats antd's `h4.ant-typography` default margin/colour. */
+.header .title {
+  margin: 0;
+  color: var(--ant-color-text-light-solid);
+  white-space: nowrap;
+}
+
+.menu {
+  flex: 1;
+  min-width: 0;
+}

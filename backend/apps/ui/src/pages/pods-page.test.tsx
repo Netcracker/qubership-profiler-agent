@@ -3,7 +3,9 @@ import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { BROWSER_ZONE } from '../controls/time-range';
 import { server } from '../mocks/node';
+import { setZone } from '../ui/timezone';
 import { PodsPage } from './pods-page';
 
 // Opening /ui/pods directly must offer its own period picker + discovery
@@ -14,6 +16,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
+  setZone(BROWSER_ZONE); // the display zone is a module singleton; keep tests isolated
 });
 afterAll(() => server.close());
 
@@ -41,11 +44,36 @@ describe('PodsPage', () => {
     await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
   });
 
-  it('applying a freshly picked period on a bare /pods populates the table', async () => {
+  it('keeps Apply disabled while the selection matches the committed one', async () => {
+    const to = Date.now();
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&service=payments/billing`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    // Nothing to apply: the draft selection equals the committed one. The name
+    // may carry a loading spinner, so match the trailing label.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Apply$/ })).toBeDisabled());
+  });
+
+  it('pins a live relative range to an absolute permalink on "y"', async () => {
+    renderPodsPage('/pods?from=now-3h&to=now');
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    // The live range reads as its quick-range name.
+    expect(screen.getByRole('button', { name: 'Time range' })).toHaveTextContent('Last 3 hours');
+
+    fireEvent.keyDown(document.body, { key: 'y' });
+
+    // Frozen: the trigger now shows an absolute timestamp window, not "Last 3 hours".
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Time range' })).toHaveTextContent(/\d{4}-\d{2}-\d{2}/),
+    );
+    expect(screen.getByRole('button', { name: 'Time range' })).not.toHaveTextContent('Last 3 hours');
+  });
+
+  it('applies a freshly picked period on a bare /pods, populating the table at once', async () => {
     renderPodsPage('/pods');
-    fireEvent.click(screen.getByText('15 min'));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    // The quick ranges live inside the picker popover; picking one applies
+    // immediately, with no separate Apply click.
+    fireEvent.click(screen.getByRole('button', { name: 'Time range' }));
+    fireEvent.click(screen.getByText('Last 15 minutes'));
     await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
   });
 
@@ -113,5 +141,40 @@ describe('PodsPage', () => {
     await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
     const filtered = screen.getAllByRole('row').slice(1).map(tupleOf);
     expect(new Set(filtered)).toEqual(new Set([selected]));
+  });
+
+  // The pod table renders "Session start"/"Data range" in the app-wide display
+  // zone, like the calls table and the call tree — not always the browser's.
+  it('renders the pod table timestamps in the selected display zone', async () => {
+    // A fixed instant so the assertion is machine-timezone-independent: at UTC
+    // it reads back as this exact wall-clock, whatever the test host's zone.
+    const restartMs = Date.UTC(2026, 0, 2, 3, 4, 5);
+    server.use(
+      http.get('/api/v1/pods', () =>
+        HttpResponse.json({
+          pods: [
+            {
+              namespace: 'payments',
+              service: 'billing',
+              pod: 'billing-abcd',
+              restart_time_ms: restartMs,
+              time_min_ms: restartMs,
+              time_max_ms: restartMs + 60_000,
+            },
+          ],
+          partial: false,
+          partial_reasons: [],
+        }),
+      ),
+    );
+    setZone('UTC');
+
+    const to = Date.now();
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+
+    const dataRow = screen.getAllByRole('row')[1]!;
+    expect(within(dataRow).getByText('2026-01-02 03:04:05.000')).toBeInTheDocument();
+    expect(within(dataRow).getByText('2026-01-02 03:04:05.000 — 2026-01-02 03:05:05.000')).toBeInTheDocument();
   });
 });

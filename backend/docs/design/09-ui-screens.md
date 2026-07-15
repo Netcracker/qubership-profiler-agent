@@ -163,7 +163,7 @@ With a fan-out backend these are frequent, so each names what happened and the o
 
 | State | Trigger | Message and action |
 |-------|---------|--------------------|
-| Empty | No selection | "Select a namespace or service and a period, then Apply." |
+| Empty | Selection resolves to no pods | "The selected services have no pods in this window." Calls otherwise opens on the default last hour; Pods prompts "Pick a period and Apply to see pods." |
 | Loading | Fan-out in flight | Skeleton rows; "Querying hot replicas + cold tier." |
 | Partial | `partial: true` | Shows the rows that returned, with a banner listing `partial_reasons`; offers retry. It does not invent a source count. |
 | All sources failed | `504` | "No source answered in time. Narrow the range or retry." |

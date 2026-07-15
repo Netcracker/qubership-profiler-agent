@@ -57,10 +57,17 @@ func (s *Service) routes(e *echo.Echo) {
 	// bytes with Range support, which the middleware would break.
 	e.GET("/api/v1/calls/:pk/tree", s.handleCallTree, middleware.Gzip())
 	if s.ui != nil {
-		// The embedded single-page app (07 §6); /api/v1, /metrics, and the
-		// health routes stay untouched.
-		e.GET("/ui", s.handleUI, middleware.Gzip())
-		e.GET("/ui/*", s.handleUI, middleware.Gzip())
+		// The embedded single-page app under its build-time base (07 §6). The
+		// specific /api/v1 routes above win over the catch-all by echo's static-
+		// over-wildcard priority; /metrics and the health routes never reach echo
+		// (they are served by the outer mux/gate ahead of it).
+		if s.uiPrefix == "" {
+			e.GET("/", s.handleUI, middleware.Gzip())
+			e.GET("/*", s.handleUI, middleware.Gzip())
+		} else {
+			e.GET(s.uiPrefix, s.handleUI, middleware.Gzip())
+			e.GET(s.uiPrefix+"/*", s.handleUI, middleware.Gzip())
+		}
 	}
 }
 

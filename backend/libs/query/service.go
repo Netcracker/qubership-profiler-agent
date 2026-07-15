@@ -49,6 +49,9 @@ type (
 		echo      *echo.Echo
 		metrics   *Metrics
 		ui        fs.FS
+		// URL prefix the SPA is served under (07 §6), "" for a root build or
+		// e.g. "/ui"; read from the built index.html so serving follows the base.
+		uiPrefix string
 	}
 )
 
@@ -67,6 +70,9 @@ func New(opts Options) *Service {
 		metrics: opts.Metrics,
 	}
 	s.ui = opts.UI
+	if s.ui != nil {
+		s.uiPrefix = uiPrefix(s.ui)
+	}
 	s.discovery = opts.HotDiscovery
 	if s.discovery == nil && cfg.CollectorService != "" {
 		s.discovery = hot.DNSDiscovery{Service: cfg.CollectorService, Port: cfg.CollectorPort}

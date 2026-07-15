@@ -1,6 +1,8 @@
 import { Layout, Menu, Typography } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
+import styles from './app-shell.module.css';
+
 const NAV_ITEMS = [
   { key: '/calls', label: 'Calls' },
   { key: '/pods', label: 'Pods Info' },
@@ -19,9 +21,9 @@ export function AppShell() {
   return (
     // height (not minHeight): the data screens clamp to the viewport so the
     // virtualised table body is the only scroller.
-    <Layout style={{ height: '100vh' }}>
-      <Layout.Header style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-        <Typography.Title level={4} style={{ margin: 0, color: '#fff', whiteSpace: 'nowrap' }}>
+    <Layout className={styles.shell}>
+      <Layout.Header className={styles.header}>
+        <Typography.Title level={4} className={styles.title}>
           Profiler
         </Typography.Title>
         <Menu
@@ -32,7 +34,7 @@ export function AppShell() {
           // The search string carries the window and selection (09 §6); keep
           // it when switching tabs so the view survives.
           onClick={({ key }) => void navigate({ pathname: key, search: location.search })}
-          style={{ flex: 1, minWidth: 0 }}
+          className={styles.menu}
         />
       </Layout.Header>
       <Outlet />

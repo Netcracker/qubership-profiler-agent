@@ -1,0 +1,28 @@
+/* Inline single-line highlight; overrides the github.css `.hljs` block styling
+   so it blends into the row. Imported after github.css so it wins the cascade. */
+.inlineCode {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  font-family: inherit;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.toggleLink {
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
+.valuePre {
+  max-height: 60vh;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}

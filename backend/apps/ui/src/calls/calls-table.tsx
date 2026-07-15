@@ -5,10 +5,12 @@ import type { ReactNode, ThHTMLAttributes } from 'react';
 
 import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
+import { useZone } from '../ui/timezone';
 import { useElementHeight } from '../ui/use-element-height';
 import type { ColumnPrefs } from './column-prefs';
 import { buildCallColumns } from './columns';
 import type { ColumnHandlers } from './columns';
+import styles from './calls-table.module.css';
 
 // AntD 6 Table with the built-in virtual scroller: keyset pages bound the
 // loaded row count, so the DOM never holds more than the fetched pages and
@@ -41,21 +43,9 @@ function ResizableHeaderCell({ onColumnResize, width, children, ...rest }: Resiz
     document.addEventListener('mouseup', onUp);
   };
   return (
-    <th {...rest} style={{ ...rest.style, position: 'relative' }}>
+    <th {...rest} className={[rest.className, styles.resizeCell].filter(Boolean).join(' ')}>
       {children}
-      <span
-        onMouseDown={startResize}
-        style={{
-          position: 'absolute',
-          right: -4,
-          top: 0,
-          bottom: 0,
-          width: 9,
-          cursor: 'col-resize',
-          zIndex: 1,
-          userSelect: 'none',
-        }}
-      />
+      <span onMouseDown={startResize} className={styles.resizeHandle} />
     </th>
   );
 }
@@ -75,9 +65,10 @@ const HEADER_AND_FOOTER_PX = 39 + 48;
 
 export function CallsTable({ rows, loading, prefs, onPrefsChange, handlers, virtual = true, footer }: CallsTableProps) {
   const [containerRef, containerHeight] = useElementHeight<HTMLDivElement>();
+  const zone = useZone();
 
   const columns = useMemo<TableColumnType<CallJSON>[]>(() => {
-    const defs = new Map(buildCallColumns(handlers ?? {}).map((d) => [d.key, d]));
+    const defs = new Map(buildCallColumns(handlers ?? {}, zone).map((d) => [d.key, d]));
     return prefs.order
       .filter((key) => !prefs.hidden.includes(key))
       .map((key) => defs.get(key))
@@ -100,12 +91,12 @@ export function CallsTable({ rows, loading, prefs, onPrefsChange, handlers, virt
               onPrefsChange({ ...prefs, widths: { ...prefs.widths, [key]: width } }),
           }) as ResizableCellProps,
       }));
-  }, [prefs, handlers, onPrefsChange]);
+  }, [prefs, handlers, onPrefsChange, zone]);
 
   const totalWidth = columns.reduce((sum, c) => sum + (typeof c.width === 'number' ? c.width : 120), 0);
 
   return (
-    <div ref={containerRef} style={{ flex: 1, minHeight: 200 }}>
+    <div ref={containerRef} className={styles.tableContainer}>
       <Table<CallJSON>
         size="small"
         rowKey={(c) => pkToPath(c.pk)}

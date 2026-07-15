@@ -1,0 +1,108 @@
+.panel {
+  width: 540px;
+}
+
+.columns {
+  display: flex;
+}
+
+.absoluteCol {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-right: 16px;
+}
+
+.field {
+  margin-top: 12px;
+}
+
+.fieldTight {
+  margin-top: 8px;
+}
+
+.errorText {
+  display: block;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.applyBtn {
+  margin-top: 12px;
+}
+
+/* flex-basis and padding are static; the divider colour is a theme token and
+   stays inline. */
+.quickCol {
+  flex: 0 0 200px;
+  padding-inline-start: 16px;
+}
+
+.quickList {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.hint {
+  font-size: 12px;
+}
+
+.hintNowrap {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The top border colour is a theme token and stays inline. */
+.zoneRow {
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
+.zoneSelectRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zoneSelect {
+  flex: 1;
+  min-width: 0;
+}
+
+.zoneOption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+/* `ch` tracks the font: a full absolute range is 42 chars
+   ("YYYY-MM-DD HH:mm:ss to …"), so this holds it whatever the font size,
+   while a short quick-range label keeps its natural width. */
+.triggerLabel {
+  max-width: 42ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.caret {
+  font-size: 10px;
+}
+
+/* The selected-range accent border and hover background are state-driven and
+   stay inline. */
+.quickItem {
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}

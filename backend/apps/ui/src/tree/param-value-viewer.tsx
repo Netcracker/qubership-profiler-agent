@@ -7,6 +7,8 @@ import { App, Button, Modal, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import vkbeautify from 'vkbeautify';
 
+import styles from './param-value-viewer.module.css';
+
 // Full-value viewer for parameter rows (PR 708 review #21): truncated
 // inline/table text had no way to read or copy the full value. Mirrors the
 // stacktrace modal's copy-to-clipboard UX (tree-view.tsx) and the old UI's
@@ -81,6 +83,24 @@ export function beautifyValue(value: string, language: ParamLanguage): string | 
   }
 }
 
+/**
+ * Inline single-line syntax highlighting for a parameter value, shown in the
+ * call tree and the Parameters table where the full-value modal is one click
+ * away. The caller decides the language with detectLanguage and keeps its own
+ * plain text + ellipsis when the value has none, so only SQL/XML/JSON rows pay
+ * for a highlight pass. Styling inherits the row's font and clips with an
+ * ellipsis; the github.css `.hljs` background is overridden to blend in.
+ */
+export function InlineHighlight({ language, value }: { language: ParamLanguage; value: string }) {
+  const html = hljs.highlight(value, { language }).value;
+  return (
+    <code
+      className={`hljs ${styles.inlineCode}`}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 export interface ParamValueTarget {
   key: string;
   value: string;
@@ -120,20 +140,11 @@ export function ParamValueModal({ target, onClose }: ParamValueModalProps) {
       }
     >
       {reformatted !== null ? (
-        <Typography.Link onClick={() => setShowOriginal((v) => !v)} style={{ display: 'inline-block', marginBottom: 8 }}>
+        <Typography.Link onClick={() => setShowOriginal((v) => !v)} className={styles.toggleLink}>
           {showOriginal ? 'view reformatted' : 'view original'}
         </Typography.Link>
       ) : null}
-      <pre
-        style={{
-          maxHeight: '60vh',
-          overflow: 'auto',
-          fontSize: 12,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          margin: 0,
-        }}
-      >
+      <pre className={styles.valuePre}>
         {highlighted !== null ? <code className="hljs" dangerouslySetInnerHTML={{ __html: highlighted }} /> : displayValue}
       </pre>
     </Modal>

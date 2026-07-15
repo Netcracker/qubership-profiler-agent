@@ -5,9 +5,11 @@ import type { ReactNode } from 'react';
 import { httpTitle } from '../api/http-title';
 import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
+import { BROWSER_ZONE } from '../controls/time-range';
 import { treeHref } from '../url/search-params';
 import { durationHeat, formatBytes, formatCount, formatDurationMs, formatTs } from './format';
 import { isIdleMethod } from './idle-tags';
+import styles from './columns.module.css';
 
 // The full calls column set (09 §2.3): the always-on identity columns plus
 // the R1 metric columns the backend re-exposed (08 R1).
@@ -27,9 +29,9 @@ export interface ColumnHandlers {
   onPinPod?: (tuple: string) => void;
 }
 
-export function buildCallColumns(handlers: ColumnHandlers): CallColumnDef[] {
+export function buildCallColumns(handlers: ColumnHandlers, zone: string = BROWSER_ZONE): CallColumnDef[] {
   return [
-    { key: 'start', title: 'Start', defaultWidth: 190, render: (c) => formatTs(c.ts_ms), compare: (a, b) => a.ts_ms - b.ts_ms },
+    { key: 'start', title: 'Start', defaultWidth: 190, render: (c) => formatTs(c.ts_ms, zone), compare: (a, b) => a.ts_ms - b.ts_ms },
     {
       key: 'duration',
       title: 'Duration',
@@ -43,16 +45,7 @@ export function buildCallColumns(handlers: ColumnHandlers): CallColumnDef[] {
           rel="noopener noreferrer"
           title="Open the call tree in a new tab"
         >
-          <span
-            style={{
-              display: 'inline-block',
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              background: durationHeat(c.duration_ms),
-              marginRight: 6,
-            }}
-          />
+          <span className={styles.heatDot} style={{ background: durationHeat(c.duration_ms) }} />
           {formatDurationMs(c.duration_ms)}
         </a>
       ),
@@ -64,8 +57,8 @@ export function buildCallColumns(handlers: ColumnHandlers): CallColumnDef[] {
       render: (c) => {
         const tuple = `${c.pk.pod_namespace}/${c.pk.pod_service}/${c.pk.pod_name}`;
         return (
-          <span style={{ whiteSpace: 'nowrap' }}>
-            <Tooltip title={`${tuple} · restart ${formatTs(c.pk.restart_time_ms)}`}>
+          <span className={styles.podCell}>
+            <Tooltip title={`${tuple} · restart ${formatTs(c.pk.restart_time_ms, zone)}`}>
               <Typography.Text>{c.pk.pod_name}</Typography.Text>
             </Tooltip>
             {handlers.onPinPod !== undefined ? (
@@ -97,11 +90,11 @@ export function buildCallColumns(handlers: ColumnHandlers): CallColumnDef[] {
             ) : (
               <Typography.Text type={isIdleMethod(c.method) ? 'secondary' : undefined}>{c.method}</Typography.Text>
             )}{' '}
-            {c.error_flag ? <Tag color="red">error</Tag> : null}
-            {'sql' in c.params ? <Tag color="blue">sql</Tag> : null}
+            {c.error_flag ? <Tag color="error">error</Tag> : null}
+            {'sql' in c.params ? <Tag color="processing">sql</Tag> : null}
             {c.truncated_reason !== null ? (
               <Tooltip title={c.truncated_reason}>
-                <Tag color="orange">no trace</Tag>
+                <Tag color="warning">no trace</Tag>
               </Tooltip>
             ) : null}
           </span>
