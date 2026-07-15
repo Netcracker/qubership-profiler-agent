@@ -68,7 +68,7 @@ type Config struct {
 	ChunksStagingMaxBytes int64
 	// WalPurgeGrace is the hold-back past a pod-restart's full flush before its
 	// WAL files are deleted (§3.5, 03 §3.9 step 18). The env name is an
-	// implementation choice recorded in stage1-progress.md.
+	// implementation choice.
 	WalPurgeGrace time.Duration
 	// JanitorCheckInterval paces JanitorPass (hot retention, WAL purge, disk
 	// budget). Zero disables the loop, mirroring SealCheckInterval: the collect

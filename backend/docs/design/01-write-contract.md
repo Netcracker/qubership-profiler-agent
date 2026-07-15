@@ -2,7 +2,7 @@
 
 > Status: **draft**, awaiting review. Wire-protocol invariants (Section 1) verified against agent code. No agent or protocol changes are required by this contract for the MVP.
 
-> **2026-07-01 redesign — now in the body.** The hot-store (gzip segments + SQLite index) and seal-pass model replaced the earlier write-path-parquet design and is folded into §2–§6 and §8–§9 below. Decision history and rationale: `stage0-progress.md` decisions log (2026-07-01 entries).
+> **2026-07-01 redesign — now in the body.** The hot-store (gzip segments + SQLite index) and seal-pass model replaced the earlier write-path-parquet design and is folded into §2–§6 and §8–§9 below.
 
 This document defines what the new Go collector writes to local PV and to S3, and on which events. It is the source of truth for Stages 1, 2, 6.
 
@@ -114,7 +114,7 @@ The per-call trace blobs (§4) embed `method_id` and `param_id` references that 
 
 ### 3.7 Reconnect continuity
 
-A dropped agent connection never heals in place: the agent tears its dumper down to `initialize()` (`lastWrittenDictionaryTag = 0`) and reconnects, re-sending the whole dictionary from index 0 with the reset flag set (`resetRequired = 1`). Each reconnect is a new TCP accept, so the collector stamps a fresh `restartTime` and treats it as a new, independent pod-restart. Because the agent re-sends the full dictionary, that pod-restart is self-contained — the replica that receives it is never dictionary-less, even when it differs from the one that held the previous connection, and replicas need not share dictionary state. The `resetRequired = 1` flag is what tells the collector the incoming dictionary starts from index 0. This is why the collector-stamped `restartTime` at TCP accept (§1 V4) is safe: reconnect does not need cross-connection continuity. Full code trace: `stage0-progress.md` decisions log (2026-07-01).
+A dropped agent connection never heals in place: the agent tears its dumper down to `initialize()` (`lastWrittenDictionaryTag = 0`) and reconnects, re-sending the whole dictionary from index 0 with the reset flag set (`resetRequired = 1`). Each reconnect is a new TCP accept, so the collector stamps a fresh `restartTime` and treats it as a new, independent pod-restart. Because the agent re-sends the full dictionary, that pod-restart is self-contained — the replica that receives it is never dictionary-less, even when it differs from the one that held the previous connection, and replicas need not share dictionary state. The `resetRequired = 1` flag is what tells the collector the incoming dictionary starts from index 0. This is why the collector-stamped `restartTime` at TCP accept (§1 V4) is safe: reconnect does not need cross-connection continuity.
 
 ## 4. Per-call trace blob assembly
 
@@ -136,7 +136,7 @@ Within one logical chunk, multiple short root calls of a thread may open and clo
 
 ### 4.3 Indexing on the write path, assembly at seal
 
-Blob assembly does not happen on the write path. The write path only captures bytes and builds the index; the seal pass (§6.5) assembles the blobs. This keeps ingest a single sequential append and lets one seal pass decompress each segment exactly once.
+Blob assembly does not happen on the write path. The write path only captures bytes and builds the index; the seal pass (§6.5) assembles the blobs. This keeps ingest a single sequential append and lets one seal pass decompress each segment exactly once. Demultiplexing stays virtual: the interleaved stream is one append and `chunk_index[threadId]` indexes into it. Two alternatives were rejected — demultiplexing on receipt into per-thread files turns one append into thousands of tiny ones, and per-call temp files hold one open handle per in-flight call.
 
 Per-thread state held in RAM (mirrored in the SQLite segment catalog for recovery):
 
@@ -402,7 +402,7 @@ A sealed bucket is immutable in S3 (§6.2), so late data never rewrites an exist
    - **Patch compaction** merges a `(bucket, retention_class, pod-restart)`'s original file and its patches into fewer objects, cutting the per-bucket file count (the `f` factor in `02-read-contract.md` §5.5).
    - **Cross-pod-restart compaction** merges the small per-pod-restart files of one `(bucket, retention_class)` into a single object once they accumulate, regardless of pod-restart. Each row keeps its own PK (`pod_*`, `restart_time_ms`), so a mixed-pod-restart file needs no read-path coordination: dedup, dictionary resolution (`02-read-contract.md` §2.6), and PK lookup all key off the row, not the file. This is the only lever that cuts the pod-restart factor `P` in the object count (`02-read-contract.md` §5.5). Both forms stay within one `retention_class`, so the per-class TTL (§6.4) still applies by object key.
 
-   **Reader safety without a lock.** Compaction writes the compacted object first, then deletes the inputs, and delays that delete by `PROFILER_COMPACTION_DELETE_GRACE` (default `5m`, §9). The grace, not the write-then-delete order alone, is what guarantees completeness: a query whose LIST saw the inputs before the compacted object existed still finds those inputs in S3 when it reads them, because one discovery-plus-read round — each page re-LISTs (`02-read-contract.md` §2.3.1) — is far shorter than the grace. A query that lists after the compacted object exists sees it by S3 read-after-write consistency. Within the grace both copies are visible and PK-dedup collapses the overlap. As a backstop for a read that still outlives the grace, discovery treats a `404` on a listed object as empty, not an error (`02-read-contract.md` §5.1).
+   **Reader safety without a lock.** Compaction writes the compacted object first, then deletes the inputs, and delays that delete by `PROFILER_COMPACTION_DELETE_GRACE` (default `5m`, §9). The grace, not the write-then-delete order alone, is what guarantees completeness: a query whose LIST saw the inputs before the compacted object existed still finds those inputs in S3 when it reads them, because one discovery-plus-read round — each page re-LISTs (`02-read-contract.md` §2.3.1) — is far shorter than the grace. A query that lists after the compacted object exists sees it by S3 read-after-write consistency. Within the grace both copies are visible and PK-dedup collapses the overlap. As a backstop for a read that still outlives the grace, discovery treats a `404` on a listed object as empty, not an error (`02-read-contract.md` §5.1). The maintainer holds no state across passes: the compacted object's key carries the reserved `maintain` replica token and a `<hash>` — the first four bytes of `sha256` over the sorted input keys (§7) — so re-running the same group PUTs the same object (idempotent), and the exact inputs to delete are read back from the compacted object's parquet footer (`profiler.compaction_inputs`), not recomputed. The delete-grace is measured from the compacted object's S3 `LastModified`, so two racing maintainers converge on one object and a group whose output matches no input subset simply recompacts.
 
 Blob completeness for a late Call is bounded by segment survival (§4.6): the row is always sealed, but `trace_blob` is `NULL` with a `truncated_reason` once the source segments have been evicted.
 
@@ -475,6 +475,10 @@ Why date in the path even though `ts_ms` is in the file: query needs to LIST eff
 | `PROFILER_TIME_BUCKET_GRACE` | `30s` | Wait after bucket end before the seal pass runs (§6.1). |
 | `PROFILER_PARQUET_MAX_SIZE` | `64MB` | Size at which a seal pass splits its output into a new `<seq>` file. |
 | `PROFILER_SEAL_CONCURRENCY` | `4` | Maximum seal passes running in parallel (§6.1). |
+| `PROFILER_SEAL_CHECK_INTERVAL` | `15s` | Poll cadence of the `collect` seal loop. |
+| `PROFILER_UPLOAD_CHECK_INTERVAL` | `30s` | Poll cadence of the `collect` parquet upload worker. |
+| `PROFILER_JANITOR_CHECK_INTERVAL` | `30s` | Poll cadence of the `collect` hot-retention, disk-budget, and WAL-purge janitor. |
+| `PROFILER_WAL_PURGE_GRACE` | `1h` | Hold-back past a pod-restart's `closed_at` before its WAL files are purged (§3.5; `03-lifecycle.md` §3.9). |
 | `PROFILER_MEM_BUDGET` | `2GB` | Soft memory budget for `chunk_index` plus running seal-pass buffers (§4.6). |
 | `PROFILER_PENDING_UPLOAD_MAX_BYTES` | `2GB` | Pending-backlog budget (§4.6): sealing pauses once pending parquet reaches half of it; ingest refuses `RCV_DATA` with `ACK_ERROR` once pending parquet + call partitions + WAL files reach all of it. The agent drops the refused window and reconnects; `ingest_refused_bytes_total` counts the loss. |
 | `PROFILER_CHUNKS_STAGING_MAX_BYTES` | `10GB` | Total disk budget for trace segment files (§4.6). |
@@ -492,10 +496,16 @@ Why date in the path even though `ts_ms` is in the file: query needs to LIST eff
 | `PROFILER_RETENTION_PODS_TTL` | `185d` | TTL for the `pods/v1` manifests (§3.6). Must exceed the longest parquet class TTL; the default derives from the tier table (longest TTL plus a five-day margin). |
 | `PROFILER_HOT_RETENTION` | `15m` | Local parquet retention past flush (§6.3 and `02-read-contract.md` §4.2). |
 | `PROFILER_COMPACTION_DELETE_GRACE` | `5m` | Delay before a `maintain` compaction deletes its input objects, after the compacted object is written (§6.6). Must exceed one discovery-plus-read round so a concurrent query never loses rows mid-compaction. |
+| `PROFILER_MAINTAIN_CHECK_INTERVAL` | `5m` | Poll cadence of the `maintain` loop. |
+| `PROFILER_COMPACTION_MIN_AGE` | `30m` | Minimum age of a sealed object before it is eligible for compaction (§6.6). |
+| `PROFILER_COMPACTION_MIN_FILES` | `4` | Minimum objects in a group before `maintain` compacts it (§6.6). |
+| `PROFILER_COMPACTION_MAX_BYTES` | `256MB` | Target ceiling for a compacted object: a group over it is split into sub-budget objects, and a single object already over it is left as is (§6.6). |
 | `S3_ENDPOINT` | — | MinIO/S3 endpoint URL. |
 | `S3_BUCKET` | — | Target bucket. |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials from the environment. For each credential, set exactly one source: the env form or the `*_FILE` form below. |
 | `S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE` | — | Path to a file holding the credential; trailing whitespace is trimmed. The k8s manifests mount the S3 Secret as a volume and point these at it (`04-storage-layout.md` §3.2, §6), so the credential never appears in a pod spec or `kubectl describe`. The env forms remain for dev/compose. |
+| `S3_CA_FILE` | — | Path to a CA bundle for the S3 endpoint's TLS. Ignored unless the endpoint is `https`. |
+| `S3_INSECURE_SKIP_VERIFY` | `false` | Skip S3 TLS certificate verification. For dev against a self-signed MinIO only. |
 | `S3_PATH_PREFIX` | (empty) | Per-deployment key prefix below the bucket, applied to every object the backend writes and reads (§7) — parquet and the `pods/v1` manifests — so several deployments can share one bucket. Set the same value on all three subcommands. |
 | `STATEFULSET_ORDINAL` | (from `HOSTNAME`) | Used in S3 object key. |
 

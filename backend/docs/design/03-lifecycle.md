@@ -2,7 +2,7 @@
 
 > Status: **draft**, awaiting review. Process lifecycle for each subcommand of the single Go binary: startup, recovery, readiness, flush, and shutdown. The collector path carries most of the complexity because of crash recovery and event-level blob assembly (`01-write-contract.md` §4).
 
-> **2026-07-01 alignment — now in the body.** Recovery is aligned with the hot-store + seal-pass model (drop unclosed calls, rebuild the index from gzip segments, dictionary continuity on reconnect); it is folded into §2–§6 below. History: `stage0-progress.md` decisions log.
+> **2026-07-01 alignment — now in the body.** Recovery is aligned with the hot-store + seal-pass model (drop unclosed calls, rebuild the index from gzip segments, dictionary continuity on reconnect); it is folded into §2–§6 below.
 
 ## 1. Scope
 
@@ -99,6 +99,8 @@ For each closed pod-restart:
 10. Delete everything under `parquet-sealing/`: a seal pass in flight at crash time left scratch files with no footer, so they are unreadable and are re-produced by re-sealing (§3.7). If a `parquet_local` row points at a file missing on disk, clear the row so its bucket re-seals.
 11. For each sealed parquet with `uploaded_at IS NULL`, enqueue it for upload retry (step 3.8). These are valid files — seal finished (footer present) but upload did not.
 
+> **Known gap.** The reverse repair — rebuilding `parquet_local` from the footers of orphaned sealed files after a lost `metadata.sqlite` (§3.2 step 4) — is not implemented. A sealed file with no catalog row is left on disk; its calls re-seal from the WAL (duplicates collapse by PK-dedup) and the orphaned file leaks until deleted by hand.
+
 ### 3.7 Finalize closed pod-restarts: drop unclosed calls
 
 The trace bytes still in the hot store belong to root calls that the agent **may or may not have closed** before the TCP connection broke. Without a Call record the collector has neither the call's metrics nor its end pointer, and a call split across two connections (reconnect to another replica) is incomplete on any single replica anyway. Decision: **drop unclosed calls.**
@@ -121,7 +123,7 @@ This step runs asynchronously; `READY` does not wait for it.
 ### 3.9 Purge WALs of fully uploaded pod-restarts
 
 17. Sealed rows carry their own dictionary subset and suspend pauses (`01-write-contract.md` §3.6, schema version 3), so no snapshot upload step exists any more.
-18. Once all a closed pod-restart's parquet rows are uploaded (steps 3.7+3.8 complete) AND the upload-hold-back grace has elapsed (default 1 h), delete the local WAL files for that pod-restart.
+18. Delete a closed pod-restart's local WAL files once (a) every sealed parquet row is uploaded (steps 3.7+3.8 complete), (b) no `calls.wal` offset it owns is still indexed in any live partition, and (c) `PROFILER_WAL_PURGE_GRACE` (default 1 h) has elapsed past its `closed_at`. Gate (b) makes the purge strictly follow the call-index partition drop: purging earlier could strand hot rows whose dictionary WAL is already gone, and hot `/tree` would then render `#<id>` placeholders.
 
 Steps 3.8 and 3.9 are background tasks; `READY` is reached after step 3.7 completes.
 
@@ -170,6 +172,8 @@ Triggered by SIGTERM (kubelet drain) or SIGINT (operator).
 4. After the drain grace, close the TCP listener (no new agent connections accepted).
 5. For each active agent TCP connection, send `COMMAND_CLOSE` (`backend/libs/protocol/commands.go`); wait for the agent's acknowledgement up to `PROFILER_AGENT_CLOSE_TIMEOUT` (default 5 s). If timeout → close from collector side.
 6. The affected agents will reconnect — to a different collector replica (this one is not in DNS anymore) — and start a fresh pod-restart there. The current pod-restart on this replica is now closed.
+
+> **Known gap.** Step 5's `COMMAND_CLOSE` drain is not implemented. On shutdown `server.Service.Stop()` force-closes each live agent connection instead of sending `COMMAND_CLOSE`, so an agent sees a dropped socket rather than a graceful close (it reconnects either way, `06-wire-protocol-server.md` §6). The force-close is deliberate — a drain would otherwise hold `Stop()` until each idle connection hit its ~40 s read deadline — but the polite `COMMAND_CLOSE` handshake with the 5 s per-connection timeout is still owed.
 
 ### 5.3 Finalize closed pod-restarts
 
