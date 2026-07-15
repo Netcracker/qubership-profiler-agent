@@ -64,27 +64,56 @@ func TestHourWalk(t *testing.T) {
 }
 
 func TestClassesForPrunes(t *testing.T) {
+	src := &Source{}
 	all := model.RetentionClasses
-	assert.Equal(t, all, ClassesFor(model.CallsQuery{}), "no filter lists all five classes")
+	assert.Equal(t, all, src.ClassesFor(model.CallsQuery{}), "no filter lists every class")
 
 	assert.Equal(t, []string{model.RetentionAnyError, model.RetentionCorrupted},
-		ClassesFor(model.CallsQuery{ErrorOnly: true}), "error_only keeps the error classes")
+		src.ClassesFor(model.CallsQuery{ErrorOnly: true}), "error_only keeps the error classes")
 
-	assert.Equal(t, []string{model.RetentionLongClean, model.RetentionAnyError, model.RetentionCorrupted},
-		ClassesFor(model.CallsQuery{DurationMinMs: 1000}),
+	assert.Equal(t, []string{model.RetentionLongClean, model.RetentionHugeClean, model.RetentionAnyError, model.RetentionCorrupted},
+		src.ClassesFor(model.CallsQuery{DurationMinMs: 1000}),
 		"duration_min_ms >= 1000 drops short_clean and normal_clean, error classes carry any duration")
 
-	assert.Equal(t, []string{model.RetentionNormalClean, model.RetentionLongClean, model.RetentionAnyError, model.RetentionCorrupted},
-		ClassesFor(model.CallsQuery{DurationMinMs: 100}), "the 100ms threshold drops only short_clean")
+	assert.Equal(t, []string{model.RetentionNormalClean, model.RetentionLongClean, model.RetentionHugeClean, model.RetentionAnyError, model.RetentionCorrupted},
+		src.ClassesFor(model.CallsQuery{DurationMinMs: 100}), "the 100ms threshold drops only short_clean")
 
-	assert.Equal(t, all, ClassesFor(model.CallsQuery{DurationMinMs: 99}),
+	assert.Equal(t, all, src.ClassesFor(model.CallsQuery{DurationMinMs: 99}),
 		"a threshold below 100ms prunes nothing: short_clean can hold such calls")
 
 	assert.Equal(t, []string{model.RetentionShortClean},
-		ClassesFor(model.CallsQuery{RetentionClasses: []string{model.RetentionShortClean}}),
+		src.ClassesFor(model.CallsQuery{RetentionClasses: []string{model.RetentionShortClean}}),
 		"an explicit class filter selects prefixes verbatim")
 
 	assert.Equal(t, []string{model.RetentionAnyError},
-		ClassesFor(model.CallsQuery{RetentionClasses: []string{model.RetentionShortClean, model.RetentionAnyError}, ErrorOnly: true}),
+		src.ClassesFor(model.CallsQuery{RetentionClasses: []string{model.RetentionShortClean, model.RetentionAnyError}, ErrorOnly: true}),
 		"filters intersect")
+}
+
+// TestClassesForMatchesClassification is the №10 round-trip: for every
+// duration around the tier bounds, the class the WRITE side files a call
+// under must survive the READ side's pruning of any duration_min_ms the call
+// itself matches. Before the shared tier table the two sides hardcoded their
+// bounds independently — a 5s call sealed into long_clean [1s, 10s) was
+// silently dropped by a read side still assuming long_clean is unbounded.
+func TestClassesForMatchesClassification(t *testing.T) {
+	src := &Source{}
+	durationsMs := []int64{0, 99, 100, 999, 1000, 5000, 9999, 10000, 60000}
+	minimumsMs := []int32{0, 1, 99, 100, 999, 1000, 2000, 9999, 10000, 20000}
+	for _, durationMs := range durationsMs {
+		class := model.ClassifyDuration(time.Duration(durationMs)*time.Millisecond, false, nil)
+		for _, minMs := range minimumsMs {
+			if int64(minMs) > durationMs {
+				continue // the row filter drops the call anyway
+			}
+			assert.Contains(t, src.ClassesFor(model.CallsQuery{DurationMinMs: minMs}), class,
+				"a %dms call (class %s) matching duration_min_ms=%d must stay listed", durationMs, class, minMs)
+		}
+	}
+
+	// The spec's concrete regression: a 5s call is long_clean under the
+	// [100ms, 1s, 10s] thresholds, and duration_min_ms=2000 must keep
+	// long_clean in the LIST plan.
+	assert.Contains(t, src.ClassesFor(model.CallsQuery{DurationMinMs: 2000}),
+		model.ClassifyDuration(5*time.Second, false, nil))
 }

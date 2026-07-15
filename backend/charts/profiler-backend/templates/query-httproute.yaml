@@ -1,0 +1,29 @@
+# External API entry point (/api/v1), Gateway API leg. Renders only under the
+# gateway-api-default gateway mode; see query-ingress.yaml for the classic
+# Ingress leg and 04 §12 for the platform convention (PR #798). Both can
+# render together during a cluster's migration off Ingress-NGINX.
+{{- $gwType := .Values.GATEWAY_SYSTEM_TYPE | default "legacy-ingress" }}
+{{- if and .Values.query.ingress.enabled (contains "gateway-api-default" $gwType) }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-query
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "query") | nindent 4 }}
+spec:
+  parentRefs:
+    {{- include "gateway.parentRefs" . | nindent 4 }}
+  hostnames:
+    - {{ include "profiler-backend.queryHttpRouteHost" . | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ include "profiler-backend.fullname" . }}-query
+          port: {{ .Values.query.port }}
+          weight: 1
+{{- end }}

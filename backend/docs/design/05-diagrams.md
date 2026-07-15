@@ -30,15 +30,15 @@ flowchart LR
     end
 
     PV[("RWO PV<br/>per collector replica<br/>WAL + calls.wal + trace segments + sealed parquet + SQLite")]
-    S3[("S3<br/>parquet (cold) + dictionary snapshots")]
+    S3[("S3<br/>self-contained parquet (cold) + pods manifests")]
 
     Agent -- "TCP, multiplexed streams<br/>(dictionary, calls, trace, params, ...)" --> Collect
     Collect -- "WAL + trace segments<br/>+ sealed parquet" --> PV
-    Collect -- "uploaded parquet<br/>+ closed-restart dictionary" --> S3
+    Collect -- "uploaded parquet<br/>+ per-day pods manifests" --> S3
 
     Client["UI / MCP / CLI"] -- "/api/v1" --> Query
     Query -- "fan-out /internal/v1<br/>(hot tier)" --> Collect
-    Query -- "LIST + GET parquet<br/>+ GET dictionary<br/>(cold tier)" --> S3
+    Query -- "LIST + GET parquet<br/>+ GET pods manifests<br/>(cold tier)" --> S3
 
     Maintain -- "TTL sweep" --> S3
 ```
@@ -228,20 +228,20 @@ A Mermaid `gantt` doesn't render this well because the time scales span three or
 | Artifact | Storage | Created at | Removed at |
 |---|---|---|---|
 | Agent TCP connection | network | TCP accept | TCP close (agent crash, collector crash, collector shutdown) |
-| Dictionary WAL | local PV | First dictionary chunk arrives | After S3 dictionary upload + 1 h grace |
+| Dictionary WAL | local PV | First dictionary chunk arrives | After every sealed file is uploaded + 1 h grace |
 | `calls.wal` | local PV | First Call record arrives | After every bucket it covers is sealed and uploaded |
 | Trace segment | local PV | First chunk of a new segment | When `refcount = 0` (every call sourced from it sealed and uploaded to S3) |
 | Parquet writers (per seal pass) | RAM | A seal pass starts for a bucket | When that seal pass ends (`01-write-contract.md` §6.5) |
 | Sealed parquet (not yet uploaded) | local PV | Seal pass finishes a file | After S3 upload succeeds |
 | Hot-retained parquet (uploaded, still local) | local PV | After S3 upload | `uploaded_at + PROFILER_HOT_RETENTION` (15 min default) |
 | Parquet in S3 | S3 | First S3 PUT success | Per retention class TTL (`01-write-contract.md` §6.4) |
-| Dictionary snapshot in S3 | S3 | TCP close finalization triggers upload | `PROFILER_RETENTION_DICTIONARY_TTL` (35 d default) |
+| Pods manifest in S3 | S3 | First seal of the (day, pod-restart) uploads | `PROFILER_RETENTION_PODS_TTL` (185 d default) |
 
 Three invariants the table encodes:
 
 - Trace segments outlive the Agent TCP connection — finalization (sealing the closed pod-restart's dirty buckets) needs the segment data.
-- Dictionary upload to S3 is gated on TCP close; only the finalized dictionary lands in S3. This is what keeps long-retention parquet decodable.
-- Dictionary TTL in S3 (35 d) exceeds the longest parquet retention class (30 d, `long_clean` / `any_error`) by a safety margin.
+- A sealed row carries the dictionary subset and the suspend pauses its own blob needs (`01-write-contract.md` §3.6), so parquet in S3 stays decodable for its whole TTL with no companion object.
+- The pods-manifest TTL (185 d) exceeds the longest parquet retention class (180 d, `huge_clean` / `any_error`) by a safety margin, so a readable row never outlives the manifest naming its pod-restart.
 
 ## 8. What this contract does NOT cover
 

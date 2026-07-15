@@ -103,7 +103,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 			TimeBucketGrace:       cfg.TimeBucketGrace,
 			DictFsyncRecords:      cfg.DictFsyncRecords,
 			DictFsyncInterval:     cfg.DictFsyncInterval,
-			DurationThresholds:    [2]time.Duration(cfg.DurationThresholds),
+			DurationThresholds:    cfg.DurationThresholds,
 			Replica:               replica,
 			SealCheckInterval:     cfg.SealCheckInterval,
 			SealConcurrency:       cfg.SealConcurrency,
@@ -125,7 +125,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 			Timeout:              agentTimeouts,
 			RequiredRotationSize: uint64(cfg.SegmentRotationSize),
 		},
-		ObjectStore: collector.NewS3ObjectStore(mc),
+		ObjectStore: collector.NewS3ObjectStore(mc, cfg.S3.PathPrefix),
 	})
 	if err != nil {
 		return fatal("recover the hot store", err)

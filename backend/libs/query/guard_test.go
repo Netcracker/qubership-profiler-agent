@@ -11,15 +11,16 @@ import (
 )
 
 func TestGuardSpan(t *testing.T) {
+	s := &Service{cold: &cold.Source{}}
 	hour := int64(time.Hour / time.Millisecond)
 	wide := model.CallsQuery{FromMs: 0, ToMs: 7 * hour}
 
-	rej := guardSpan(wide, 6*time.Hour)
+	rej := s.guardSpan(wide, 6*time.Hour)
 	require.NotNil(t, rej, "a 7h window with no pruning filter is rejected")
 	assert.False(t, rej.HasEstimate, "the span layer fires before the LIST, so no estimate")
 	assert.Equal(t, []string{"pod", "retention_class", "duration_min_ms", "error_only"}, rej.SuggestedFilters)
 
-	assert.Nil(t, guardSpan(model.CallsQuery{FromMs: 0, ToMs: 6 * hour}, 6*time.Hour), "at the limit passes")
+	assert.Nil(t, s.guardSpan(model.CallsQuery{FromMs: 0, ToMs: 6 * hour}, 6*time.Hour), "at the limit passes")
 
 	for name, q := range map[string]model.CallsQuery{
 		"pod":             {FromMs: 0, ToMs: 7 * hour, Pods: []string{"ns/svc/pod"}},
@@ -27,10 +28,17 @@ func TestGuardSpan(t *testing.T) {
 		"duration_min_ms": {FromMs: 0, ToMs: 7 * hour, DurationMinMs: 1000},
 		"error_only":      {FromMs: 0, ToMs: 7 * hour, ErrorOnly: true},
 	} {
-		assert.Nil(t, guardSpan(q, 6*time.Hour), "%s is a narrowing filter (02 §2.3.2)", name)
+		assert.Nil(t, s.guardSpan(q, 6*time.Hour), "%s is a narrowing filter (02 §2.3.2)", name)
 	}
-	assert.NotNil(t, guardSpan(model.CallsQuery{FromMs: 0, ToMs: 7 * hour, Method: "x"}, 6*time.Hour),
+	assert.NotNil(t, s.guardSpan(model.CallsQuery{FromMs: 0, ToMs: 7 * hour, Method: "x"}, 6*time.Hour),
 		"method filters rows, not files, and does not exempt")
+
+	// №28: a filter exempts only if it actually prunes the discovery LIST.
+	assert.NotNil(t, s.guardSpan(model.CallsQuery{FromMs: 0, ToMs: 7 * hour, DurationMinMs: 1}, 6*time.Hour),
+		"duration_min_ms below the first tier bound prunes no class and must not exempt")
+	assert.NotNil(t, s.guardSpan(model.CallsQuery{FromMs: 0, ToMs: 7 * hour,
+		RetentionClasses: model.RetentionClasses}, 6*time.Hour),
+		"a retention_class filter naming every class prunes nothing and must not exempt")
 }
 
 func TestGuardCost(t *testing.T) {

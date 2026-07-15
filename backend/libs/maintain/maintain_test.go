@@ -1,6 +1,7 @@
 package maintain
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
+	parquetgo "github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -167,14 +169,34 @@ func sealStyleKey(class string, bucketStart time.Time, replica, hash string, tim
 	return path.Join(parquetPrefix, class, bucketStart.UTC().Format("2006/01/02/15"), name)
 }
 
+// writeRowsBody renders rows through the shared CallV2 writer invariants,
+// like a seal pass would, and reports the true ts bounds for the key stamps.
+func writeRowsBody(t *testing.T, rows []storageparquet.CallV2) (body []byte, timeMinMs, timeMaxMs int64) {
+	t.Helper()
+	timeMinMs, timeMaxMs = rows[0].TsMs, rows[0].TsMs
+	for i := range rows {
+		if rows[i].TsMs < timeMinMs {
+			timeMinMs = rows[i].TsMs
+		}
+		if rows[i].TsMs > timeMaxMs {
+			timeMaxMs = rows[i].TsMs
+		}
+	}
+	var buf bytes.Buffer
+	w := parquetgo.NewGenericWriter[storageparquet.CallV2](&buf, storageparquet.CallV2WriterOptions()...)
+	_, err := w.Write(rows)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	return buf.Bytes(), timeMinMs, timeMaxMs
+}
+
 // seedParquet writes rows as one seal-style object and returns its key. Rows
 // are sorted into the 01 §5.2 file order first, like a real sealed file.
 func seedParquet(t *testing.T, store *fakeStore, class string, bucketStart time.Time,
 	replica, hash string, seq int, lastModified time.Time, rows []storageparquet.CallV2) string {
 	t.Helper()
 	sort.SliceStable(rows, func(a, b int) bool { return rowCompare(&rows[a], &rows[b]) < 0 })
-	body, timeMinMs, timeMaxMs, err := writeCompacted(rows)
-	require.NoError(t, err)
+	body, timeMinMs, timeMaxMs := writeRowsBody(t, rows)
 	key := sealStyleKey(class, bucketStart, replica, hash, timeMinMs, timeMaxMs, seq)
 	store.putAt(key, body, lastModified)
 	return key
@@ -191,10 +213,19 @@ func testJob(store *fakeStore) *Job {
 
 func readObjectRows(t *testing.T, store *fakeStore, key string) []storageparquet.CallV2 {
 	t.Helper()
-	job := testJob(store)
-	rows, err := job.readRows(context.Background(),
-		parquetObject{key: key, size: int64(len(store.objects[key].data))})
+	store.mu.Lock()
+	data := store.objects[key].data
+	store.mu.Unlock()
+	pf, err := parquetgo.OpenFile(bytes.NewReader(data), int64(len(data)))
 	require.NoError(t, err)
+	r := parquetgo.NewGenericReader[storageparquet.CallV2](pf)
+	defer func() { _ = r.Close() }()
+	rows := make([]storageparquet.CallV2, r.NumRows())
+	n, err := r.Read(rows)
+	if err != nil {
+		require.ErrorIs(t, err, io.EOF)
+	}
+	require.Equal(t, len(rows), n)
 	return rows
 }
 
@@ -368,8 +399,64 @@ func TestCompactionRecompactsResidueBelowMinFiles(t *testing.T) {
 	assert.Len(t, rows, 2)
 }
 
-// TestCompactionSkipsOversizedGroup pins the MaxGroupBytes safety valve.
-func TestCompactionSkipsOversizedGroup(t *testing.T) {
+// TestCompactionSplitsOversizedGroup pins the №11 fix: a (bucket, class)
+// group whose total input bytes exceed MaxGroupBytes is no longer parked
+// forever — it splits into sub-budget subgroups along the time axis, each
+// compacts into its own output, and the footer-recorded input lists let the
+// delete step remove exactly each output's inputs.
+func TestCompactionSplitsOversizedGroup(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	seeded := time.Now().Add(-2 * time.Hour)
+	base := testBucketStart.UnixMilli()
+
+	inputs := make([]string, 4)
+	var maxSize int64
+	for i := 0; i < 4; i++ {
+		inputs[i] = seedParquet(t, store, model.RetentionNormalClean, testBucketStart, "collector-0",
+			fmt.Sprintf("hash%04d", i), i, seeded,
+			[]storageparquet.CallV2{testRow("pod-a", 1000, base+int64(i)*1000, int32(i), model.RetentionNormalClean)})
+		if size := int64(len(store.objects[inputs[i]].data)); size > maxSize {
+			maxSize = size
+		}
+	}
+	// The budget takes two near-equal inputs but not three: the group of four
+	// must split into two subgroups of two.
+	job := NewJob(store, Config{
+		TimeBucket:    5 * time.Minute,
+		MinAge:        30 * time.Minute,
+		MinFiles:      4,
+		DeleteGrace:   5 * time.Minute,
+		MaxGroupBytes: 2 * maxSize,
+	})
+
+	now := time.Now()
+	stats, err := job.Pass(ctx, now)
+	require.NoError(t, err)
+	assert.Equal(t, 2, stats.CompactedGroups, "the oversized group compacts piecewise")
+	assert.Equal(t, 4, stats.CompactedInputFiles)
+	assert.Zero(t, stats.SkippedOversized, "no single input exceeds the budget")
+	require.Len(t, store.keys(), 6, "two outputs written, inputs still inside the grace")
+
+	// Grace elapsed: each output's footer names exactly its own inputs, so
+	// all four inputs go and both outputs stay.
+	stats, err = job.Pass(ctx, now.Add(job.cfg.DeleteGrace+time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, Stats{DeletedInputFiles: 4}, stats)
+	keys := store.keys()
+	require.Len(t, keys, 2)
+	var pks []model.PK
+	for _, key := range keys {
+		assert.Contains(t, key, "/maintain-")
+		pks = append(pks, rowPKs(readObjectRows(t, store, key))...)
+	}
+	assert.Len(t, pks, 4, "every seeded PK survives across the split outputs")
+}
+
+// TestCompactionSkipsSingleOversizedObject pins the one remaining
+// SkippedOversized case (№11): an object that alone exceeds MaxGroupBytes
+// can never join a subgroup; the counter is the raise-the-budget alert.
+func TestCompactionSkipsSingleOversizedObject(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeStore()
 	job := NewJob(store, Config{
@@ -390,7 +477,7 @@ func TestCompactionSkipsOversizedGroup(t *testing.T) {
 	before := store.keys()
 	stats, err := job.Pass(ctx, time.Now())
 	require.NoError(t, err)
-	assert.Equal(t, Stats{SkippedOversized: 1}, stats)
+	assert.Equal(t, Stats{SkippedOversized: 2}, stats)
 	assert.Equal(t, before, store.keys())
 }
 
@@ -404,9 +491,10 @@ func TestTTLParquet(t *testing.T) {
 	now := time.Now()
 	seeded := now.Add(-time.Hour)
 
-	// short_clean TTL is 1 d. One object 2 days old, one exactly at the
-	// cutoff (its widened timeMax equals the cutoff instant), one young.
-	ttl := 24 * time.Hour
+	// The short_clean TTL comes from the tier table (№10). One object twice
+	// the TTL old, one exactly at the cutoff (its widened timeMax equals the
+	// cutoff instant), one young.
+	ttl := model.DefaultClassTTL()[model.RetentionShortClean]
 	mkRows := func(tsMs int64) []storageparquet.CallV2 {
 		return []storageparquet.CallV2{testRow("pod-t", 1000, tsMs, 1, model.RetentionShortClean)}
 	}
@@ -438,13 +526,14 @@ func TestTTLParquet(t *testing.T) {
 	assert.Contains(t, keys, foreignKey)
 }
 
-// TestTTLSnapshots pins the 01 §3.6 snapshot expiry: the day in the key is
-// the only clock, aging counts from the day's end, and all three families
-// (dictionaries, pods, suspend) expire on the dictionary TTL.
-func TestTTLSnapshots(t *testing.T) {
+// TestTTLPodsManifests pins the 01 §3.6 manifest expiry: the day in the key
+// is the only clock, and aging counts from the day's end. The pods/v1 family
+// is the only snapshot family left — the dictionary and suspend snapshots
+// are gone since parquet rows became self-contained (№3, №23).
+func TestTTLPodsManifests(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeStore()
-	job := NewJob(store, Config{SnapshotTTL: 35 * 24 * time.Hour})
+	job := NewJob(store, Config{PodsManifestTTL: 35 * 24 * time.Hour})
 	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
 	seeded := now.Add(-time.Hour)
 
@@ -452,27 +541,32 @@ func TestTTLSnapshots(t *testing.T) {
 	// 35 days back: the day ended 34.5 days ago, still inside the 35 d TTL.
 	edgeDay := now.AddDate(0, 0, -35).Format("2006/01/02")
 	youngDay := now.AddDate(0, 0, -1).Format("2006/01/02")
-	var oldKeys, keptKeys []string
-	for _, root := range []string{"dictionaries/v1", "pods/v1", "suspend/v1"} {
-		oldKeys = append(oldKeys, root+"/"+oldDay+"/aaaa1111.json")
-		keptKeys = append(keptKeys, root+"/"+edgeDay+"/bbbb2222.json", root+"/"+youngDay+"/cccc3333.json")
-	}
-	for _, key := range append(append([]string{}, oldKeys...), keptKeys...) {
+	oldKey := "pods/v1/" + oldDay + "/aaaa1111.json"
+	keptKeys := []string{"pods/v1/" + edgeDay + "/bbbb2222.json", "pods/v1/" + youngDay + "/cccc3333.json"}
+	for _, key := range append([]string{oldKey}, keptKeys...) {
 		store.putAt(key, []byte("{}"), seeded)
 	}
-	foreign := "dictionaries/v1/README.txt"
+	foreign := "pods/v1/README.txt"
 	store.putAt(foreign, []byte("x"), seeded)
 
 	stats, err := job.Pass(ctx, now)
 	require.NoError(t, err)
-	assert.Equal(t, 3, stats.TTLSnapshotsDeleted)
-	for _, key := range oldKeys {
-		assert.NotContains(t, store.keys(), key)
-	}
+	assert.Equal(t, 1, stats.TTLManifestsDeleted)
+	assert.NotContains(t, store.keys(), oldKey)
 	for _, key := range keptKeys {
 		assert.Contains(t, store.keys(), key)
 	}
 	assert.Contains(t, store.keys(), foreign)
+}
+
+// TestDefaultTTLsDeriveFromTierTable is the №10 guard on the TTL axis: the
+// maintain defaults must BE the tier table, and the pods-manifest TTL must
+// outlive the longest class TTL so a readable row never outlives the
+// manifest naming its pod-restart.
+func TestDefaultTTLsDeriveFromTierTable(t *testing.T) {
+	cfg := Config{}.Normalize()
+	assert.Equal(t, model.DefaultClassTTL(), cfg.ClassTTL)
+	assert.Greater(t, cfg.PodsManifestTTL, model.MaxClassTTL())
 }
 
 // TestParseParquetKeyRejectsForeignNames pins the parser against the key

@@ -21,6 +21,8 @@ spec:
             {{- include "profiler-backend.labels" (dict "root" . "component" "maintain") | nindent 12 }}
         spec:
           restartPolicy: OnFailure
+          securityContext:
+            {{- include "profiler-backend.podSecurityContext" (dict "root" . "component" "maintain") | nindent 12 }}
           {{- with .Values.imagePullSecrets }}
           imagePullSecrets:
             {{- toYaml . | nindent 12 }}
@@ -30,12 +32,16 @@ spec:
               image: {{ include "profiler-backend.image" . }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               args: ["maintain", "--run-now"]
+              securityContext:
+                {{- include "profiler-backend.containerSecurityContext" (dict "root" . "component" "maintain") | nindent 16 }}
               env:
                 {{- include "profiler-backend.maintainEnv" . | nindent 16 }}
               volumeMounts:
                 {{- include "profiler-backend.s3CredentialMount" . | nindent 16 }}
+                {{- include "profiler-backend.s3TlsMount" . | nindent 16 }}
               resources:
                 {{- toYaml .Values.maintain.resources | nindent 16 }}
           volumes:
             {{- include "profiler-backend.s3CredentialVolume" . | nindent 12 }}
+            {{- include "profiler-backend.s3TlsVolume" . | nindent 12 }}
 {{- end }}

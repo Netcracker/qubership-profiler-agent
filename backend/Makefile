@@ -325,6 +325,23 @@ smoke-realagent:
 	docker compose down -v --remove-orphans; \
 	exit $$status
 
+# Real-agent v3.1.3 E2E: the regression gate for the "gc" stream compatibility
+# fix. Downloads the ACTUAL v3.1.3 Java agent release from Maven Central
+# (v3.1.4 removed the "gc" stream this test exercises, so HEAD can't
+# reproduce it) against the same dev stack and asserts its calls land in
+# /api/v1/calls; see libs/tests/smoke_realagent/realagent_v313_test.go and
+# ../scripts/e2e-realagent/README.md. Kept separate from smoke-realagent: it
+# fetches a released old version instead of building HEAD.
+.PHONY: smoke-realagent-v313
+smoke-realagent-v313:
+	@echo "==> Starting the dev stack..."
+	docker compose down -v --remove-orphans
+	docker compose up --build -d
+	@echo "==> Running the real-agent v3.1.3 E2E test (fetches the v3.1.3 Java agent from Maven Central)..."
+	@status=0; go test -tags smoke_realagent_v313 -count=1 -timeout 20m -v ./libs/tests/smoke_realagent/... || status=$$?; \
+	docker compose down -v --remove-orphans; \
+	exit $$status
+
 # Pure-Go adversarial decoder gate: the no-JDK, no-docker counterpart of
 # smoke-realagent. The wire helpers now emit faithful UTF-16, so they surface
 # the same two decoder bugs (readChar signedness and the empty dictionary word)

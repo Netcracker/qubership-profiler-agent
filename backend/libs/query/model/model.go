@@ -12,20 +12,26 @@ import (
 )
 
 // Retention classes (01-write-contract.md §6.4). The values double as S3 key
-// segments, so they must match what the seal pass writes.
+// segments, so they must match what the seal pass writes. Their bounds and
+// TTLs live in RetentionTiers (tiers.go) — the single tier table everything
+// else derives from.
 const (
 	RetentionShortClean  = "short_clean"
 	RetentionNormalClean = "normal_clean"
 	RetentionLongClean   = "long_clean"
+	RetentionHugeClean   = "huge_clean"
 	RetentionAnyError    = "any_error"
 	RetentionCorrupted   = "corrupted"
 )
 
-// RetentionClasses lists every class in the order the contract tables use.
-var RetentionClasses = []string{
-	RetentionShortClean, RetentionNormalClean, RetentionLongClean,
-	RetentionAnyError, RetentionCorrupted,
-}
+// RetentionClasses lists every class in tier-table order.
+var RetentionClasses = func() []string {
+	out := make([]string, len(RetentionTiers))
+	for i, t := range RetentionTiers {
+		out[i] = t.Class
+	}
+	return out
+}()
 
 // IsRetentionClass reports whether s names a known retention class.
 func IsRetentionClass(s string) bool {

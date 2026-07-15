@@ -99,11 +99,11 @@ func (s *Store) Recover(ctx context.Context) error {
 }
 
 // quarantinePodRestart implements the №26 degrade path: the pod-restart's
-// directory moves under recovery-failed/ for a human, its index rows leave
-// the partitions (they would poison every seal and pin the contiguity
-// barrier), and its snapshot uploads quarantine like a permanent S3 rejection
-// so no loop waits on state that is gone. Only a filesystem/SQLite failure of
-// the quarantine itself is returned — that one still fails recovery.
+// directory moves under recovery-failed/ for a human, and its index rows
+// leave the partitions (they would poison every seal and pin the contiguity
+// barrier), so no loop waits on state that is gone. Only a filesystem/SQLite
+// failure of the quarantine itself is returned — that one still fails
+// recovery.
 func (s *Store) quarantinePodRestart(ctx context.Context, key PodRestartKey, cause error) error {
 	log.Error(ctx, cause, "recovery: pod-restart %s does not recover; quarantining its directory", key)
 	dir := key.dir(s.cfg.DataDir)
@@ -121,9 +121,6 @@ func (s *Store) quarantinePodRestart(ctx context.Context, key PodRestartKey, cau
 	removeEmptyParents(filepath.Join(s.cfg.DataDir, "pods"), filepath.Dir(dir))
 	purged, err := s.db.PurgeCallsPastWalEnd(key.String(), 0)
 	if err != nil {
-		return err
-	}
-	if err := s.db.SetDictUploadFailed(key.String(), time.Now().UnixMilli()); err != nil {
 		return err
 	}
 	log.Warning(ctx, "recovery: quarantined %s under %s (%d index rows dropped); its calls are lost to the hot tier",

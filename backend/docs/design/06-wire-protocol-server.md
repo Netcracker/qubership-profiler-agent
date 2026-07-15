@@ -66,6 +66,8 @@ The handle must be non-nil and stable: the agent keys every subsequent `RCV_DATA
 
 An unknown or unregisterable `streamName` gets a null-UUID reply followed by a close (§6), mirroring `ProfilerAgentReader.java:104-110`.
 
+**Exception: `gc`.** Agents built before v3.1.4 register a `gc` stream unconditionally whenever they stream directly to a collector (`Dumper.java`'s `gcOs`, removed in commit `ac804ee3`). Treating it as unknown would tear down the whole connection before any real stream gets a chance, so `model.IsKnownStream` (`backend/libs/protocol/streams.go`) accepts it like any other stream — the collector just never opens a segment or decoder for it, so its bytes are discarded (`01-write-contract.md` §1).
+
 ## 5. Acknowledgement policy
 
 The agent tracks one pending ack per `RCV_DATA` it sends (`pendingAcks++` in `attemptWrite`, `DefaultCollectorClient.java:335`) and per `REQUEST_ACK_FLUSH`. It does not block on each write; instead the dumper flushes on a 5 s cadence (`MAX_FLUSH_INTERVAL_MILLIS`) and, at flush, drains every pending ack synchronously under a 30 s socket read timeout (`validateWriteDataAcks(true)`, `DefaultCollectorClient.java:344-352`; `PLAIN_SOCKET_READ_TIMEOUT = 30000`, `ProtocolConst.java:10`).
@@ -116,6 +118,7 @@ The live server (`backend/libs/server/`) was a skeleton that predated this contr
 3. **`INIT_STREAM_V2` reply** — the four fields were all zero. The server now assigns a fresh non-nil `RandomUuid` handle, echoes the requested rolling sequence, and returns `RotationPeriod` / `RequiredRotationSize` from `ConnectionOpts` (defaulting to 4 MB) (§4).
 4. **Unknown stream** — `CommandInitStream` now validates `streamType` with `model.IsKnownStream` and replies a null UUID before tearing the connection down (§6).
 5. **Unknown command** — the default branch now writes `ACK_ERROR_MAGIC` before erroring, so the agent reconnects instead of stalling; `COMMAND_CLOSE` ends the loop and the handler closes the socket on exit (§6).
+6. **Legacy `gc` stream** — `model.IsKnownStream` used to reject `gc` like any other unrecognized name, so a pre-v3.1.4 agent's own unconditional `gc` registration tore down its connection before any real stream landed. `gc` is now accepted and its bytes discarded (§4).
 
 The Go emulator still does not police the handshake reply on its own, so the integration test asserts the version explicitly (§9).
 
@@ -126,6 +129,7 @@ Validation is a synthetic integration test, not golden output (`profiler-plan.md
 1. **Handshake version.** `InitializeConnection` offers `PROTOCOL_VERSION_V3`; the test asserts `ServerVersion()` is `PROTOCOL_VERSION_V2` (§3).
 2. **Flush cycle without reconnect.** `INIT_STREAM_V2` → several `RCV_DATA` → flush → `WaitForAcks` drains every ack with no `ACK_ERROR_MAGIC` and no timeout (§5). This is the regression guard for the §8.2 ack bug.
 3. **Unknown stream refused.** `INIT_STREAM_V2` with a bogus stream name yields no valid handle and tears the connection down (§6).
+4. **Legacy `gc` stream accepted.** `INIT_STREAM_V2` for `gc` yields a valid handle, and `RCV_DATA` + flush on it drains cleanly with no `ACK_ERROR_MAGIC` (§4, §8.6).
 
 Stronger checks left open: driving the real `Dumper` instead of the emulator, and asserting the dictionary decodes as `[len][string]` on the `dictionary` stream (the observable proof of the `V2` reply).
 

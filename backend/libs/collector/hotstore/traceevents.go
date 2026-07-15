@@ -36,12 +36,14 @@ const (
 // ParseChunk walks the events of one logical trace chunk: the 16-byte
 // [threadId, startTime] header, then events to EVENT_FINISH_RECORD. visit is
 // called with each event's index within the chunk — the axis a Call's
-// record_index points along (01-write-contract.md §4.3) — and may return false
-// to stop early. consumed reports the bytes read, including the finish marker
-// on a complete parse, so a blob reader can step chunk by chunk (§4.5). Any
+// record_index points along (01-write-contract.md §4.3) — and its elapsedMs,
+// the accumulated event-time deltas from the chunk's timer epoch (§4.2, the
+// same axis calltree renders node windows on); it may return false to stop
+// early. consumed reports the bytes read, including the finish marker on a
+// complete parse, so a blob reader can step chunk by chunk (§4.5). Any
 // structural truncation is an error: chunks enter the index only when their
 // EVENT_FINISH_RECORD was parsed.
-func ParseChunk(chunk []byte, visit func(index int, ev TraceEvent) bool) (threadId uint64, consumed int, err error) {
+func ParseChunk(chunk []byte, visit func(index int, ev TraceEvent, elapsedMs int64) bool) (threadId uint64, consumed int, err error) {
 	if len(chunk) < 17 {
 		return 0, 0, errors.New("chunk shorter than its 16-byte header")
 	}
@@ -57,6 +59,7 @@ func ParseChunk(chunk []byte, visit func(index int, ev TraceEvent) bool) (thread
 		return int(v), nil
 	}
 
+	elapsedMs := int64(0)
 	for index := 0; ; index++ {
 		if pos >= len(chunk) {
 			return threadId, pos, errors.New("chunk has no EVENT_FINISH_RECORD")
@@ -67,11 +70,17 @@ func ParseChunk(chunk []byte, visit func(index int, ev TraceEvent) bool) (thread
 		if kind == TraceEventKind(pipe.EventFinishRecord) {
 			return threadId, pos, nil
 		}
+		// The event-time delta accumulates from the chunk's timer epoch (§4.2),
+		// mirroring calltree's chunk walk bit for bit.
+		delta := int64(header&0x7f) >> 2
 		if header&0x80 != 0 { // event-time delta continuation
-			if _, err := uvarint(); err != nil {
+			more, err := uvarint()
+			if err != nil {
 				return threadId, pos, err
 			}
+			delta |= int64(more) << 5
 		}
+		elapsedMs += delta
 
 		ev := TraceEvent{Kind: kind}
 		if kind != TraceExit {
@@ -118,7 +127,7 @@ func ParseChunk(chunk []byte, visit func(index int, ev TraceEvent) bool) (thread
 			}
 		}
 
-		if !visit(index, ev) {
+		if !visit(index, ev, elapsedMs) {
 			return threadId, pos, nil
 		}
 	}

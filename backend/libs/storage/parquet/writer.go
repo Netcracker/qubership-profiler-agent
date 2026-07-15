@@ -18,5 +18,7 @@ func CallV2WriterOptions() []parquetgo.WriterOption {
 		parquetgo.KeyValueMetadata(SchemaVersionKey, SchemaVersion),
 		parquetgo.SkipPageBounds("trace_blob"),
 		parquetgo.SkipPageBounds("big_params_json"),
+		parquetgo.SkipPageBounds("dict_words_json"),
+		parquetgo.SkipPageBounds("suspend_json"),
 	}
 }

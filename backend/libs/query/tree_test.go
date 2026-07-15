@@ -27,10 +27,7 @@ import (
 
 // memColdStore is a minimal in-memory cold.ObjectStore for the /tree handler
 // tests: it serves the planted parquet objects and records every LIST prefix
-// so a test can prove which retention classes discovery scanned. Snapshot Gets
-// (dictionary, suspend) that were never planted return ErrNotFound, so the
-// tree degrades to placeholder method names and zero suspension — exactly the
-// missing-snapshot path (02 §2.5, cold.Dictionary / cold.Suspend).
+// so a test can prove which retention classes discovery scanned.
 type memColdStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte

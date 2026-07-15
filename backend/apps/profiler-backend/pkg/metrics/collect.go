@@ -69,18 +69,14 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 			func(s hotstore.UploadStats) int64 { return s.RetriedPuts })
 		upload("quarantined_files_total", "Parquet files moved to upload-failed/ on a permanent rejection (01 §8).",
 			func(s hotstore.UploadStats) int64 { return s.QuarantinedFiles })
-		upload("quarantined_objects_total", "Snapshot/manifest bodies parked under upload-failed/ (01 §8).",
+		upload("quarantined_objects_total", "Manifest bodies parked under upload-failed/ (01 §8).",
 			func(s hotstore.UploadStats) int64 { return s.QuarantinedObjects })
-		upload("snapshot_uploads_total", "Dictionary + suspend snapshot pairs uploaded (01 §3.6).",
-			func(s hotstore.UploadStats) int64 { return s.SnapshotUploads })
 		upload("manifest_puts_total", "pods/v1 manifest upserts (01 §3.6).",
 			func(s hotstore.UploadStats) int64 { return s.ManifestPuts })
 		upload("swept_segments_total", "Refcount-0 segments unlinked by the post-upload sweep (03 §3.7 step 14).",
 			func(s hotstore.UploadStats) int64 { return s.SegmentsDeleted })
 		upload("requeued_files_total", "Quarantined parquet files re-queued by the slow re-test (№2).",
 			func(s hotstore.UploadStats) int64 { return s.RequeuedFiles })
-		upload("requeued_snapshots_total", "Quarantined snapshot uploads re-queued by the slow re-test (№2).",
-			func(s hotstore.UploadStats) int64 { return s.RequeuedSnapshots })
 		counter("upload", "loop_errors_total",
 			"Failed upload passes (whole-pass failures the loop retried), distinct from per-file put_failures_total.",
 			func() int64 { return uploader.LoopErrors() }, nil)
@@ -103,9 +99,6 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 	janitor("quarantine_dropped_total",
 		"Quarantined parquet files dropped by the age/size cap (№2) — bounded, logged data loss that unpins the WAL purge.",
 		func(s hotstore.JanitorStats) int64 { return s.QuarantineDropped })
-	janitor("snapshots_abandoned_total",
-		"Snapshot uploads abandoned past the quarantine age cap (№2), unblocking the pod-restart's WAL purge.",
-		func(s hotstore.JanitorStats) int64 { return s.SnapshotsAbandoned })
 	janitor("dicts_unloaded_total",
 		"Closed pod-restarts whose dictionary maps the mem budget unloaded (№1); they reload from the WAL on demand.",
 		func(s hotstore.JanitorStats) int64 { return s.DictionariesUnloaded })
@@ -249,7 +242,7 @@ type quarantineCollector struct {
 var (
 	quarantineObjectsDesc = prometheus.NewDesc(
 		namespace+"_hotstore_quarantine_objects",
-		"Objects stuck in quarantine awaiting a human: parquet files under upload-failed/, or pod-restarts whose dictionary/suspend snapshot was rejected (01 §8). Shrinks only on manual intervention.",
+		"Objects stuck in quarantine awaiting a human: parquet files under upload-failed/ (01 §8). Shrinks only on manual intervention.",
 		[]string{"kind"}, nil)
 	quarantineAgeDesc = prometheus.NewDesc(
 		namespace+"_hotstore_quarantine_oldest_age_seconds",
@@ -257,7 +250,7 @@ var (
 		[]string{"kind"}, nil)
 	quarantineSizeDesc = prometheus.NewDesc(
 		namespace+"_quarantine_size",
-		"Total objects stuck in quarantine across all kinds (parquet + snapshot). A single non-zero alerting signal over the per-kind breakdown.",
+		"Total objects stuck in quarantine. A single non-zero alerting signal over the per-kind breakdown.",
 		nil, nil)
 )
 
@@ -285,10 +278,6 @@ func (c *quarantineCollector) Collect(ch chan<- prometheus.Metric) {
 		float64(stats.ParquetCount), "parquet")
 	ch <- prometheus.MustNewConstMetric(quarantineAgeDesc, prometheus.GaugeValue,
 		age(stats.ParquetOldestMs), "parquet")
-	ch <- prometheus.MustNewConstMetric(quarantineObjectsDesc, prometheus.GaugeValue,
-		float64(stats.SnapshotCount), "snapshot")
-	ch <- prometheus.MustNewConstMetric(quarantineAgeDesc, prometheus.GaugeValue,
-		age(stats.SnapshotOldestMs), "snapshot")
 	ch <- prometheus.MustNewConstMetric(quarantineSizeDesc, prometheus.GaugeValue,
-		float64(stats.ParquetCount+stats.SnapshotCount))
+		float64(stats.ParquetCount))
 }

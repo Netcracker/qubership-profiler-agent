@@ -13,7 +13,6 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/maintain"
-	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/oklog/run"
 	pkgerrors "github.com/pkg/errors"
@@ -57,20 +56,17 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 		return pkgerrors.Wrap(err, "connect to S3")
 	}
 
-	job := maintain.NewJob(maintain.NewS3ObjectStore(mc), maintain.Config{
+	job := maintain.NewJob(maintain.NewS3ObjectStore(mc, cfg.S3.PathPrefix), maintain.Config{
 		TimeBucket:    cfg.TimeBucket,
 		MinAge:        cfg.CompactionMinAge,
 		MinFiles:      cfg.CompactionMinFiles,
 		DeleteGrace:   cfg.CompactionDeleteGrace,
 		MaxGroupBytes: int64(cfg.CompactionMaxBytes),
-		ClassTTL: map[string]time.Duration{
-			model.RetentionShortClean:  time.Duration(cfg.RetentionShortCleanTTL),
-			model.RetentionNormalClean: time.Duration(cfg.RetentionNormalCleanTTL),
-			model.RetentionLongClean:   time.Duration(cfg.RetentionLongCleanTTL),
-			model.RetentionAnyError:    time.Duration(cfg.RetentionAnyErrorTTL),
-			model.RetentionCorrupted:   time.Duration(cfg.RetentionCorruptedTTL),
-		},
-		SnapshotTTL: time.Duration(cfg.RetentionDictionaryTTL),
+		// Explicit env TTLs win; unset classes keep the tier-table defaults
+		// (№10), so the write classification, the read pruning, and the TTLs
+		// share one source.
+		ClassTTL:        cfg.ClassTTLs(),
+		PodsManifestTTL: time.Duration(cfg.RetentionPodsTTL),
 	})
 
 	if maintainRunNow {

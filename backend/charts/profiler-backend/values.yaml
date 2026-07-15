@@ -22,6 +22,10 @@ s3:
   # minio.enabled=true to use the in-cluster dev MinIO.
   endpoint: ""
   bucket: profiler-data
+  # Object-key prefix below the bucket (S3_PATH_PREFIX), applied to EVERY key
+  # the backend writes and reads — parquet and the pods manifests — so several
+  # deployments can share one bucket. Empty keeps the keys at the bucket root.
+  pathPrefix: ""
   auth:
     # Name of an existing Secret with keys `access-key` and `secret-key`.
     # Takes precedence over the inline pair below.
@@ -33,6 +37,22 @@ s3:
     # S3_SECRET_KEY_FILE point into this directory. The credentials are never
     # injected as env (01-write-contract.md §9, 04 §6).
     mountPath: /etc/profiler/s3
+  tls:
+    # PEM CA bundle trusted in addition to the image's system store, for an
+    # S3 endpoint whose certificate a private/internal CA signed. Renders
+    # into a chart-managed Secret, dev/smoke only, like s3.auth.accessKey
+    # above. Production should use existingSecret instead.
+    caCert: ""
+    # Name of an existing Secret with the CA bundle under key `ca.crt`.
+    # Takes precedence over the inline caCert above.
+    existingSecret: ""
+    # Where the workloads mount the CA bundle; S3_CA_FILE points at
+    # <mountPath>/ca.crt.
+    mountPath: /etc/profiler/s3-ca
+    # Skip TLS certificate verification for the S3 endpoint entirely. A
+    # dev/smoke escape hatch for a self-signed endpoint with no CA to hand —
+    # never enable it in production: it defeats TLS.
+    insecureSkipVerify: false
 
 collector:
   replicas: 2
@@ -63,6 +83,11 @@ collector:
     nodePort: ""
   # Extra environment (name → value), e.g. PROFILER_SEAL_CHECK_INTERVAL: 2s
   env: {}
+  # fsGroup (defaults to 65532, the image's uid:gid) is what makes the /data
+  # PVC group-writable by the non-root container — omitting it mounts the
+  # volume owned by root and the collector can't write to it.
+  securityContext: {}
+  containerSecurityContext: {}
   resources:
     requests:
       cpu: 500m
@@ -77,6 +102,8 @@ query:
   # 03-lifecycle.md §7.3 shutdown budget.
   terminationGracePeriodSeconds: 45
   env: {}
+  securityContext: {}
+  containerSecurityContext: {}
   resources:
     requests:
       cpu: 200m
@@ -84,6 +111,22 @@ query:
     limits:
       cpu: "1"
       memory: 2Gi
+  # External routing to /api/v1 (04 §12). Disabled by default: the query
+  # Service stays ClusterIP-only until an operator opts in. GATEWAY_SYSTEM_TYPE
+  # below picks Ingress, HTTPRoute, or both — this one flag gates either.
+  ingress:
+    enabled: false
+    className: ""
+    # Falls back to "<fullname>-query-<NAMESPACE>.<CLOUD_PUBLIC_HOST>" — set
+    # this explicitly outside a Qubership-managed cluster, where those two
+    # globals are never populated.
+    host: ""
+    annotations: {}
+    tls: []
+  httpRoute:
+    # Falls back to "<fullname>-query-<NAMESPACE>.eg.<CLOUD_PUBLIC_HOST>" —
+    # same caveat as query.ingress.host above.
+    host: ""
 
 maintain:
   # cronjob: one pod per run (batch/v1 CronJob, --run-now).
@@ -94,6 +137,8 @@ maintain:
   checkInterval: 5m
   metricsPort: 8081
   env: {}
+  securityContext: {}
+  containerSecurityContext: {}
   resources:
     requests:
       cpu: 100m
@@ -103,14 +148,18 @@ maintain:
       memory: 1Gi
 
 # Per-class retention TTLs (01-write-contract.md §6.4, §9), consumed by the
-# maintain workload.
+# maintain workload. The defaults mirror the shared tier table (№10):
+# short_clean <100ms, normal_clean 0.1–1s, long_clean 1–10s, huge_clean ≥10s,
+# any_error regardless of duration. podsTTL expires the pods/v1 identity
+# manifests and must exceed the longest class TTL.
 retention:
-  shortCleanTTL: 1d
+  shortCleanTTL: 2d
   normalCleanTTL: 7d
   longCleanTTL: 30d
-  anyErrorTTL: 30d
+  hugeCleanTTL: 180d
+  anyErrorTTL: 180d
   corruptedTTL: 7d
-  dictionaryTTL: 35d
+  podsTTL: 185d
 
 # In-cluster MinIO for dev and smoke runs. Storage is an emptyDir — data dies
 # with the pod. Point s3.endpoint at a real object store for anything else.
@@ -128,3 +177,28 @@ metrics:
   prometheusRule:
     enabled: false
     additionalLabels: {}
+
+############# Gateway API (04 §12) #############
+#
+# These six globals are a Qubership cloud-platform convention (PR #798),
+# normally injected by the cluster's deployer rather than set by hand. Outside
+# that platform, leave GATEWAY_SYSTEM_TYPE at its default and set
+# query.ingress.host / query.httpRoute.host explicitly instead of relying on
+# NAMESPACE / CLOUD_PUBLIC_HOST to derive a host.
+
+# Comma-separated gateway mode flags: legacy-ingress, gateway-api-default.
+# Both together render an Ingress and an HTTPRoute side by side, for a
+# cluster's migration window off Ingress-NGINX.
+GATEWAY_SYSTEM_TYPE: legacy-ingress
+GATEWAY_SYSTEM_NAMESPACE: gateway-system
+GATEWAY_SYSTEM_NAME: default-external-gateway
+
+# Blue/green (BGD2): when PEER_NAMESPACE is set, the HTTPRoute parentRef
+# targets the edge-router Gateway in CONTROLLER_NAMESPACE instead.
+PEER_NAMESPACE: ""
+CONTROLLER_NAMESPACE: ""
+
+# Namespace and public-DNS suffix used only to derive default Ingress/
+# HTTPRoute hosts (see query.ingress.host / query.httpRoute.host above).
+NAMESPACE: ""
+CLOUD_PUBLIC_HOST: ""

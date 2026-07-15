@@ -230,8 +230,9 @@ func TestStage1EndToEnd(t *testing.T) {
 	_ = acCold.Close()
 
 	// The aged bucket is due immediately; the compose loops run every 2 s.
+	// The sealed rows are self-contained (01 §3.6): no snapshot object exists
+	// to wait for.
 	waitPrefixNonEmpty(t, ctx, mc, "parquet/v1/", 90*time.Second)
-	waitPrefixNonEmpty(t, ctx, mc, "dictionaries/v1/", 90*time.Second)
 
 	stopCollector(t)
 	t.Cleanup(func() { startCollector(t) })

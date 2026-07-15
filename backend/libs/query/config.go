@@ -21,6 +21,11 @@ type Config struct {
 	// (PROFILER_MAX_SCAN_FILES / PROFILER_MAX_SCAN_BYTES).
 	MaxScanFiles int
 	MaxScanBytes int64
+	// DurationThresholds mirror the collector's PROFILER_DURATION_THRESHOLDS:
+	// the class pruning and the guard exemption derive their bounds from the
+	// same tier table the seal pass classified with (№10). Nil selects the
+	// model.RetentionTiers defaults.
+	DurationThresholds []time.Duration
 	// ListConcurrency caps parallel S3 LISTs (PROFILER_S3_LIST_CONCURRENCY).
 	ListConcurrency int
 	// DefaultLimit / MaxLimit bound the /calls page size (02 §2.3).

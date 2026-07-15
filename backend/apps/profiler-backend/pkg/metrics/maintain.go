@@ -50,7 +50,7 @@ func RegisterMaintain(reg prometheus.Registerer) *MaintainMetrics {
 	for _, reason := range []string{"small", "unsettled", "oversized"} {
 		m.skippedGroups.WithLabelValues(reason)
 	}
-	for _, kind := range []string{"parquet", "snapshot"} {
+	for _, kind := range []string{"parquet", "pods_manifest"} {
 		m.ttlDeletedObjects.WithLabelValues(kind)
 	}
 	return m
@@ -69,5 +69,5 @@ func (m *MaintainMetrics) Observe(stats maintain.Stats) {
 	m.skippedGroups.WithLabelValues("unsettled").Add(float64(stats.SkippedUnsettled))
 	m.skippedGroups.WithLabelValues("oversized").Add(float64(stats.SkippedOversized))
 	m.ttlDeletedObjects.WithLabelValues("parquet").Add(float64(stats.TTLParquetDeleted))
-	m.ttlDeletedObjects.WithLabelValues("snapshot").Add(float64(stats.TTLSnapshotsDeleted))
+	m.ttlDeletedObjects.WithLabelValues("pods_manifest").Add(float64(stats.TTLManifestsDeleted))
 }

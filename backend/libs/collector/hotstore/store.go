@@ -187,6 +187,9 @@ func (k PodRestartKey) dir(dataDir string) string {
 // §3.1), and opens the SQLite metadata. It does NOT run recovery; call
 // Recover before serving traffic.
 func Open(cfg Config) (*Store, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	cfg = cfg.Normalize()
 	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "pods"), 0o755); err != nil {
 		return nil, errors.Wrap(err, "create data dir")

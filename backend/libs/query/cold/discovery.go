@@ -23,13 +23,14 @@ const keyStamp = "20060102T150405Z"
 // every PK.
 const MaintainReplica = "maintain"
 
-// Clean-class duration bounds of the default 01 §6.4 mapping, used by the
-// §5.5 class pruning. The error classes carry calls of any duration and are
-// never pruned by a duration filter (02 §2.3.2).
-var cleanClassUpperMs = map[string]int64{
-	model.RetentionShortClean:  100,
-	model.RetentionNormalClean: 1000,
-	model.RetentionLongClean:   1<<63 - 1,
+// cleanClassUpperMs derives the §5.5 pruning bounds from the SAME tier table
+// (and the same threshold override) the write side classifies with (№10) —
+// never from a second hardcode: a read-side copy that drifted from the seal
+// classification silently dropped whole classes from cold results. The error
+// classes carry calls of any duration and are never pruned by a duration
+// filter (02 §2.3.2).
+func (s *Source) cleanClassUpperMs() map[string]int64 {
+	return model.CleanClassUpperMs(s.DurationThresholds)
 }
 
 type (
@@ -61,7 +62,8 @@ type (
 // §5.5): an explicit retention_class filter selects key prefixes verbatim,
 // error_only keeps only the error classes, and duration_min_ms drops every
 // clean class whose duration range sits entirely below the threshold.
-func ClassesFor(q model.CallsQuery) []string {
+func (s *Source) ClassesFor(q model.CallsQuery) []string {
+	cleanUpperMs := s.cleanClassUpperMs()
 	classes := q.RetentionClasses
 	if len(classes) == 0 {
 		classes = model.RetentionClasses
@@ -71,7 +73,7 @@ func ClassesFor(q model.CallsQuery) []string {
 		if q.ErrorOnly && c != model.RetentionAnyError && c != model.RetentionCorrupted {
 			continue
 		}
-		if upper, clean := cleanClassUpperMs[c]; clean && int64(q.DurationMinMs) >= upper {
+		if upper, clean := cleanUpperMs[c]; clean && int64(q.DurationMinMs) >= upper {
 			continue
 		}
 		out = append(out, c)
@@ -86,7 +88,7 @@ func ClassesFor(q model.CallsQuery) []string {
 // LIST becomes a partial reason instead of failing the query (§7.4).
 func (s *Source) Discover(ctx context.Context, q model.CallsQuery) (Discovery, error) {
 	var prefixes []string
-	for _, class := range ClassesFor(q) {
+	for _, class := range s.ClassesFor(q) {
 		for _, hour := range hourWalk(q.FromMs, q.ToMs) {
 			prefixes = append(prefixes,
 				path.Join("parquet/v1", class, hour.Format("2006/01/02/15"))+"/")

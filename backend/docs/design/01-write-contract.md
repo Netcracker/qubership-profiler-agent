@@ -19,6 +19,8 @@ The agent opens a long-lived TCP connection to the collector and multiplexes sev
 | `trace` | Binary log of `methodEnter` / `methodExit` events. Children are written before their parent's close. | Many per pod-restart |
 | `sql`, `xml` | Captured payload bodies referenced from calls. | Many per pod-restart |
 
+**Legacy eighth stream: `gc`.** Agents built before v3.1.4 also register a `gc` stream (`Dumper.java`'s `gcOs`), unconditionally whenever they stream directly to a collector — regardless of whether GC-log harvesting is even enabled. v3.1.4 (commit `ac804ee3`) deleted `GCDumper` entirely and relocated GC-log collection to the Go `diagtools` sidecar, so a current agent never opens it. The collector must still accept `gc` (`model.IsKnownStream`, `backend/libs/protocol/streams.go`) and discard its bytes: refusing an unknown stream tears down the whole pod-restart connection (`06-wire-protocol-server.md` §6), which would silently drop every other stream from a pre-3.1.4 agent, not just `gc`. There is nowhere to route these bytes in the redesigned architecture, so they are read and thrown away, not stored.
+
 Important consequence: **the collector does not assemble calls.** A `Call` record arrives only when the root call has closed on the agent side. The collector's job is to demultiplex streams, persist them, and emit a parquet row per `Call`.
 
 **Optional channel gzip.** `ProtocolConst.ZIPPING_ENABLED` (default `false`, `proto-definition/.../ProtocolConst.java:46`) gzips the whole multiplexed channel; when it is on, the collector must gunzip before it can demux `RCV_DATA`. The MVP targets the default (off); a gunzip wrapper around the socket is the only change if a deployment turns it on (`06-wire-protocol-server.md` §7).
@@ -90,39 +92,25 @@ Rationale: a power-loss between fsync windows costs at most 100 ms of dictionary
 
 ### 3.5 Lifetime
 
-The local WAL is deleted when the corresponding pod-restart is fully flushed: all `Call` records for it are written to parquet, parquet uploaded to S3, the dictionary snapshot is uploaded to S3 (§3.6), and a hold-back grace period (default 1 hour) elapses to allow late-arriving Calls.
+The local WAL is deleted when the corresponding pod-restart is fully flushed: all `Call` records for it are written to parquet, the parquet — which carries its own dictionary subset (§3.6) — is uploaded to S3, and a hold-back grace period (default 1 hour) elapses to allow late-arriving Calls.
 
 `params` and `suspend` streams use the same WAL pattern with separate files (`params.wal`, `suspend.wal`).
 
-### 3.6 Dictionary snapshot in S3
+### 3.6 Self-contained rows and the pod-restart manifest
 
 The per-call trace blobs (§4) embed `method_id` and `param_id` references that resolve against the per-pod-restart dictionary. Without the dictionary the blobs are not decodable.
 
-Parquet rows have a per-bucket retention of up to 30 days (`long_clean`, `any_error`); the local dictionary WAL lives only until the pod-restart fully flushes (§3.5). Therefore the dictionary MUST be persisted alongside parquet.
+**The dictionary rides inside the row.** At seal, the pass records the dictionary ids the call's own events reference — the root and child method ids and the param-key ids — and inlines the resolved subset into the row's `dict_words_json` column (§5.2), next to the blob it decodes. A sealed row is therefore self-contained: the cold `/tree` path resolves every name from the row alone, and no separate dictionary object exists whose TTL could outlive or undercut the rows that need it. There is no `dictionaries/v1` snapshot; schema version 3 removed it (§5.2). The subset costs little — it repeats heavily across the rows of one pod-restart, and the file-level ZSTD absorbs the repetition.
 
-**On pod-restart close** (TCP connection terminates AND all in-flight Calls flush), the collector:
+**The suspend timeline rides inside the row too.** The `suspend` stream is a small, global, per-pod-restart series of stop-the-world pauses (GC / JIT). It has two consumers at two grains. Per call, `suspend_ms` (§5.2) measures how much of a call's wall-clock time was a global pause; the seal pass derives it (§5.1). Per node, the `/tree` rendering intersects each invocation's window with the pause timeline; the seal pass inlines the pauses overlapping the call's blob event-time span into the row's `suspend_json` column (§5.2), so the cold tree needs no external timeline either. There is no `suspend/v1` snapshot.
 
-1. Reads the local WAL and builds the final dictionary snapshot in memory.
-2. Serializes it as a single JSON object: `{ version, methods: [...], params: [...] }`. **TODO (dictionary shape):** methods and params share one wire id space, so both arrays carry the full word list and a reader is correct against either; a future revision should collapse them to a single `words` array indexed by id (see `02-read-contract.md` §2.6, decision logged in `stage1-progress.md`).
-3. Uploads it to S3 with a deterministic key:
-
-   ```
-   s3://<bucket>/dictionaries/v1/<yyyy>/<mm>/<dd>/<podRestartHash>.json
-   ```
-
-   Date hierarchy mirrors the parquet layout (§7) so maintenance can apply a single retention rule per day.
-
-4. Deletes the local WAL after the hold-back grace period.
-
-**Retention:** the S3 dictionary lives at least as long as the longest retention class touched by any parquet row of this pod-restart. The simplest policy — `PROFILER_RETENTION_DICTIONARY_TTL` (default `35d`) — covers the longest retention bucket (`30d`) plus a safety margin.
+**Local WAL lifetime:** the dictionary WAL still backs the live pod-restart (reads and re-seals) and is deleted after the hold-back grace once every sealed file of the pod-restart is confirmed in S3 (§3.5).
 
 **Live pod-restart:** while the TCP connection is open, the dictionary lives only on local WAL + RAM. Reads go through the collector replica's `/internal/v1/pods/{pod-restart}/dictionary` (see `02-read-contract.md` §2.6). Query never reaches into the WAL directly.
 
-**Growth during live pod-restart:** the dictionary is append-only (§1 V3). If a collector crashes and recovers mid-flight, the WAL is replayed; the on-disk monotonic `version` counter is rebuilt from the highest entry's index. Clients revalidating an old ETag get the fresh snapshot.
+**Growth during live pod-restart:** the dictionary is append-only (§1 V3). If a collector crashes and recovers mid-flight, the WAL is replayed; the on-disk monotonic `version` counter is rebuilt from the highest entry's index. Clients revalidating an old ETag get the fresh state.
 
-**Pod-restart manifest (S3).** Cold `/pods` (`02-read-contract.md` §2.7) lists the `(namespace, service, pod, restart_time)` tuples with data in a range, but a parquet key carries only `<podRestartHash>`, a one-way hash, so the readable identity cannot be recovered from a LIST. The collector closes the gap with a small manifest. For each UTC day a pod-restart seals a bucket into, it writes or refreshes `s3://<bucket>/pods/v1/<yyyy>/<mm>/<dd>/<podRestartHash>.json` = `{ namespace, service, pod, restart_time_ms, timer_start_ms, replica, time_min_ms, time_max_ms }`. Emission is idempotent per `(day, pod-restart)`: the first seal for the day writes it, later seals refresh `time_max_ms`. A pod-restart that spans several days gets one manifest per day it holds data in, so a range query finds it in the day prefixes it already walks (`02-read-contract.md` §5.1), with no widened walk. Live pod-restarts surface from the hot tier (`/internal/v1/pods`), so cold `/pods` over a range is `LIST(pods/v1/<days>)` unioned with the hot replicas. `PROFILER_RETENTION_DICTIONARY_TTL` (§9) covers its retention.
-
-**Suspend timeline (S3).** The `suspend` stream is a small, global, per-pod-restart series of stop-the-world pauses (GC / JIT), not a per-call signal, so it does not belong in the `CallV2` rows. It has two consumers at two grains. Per call, `suspend_ms` (§5.2) measures how much of a call's wall-clock time was a global pause; the seal pass derives it (§5.1), and it is the MVP-critical part that fills the column the UI shows. Per pod-restart, the raw pause timeline drives a "when did this pod stall" view; on pod-restart close the collector persists it next to the dictionary snapshot as `s3://<bucket>/suspend/v1/<yyyy>/<mm>/<dd>/<podRestartHash>.json` = `{ restart_time_ms, timer_start_ms, events: [ { start_ms, duration_ms }, ... ] }`. It is fetched by pod-restart, like the dictionary, so one object per pod-restart is enough. The stream is sparse and tiny; a deployment that does not need the pod-level view can drop this object and keep only the per-call scalar.
+**Pod-restart manifest (S3).** Cold `/pods` (`02-read-contract.md` §2.7) lists the `(namespace, service, pod, restart_time)` tuples with data in a range, but a parquet key carries only `<podRestartHash>`, a one-way hash, so the readable identity cannot be recovered from a LIST. The collector closes the gap with a small manifest — the one snapshot object that remains. For each UTC day a pod-restart seals a bucket into, it writes or refreshes `s3://<bucket>/pods/v1/<yyyy>/<mm>/<dd>/<podRestartHash>.json` = `{ namespace, service, pod, restart_time_ms, timer_start_ms, replica, time_min_ms, time_max_ms }`. Emission is idempotent per `(day, pod-restart)`: the first seal for the day writes it, later seals refresh `time_max_ms`. A pod-restart that spans several days gets one manifest per day it holds data in, so a range query finds it in the day prefixes it already walks (`02-read-contract.md` §5.1), with no widened walk. Live pod-restarts surface from the hot tier (`/internal/v1/pods`), so cold `/pods` over a range is `LIST(pods/v1/<days>)` unioned with the hot replicas. `PROFILER_RETENTION_PODS_TTL` (§9) covers its retention and must exceed the longest parquet class TTL, so a readable row never outlives the manifest naming its pod-restart.
 
 ### 3.7 Reconnect continuity
 
@@ -282,12 +270,14 @@ schema CallV2 {
   trace_blob        BYTE_ARRAY                 -- per-call blob assembled at chunk granularity (§4); reader parses against the dictionary; NULL when truncated
   truncated_reason  BYTE_ARRAY (UTF8) DICT     -- NULL on success; one of mem_pressure / disk_budget / idle_timeout / dict_miss (§5.1, §4.6)
   big_params_json   BYTE_ARRAY (UTF8)          -- JSON {"<stream>:<seq>:<offset>": value}: the call's big-param values resolved at seal (§4.4); NULL when none. A scalar column (not a MAP) so the list-path projection drops it like trace_blob
+  dict_words_json   BYTE_ARRAY (UTF8)          -- JSON {"<id>": "<word>"}: the dictionary subset trace_blob references, resolved at seal (§3.6) — the row is self-contained. NULL when the blob is NULL. Dropped by the list-path projection like trace_blob
+  suspend_json      BYTE_ARRAY (UTF8)          -- JSON [{"end_ms", "duration_ms"}, ...]: the stop-the-world pauses overlapping the call's blob event-time span (§3.6); each pause spans [end_ms - duration_ms, end_ms]. NULL when the blob is NULL or nothing overlaps. Dropped by the list-path projection
 }
 ```
 
 **Compression and row order.** Every file is ZSTD-compressed. This matters most for `trace_blob` and `params`: the blob is stored uncompressed after seal assembly (§6.5), so the parquet codec is what keeps the cluster's ~6 MB/s of raw trace from landing in S3 unshrunk for the whole TTL. Rows are written sorted by `(ts_ms DESC, pk ASC)`, the total order the read path paginates on (`02-read-contract.md` §2.3.1). Sorting inside the file gives each row group a tight `ts_ms` min/max for pruning and lets the cold-tier k-way merge treat the file as an already-sorted run, with no in-memory re-sort.
 
-**Schema evolution.** The reader (`parquet-go/parquet-go`) matches a file's footer schema to `CallV2` by column NAME: adding a column and removing a column are backward-readable changes — a column missing from an older file reads back as zero/NULL, and a column dropped from the struct is skipped without fetching its chunks. Column names are therefore the compatibility contract: never reuse a name with a different meaning. Non-additive changes — renaming a column, changing its type, or reinterpreting its values — are NOT transparently readable: they need a versioned reader that branches on the `profiler.schema_version` key the seal pass stamps into every file's key-value footer metadata (currently `2`; bumped only by a non-additive change — additive ones do not touch it). That reader is deferred until the first such change (`deferred.md`); it must land before old and new files coexist inside the 30-day retention window.
+**Schema evolution.** The reader (`parquet-go/parquet-go`) matches a file's footer schema to `CallV2` by column NAME: adding a column and removing a column are backward-readable changes — a column missing from an older file reads back as zero/NULL, and a column dropped from the struct is skipped without fetching its chunks. Column names are therefore the compatibility contract: never reuse a name with a different meaning. Non-additive changes — renaming a column, changing its type, or reinterpreting its values — are NOT transparently readable: they need a versioned reader that branches on the `profiler.schema_version` key the seal pass stamps into every file's key-value footer metadata. The stamp is `3`: version 3 made rows self-contained (`dict_words_json`, `suspend_json`) and removed the `dictionaries/v1` and `suspend/v1` snapshots — additive columns, but a read-contract change, since a version-3 reader never consults a snapshot that version-2 rows required. Per the rollout decision (remediation 00-plan.md, decision 1) version-2 data is wiped, not migrated. The versioned reader stays deferred until old and new files first have to coexist inside a retention window (`deferred.md`).
 
 ### 5.3 Differences from old `CallParquet`
 
@@ -371,19 +361,22 @@ After a successful upload, local parquet files are retained for `PROFILER_HOT_RE
 
 Each parquet file holds rows of exactly one retention class. Maintenance applies per-class TTL.
 
-Default mapping (configurable per-deployment):
+**One tier table** (`model.RetentionTiers`) is the single source for the whole retention axis: the write-time classification thresholds, the read-side class pruning bounds (`02-read-contract.md` §2.3.2, §5.5), and the per-class TTLs all derive from it — never from a second per-surface copy. Default table (thresholds and TTLs configurable per deployment, §9):
 
 | Class | Condition | Default TTL |
 |---|---|---|
-| `short_clean` | `duration_ms < 100` AND `!error_flag` | 1 day |
+| `short_clean` | `duration_ms < 100` AND `!error_flag` | 2 days |
 | `normal_clean` | `100 ≤ duration_ms < 1000` AND `!error_flag` | 7 days |
-| `long_clean` | `duration_ms ≥ 1000` AND `!error_flag` | 30 days |
-| `any_error` | `error_flag = true` (any duration) | 30 days |
+| `long_clean` | `1000 ≤ duration_ms < 10000` AND `!error_flag` | 30 days |
+| `huge_clean` | `duration_ms ≥ 10000` AND `!error_flag` | 180 days |
+| `any_error` | `error_flag = true` (any duration) | 180 days |
 | `corrupted` | reserved; not populated in the MVP — the agent does not emit corrupted calls (§5.6) | 7 days |
 
-The classifier runs per Call record at write time; `retention_class` is stored in the SQLite index, and the seal pass routes each row to the matching one of up to five retention-class writers for the bucket. Maintenance reads `<retentionClass>` from the S3 object key (§7); it does not open parquet files to apply TTL.
+The clean-tier thresholds are `[100ms, 1s, 10s]` (`PROFILER_DURATION_THRESHOLDS`). The `query` service must run with the same value: it prunes retention classes from the discovery LIST against the same table, so a threshold override applies to both subcommands together.
 
-`any_error` is populated from `error_flag` (§5.6, the `call.red` param). `corrupted` stays a distinct but currently-empty bucket; keeping its key space reserved means emitting corrupted calls later would not re-partition history.
+The classifier runs per Call record at write time; `retention_class` is stored in the SQLite index, and the seal pass routes each row to the matching one of up to six retention-class writers for the bucket. Maintenance reads `<retentionClass>` from the S3 object key (§7); it does not open parquet files to apply TTL.
+
+`any_error` is populated from `error_flag` (§5.6, the `call.red` param). `corrupted` stays a distinct but reserved-empty bucket; keeping its key space reserved means emitting corrupted calls later would not re-partition history.
 
 ### 6.5 The seal pass
 
@@ -415,11 +408,12 @@ Blob completeness for a late Call is bounded by segment survival (§4.6): the ro
 
 Path pattern:
 ```
-s3://<bucket>/parquet/v1/<retentionClass>/<yyyy>/<mm>/<dd>/<hh>/<replica>-<podRestartHash>-<timeBucketStart>-<timeMin>-<timeMax>-<seq>.parquet
+s3://<bucket>/[<pathPrefix>/]parquet/v1/<retentionClass>/<yyyy>/<mm>/<dd>/<hh>/<replica>-<podRestartHash>-<timeBucketStart>-<timeMin>-<timeMax>-<seq>.parquet
 ```
 
-- `v1` — schema version. Bump on incompatible changes.
-- `<retentionClass>` — one of `short_clean` / `normal_clean` / `long_clean` / `any_error` / `corrupted`. Maintenance applies per-class TTL by listing this segment (§6.4). Filenames sort chronologically within a class.
+- `<pathPrefix>` — the deployment's `S3_PATH_PREFIX` (§9), applied to EVERY key the backend writes and reads — parquet and the `pods/v1` manifests — so several deployments can share one bucket. Empty (the default) keeps the keys at the bucket root. The store adapters apply and strip it at the S3 boundary; the rest of this contract writes keys without it.
+- `v1` — key layout version. Bump on incompatible key-shape changes.
+- `<retentionClass>` — one of `short_clean` / `normal_clean` / `long_clean` / `huge_clean` / `any_error` / `corrupted` (§6.4). Maintenance applies per-class TTL by listing this segment. Filenames sort chronologically within a class.
 - Date hierarchy `<yyyy>/<mm>/<dd>/<hh>` — primary access pattern is "give me parquet for time range [t1, t2]"; this hierarchy makes that a small LIST.
 - `<replica>` — the producer. For a write-path seal it is the StatefulSet ordinal (`collector-0`, `collector-1`, …), so distinct replicas don't collide on object keys; a `maintain` compaction (§6.6) uses the reserved token `maintain`.
 - `<podRestartHash>` — short hash of `(namespace, service, podName, restartTime)`, identifying the pod-restart that produced the file. A cross-pod-restart compaction (§6.6) covers several pod-restarts, so it substitutes a short hash of its inputs; the per-row `pod_*` / `restart_time_ms` columns stay the authoritative pod-restart identity either way.
@@ -475,7 +469,7 @@ Why date in the path even though `ts_ms` is in the file: query needs to LIST eff
 | Env | Default | Description |
 |---|---|---|
 | `PROFILER_DATA_DIR` | `/data` | Root of the local PV. |
-| `PROFILER_TIME_BUCKET` | `5m` | Parquet time bucket length. |
+| `PROFILER_TIME_BUCKET` | `5m` | Parquet time bucket length. Must divide the hour: rows are filed under the hour prefix of their bucket start and cold discovery walks whole hours (`02-read-contract.md` §5.1), so a bucket that straddles an hour boundary would seal files no walk ever lists. Both `collect` and `maintain` refuse to start otherwise. |
 | `PROFILER_TIME_BUCKET_GRACE` | `30s` | Wait after bucket end before the seal pass runs (§6.1). |
 | `PROFILER_PARQUET_MAX_SIZE` | `64MB` | Size at which a seal pass splits its output into a new `<seq>` file. |
 | `PROFILER_SEAL_CONCURRENCY` | `4` | Maximum seal passes running in parallel (§6.1). |
@@ -485,20 +479,21 @@ Why date in the path even though `ts_ms` is in the file: query needs to LIST eff
 | `PROFILER_IDLE_ACCUMULATOR_TIMEOUT` | `10m` | Release a thread's chunk index when no chunk arrives for that thread within the window; its unclosed call is not sealed (§4.6). |
 | `PROFILER_DICT_FSYNC_RECORDS` | `256` | Dictionary WAL fsync trigger by record count. |
 | `PROFILER_DICT_FSYNC_INTERVAL` | `100ms` | Dictionary WAL fsync trigger by time. |
-| `PROFILER_DURATION_THRESHOLDS` | `100ms,1s` | Boundaries for retention class derivation (§6.4). |
-| `PROFILER_RETENTION_SHORT_CLEAN_TTL` | `1d` | TTL for `short_clean` class. |
-| `PROFILER_RETENTION_NORMAL_CLEAN_TTL` | `7d` | TTL for `normal_clean` class. |
-| `PROFILER_RETENTION_LONG_CLEAN_TTL` | `30d` | TTL for `long_clean` class. |
-| `PROFILER_RETENTION_ANY_ERROR_TTL` | `30d` | TTL for `any_error` class. |
-| `PROFILER_RETENTION_CORRUPTED_TTL` | `7d` | TTL for `corrupted` class. |
-| `PROFILER_RETENTION_DICTIONARY_TTL` | `35d` | TTL for S3 dictionary snapshots (§3.6). Must exceed the longest parquet retention class. |
+| `PROFILER_DURATION_THRESHOLDS` | `100ms,1s,10s` | Clean-tier boundaries of the retention tier table (§6.4). Set the same value on `query` — the read-side class pruning derives from the same table. Unset keeps the table defaults. |
+| `PROFILER_RETENTION_SHORT_CLEAN_TTL` | `2d` | TTL for the `short_clean` class. The TTL defaults live in the tier table (§6.4); unset env vars keep them. |
+| `PROFILER_RETENTION_NORMAL_CLEAN_TTL` | `7d` | TTL for the `normal_clean` class. |
+| `PROFILER_RETENTION_LONG_CLEAN_TTL` | `30d` | TTL for the `long_clean` class. |
+| `PROFILER_RETENTION_HUGE_CLEAN_TTL` | `180d` | TTL for the `huge_clean` class. |
+| `PROFILER_RETENTION_ANY_ERROR_TTL` | `180d` | TTL for the `any_error` class. |
+| `PROFILER_RETENTION_CORRUPTED_TTL` | `7d` | TTL for the `corrupted` class. |
+| `PROFILER_RETENTION_PODS_TTL` | `185d` | TTL for the `pods/v1` manifests (§3.6). Must exceed the longest parquet class TTL; the default derives from the tier table (longest TTL plus a five-day margin). |
 | `PROFILER_HOT_RETENTION` | `15m` | Local parquet retention past flush (§6.3 and `02-read-contract.md` §4.2). |
 | `PROFILER_COMPACTION_DELETE_GRACE` | `5m` | Delay before a `maintain` compaction deletes its input objects, after the compacted object is written (§6.6). Must exceed one discovery-plus-read round so a concurrent query never loses rows mid-compaction. |
 | `S3_ENDPOINT` | — | MinIO/S3 endpoint URL. |
 | `S3_BUCKET` | — | Target bucket. |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials from the environment. For each credential, set exactly one source: the env form or the `*_FILE` form below. |
 | `S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE` | — | Path to a file holding the credential; trailing whitespace is trimmed. The k8s manifests mount the S3 Secret as a volume and point these at it (`04-storage-layout.md` §3.2, §6), so the credential never appears in a pod spec or `kubectl describe`. The env forms remain for dev/compose. |
-| `S3_PATH_PREFIX` | `parquet/v1` | Object key prefix below the bucket. |
+| `S3_PATH_PREFIX` | (empty) | Per-deployment key prefix below the bucket, applied to every object the backend writes and reads (§7) — parquet and the `pods/v1` manifests — so several deployments can share one bucket. Set the same value on all three subcommands. |
 | `STATEFULSET_ORDINAL` | (from `HOSTNAME`) | Used in S3 object key. |
 
 ## 10. What this contract does not cover
@@ -521,7 +516,7 @@ Before this document is merged and Stage 1 starts, please confirm or correct:
 - [x] `error_flag` source — the `call.red` indexed param resolved from `Call.Params` (§5.6); no agent change.
 - [x] Default retention class TTLs and duration thresholds (§6.4, §9) — defaults accepted.
 - [ ] S3 path structure (§7) — operational fit.
-- [x] Dictionary cold-path lifecycle — final snapshot uploaded to S3 on pod-restart close (§3.6); local WAL purged after upload + grace.
+- [x] Dictionary cold-path lifecycle — the subset each blob references is inlined into its row at seal (§3.6, schema version 3); local WAL purged once every sealed file is uploaded, plus the grace.
 - [x] Calls-stream `ts_ms` reconstruction — delta accumulation specified (§5.1, §5.2) and implemented in both Go decoders, guarded by `TestCallsTimeAccumulation`.
 - [ ] Configuration defaults (§9).
 

@@ -424,16 +424,18 @@ func (a *API) handleDictionary(c echo.Context) error {
 }
 
 // suspendTimeline is the suspend endpoint's body: the pod-restart's
-// stop-the-world pauses in the shape of the suspend/v1 cold snapshot, so a
-// consumer parses one format on either tier.
+// stop-the-world pauses in the same (end, duration) event shape the sealed
+// rows inline as suspend_json, so a consumer parses one format on either
+// tier.
 type suspendTimeline struct {
 	Events []suspendTimelineEvent `json:"events"`
 }
 
 type suspendTimelineEvent struct {
 	// EndMs is the pause end (the agent timestamps a delay after detecting it);
-	// the pause spans [EndMs − DurationMs, EndMs]. Same shape as the cold
-	// suspend/v1 snapshot so a consumer parses one format on either tier (№4).
+	// the pause spans [EndMs − DurationMs, EndMs] — the same event shape as
+	// the sealed rows' suspend_json column, so a consumer parses one format
+	// on either tier (№4).
 	EndMs      int64 `json:"end_ms"`
 	DurationMs int   `json:"duration_ms"`
 }

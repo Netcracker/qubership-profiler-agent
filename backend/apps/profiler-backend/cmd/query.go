@@ -77,17 +77,18 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	s3.RegisterMetrics(reg)
 	svc := query.New(query.Options{
 		Config: query.Config{
-			CursorTTL:        cfg.CursorTTL,
-			WideRangeLimit:   cfg.WideRangeLimit,
-			MaxScanFiles:     cfg.MaxScanFiles,
-			MaxScanBytes:     int64(cfg.MaxScanBytes),
-			ListConcurrency:  cfg.ListConcurrency,
-			CollectorService: cfg.CollectorService,
-			CollectorPort:    cfg.CollectorPort,
-			FanoutTimeout:    cfg.FanoutTimeout,
-			OverlapMargin:    cfg.OverlapMargin,
+			CursorTTL:          cfg.CursorTTL,
+			WideRangeLimit:     cfg.WideRangeLimit,
+			MaxScanFiles:       cfg.MaxScanFiles,
+			MaxScanBytes:       int64(cfg.MaxScanBytes),
+			DurationThresholds: cfg.DurationThresholds,
+			ListConcurrency:    cfg.ListConcurrency,
+			CollectorService:   cfg.CollectorService,
+			CollectorPort:      cfg.CollectorPort,
+			FanoutTimeout:      cfg.FanoutTimeout,
+			OverlapMargin:      cfg.OverlapMargin,
 		},
-		ColdStore: query.NewS3ObjectReader(mc),
+		ColdStore: query.NewS3ObjectReader(mc, cfg.S3.PathPrefix),
 		Metrics:   query.NewMetrics(reg),
 		UI:        uiAssets,
 	})

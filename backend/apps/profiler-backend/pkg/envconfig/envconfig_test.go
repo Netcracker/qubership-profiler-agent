@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,10 +33,11 @@ func TestByteSizeDecode(t *testing.T) {
 
 func TestDurationThresholdsDecode(t *testing.T) {
 	var d DurationThresholds
-	require.NoError(t, d.Decode("100ms, 1s"))
-	assert.Equal(t, DurationThresholds{100 * time.Millisecond, time.Second}, d)
+	require.NoError(t, d.Decode("100ms, 1s, 10s"))
+	assert.Equal(t, DurationThresholds{100 * time.Millisecond, time.Second, 10 * time.Second}, d)
 
-	for _, raw := range []string{"", "1s", "1s,100ms", "0s,1s", "1s,1s,2s", "abc,1s"} {
+	// One value per finite clean-tier bound, ascending, positive.
+	for _, raw := range []string{"", "1s", "100ms,1s", "1s,100ms,10s", "0s,1s,10s", "1s,1s,2s", "abc,1s,10s"} {
 		assert.Error(t, d.Decode(raw), raw)
 	}
 }
@@ -52,7 +54,8 @@ func TestCollectDefaults(t *testing.T) {
 	assert.Equal(t, 1715, c.AgentPort)
 	assert.Equal(t, 8081, c.InternalAPIPort)
 	assert.Equal(t, 5*time.Minute, c.TimeBucket)
-	assert.Equal(t, DurationThresholds{100 * time.Millisecond, time.Second}, c.DurationThresholds)
+	assert.Nil(t, []time.Duration(c.DurationThresholds),
+		"unset thresholds stay nil so downstream falls back to the ONE tier table (№10)")
 	assert.Equal(t, ByteSize(4<<20), c.SegmentRotationSize)
 	// The loops must default ON: a collector that never seals, uploads, or
 	// cleans up is not a collector (01 §6.1-§6.3).
@@ -122,12 +125,44 @@ func TestMaintainDefaults(t *testing.T) {
 	// (01 §6.6); 5m is the contract default (01 §9).
 	assert.Equal(t, 5*time.Minute, m.CompactionDeleteGrace)
 	assert.Equal(t, ByteSize(256<<20), m.CompactionMaxBytes)
-	assert.Equal(t, TTL(24*time.Hour), m.RetentionShortCleanTTL)
-	assert.Equal(t, TTL(7*24*time.Hour), m.RetentionNormalCleanTTL)
-	assert.Equal(t, TTL(30*24*time.Hour), m.RetentionLongCleanTTL)
-	assert.Equal(t, TTL(30*24*time.Hour), m.RetentionAnyErrorTTL)
-	assert.Equal(t, TTL(7*24*time.Hour), m.RetentionCorruptedTTL)
-	assert.Equal(t, TTL(35*24*time.Hour), m.RetentionDictionaryTTL)
+
+	// Unset TTLs resolve to the tier-table defaults (№10): the classification
+	// thresholds, the read pruning, and the TTLs share ONE source, so this
+	// test would catch a per-surface hardcode reappearing.
+	assert.Equal(t, model.DefaultClassTTL(), m.ClassTTLs())
+
+	// An explicit env value wins over the table default.
+	t.Setenv("PROFILER_RETENTION_SHORT_CLEAN_TTL", "12h")
+	m, err = ParseMaintain()
+	require.NoError(t, err)
+	assert.Equal(t, 12*time.Hour, m.ClassTTLs()[model.RetentionShortClean])
+	assert.Equal(t, model.DefaultClassTTL()[model.RetentionAnyError], m.ClassTTLs()[model.RetentionAnyError])
+}
+
+// TestTimeBucketValidation pins the №28 fix: a bucket that does not divide
+// the hour seals files under hour prefixes no cold discovery walk ever
+// lists, so both bucket-aware subcommands refuse to start with one.
+func TestTimeBucketValidation(t *testing.T) {
+	t.Setenv("S3_ENDPOINT", "http://minio:9000")
+	t.Setenv("S3_BUCKET", "profiler-data")
+
+	t.Setenv("PROFILER_TIME_BUCKET", "7m")
+	_, err := ParseCollect()
+	assert.ErrorContains(t, err, "must divide the hour")
+	_, err = ParseMaintain()
+	assert.ErrorContains(t, err, "must divide the hour")
+
+	t.Setenv("PROFILER_TIME_BUCKET", "90m")
+	_, err = ParseCollect()
+	assert.ErrorContains(t, err, "must divide the hour")
+
+	for _, ok := range []string{"1m", "5m", "15m", "20m", "30m", "1h"} {
+		t.Setenv("PROFILER_TIME_BUCKET", ok)
+		_, err = ParseCollect()
+		assert.NoError(t, err, ok)
+		_, err = ParseMaintain()
+		assert.NoError(t, err, ok)
+	}
 }
 
 func TestS3Required(t *testing.T) {
@@ -193,4 +228,29 @@ func TestS3FileCredentials(t *testing.T) {
 	s.SecretKey = "env-sk"
 	_, err = s.Params()
 	assert.ErrorContains(t, err, "empty credential")
+}
+
+// TestS3TLSParams pins the CA-bundle and skip-verify knobs reaching
+// libs/s3.Params: both were parsed by the `maintenance` app already but were
+// silently dropped for collect/query/maintain, so a private-CA or
+// self-signed S3 endpoint could not be reached from profiler-backend.
+func TestS3TLSParams(t *testing.T) {
+	base := S3{
+		Endpoint: "https://s3.example.com", Bucket: "profiler-data",
+		AccessKey: "ak", SecretKey: "sk",
+	}
+
+	s := base
+	s.CAFile = "/etc/profiler/s3-ca/ca.crt"
+	s.InsecureSSL = true
+	p, err := s.Params()
+	require.NoError(t, err)
+	assert.Equal(t, "/etc/profiler/s3-ca/ca.crt", p.CAFile)
+	assert.True(t, p.InsecureSSL)
+
+	// Unset stays unset.
+	p, err = base.Params()
+	require.NoError(t, err)
+	assert.Empty(t, p.CAFile)
+	assert.False(t, p.InsecureSSL)
 }

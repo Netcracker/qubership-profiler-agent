@@ -67,6 +67,66 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
+Gateway API parentRefs shared by HTTPRoute objects (04 §12; platform
+convention set by PR #798). Blue/green (BGD2): when PEER_NAMESPACE is set,
+the parentRef targets the edge-router Gateway in CONTROLLER_NAMESPACE
+instead of the cluster's default external gateway.
+*/}}
+{{- define "gateway.parentRefs" -}}
+{{- if (default "" .Values.PEER_NAMESPACE) -}}
+- group: gateway.networking.k8s.io
+  kind: Gateway
+  name: edge-router
+  namespace: {{ .Values.CONTROLLER_NAMESPACE | default "bluegreen-controller" }}
+{{- else -}}
+- group: gateway.networking.k8s.io
+  kind: Gateway
+  name: {{ .Values.GATEWAY_SYSTEM_NAME | default "default-external-gateway" }}
+  namespace: {{ .Values.GATEWAY_SYSTEM_NAMESPACE | default "gateway-system" }}
+{{- end -}}
+{{- end -}}
+
+{{/* Default query Ingress host, unless query.ingress.host is set explicitly */}}
+{{- define "profiler-backend.queryIngressHost" -}}
+{{- if .Values.query.ingress.host -}}
+{{ .Values.query.ingress.host }}
+{{- else -}}
+{{- printf "%s-query-%s.%s" (include "profiler-backend.fullname" .) .Values.NAMESPACE .Values.CLOUD_PUBLIC_HOST -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Default query HTTPRoute hostname, unless query.httpRoute.host is set explicitly */}}
+{{- define "profiler-backend.queryHttpRouteHost" -}}
+{{- if .Values.query.httpRoute.host -}}
+{{ .Values.query.httpRoute.host }}
+{{- else -}}
+{{- printf "%s-query-%s.eg.%s" (include "profiler-backend.fullname" .) .Values.NAMESPACE .Values.CLOUD_PUBLIC_HOST -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+S3 connection env shared by all three workloads: endpoint, bucket, and the
+per-deployment key prefix, all from the ConfigMap (04 §6).
+*/}}
+{{- define "profiler-backend.s3ConfigEnv" -}}
+- name: S3_ENDPOINT
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "profiler-backend.fullname" . }}-config
+      key: s3-endpoint
+- name: S3_BUCKET
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "profiler-backend.fullname" . }}-config
+      key: s3-bucket
+- name: S3_PATH_PREFIX
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "profiler-backend.fullname" . }}-config
+      key: s3-path-prefix
+{{- end -}}
+
+{{/*
 S3 credential wiring shared by all three workloads: the Secret mounts as a
 volume and the *_FILE envs point into it — the values never appear in the pod
 spec (01-write-contract.md §9, 04 §6).
@@ -90,6 +150,88 @@ spec (01-write-contract.md §9, 04 §6).
     secretName: {{ include "profiler-backend.s3SecretName" . }}
 {{- end -}}
 
+{{/* Name of the Secret holding the S3 CA bundle */}}
+{{- define "profiler-backend.s3TlsSecretName" -}}
+{{- if .Values.s3.tls.existingSecret -}}
+{{- .Values.s3.tls.existingSecret -}}
+{{- else -}}
+{{- printf "%s-s3-ca" (include "profiler-backend.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/* "true" when a private CA bundle is configured, empty otherwise */}}
+{{- define "profiler-backend.s3TlsEnabled" -}}
+{{- if or .Values.s3.tls.caCert .Values.s3.tls.existingSecret -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+S3 TLS env shared by all three workloads: S3_CA_FILE points into the CA
+volume when one is configured, S3_INSECURE_SKIP_VERIFY is the dev/smoke
+escape hatch. Both default off — an https:// endpoint with a
+publicly-trusted certificate needs neither.
+*/}}
+{{- define "profiler-backend.s3TlsEnv" -}}
+{{- if eq (include "profiler-backend.s3TlsEnabled" .) "true" }}
+- name: S3_CA_FILE
+  value: {{ printf "%s/ca.crt" .Values.s3.tls.mountPath }}
+{{- end }}
+{{- if .Values.s3.tls.insecureSkipVerify }}
+- name: S3_INSECURE_SKIP_VERIFY
+  value: "true"
+{{- end }}
+{{- end -}}
+
+{{- define "profiler-backend.s3TlsMount" -}}
+{{- if eq (include "profiler-backend.s3TlsEnabled" .) "true" }}
+- name: s3-ca
+  mountPath: {{ .Values.s3.tls.mountPath }}
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "profiler-backend.s3TlsVolume" -}}
+{{- if eq (include "profiler-backend.s3TlsEnabled" .) "true" }}
+- name: s3-ca
+  secret:
+    secretName: {{ include "profiler-backend.s3TlsSecretName" . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Pod securityContext shared by all three workloads; pass a dict with .root and
+.component (values key: collector, query, or maintain). fsGroup is what makes
+a PVC (the collector's /data) writable by the non-root container — without it
+the volume mounts owned by root and the container can't write to it. 65532 is
+gcr.io/distroless/static-debian12:nonroot's built-in uid:gid (the image's
+USER, apps/profiler-backend/Dockerfile) — keep this in sync with the
+Dockerfile if that base image ever changes. Values overrides win over these
+defaults; skip runAsUser/fsGroup on OpenShift, which assigns both from the
+namespace's SCC range.
+*/}}
+{{- define "profiler-backend.podSecurityContext" -}}
+{{- $override := deepCopy ((index .root.Values .component).securityContext | default dict) -}}
+{{- $defaults := dict "seccompProfile" (dict "type" "RuntimeDefault") -}}
+{{- if not (.root.Capabilities.APIVersions.Has "apps.openshift.io/v1") -}}
+{{- $defaults = merge $defaults (dict "runAsUser" 65532 "fsGroup" 65532) -}}
+{{- end -}}
+{{- $merged := merge $override $defaults -}}
+{{/* merge treats explicit "false" as unset, so runAsNonRoot needs its own pass */}}
+{{- $_ := set $merged "runAsNonRoot" (ne ($override.runAsNonRoot | toString) "false") -}}
+{{- toYaml $merged }}
+{{- end -}}
+
+{{/*
+Container securityContext shared by all three workloads; pass a dict with
+.root and .component. Values overrides win over these defaults.
+*/}}
+{{- define "profiler-backend.containerSecurityContext" -}}
+{{- $override := deepCopy ((index .root.Values .component).containerSecurityContext | default dict) -}}
+{{- $defaults := dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL")) -}}
+{{- toYaml (merge $override $defaults) }}
+{{- end -}}
+
 {{/* Extra env from a name → value map */}}
 {{- define "profiler-backend.extraEnv" -}}
 {{- range $name, $value := . }}
@@ -98,30 +240,28 @@ spec (01-write-contract.md §9, 04 §6).
 {{- end }}
 {{- end -}}
 
-{{/* Env shared by both maintain modes: S3 + per-class retention TTLs (01 §9) */}}
+{{/*
+Env shared by both maintain modes: S3 + per-class retention TTLs (01 §9).
+The TTL values mirror the tier table of 01 §6.4 (№10): thresholds classify at
+the collector, these expire at the maintainer — override them together.
+*/}}
 {{- define "profiler-backend.maintainEnv" -}}
-- name: S3_ENDPOINT
-  valueFrom:
-    configMapKeyRef:
-      name: {{ include "profiler-backend.fullname" . }}-config
-      key: s3-endpoint
-- name: S3_BUCKET
-  valueFrom:
-    configMapKeyRef:
-      name: {{ include "profiler-backend.fullname" . }}-config
-      key: s3-bucket
+{{ include "profiler-backend.s3ConfigEnv" . }}
 {{ include "profiler-backend.s3CredentialEnv" . }}
+{{ include "profiler-backend.s3TlsEnv" . }}
 - name: PROFILER_RETENTION_SHORT_CLEAN_TTL
   value: {{ .Values.retention.shortCleanTTL | quote }}
 - name: PROFILER_RETENTION_NORMAL_CLEAN_TTL
   value: {{ .Values.retention.normalCleanTTL | quote }}
 - name: PROFILER_RETENTION_LONG_CLEAN_TTL
   value: {{ .Values.retention.longCleanTTL | quote }}
+- name: PROFILER_RETENTION_HUGE_CLEAN_TTL
+  value: {{ .Values.retention.hugeCleanTTL | quote }}
 - name: PROFILER_RETENTION_ANY_ERROR_TTL
   value: {{ .Values.retention.anyErrorTTL | quote }}
 - name: PROFILER_RETENTION_CORRUPTED_TTL
   value: {{ .Values.retention.corruptedTTL | quote }}
-- name: PROFILER_RETENTION_DICTIONARY_TTL
-  value: {{ .Values.retention.dictionaryTTL | quote }}
+- name: PROFILER_RETENTION_PODS_TTL
+  value: {{ .Values.retention.podsTTL | quote }}
 {{- include "profiler-backend.extraEnv" .Values.maintain.env }}
 {{- end -}}

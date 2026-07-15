@@ -23,8 +23,9 @@ import (
 
 // TestColdReadMinio proves the S3ObjectReader wiring against a real MinIO:
 // discovery LISTs the sealed key, the projected scan reads it over ranged
-// ReadAt, and cold /pods resolves the identity from the uploaded manifest.
-// The behavioural scenarios live in TestColdReadPath on the in-test fake.
+// ReadAt, and cold /pods resolves the identity from the uploaded manifest —
+// all under a shared-bucket S3_PATH_PREFIX applied on both sides. The
+// behavioural scenarios live in TestColdReadPath on the in-test fake.
 func TestColdReadMinio(t *testing.T) {
 	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
 	defer cancel()
@@ -60,11 +61,12 @@ func TestColdReadMinio(t *testing.T) {
 	res, err := store.Seal(ctx, key, store.Config().Bucket(baseMs+5))
 	require.NoError(t, err)
 	require.Len(t, res.Files, 1)
-	_, err = hotstore.NewUploader(store, collector.NewS3ObjectStore(mc.Client)).Pass(ctx)
+	const pathPrefix = "team-a"
+	_, err = hotstore.NewUploader(store, collector.NewS3ObjectStore(mc.Client, pathPrefix)).Pass(ctx)
 	require.NoError(t, err)
 
 	api := httptest.NewServer(query.New(query.Options{
-		ColdStore: query.NewS3ObjectReader(mc.Client),
+		ColdStore: query.NewS3ObjectReader(mc.Client, pathPrefix),
 	}).Handler())
 	defer api.Close()
 

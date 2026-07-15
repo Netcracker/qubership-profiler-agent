@@ -6,8 +6,7 @@ groups:
     rules:
       # Quarantine only shrinks on manual intervention (01 §8): a rejected
       # parquet file pins its bucket and every newer bucket in the hot tier
-      # (the contiguity barrier), and a rejected snapshot pins the WALs. Any
-      # sustained non-zero count needs a human.
+      # (the contiguity barrier). Any sustained non-zero count needs a human.
       - alert: ProfilerStuckQuarantine
         expr: sum by (kind) (profiler_hotstore_quarantine_objects) > 0
         for: 15m
@@ -80,3 +79,15 @@ groups:
         annotations:
           summary: "Sealed parquet is not reaching S3"
           description: "The oldest pending upload has waited over 30 minutes; upload_backlog is not draining and the collector PV keeps growing."
+      # Compaction splits oversized groups (№11), so the only object it ever
+      # skips is a SINGLE file larger than the whole PROFILER_COMPACTION_MAX_BYTES
+      # budget — it will be re-skipped on every pass and its bucket never
+      # converges. Raise the budget or investigate the producer.
+      - alert: ProfilerCompactionOversizedObject
+        expr: increase(profiler_maintain_skipped_groups_total{reason="oversized"}[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A parquet object exceeds the compaction budget"
+          description: "maintain skipped an object bigger than PROFILER_COMPACTION_MAX_BYTES; its (bucket, class) group cannot converge until the budget is raised."

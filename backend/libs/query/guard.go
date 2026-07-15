@@ -29,11 +29,15 @@ type guardRejection struct {
 }
 
 // hasNarrowingFilter reports whether the query carries a filter that prunes
-// the set of files discovered (02 §2.3.2): pod, retention_class,
-// duration_min_ms, or error_only. method and params filter rows inside
-// already-listed files, so they do not exempt.
-func hasNarrowingFilter(q model.CallsQuery) bool {
-	return len(q.Pods) > 0 || len(q.RetentionClasses) > 0 || q.DurationMinMs > 0 || q.ErrorOnly
+// the set of files discovered (02 §2.3.2): a pod filter, or any class-axis
+// filter (retention_class, duration_min_ms, error_only) that actually drops
+// a class from the discovery LIST. The class check runs the same ClassesFor
+// derivation discovery uses, so a filter that prunes nothing — a
+// duration_min_ms below the first tier bound, or a retention_class list
+// naming every class — no longer buys a guard exemption (№28). method and
+// params filter rows inside already-listed files, so they do not exempt.
+func (s *Service) hasNarrowingFilter(q model.CallsQuery) bool {
+	return len(q.Pods) > 0 || len(s.cold.ClassesFor(q)) < len(model.RetentionClasses)
 }
 
 // suggestedFilters lists the narrowing filters the query does not use yet.
@@ -57,9 +61,9 @@ func suggestedFilters(q model.CallsQuery) []string {
 // guardSpan is layer 1 (02 §2.3.2): a window wider than the limit with no
 // file-pruning filter is rejected before any I/O — the discovery LIST for
 // such a query is itself the cost being avoided.
-func guardSpan(q model.CallsQuery, limit time.Duration) *guardRejection {
+func (s *Service) guardSpan(q model.CallsQuery, limit time.Duration) *guardRejection {
 	span := time.Duration(q.ToMs-q.FromMs) * time.Millisecond
-	if span <= limit || hasNarrowingFilter(q) {
+	if span <= limit || s.hasNarrowingFilter(q) {
 		return nil
 	}
 	return &guardRejection{

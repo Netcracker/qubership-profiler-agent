@@ -31,9 +31,6 @@ type JanitorStats struct {
 	// QuarantineDropped counts quarantined parquet files removed by the
 	// age/size cap (№2) — bounded, loudly-logged data loss.
 	QuarantineDropped int64
-	// SnapshotsAbandoned counts snapshot uploads given up past the quarantine
-	// age cap (№2), unblocking the pod-restart's WAL purge.
-	SnapshotsAbandoned int64
 	// DictionariesUnloaded / ChunkIndexesReleased count the mem-budget
 	// evictions of closed pod-restarts' in-RAM state (№1).
 	DictionariesUnloaded int64
@@ -60,7 +57,6 @@ func (s *Store) countJanitor(stats JanitorStats) {
 	s.janitorCounters.SegmentsEvicted += stats.SegmentsEvicted
 	s.janitorCounters.EvictedBytes += stats.EvictedBytes
 	s.janitorCounters.QuarantineDropped += stats.QuarantineDropped
-	s.janitorCounters.SnapshotsAbandoned += stats.SnapshotsAbandoned
 	s.janitorCounters.DictionariesUnloaded += stats.DictionariesUnloaded
 	s.janitorCounters.ChunkIndexesReleased += stats.ChunkIndexesReleased
 	s.janitorCounters.MemPressureSeals += stats.MemPressureSeals
@@ -83,8 +79,7 @@ func (s *Store) EvictedChunkRefs() int64 {
 }
 
 // QuarantineStats surfaces the stuck-quarantine gauges (01 §8): quarantined
-// parquet files and snapshot-blocked pod-restarts, with the oldest failure
-// time of each.
+// parquet files, with the oldest failure time.
 func (s *Store) QuarantineStats() (QuarantineStats, error) {
 	return s.db.QuarantineStats()
 }
@@ -188,9 +183,7 @@ func (s *Store) setGate(ctx context.Context, gate *atomic.Bool, engaged bool, na
 // parquet past QuarantineMaxAge — or the oldest of it while the total exceeds
 // QuarantineMaxBytes — is dropped together with its parquet_local row, which
 // releases the segment refcounts it pinned and lets the WAL purge proceed;
-// the loss is bounded and logged. Snapshot quarantines past the age cap are
-// abandoned the same way: dict_uploaded_at is stamped so the purge unblocks,
-// while the rejected body stays under upload-failed/ for a human.
+// the loss is bounded and logged.
 func (s *Store) capQuarantine(ctx context.Context, nowMs int64, stats *JanitorStats) error {
 	maxAgeMs := s.cfg.QuarantineMaxAge.Milliseconds()
 	rows, err := s.db.QuarantinedParquet()
@@ -224,14 +217,6 @@ func (s *Store) capQuarantine(ctx context.Context, nowMs int64, stats *JanitorSt
 		stats.QuarantineDropped++
 		log.Warning(ctx, "janitor: dropped quarantined parquet %s (%d rows) past the quarantine cap — these calls are lost to the cold tier",
 			f.Path, f.RowCount)
-	}
-	abandoned, err := s.db.AbandonQuarantinedSnapshots(nowMs-maxAgeMs, nowMs)
-	if err != nil {
-		return err
-	}
-	if abandoned > 0 {
-		stats.SnapshotsAbandoned += abandoned
-		log.Warning(ctx, "janitor: abandoned %d snapshot uploads past the quarantine age cap; their WAL purge unblocks, the rejected bodies stay under upload-failed/", abandoned)
 	}
 	return nil
 }
@@ -426,10 +411,11 @@ func (s *Store) bucketHasUnsealedCalls(bucket int64) (bool, error) {
 
 // purgeWals implements 01-write-contract.md §3.5 / 03 §3.9 step 18: a closed
 // pod-restart's WAL files are deleted once everything they could decode is
-// durable in S3 (parquet uploaded, dictionary snapshot uploaded), nothing in
-// the hot index references the pod-restart any more, and the hold-back grace
-// has elapsed. The pod-restart's directory and in-RAM state go with the WALs:
-// past this point every read of its data is served by the cold tier.
+// durable in S3 (every sealed file uploaded — the sealed rows carry their own
+// dictionary subset, №3), nothing in the hot index references the pod-restart
+// any more, and the hold-back grace has elapsed. The pod-restart's directory
+// and in-RAM state go with the WALs: past this point every read of its data
+// is served by the cold tier.
 func (s *Store) purgeWals(ctx context.Context, nowMs int64, stats *JanitorStats) error {
 	candidates, err := s.db.WalPurgeCandidates()
 	if err != nil {
@@ -441,9 +427,6 @@ func (s *Store) purgeWals(ctx context.Context, nowMs int64, stats *JanitorStats)
 			return err
 		}
 		base := c.ClosedAtMs
-		if c.DictUploadedAtMs > base {
-			base = c.DictUploadedAtMs
-		}
 		if base+graceMs > nowMs {
 			continue
 		}

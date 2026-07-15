@@ -6,9 +6,11 @@ package query
 // replicas first — a live call costs no S3 round-trip — and fall back to the
 // cold tier, which needs the ts_ms (and ideally retention_class) hints from
 // the /calls row because a bare PK carries no time (§2.2). The tree itself is
-// rendered here for both tiers through libs/calltree; only the big-parameter
-// values differ in origin (replica value segments vs the sealed
-// big_params_json column).
+// rendered here for both tiers through libs/calltree; the inputs differ in
+// origin only: the hot path asks the hosting replica for the dictionary, the
+// suspend timeline, and the big-parameter values, while the cold path reads
+// all three from the sealed row's own columns (dict_words_json,
+// suspend_json, big_params_json) — a sealed row is self-contained (№3, №23).
 
 import (
 	"bytes"
@@ -231,13 +233,19 @@ func (s *Service) handleCallTree(c echo.Context) error {
 		Namespace: pk.PodNamespace, Service: pk.PodService,
 		Pod: pk.PodName, RestartTimeMs: pk.RestartTimeMs,
 	}
-	var words []string
+	var dictWord func(id int) (string, bool)
 	var bigValue func(stream string, seq int, offset int64) (string, bool)
 	var pauses []calltree.SuspendInterval
 	if fetch.replicaURL != "" {
-		words, err = s.hotDictionary(ctx, fetch.replicaURL, tuple)
+		words, err := s.hotDictionary(ctx, fetch.replicaURL, tuple)
 		if err != nil {
 			return gatewayTimeout(c, append(fetch.reasons, fmt.Sprintf("collector %s dictionary: %v", fetch.replicaURL, err)))
+		}
+		dictWord = func(id int) (string, bool) {
+			if id < 0 || id >= len(words) || words[id] == "" {
+				return "", false
+			}
+			return words[id], true
 		}
 		values, err := s.hotBigValues(ctx, fetch.replicaURL, tuple, fetch.blob, int(pk.RecordIndex))
 		if err != nil {
@@ -254,9 +262,17 @@ func (s *Service) handleCallTree(c echo.Context) error {
 			return gatewayTimeout(c, append(fetch.reasons, fmt.Sprintf("collector %s suspend: %v", fetch.replicaURL, err)))
 		}
 	} else {
-		words, err = s.coldDictionary(ctx, tuple)
+		// The sealed row is self-contained (01 §3.6, №3, №23): the dictionary
+		// subset its blob references and the pauses overlapping its window
+		// ride in the row's own columns — no snapshot object exists to fetch,
+		// so nothing can dangle after a TTL.
+		subset, err := storageparquet.DecodeDictWords(fetch.row.DictWordsJson)
 		if err != nil {
-			return gatewayTimeout(c, append(fetch.reasons, fmt.Sprintf("s3 dictionary: %v", err)))
+			return errors.Wrapf(err, "row of %s", pk.PathString())
+		}
+		dictWord = func(id int) (string, bool) {
+			word, ok := subset[id]
+			return word, ok
 		}
 		var sealed map[string]string
 		if fetch.row.BigParamsJson != nil {
@@ -268,21 +284,18 @@ func (s *Service) handleCallTree(c echo.Context) error {
 			v, ok := sealed[fmt.Sprintf("%s:%d:%d", stream, seq, offset)]
 			return v, ok
 		}
-		// ok=false (no snapshot object: unclean close or TTL) degrades to
-		// zero suspension, the pre-R7 behaviour.
-		pauses, _, err = cold.Suspend(ctx, s.cold.Store, tuple)
+		events, err := storageparquet.DecodeSuspend(fetch.row.SuspendJson)
 		if err != nil {
-			return gatewayTimeout(c, append(fetch.reasons, fmt.Sprintf("s3 suspend: %v", err)))
+			return errors.Wrapf(err, "row of %s", pk.PathString())
+		}
+		pauses = make([]calltree.SuspendInterval, 0, len(events))
+		for _, e := range events {
+			pauses = append(pauses, calltree.SuspendInterval{TimeMs: e.EndMs, DurationMs: e.DurationMs})
 		}
 	}
 
 	tree, err := calltree.Build(fetch.blob, int(pk.RecordIndex), calltree.Options{
-		Dict: func(id int) (string, bool) {
-			if id < 0 || id >= len(words) || words[id] == "" {
-				return "", false
-			}
-			return words[id], true
-		},
+		Dict:     dictWord,
 		BigValue: bigValue,
 		Suspend:  pauses,
 	})

@@ -77,9 +77,11 @@ type (
 	}
 
 	// sealRow carries one call through the pass: the index row, the full WAL
-	// record, the blob assembly outcome, and the big-parameter references the
+	// record, the blob assembly outcome, the big-parameter references the
 	// blob carries (resolved into big_params_json before the row is written,
-	// because the value segments never reach S3).
+	// because the value segments never reach S3), and the dictionary ids the
+	// blob's events reference (resolved into dict_words_json, so the sealed
+	// row is self-contained — №3, №23).
 	sealRow struct {
 		idx       CallIndexRow
 		wal       CallWalRecord
@@ -88,6 +90,15 @@ type (
 		srcSegs   map[segKey]struct{}
 		bigRefs   []ValueRef
 		bigValues map[string]string
+		dictIds   map[int]struct{}
+		// blobTimeMinMs/blobTimeMaxMs span the call's own events on the trace
+		// timer axis (§4.2) — the axis the tree renders node windows on. The
+		// suspend_json filter uses this span, NOT [ts_ms, ts_ms+duration]:
+		// ts_ms comes from the calls stream's independent epoch, and a small
+		// divergence between the two clocks must not drop a boundary pause.
+		blobTimeMinMs int64
+		blobTimeMaxMs int64
+		hasBlobTime   bool
 	}
 
 	// segKey addresses one hot-store segment within a pod-restart.
@@ -296,7 +307,7 @@ func (s *Store) loadSealRows(pr *PodRestart, idxRows []CallIndexRow) ([]sealRow,
 	var read int64
 	defer func() { s.countWalBytesRead(read) }()
 	for i := range idxRows {
-		rows[i] = sealRow{idx: idxRows[i], srcSegs: map[segKey]struct{}{}}
+		rows[i] = sealRow{idx: idxRows[i], srcSegs: map[segKey]struct{}{}, dictIds: map[int]struct{}{}}
 		body, n, err := ReadWalRecordAt(f, idxRows[i].CallsWalOffset)
 		read += n
 		if err != nil {
@@ -509,8 +520,20 @@ func (s *Store) consumeChunk(ctx context.Context, pr *PodRestart, a *assembly, s
 	a.row.srcSegs[segKey{StreamTrace, seq}] = struct{}{}
 
 	recordIndex := a.row.idx.RecordIndex
+	timerStart := pr.TimerStartMs()
+	// trackTime widens the row's event-time span (the suspend_json window).
+	trackTime := func(elapsedMs int64) {
+		at := timerStart + elapsedMs
+		if !a.row.hasBlobTime || at < a.row.blobTimeMinMs {
+			a.row.blobTimeMinMs = at
+		}
+		if !a.row.hasBlobTime || at > a.row.blobTimeMaxMs {
+			a.row.blobTimeMaxMs = at
+		}
+		a.row.hasBlobTime = true
+	}
 	badPointer := false
-	_, _, err := ParseChunk(data, func(index int, ev TraceEvent) bool {
+	_, _, err := ParseChunk(data, func(index int, ev TraceEvent, elapsedMs int64) bool {
 		if !a.started {
 			if index < recordIndex {
 				return true // tail noise: the previous root call of this thread
@@ -521,11 +544,18 @@ func (s *Store) consumeChunk(ctx context.Context, pr *PodRestart, a *assembly, s
 			}
 			a.started = true
 			a.depth = 1
+			// The root ENTER's method id opens the row's dictionary subset
+			// (dict_words_json): every id the reader will resolve is recorded
+			// here, during the one pass that already parses the events.
+			a.row.dictIds[ev.TagId] = struct{}{}
+			trackTime(elapsedMs)
 			return true
 		}
+		trackTime(elapsedMs)
 		switch ev.Kind {
 		case TraceEnter:
 			a.depth++
+			a.row.dictIds[ev.TagId] = struct{}{}
 		case TraceExit:
 			a.depth--
 			if a.depth == 0 {
@@ -533,6 +563,7 @@ func (s *Store) consumeChunk(ctx context.Context, pr *PodRestart, a *assembly, s
 				return false
 			}
 		case TraceTag:
+			a.row.dictIds[ev.TagId] = struct{}{}
 			// The blob points into the external value streams; they must
 			// survive with it (03-lifecycle.md §3.2), so they join the refcount.
 			// The full reference is kept too: the seal resolves it into
@@ -651,7 +682,10 @@ func (s *Store) writeSealedFiles(pr *PodRestart, bucket int64, rows []sealRow, s
 	}
 
 	var commits []sealCommit
-	for _, class := range []string{RetentionShortClean, RetentionNormalClean, RetentionLongClean, RetentionAnyError} {
+	// The class list derives from the shared tier table (№10); classes with
+	// no rows in this bucket (corrupted stays reserved-empty, §5.6) open no
+	// writer.
+	for _, class := range model.RetentionClasses {
 		classRows := byClass[class]
 		if len(classRows) == 0 {
 			continue
@@ -697,11 +731,7 @@ func (s *Store) writeClassFile(pr *PodRestart, bucket int64, class string,
 	// blob-sized columns — their min/max would copy blob prefixes into the
 	// footer for a column nobody range-prunes on.
 	pw := parquet.NewGenericWriter[storageparquet.CallV2](fw,
-		parquet.Compression(&parquet.Zstd),
-		parquet.KeyValueMetadata(storageparquet.SchemaVersionKey, storageparquet.SchemaVersion),
-		parquet.SkipPageBounds("trace_blob"),
-		parquet.SkipPageBounds("big_params_json"),
-	)
+		storageparquet.CallV2WriterOptions()...)
 
 	timeMin, timeMax := int64(0), int64(0)
 	segRowCounts := map[segKey]int{}
@@ -882,12 +912,42 @@ func (s *Store) renderRow(pr *PodRestart, row *sealRow, class string, dict map[i
 		bigStr := string(encoded)
 		v.BigParamsJson = &bigStr
 	}
+	// The row is self-contained (№3, №23): the dictionary subset its blob
+	// references and the pauses overlapping its window ride in the row, so
+	// the cold /tree path never needs a snapshot object. An id the full
+	// dictionary cannot resolve is left out — the reader renders "#<id>",
+	// matching the params column above.
+	subset := make(map[int]string, len(row.dictIds))
+	for id := range row.dictIds {
+		if word, ok := dict[id]; ok {
+			subset[id] = word
+		}
+	}
+	if v.DictWordsJson, err = storageparquet.EncodeDictWords(subset); err != nil {
+		return nil, err
+	}
+	// The window is the blob's own event-time span (§4.2) — the axis the
+	// tree renders node windows on — so every pause any node can intersect
+	// is inlined, whatever the calls-stream epoch says.
+	if row.hasBlobTime {
+		var overlapping []storageparquet.SuspendEvent
+		for _, p := range pauses {
+			if p.TimeMs-int64(p.DurationMs) <= row.blobTimeMaxMs && p.TimeMs >= row.blobTimeMinMs {
+				overlapping = append(overlapping, storageparquet.SuspendEvent{
+					EndMs: p.TimeMs, DurationMs: int64(p.DurationMs)})
+			}
+		}
+		if v.SuspendJson, err = storageparquet.EncodeSuspend(overlapping); err != nil {
+			return nil, err
+		}
+	}
 	return v, nil
 }
 
 // truncate drops the row's blob and records the reason (§5.2). A NULL blob
-// sources no segment and resolves no values, so the row's refcount
-// contribution and its big-parameter references are cleared too.
+// sources no segment, resolves no values, and references no dictionary ids,
+// so the row's refcount contribution, its big-parameter references, and its
+// dictionary subset are cleared too.
 func (r *sealRow) truncate(reason string) {
 	if r.truncated == "" {
 		r.truncated = reason
@@ -895,6 +955,7 @@ func (r *sealRow) truncate(reason string) {
 	r.srcSegs = map[segKey]struct{}{}
 	r.bigRefs = nil
 	r.bigValues = nil
+	r.dictIds = map[int]struct{}{}
 	r.freeBlob()
 }
 

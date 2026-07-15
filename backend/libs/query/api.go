@@ -91,7 +91,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 			return badRequest(c, errDetail)
 		}
 		q = parsed
-		if rej := guardSpan(q, s.cfg.WideRangeLimit); rej != nil {
+		if rej := s.guardSpan(q, s.cfg.WideRangeLimit); rej != nil {
 			return s.sendGuardRejection(c, rej)
 		}
 	} else {

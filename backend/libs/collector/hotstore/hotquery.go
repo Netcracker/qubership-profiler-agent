@@ -154,6 +154,7 @@ func (s *Store) AssembleTraceBlob(ctx context.Context, key PodRestartKey, traceF
 		idx: CallIndexRow{PodRestart: key.String(), TraceFileIndex: traceFileIndex,
 			BufferOffset: int(bufferOffset), RecordIndex: recordIndex},
 		srcSegs: map[segKey]struct{}{},
+		dictIds: map[int]struct{}{},
 	}
 	row.blob = newBlobBuffer(scratchDir, s.cfg.SealSpillBytes, prefix[:])
 	defer row.freeBlob()

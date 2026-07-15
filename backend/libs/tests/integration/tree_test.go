@@ -20,7 +20,6 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query"
-	querymodel "github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
@@ -241,13 +240,22 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		getProblem(t, fapi, "/api/v1/calls/"+pkHot+"/tree", nil, http.StatusGatewayTimeout)
 	})
 
-	t.Run("cold /tree: snapshot dictionary, sealed big params, record_index noise", func(t *testing.T) {
+	t.Run("cold /tree: self-contained row, sealed big params, record_index noise", func(t *testing.T) {
+		// №3/№23 acceptance: no dictionary or suspend snapshot exists in S3 —
+		// the uploader never writes one any more — yet the tree below still
+		// resolves every name and every per-node suspension, from the sealed
+		// row's own dict_words_json and suspend_json columns.
+		for _, objKey := range fake.allKeys() {
+			assert.False(t, strings.HasPrefix(objKey, "dictionaries/") || strings.HasPrefix(objKey, "suspend/"),
+				"no snapshot object may exist: %s", objKey)
+		}
+
 		tree, version, _ := getTree(t, api, pkCold, coldHints, "")
 		assert.Equal(t, int64(1), version)
 
 		assert.Equal(t, []string{
 			"com.example.Service.handle", "com.example.Db.query", "com.example.Service.process",
-		}, tree.Methods, "names resolve from the dictionaries/v1 snapshot of the restart_time_ms day (01 §3.6)")
+		}, tree.Methods, "names resolve from the row's dict_words_json column (01 §3.6, №3)")
 		assert.Equal(t, []string{"request.id", "sql", "xml"}, tree.Params)
 
 		root := tree.Root
@@ -263,7 +271,7 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		q, p := root.Children[0], root.Children[1]
 		assert.Equal(t, "com.example.Db.query", tree.Methods[q.MethodIdx])
 		assert.Equal(t, int64(5), q.DurationMs)
-		assert.Equal(t, int64(2), q.SuspensionMs, "the suspend/v1 snapshot attributes [9, 11)")
+		assert.Equal(t, int64(2), q.SuspensionMs, "the row's suspend_json attributes [9, 11)")
 		require.Len(t, q.Params, 1)
 		assert.Equal(t, []calltree.ParamGroup{{Value: coldSqlValue, DurationMs: 5, Executions: 1}},
 			q.Params[0].Groups, "cold big params inline from the sealed big_params_json column")
@@ -274,11 +282,6 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		require.Len(t, p.Params, 1)
 		assert.Equal(t, []calltree.ParamGroup{{Value: coldXmlValue, DurationMs: 3, Executions: 1}},
 			p.Params[0].Groups)
-
-		// The dictionary snapshot was fetched at the deterministic key derived
-		// from restart_time_ms (pinned cross-midnight in the model unit test).
-		wantDictKey := querymodel.DictionarySnapshotKey(keyC.Tuple())
-		assert.Contains(t, fake.gotKeys(), wantDictKey)
 	})
 
 	t.Run("cold /tree without the class hint discovers across classes", func(t *testing.T) {

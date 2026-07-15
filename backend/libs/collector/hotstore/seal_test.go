@@ -122,9 +122,11 @@ func TestParseChunk(t *testing.T) {
 	chunk := stream[offsets[0]:offsets[1]]
 
 	var events []TraceEvent
-	threadId, consumed, err := ParseChunk(chunk, func(index int, ev TraceEvent) bool {
+	var elapsed []int64
+	threadId, consumed, err := ParseChunk(chunk, func(index int, ev TraceEvent, elapsedMs int64) bool {
 		require.Equal(t, len(events), index, "event indexes are sequential")
 		events = append(events, ev)
+		elapsed = append(elapsed, elapsedMs)
 		return true
 	})
 	require.NoError(t, err)
@@ -137,10 +139,12 @@ func TestParseChunk(t *testing.T) {
 		"a delta with a varint continuation must not shift the payload")
 	assert.Equal(t, TraceEvent{Kind: TraceExit}, events[3])
 	assert.Equal(t, TraceEvent{Kind: TraceExit}, events[4])
+	assert.Equal(t, []int64{0, 1, 41, 42, 44}, elapsed,
+		"event times accumulate the per-event deltas from the chunk's timer epoch (01 §4.2)")
 
 	t.Run("stops early when visit returns false", func(t *testing.T) {
 		count := 0
-		_, _, err := ParseChunk(chunk, func(int, TraceEvent) bool {
+		_, _, err := ParseChunk(chunk, func(int, TraceEvent, int64) bool {
 			count++
 			return count < 2
 		})
@@ -149,7 +153,7 @@ func TestParseChunk(t *testing.T) {
 	})
 
 	t.Run("truncation is an error", func(t *testing.T) {
-		_, _, err := ParseChunk(chunk[:len(chunk)-1], func(int, TraceEvent) bool { return true })
+		_, _, err := ParseChunk(chunk[:len(chunk)-1], func(int, TraceEvent, int64) bool { return true })
 		assert.Error(t, err, "a chunk without EVENT_FINISH_RECORD must not parse")
 	})
 }

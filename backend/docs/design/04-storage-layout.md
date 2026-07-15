@@ -327,7 +327,11 @@ metadata:
 data:
   s3.endpoint: "https://minio.profiler.svc.cluster.local:9000"
   s3.bucket:   "profiler-data"
-  s3.path-prefix: "parquet/v1"
+  # Per-deployment key prefix (S3_PATH_PREFIX, 01 §7, §9): applied to every
+  # object the backend writes and reads, so several deployments can share one
+  # bucket. Empty keeps the keys at the bucket root; the parquet/v1 and
+  # pods/v1 segments are part of the keys themselves, not of this prefix.
+  s3.path-prefix: ""
 ---
 apiVersion: v1
 kind: Secret
@@ -387,19 +391,20 @@ global:
   s3:
     endpoint: <required>
     bucket:   <required>
-    pathPrefix: parquet/v1
+    pathPrefix: ""           # per-deployment key prefix (01 §7); empty = bucket root
     accessKey: <required>
     secretKey: <required>
   retention:
     hotMinutes: 15
     overlapMarginMinutes: 5
-    classes:
-      shortClean:  { ttl: 1d }
+    classes:                 # defaults mirror the tier table (01 §6.4)
+      shortClean:  { ttl: 2d }
       normalClean: { ttl: 7d }
       longClean:   { ttl: 30d }
-      anyError:    { ttl: 30d }
+      hugeClean:   { ttl: 180d }
+      anyError:    { ttl: 180d }
       corrupted:   { ttl: 7d }
-      dictionary:  { ttl: 35d }
+      pods:        { ttl: 185d }
 
 collector:
   replicas: 2
