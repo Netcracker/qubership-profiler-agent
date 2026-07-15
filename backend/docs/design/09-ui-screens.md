@@ -66,8 +66,12 @@ must stay reachable.
 
 ### 2.2 Controls
 
-Period picker (absolute range) plus quick ranges (`15 min`, `1 h`, `2 h`, `4 h`) and `Apply`. Changing the
-selection, range, or filters does not refetch until `Apply` — the fan-out is expensive.
+Period picker (absolute range) plus quick ranges (`15 min`, `1 h`, `2 h`, `4 h`) and `Apply`. Only the rail
+service/pod selection is `Apply`-gated — expanding a service into `pod` tuples is the expensive fan-out (02
+§2.3). Choosing a time range applies at once (Grafana-style refetch on a range change), and the toolbar's
+narrowing filters (duration chips and expression, errors only, method query) write the URL and refetch
+immediately; hide-system writes the URL but filters the loaded rows client-side (§2.3). The `Apply` button
+therefore carries only rail-selection edits.
 
 ### 2.3 Calls table
 
@@ -112,6 +116,10 @@ correlation seam — provisioned, wiring deferred (07 §3.4).
 Tabs: **Call Tree**, **Hotspots**, **Parameters**. The old Database and Gantt tabs are dropped.
 
 Toolbar: tree search, `Adjust duration`, `Setup categories`, `Download`.
+
+The `Incoming` / `Outgoing` / `Find usages` / `Local hotspots` results open as derived-view tabs that hold the
+recipe `(op, method, category)` and re-derive from the current model, so they follow Adjust and Setup edits.
+Tab state is client-side only; it persists through the 10b HTML export (07 §5.3), not the URL.
 
 ### 3.3 Tree rows
 

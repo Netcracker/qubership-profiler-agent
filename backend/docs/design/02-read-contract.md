@@ -2,7 +2,7 @@
 
 > Status: **draft**, awaiting review. Read API for both external clients (UI, automation, MCP) and internal query → collector fan-out. Fresh design — only the agent's TCP wire protocol (Section 1 of `01-write-contract.md`) is preserved; the legacy Java collector's external API is **not** a baseline.
 
-> **2026-07-01 alignment — now in the body.** The read path is aligned with the hot-store + seal-pass model (hot reads from segments + the SQLite index, range-overlap discovery, PK time hints, eventual consistency); it is folded into §2–§5 below. History: `stage0-progress.md` decisions log.
+> **2026-07-01 alignment — now in the body.** The read path is aligned with the hot-store + seal-pass model (hot reads from segments + the SQLite index, range-overlap discovery, PK time hints, eventual consistency); it is folded into §2–§5 below.
 
 ## 1. Scope
 
@@ -32,6 +32,8 @@ Base path: `/api/v1`. JSON request and response. Error bodies follow RFC 7807 (P
 | GET | `/calls/{pk}/trace` | Fetch the per-call trace blob (raw wire bytes; advanced consumers — see §2.5). |
 | GET | `/calls/{pk}/tree` | Server-decoded call tree, MessagePack-encoded (canonical for UI / MCP / CLI — see §2.5). |
 | GET | `/stats` | Aggregates: top methods by duration, p50/p95/p99, counts per bucket. (Sketch only; details deferred — §10.) |
+
+> **Not yet implemented.** `/pods/{pod-restart}/dictionary` and `/calls/{pk}` are specified here for advanced and raw-trace consumers, but the query service does not register them today; the MVP serves `/pods`, `/calls`, `/calls/{pk}/trace`, and `/calls/{pk}/tree`. `/stats` is a deferred sketch (§10).
 
 ### 2.2 Primary key
 
@@ -126,7 +128,7 @@ Every metric column of `CallV2` (`01-write-contract.md` §5.2) is projected into
 seal pass re-derives it from the full `suspend.wal` (`01-write-contract.md` §5.1 step 4), which is one more
 reason the §6.3 dedup prefers the cold copy.
 
-`trace_blob_size` reports the blob's byte length, and is `0` when `truncated_reason != null` (the blob was dropped under pressure; see §4.6 of `01-write-contract.md`). On the cold list path the exact length is not available — `CallV2` (`01-write-contract.md` §5.2) carries no size column and the list projection does not read the blob — so the field is `null` there, and blob presence is `truncated_reason == null`; a client that needs the exact size fetches the blob via `/tree` or `/trace`. Adding a `trace_blob_size INT32` column to `CallV2` is the option if the list must carry the exact size — an additive change, backward-readable by column name (`01-write-contract.md` §5.2): rows sealed before the column read back as `null`, which degrades to today's behaviour. Tracked in `stage1-progress.md`.
+`trace_blob_size` reports the blob's byte length, and is `0` when `truncated_reason != null` (the blob was dropped under pressure; see §4.6 of `01-write-contract.md`). On the cold list path the exact length is not available — `CallV2` (`01-write-contract.md` §5.2) carries no size column and the list projection does not read the blob — so the field is `null` there, and blob presence is `truncated_reason == null`; a client that needs the exact size fetches the blob via `/tree` or `/trace`. Adding a `trace_blob_size INT32` column to `CallV2` is the option if the list must carry the exact size — an additive change, backward-readable by column name (`01-write-contract.md` §5.2): rows sealed before the column read back as `null`, which degrades to today's behaviour.
 
 ### 2.3.1 Cursor: ordering and stable pagination
 
@@ -364,13 +366,13 @@ Response:
 - `methods[i]` and `params[i]` resolve `method_id = i` and `param_id = i` references inside the blob.
 - `version` is a monotonic counter, incremented each time the dictionary grows during a live pod-restart. ETag is `(pod-restart, version)`.
 
-> **TODO (dictionary shape):** this endpoint models `methods` and `params` as two independent id spaces (`method_id = i` into `methods`, `param_id = i` into `params`), but the agent wire uses a single shared id space. The collector writes the full word list into both arrays, so a reader resolves correctly against either. A future revision should collapse this to one `words` array indexed by id, with `method_id` / `param_id` indexing it. Tracked in `stage1-progress.md`.
+> **TODO (dictionary shape):** this endpoint models `methods` and `params` as two independent id spaces (`method_id = i` into `methods`, `param_id = i` into `params`), but the agent wire uses a single shared id space. The collector writes the full word list into both arrays, so a reader resolves correctly against either. A future revision should collapse this to one `words` array indexed by id, with `method_id` / `param_id` indexing it.
 - The endpoint serves **live** pod-restarts only (TCP connection still open): `query` forwards the request to the collector replica hosting the pod-restart (via internal endpoint, §3), where the dictionary lives on local PV + RAM and may still grow. Clients revalidate with `If-None-Match`; on a no-change response 304 is returned. On growth, the full word list is returned (small enough that delta encoding is not worth the complexity).
 - A **closed** pod-restart has no dictionary object: every sealed row carries the subset its own blob references in `dict_words_json` (`01-write-contract.md` §3.6, §5.2), and the cold `/tree` path resolves from the row alone. An advanced consumer of the raw `/trace` path (§2.5) resolves a cold blob against the same column.
 
 ### 2.7 Pods and stats
 
-`GET /api/v1/pods?from=...&to=...` returns the set of `(namespace, service, pod, restart_time)` tuples that have any Call rows in the time range. The set is the union of two sources: live pod-restarts from the hot tier (`/internal/v1/pods` on each replica, §3) and closed pod-restarts from the cold pod manifests. Cold discovery LISTs `pods/v1/<yyyy>/<mm>/<dd>/` for each day the range spans and reads each small JSON manifest (`01-write-contract.md` §3.6); it does not open parquet files. The `<podRestartHash>` in a parquet key is a one-way hash, so the manifest is the only cold source of the readable identity tuple. The response is an array of `{ namespace, service, pod, restart_time_ms, time_min_ms, time_max_ms }`; the hot and cold sources union on this shape without reshaping.
+`GET /api/v1/pods?from=...&to=...` returns the set of `(namespace, service, pod, restart_time)` tuples that have any Call rows in the time range. The set is the union of two sources: live pod-restarts from the hot tier (`/internal/v1/pods` on each replica, §3) and closed pod-restarts from the cold pod manifests. Cold discovery LISTs `pods/v1/<yyyy>/<mm>/<dd>/` for each day the range spans and reads each small JSON manifest (`01-write-contract.md` §3.6); it does not open parquet files. The `<podRestartHash>` in a parquet key is a one-way hash, so the manifest is the only cold source of the readable identity tuple. The response is an envelope `{ pods, partial, partial_reasons }` — the same partial-failure shape as `/calls` (§7.4), since the pods fan-out can also partially fail. Each `pods` entry is `{ namespace, service, pod, restart_time_ms, time_min_ms, time_max_ms }`, and the hot and cold sources union on the entry shape without reshaping.
 
 `GET /api/v1/stats` is a sketch — full schema deferred to Stage 4. Initial shape: `top_methods_by_duration`, latency percentiles per `(method, retention_class)`, counts per `(retention_class, hour_bucket)`. Implemented over the same hot/cold model as `/calls`.
 
@@ -394,9 +396,9 @@ Sources this replica reads from when serving `/internal/v1/*`:
 1. The SQLite call index — filter, sort, and paginate `/internal/v1/calls` over it; it holds one row per call (pointer + filter columns). It is partitioned by time bucket into `calls-<bucket>.sqlite` files (`01-write-contract.md` §8); the replica ATTACHes the partitions overlapping the query range.
 2. The gzip trace segments in `trace/*.gz` — `/internal/v1/calls/{pk}/trace` decompresses the segment(s) covering the call (located via the SQLite segment catalog) and slices the blob.
 3. The gzip value segments in `sql/*.gz` and `xml/*.gz` — the blob carries `(rolling_seq, offset)` references into them (`PARAM_BIG_DEDUP` → `sql`, `PARAM_BIG` → `xml`; `01-write-contract.md` §4.4). The values endpoint reads them for the `/calls/{pk}/tree` rendering in `query` (§2.5); the raw `/calls/{pk}/trace` blob keeps the references and an advanced consumer resolves them itself.
-4. Recently sealed local parquet files (post-flush, pre-deletion; retained until `hot_retention` past flush — see §4.2), for calls already moved out of the hot index.
+Neither open nor sealed local parquet is a query source. An open parquet file has no footer and is not randomly readable; a sealed one is redundant with the SQLite index. A call-index partition is dropped only after every `parquet_local` row of its bucket is uploaded and `hot_retention` has elapsed, and drops run oldest-first behind a contiguity barrier — a stuck bucket pins itself and every newer bucket — so the index always covers what the local parquet holds (`03-lifecycle.md` §3.9). Reading it would only duplicate rows the PK-dedup then collapses. The replica never reads from S3 to serve `/internal/v1/*`; S3 is `query`'s job via the cold path.
 
-Open parquet writers are NOT a query source — an unsealed parquet file has no footer and is not randomly readable. The replica never reads from S3 to serve `/internal/v1/*`. S3 is `query`'s job via the cold path.
+> **Known gap.** The hot call-index carries no truncation or blob-size data, so hot `/internal/v1/calls` rows always serialize `truncated_reason` and `trace_blob_size` as `null`. A call truncated under pressure reads as intact from the hot tier until its cold parquet row, which does carry them, becomes authoritative.
 
 ## 4. Hot / cold model
 
@@ -423,9 +425,9 @@ Local parquet lifecycle:
 Given a query for `[from, to]`:
 
 - **Hot fan-out:** every collector replica is queried for `[max(from, replica.hot_window_oldest_ms), to]`.
-- **Cold LIST:** S3 read for `[from, min(to, now - hot_retention + overlap_margin)]`.
-- **Overlap window** = `[now - hot_retention, now - hot_retention + overlap_margin]`.
-- After merge, dedup by PK (§6) collapses any overlap.
+- **Cold LIST:** S3 read for `[from, coldTo]`. The cutoff is dynamic, not a static `now - hot_retention`: `coldTo = min(to, max over healthy replicas of (hot_window_oldest_ms + overlap_margin))`. The *max* — the youngest hot window — is what zero-gap needs, since anything below it lives only in cold. `query` reads each replica's window from `/internal/v1/health/hot-window` (§3); an empty replica reports `oldest = now`. Any degraded hot state (discovery uninitialized, resolution failed, zero replicas, or a failed health probe) widens `coldTo` to the full `to`, so the guarantee never rests on an unreachable replica.
+- **Overlap window** = `[coldTo - overlap_margin, coldTo]`, the band both tiers serve.
+- After merge, dedup by PK (§6) collapses any overlap. A window that ends inside every replica's hot coverage skips the cold LIST entirely.
 
 `overlap_margin` defaults to one `seal_interval` (5 min). Tunable via `PROFILER_OVERLAP_MARGIN`.
 
@@ -462,7 +464,7 @@ Up to `PROFILER_S3_LIST_CONCURRENCY` (default `16`) parallel LIST calls per quer
 
 ### 5.3 Manifest deferred
 
-Per Stage 0 decision (`stage0-progress.md`, 2026-04-23): start with LIST. Add an S3 manifest file only if LIST profiles slow at scale.
+Start with LIST by prefix; add an S3 manifest file only if LIST profiles slow at scale.
 
 ### 5.4 Secondary index deferred
 
@@ -549,7 +551,7 @@ RFC 7807 Problem Details for actual errors (parameter validation, internal, down
 | 400 | `/pods` window over `PROFILER_MAX_PODS_RANGE` (§2.7). |
 | 404 | PK not found, or `trace_blob = NULL` (blob endpoint). |
 | 503 | `query` itself is not Ready (e.g., DNS discovery uninitialized). |
-| 504 | All replicas AND S3 LIST timed out — no data available at all. |
+| 504 | Every *attempted* source failed and none succeeded (`succeeded == 0 && failed > 0`). A source legitimately skipped — cold below the cutoff, or a replica whose hot window misses the range — counts as neither, so a hot-only query still answers with S3 down, and a cold-only query still answers with every replica unreachable. |
 
 Partial results (some sources failed but some succeeded) are NOT errors — `partial: true` in the body. See §7.4.
 

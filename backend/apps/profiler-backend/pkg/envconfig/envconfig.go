@@ -45,7 +45,7 @@ type (
 		// SealCheckInterval / UploadCheckInterval / JanitorCheckInterval pace
 		// the background loops. The contract defines the triggers (01 §6.1,
 		// §6.3) but not the poll cadence, so these names are an implementation
-		// choice recorded in stage1-progress.md.
+		// choice.
 		SealCheckInterval    time.Duration `envconfig:"PROFILER_SEAL_CHECK_INTERVAL" default:"15s"`
 		UploadCheckInterval  time.Duration `envconfig:"PROFILER_UPLOAD_CHECK_INTERVAL" default:"30s"`
 		JanitorCheckInterval time.Duration `envconfig:"PROFILER_JANITOR_CHECK_INTERVAL" default:"30s"`
@@ -61,7 +61,7 @@ type (
 		ChunksStagingMaxBytes ByteSize `envconfig:"PROFILER_CHUNKS_STAGING_MAX_BYTES" default:"10GB"`
 		// WalPurgeGrace is the 01 §3.5 hold-back before a fully flushed
 		// pod-restart's WAL files are deleted; the env name is an
-		// implementation choice recorded in stage1-progress.md.
+		// implementation choice.
 		WalPurgeGrace time.Duration `envconfig:"PROFILER_WAL_PURGE_GRACE" default:"1h"`
 		// MemBudget caps the hot store's in-RAM pod-restart state (01 §9,
 		// §4.6): over budget the janitor unloads closed pod-restarts'
@@ -74,8 +74,7 @@ type (
 		// budget ingest refuses agent data with ACK_ERROR so the PV never runs
 		// to ENOSPC. The agent drops the refused window and reconnects (01
 		// §4.6) — the loss is counted on ingest_refused_bytes_total. The env
-		// name is an implementation choice recorded in stage1-progress.md,
-		// like the quarantine knobs below.
+		// name is an implementation choice, like the quarantine knobs below.
 		PendingUploadMaxBytes ByteSize `envconfig:"PROFILER_PENDING_UPLOAD_MAX_BYTES" default:"2GB"`
 		// QuarantineRetestInterval re-tests permanently-rejected uploads;
 		// QuarantineMaxAge / QuarantineMaxBytes cap the upload-failed/
@@ -132,8 +131,7 @@ type (
 		LogLevel string `envconfig:"PROFILER_LOG_LEVEL" default:"info"`
 
 		// CheckInterval paces the maintenance loop, mirroring the collector's
-		// *_CHECK_INTERVAL knobs; the name is an implementation choice
-		// recorded in stage1-progress.md.
+		// *_CHECK_INTERVAL knobs; the name is an implementation choice.
 		CheckInterval time.Duration `envconfig:"PROFILER_MAINTAIN_CHECK_INTERVAL" default:"5m"`
 		// MetricsPort serves /metrics and /health/live in loop mode; the
 		// one-shot --run-now mode (a CronJob pod) binds nothing.

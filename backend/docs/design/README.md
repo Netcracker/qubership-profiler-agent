@@ -27,8 +27,6 @@ The rationale and the high-level roadmap live in [profiler-plan.md](./profiler-p
 - **Spill: SQLite.** Triggers: primary is memory pressure, secondary is idle timeout per call.
 - **Parquet schema: redesigned.** The existing `CallParquet` is a starting point, not a fixed contract. There is no migration constraint and no existing client we must keep compatible.
 
-## Stage 0 progress
+## Deferred ideas
 
-Tracked in [stage0-progress.md](./stage0-progress.md).
-
-Deferred ideas that surfaced during contract design but are intentionally out of MVP scope: [deferred.md](./deferred.md).
+Ideas that surfaced during contract design but are intentionally out of MVP scope: [deferred.md](./deferred.md).

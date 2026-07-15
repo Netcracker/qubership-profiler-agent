@@ -83,6 +83,16 @@ click per level — otherwise a typical deep stack is unusable.
 This is a pure client-side transform, but it reads per-node self-duration and execution counts, so it depends
 on R5 and R6. It is called out here because the node-model requirement is the reason it belongs to Stage 5.
 
+**Port deviations from `profiler.mjs`** (recorded per "document any deviations" above): (1) `Tree__makeAdjustments`
+left `newDuration` unassigned (`var newDuration;`), writing `undefined` into `M_DURATION` of every adjusted node
+and `NaN` into its param-scaling factor — a latent bug; the port assigns `newDuration = childDuration +
+scaledSelf` and uses it for both the node duration and the param scale (`tree/transforms/adjust.ts`). (2) The old
+UI grouped hotspot methods under `javaModules` package nodes; the port drops the package grouping and groups by
+category only, splitting a dotted category name into a hierarchy (`db.jdbc.select` → `db.jdbc` → `db`) for
+hotspots grouping only (`tree/transforms/hotspot-tree.ts`). (3) Merge identity is `methodIdx` alone; the
+signature axis went away with the server-side merge keying (§9). (4) Tree search reveals every skipped
+pass-through chain so a match inside one stays reachable (`tree/search.ts`).
+
 ## 6. Storage requirements
 
 | ID | Class | Requirement | Note |

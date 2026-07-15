@@ -361,9 +361,8 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		assert.Contains(t, problem.Detail, "ts_ms")
 	})
 
-	// Close the hot agent before the collector's shutdown wait: Stop() blocks
-	// on live connections up to the read timeout (stage1-progress.md open
-	// issue), which overruns the fixture's 10 s stop budget.
+	// Close the hot agent before the collector's shutdown wait so Stop()
+	// completes within the fixture's 10 s stop budget.
 	require.NoError(t, acH.CommandClose())
 	_ = acH.Close()
 }

@@ -59,6 +59,12 @@ func ParamsPipeReader(ctx context.Context, b *PipeReader) <-chan ParamItem {
 				break
 			}
 
+			// Known gap: for the first phrase the version byte is read above,
+			// before pos, so it is not subtracted here. The loop is
+			// EOF-terminated, so a single-phrase stream — all the agent emits
+			// today — parses fine; a multi-phrase stream would over-run the
+			// first phrase and mis-frame the next length prefix. Fix belongs
+			// with the streams/ to pipe/ consolidation (suspend.go shares it).
 			lengthOfPhrase -= int(b.Position() - pos)
 
 			ch <- ParamItem{

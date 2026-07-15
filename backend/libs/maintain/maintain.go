@@ -40,10 +40,11 @@ type (
 		// 01 §6.6): a query whose LIST saw the inputs must still be able to
 		// read them one discovery-plus-read round later.
 		DeleteGrace time.Duration
-		// MaxGroupBytes skips a group whose total input size exceeds the
-		// budget — the merge materializes every input row in memory. The
-		// bucket stays uncompacted, which readers tolerate; a streaming merge
-		// is the upgrade path if real buckets ever hit this.
+		// MaxGroupBytes is the target ceiling for a compacted object: a group
+		// over it is split into sub-budget objects by a streaming k-way merge
+		// (one read-ahead batch per input, never the whole group in RAM), and
+		// a single input already over it is left uncompacted, which readers
+		// tolerate.
 		MaxGroupBytes int64
 		// ClassTTL maps a retention class to its TTL (01 §6.4). A class
 		// absent from the map never expires.

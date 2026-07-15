@@ -5,8 +5,9 @@ import { mergeParamsInto } from './params-merge';
 
 // The old UI's per-node merge operations, ported over the merged model
 // (profiler.mjs mergeTopDown:6167, mergeBottomUp:6227, findUsages:6465).
-// Node identity is methodIdx alone — the signature axis was dropped with
-// the server-side merge (stage5-progress.md, merge keying decision).
+// Node identity is methodIdx alone. The old UI keyed on (method id, signature);
+// the signature axis served the dataflow analyzers, which Stage 5 defers, so
+// the server-side merge drops it.
 
 let nextId = 0;
 const freshNode = (methodIdx: number): TreeNode => createNode(nextId++, methodIdx);

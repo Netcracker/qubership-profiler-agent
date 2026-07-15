@@ -62,7 +62,7 @@ The agent opens one stream file with `INIT_STREAM_V2`, sending `streamName`, `re
 | requiredRotationSize | `long` | Byte size at which the agent rotates the stream file, opening the next `rollingSequenceId` via a new `INIT_STREAM_V2`. | `PROFILER_SEGMENT_ROTATION_SIZE`, default 4 MB (`01-write-contract.md` §4.4, §9). |
 | serverRollingSequenceId | `int` | The sequence id the collector wants this stream file addressed by. | Echo the agent's `requestedRollingSequenceId`; on `resetRequired = 1` the stream restarts from the agent's requested id. |
 
-The handle must be non-nil and stable: the agent keys every subsequent `RCV_DATA` by it, so a zero or changing handle desynchronizes stream routing. `requiredRotationSize` is how the collector keeps its PV segments 1:1 with agent stream files — the agent, not the collector, splits the stream, so this value is the collector's only lever over segment size (`01-write-contract.md` §4.4, decision 2026-07-01 in `stage0-progress.md`).
+The handle must be non-nil and stable: the agent keys every subsequent `RCV_DATA` by it, so a zero or changing handle desynchronizes stream routing. `requiredRotationSize` is how the collector keeps its PV segments 1:1 with agent stream files — the agent, not the collector, splits the stream, so this value is the collector's only lever over segment size (`01-write-contract.md` §4.4).
 
 An unknown or unregisterable `streamName` gets a null-UUID reply followed by a close (§6), mirroring `ProfilerAgentReader.java:104-110`.
 
@@ -97,6 +97,8 @@ The collector signals an unrecoverable condition with `ACK_ERROR_MAGIC` = `-1` a
 | `CLOSE` (`0x04`) | close, no reply | `ProfilerAgentReader.java:165-167` |
 
 Reconnect is always a fresh pod-restart on the collector side: a new TCP accept, a new `restartTime`, a full dictionary re-sent by the agent with `resetRequired = 1` (`01-write-contract.md` §3.7). The collector therefore never needs to preserve per-connection state across a drop.
+
+> **Known gap.** A malformed `trace` record that hits EOF mid-header logs a short-header message and returns without an error, so the `RCV_DATA` append still succeeds and the collector acks `ACK_OK` — the agent does not resend. Unlike the dictionary, calls, params, and suspend decoders, whose errors reach the ack path, the trace decoder cannot fail the stream. The fix must propagate the decode error to the ack path; held for a protocol pass with the real-agent E2E in the loop.
 
 ## 7. Channel gzip — asymmetric: gunzip the request, never gzip the reply
 
