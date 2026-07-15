@@ -11,23 +11,44 @@ import (
 func sampleTree() *Tree {
 	return &Tree{
 		Methods: []string{"com.example.Service.handle", "com.example.Service.query"},
-		Params:  []string{"request.id", "sql"},
+		Params:  []string{"request.id", "sql", "binds"},
 		Root: &Node{
 			MethodIdx: 0,
-			Params:    []Param{{ParamIdx: 0, Values: []string{"req-1"}}},
+			Params: []Param{{
+				ParamIdx: 0,
+				Groups:   []ParamGroup{{Value: "req-1", DurationMs: 1247, Executions: 1}},
+			}},
 			Children: []*Node{
 				{
-					MethodIdx:  1,
-					EnterMsRel: 2,
-					DurationMs: 40,
+					MethodIdx:        1,
+					DurationMs:       40,
+					SelfDurationMs:   40,
+					SuspensionMs:     3,
+					SelfSuspensionMs: 3,
+					Executions:       12,
+					SelfExecutions:   12,
 					Params: []Param{{
-						ParamIdx:   1,
-						Values:     []string{"SELECT 1", "sql:2:17"},
-						Unresolved: []int{1},
+						ParamIdx: 1,
+						Groups: []ParamGroup{
+							{
+								Value: "SELECT 1", DurationMs: 25, Executions: 10,
+								Params: []Param{{
+									ParamIdx: 2,
+									Groups:   []ParamGroup{{Value: "42", DurationMs: 25, Executions: 10}},
+								}},
+							},
+							{Value: "sql:2:17", DurationMs: 10, Executions: 1, Unresolved: true},
+							{Value: OtherGroupValue, DurationMs: 5, Executions: 1},
+						},
 					}},
 				},
 			},
-			DurationMs: 1247,
+			DurationMs:       1247,
+			SelfDurationMs:   1207,
+			SuspensionMs:     5,
+			SelfSuspensionMs: 2,
+			Executions:       1,
+			SelfExecutions:   1,
 		},
 	}
 }
@@ -51,9 +72,12 @@ func TestMsgpackWideValues(t *testing.T) {
 	}
 	for i := 0; i < 300; i++ {
 		tree.Root.Children = append(tree.Root.Children, &Node{
-			EnterMsRel: int64(i),
 			DurationMs: 1,
-			Params:     []Param{{ParamIdx: 0, Values: []string{strings.Repeat("v", 70_000)}}},
+			Executions: int64(i),
+			Params: []Param{{
+				ParamIdx: 0,
+				Groups:   []ParamGroup{{Value: strings.Repeat("v", 70_000), DurationMs: 1, Executions: 1}},
+			}},
 		})
 	}
 
@@ -75,17 +99,18 @@ func TestDecodeSkipsUnknownFields(t *testing.T) {
 	e.putInt(treeFieldParams)
 	e.putStrings(nil)
 	e.putInt(treeFieldRoot)
-	// A node with two unknown additive fields (5: string, 6: nested map).
+	// A node with two unknown additive fields (9: string, 10: nested map) —
+	// the next free numbers a future server may claim (02 §2.5.3).
 	e.putMapHeader(5)
 	e.putInt(nodeFieldMethodIdx)
 	e.putInt(0)
-	e.putInt(nodeFieldEnterMsRel)
-	e.putInt(0)
+	e.putInt(nodeFieldSelfExecutions)
+	e.putInt(3)
 	e.putInt(nodeFieldDurationMs)
 	e.putInt(7)
-	e.putInt(5)
+	e.putInt(9)
 	e.putString("future cpuMs rationale")
-	e.putInt(6)
+	e.putInt(10)
 	e.putMapHeader(1)
 	e.putInt(0)
 	e.putInt(12345)
@@ -99,5 +124,29 @@ func TestDecodeSkipsUnknownFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), version)
 	assert.Equal(t, int64(7), tree.Root.DurationMs)
+	assert.Equal(t, int64(3), tree.Root.SelfExecutions)
 	assert.Equal(t, []string{"m"}, tree.Methods)
+}
+
+// FuzzDecode pins the decoder's failure mode on corrupted payloads: an error,
+// never a panic or an unbounded allocation. Valid inputs must round-trip —
+// what decodes must re-encode to an envelope that decodes to the same tree.
+func FuzzDecode(f *testing.F) {
+	f.Add(Encode(sampleTree()))
+	f.Add([]byte{})
+	f.Add([]byte{0x81, 0x00, 0x01})       // envelope without a root
+	f.Add([]byte{0xdd, 0xff, 0xff, 0xff}) // truncated array32 header
+	corrupted := Encode(sampleTree())
+	corrupted[len(corrupted)/2] ^= 0xff
+	f.Add(corrupted)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		tree, _, err := Decode(data)
+		if err != nil {
+			return
+		}
+		again, _, err := Decode(Encode(tree))
+		require.NoError(t, err, "a decoded tree must re-encode cleanly")
+		require.Equal(t, tree, again)
+	})
 }

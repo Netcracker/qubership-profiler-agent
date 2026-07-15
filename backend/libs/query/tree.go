@@ -212,6 +212,7 @@ func (s *Service) handleCallTree(c echo.Context) error {
 	}
 	var words []string
 	var bigValue func(stream string, seq int, offset int64) (string, bool)
+	var pauses []calltree.SuspendInterval
 	if fetch.replicaURL != "" {
 		words, err = s.hotDictionary(ctx, fetch.replicaURL, tuple)
 		if err != nil {
@@ -222,6 +223,12 @@ func (s *Service) handleCallTree(c echo.Context) error {
 			return err
 		}
 		bigValue = values
+		// found=false means the pod-restart left the replica between the blob
+		// fetch and this call: zero suspension beats failing the whole tree.
+		pauses, _, err = s.hot.Suspend(ctx, fetch.replicaURL, tuple)
+		if err != nil {
+			return gatewayTimeout(c, append(fetch.reasons, fmt.Sprintf("collector %s suspend: %v", fetch.replicaURL, err)))
+		}
 	} else {
 		words, err = s.coldDictionary(ctx, tuple)
 		if err != nil {
@@ -237,6 +244,12 @@ func (s *Service) handleCallTree(c echo.Context) error {
 			v, ok := sealed[fmt.Sprintf("%s:%d:%d", stream, seq, offset)]
 			return v, ok
 		}
+		// ok=false (no snapshot object: unclean close or TTL) degrades to
+		// zero suspension, the pre-R7 behaviour.
+		pauses, _, err = cold.Suspend(ctx, s.cold.Store, tuple)
+		if err != nil {
+			return gatewayTimeout(c, append(fetch.reasons, fmt.Sprintf("s3 suspend: %v", err)))
+		}
 	}
 
 	tree, err := calltree.Build(fetch.blob, int(pk.RecordIndex), calltree.Options{
@@ -247,6 +260,7 @@ func (s *Service) handleCallTree(c echo.Context) error {
 			return words[id], true
 		},
 		BigValue: bigValue,
+		Suspend:  pauses,
 	})
 	if err != nil {
 		return errors.Wrapf(err, "decode blob of %s", pk.PathString())

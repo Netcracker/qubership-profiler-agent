@@ -28,3 +28,13 @@ func DictionarySnapshotKey(t PodTuple) string {
 	day := time.UnixMilli(t.RestartTimeMs).UTC().Format("2006/01/02")
 	return path.Join("dictionaries/v1", day, PodRestartHash(t)+".json")
 }
+
+// SuspendSnapshotKey is the S3 key of a closed pod-restart's stop-the-world
+// timeline snapshot, uploaded alongside the dictionary (01-write-contract.md
+// §3.6) and read by the cold /tree path for the R7 per-node suspension. The
+// day derives from restart_time_ms for the same reasons as the dictionary
+// key.
+func SuspendSnapshotKey(t PodTuple) string {
+	day := time.UnixMilli(t.RestartTimeMs).UTC().Format("2006/01/02")
+	return path.Join("suspend/v1", day, PodRestartHash(t)+".json")
+}

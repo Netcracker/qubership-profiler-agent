@@ -51,6 +51,7 @@ func New(store *hotstore.Store) *API {
 	e.GET("/internal/v1/calls/:pk/trace", a.handleTrace)
 	e.GET("/internal/v1/pods", a.handlePods)
 	e.GET("/internal/v1/pods/:podRestart/dictionary", a.handleDictionary)
+	e.GET("/internal/v1/pods/:podRestart/suspend", a.handleSuspend)
 	e.GET("/internal/v1/pods/:podRestart/values", a.handleValues)
 	e.GET("/internal/v1/health/hot-window", a.handleHotWindow)
 	return a
@@ -215,8 +216,9 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 // toCallRow maps an index row to the merged row shape: the method resolves
 // against the pod-restart's dictionary (a missing word keeps the "#<id>"
 // placeholder, as the write path does), params decode from the indexed JSON.
-// error_flag and retention_class are the provisional index values — the seal
-// re-derives them for the cold copy, which is why the §6.3 dedup prefers cold.
+// error_flag, retention_class, and suspend_ms are the provisional index
+// values — the seal re-derives them for the cold copy, which is why the §6.3
+// dedup prefers cold.
 func (a *API) toCallRow(idx hotstore.CallIndexRow, dicts map[string]map[int]string) (model.CallRow, error) {
 	key, err := hotstore.ParsePodRestartKey(idx.PodRestart)
 	if err != nil {
@@ -250,7 +252,16 @@ func (a *API) toCallRow(idx hotstore.CallIndexRow, dicts map[string]map[int]stri
 		CpuTimeMs:      idx.CpuTimeMs,
 		WaitTimeMs:     idx.WaitTimeMs,
 		MemoryUsed:     idx.MemoryUsed,
+		QueueWaitMs:    int32(idx.QueueWaitMs),
+		SuspendMs:      int32(idx.SuspendMs),
 		ChildCalls:     int32(idx.ChildCalls),
+		Transactions:   int32(idx.Transactions),
+		LogsGenerated:  idx.LogsGenerated,
+		LogsWritten:    idx.LogsWritten,
+		FileRead:       idx.FileRead,
+		FileWritten:    idx.FileWritten,
+		NetRead:        idx.NetRead,
+		NetWritten:     idx.NetWritten,
 		ErrorFlag:      idx.ErrorFlag,
 		RetentionClass: idx.RetentionClass,
 		Tier:           model.TierHot,
@@ -397,6 +408,44 @@ func (a *API) handleDictionary(c echo.Context) error {
 		return c.NoContent(http.StatusNotModified)
 	}
 	return c.JSON(http.StatusOK, dictionarySnapshot{Version: len(words), Methods: words, Params: words})
+}
+
+// suspendTimeline is the suspend endpoint's body: the pod-restart's
+// stop-the-world pauses in the shape of the suspend/v1 cold snapshot, so a
+// consumer parses one format on either tier.
+type suspendTimeline struct {
+	Events []suspendTimelineEvent `json:"events"`
+}
+
+type suspendTimelineEvent struct {
+	StartMs    int64 `json:"start_ms"`
+	DurationMs int   `json:"duration_ms"`
+}
+
+// handleSuspend serves GET /internal/v1/pods/{pod-restart}/suspend: the
+// global suspension timeline the /tree rendering intersects node work
+// intervals with (08-ui-backend-requirements.md R7). The timeline comes from
+// the replica's RAM mirror of suspend.wal, which recovery reloads, so live
+// and recovered pod-restarts both answer.
+func (a *API) handleSuspend(c echo.Context) error {
+	tuple, err := model.ParsePodRestartPath(c.Param("podRestart"))
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	key := hotstore.PodRestartKey{
+		Namespace: tuple.Namespace, Service: tuple.Service,
+		PodName: tuple.Pod, RestartTimeMs: tuple.RestartTimeMs,
+	}
+	pr, ok := a.store.PodRestart(key)
+	if !ok {
+		return notFound(c, "this replica hosts no pod-restart "+c.Param("podRestart"))
+	}
+	pauses := pr.SuspendPauses()
+	body := suspendTimeline{Events: make([]suspendTimelineEvent, 0, len(pauses))}
+	for _, p := range pauses {
+		body.Events = append(body.Events, suspendTimelineEvent{StartMs: p.TimeMs, DurationMs: p.DurationMs})
+	}
+	return c.JSON(http.StatusOK, body)
 }
 
 // valuesResponse maps the resolved big-parameter references

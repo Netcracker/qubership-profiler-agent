@@ -103,7 +103,16 @@ CREATE TABLE IF NOT EXISTS call_index (
   cpu_time_ms      INTEGER NOT NULL DEFAULT 0,
   wait_time_ms     INTEGER NOT NULL DEFAULT 0,
   memory_used      INTEGER NOT NULL DEFAULT 0,
+  queue_wait_ms    INTEGER NOT NULL DEFAULT 0,
+  suspend_ms       INTEGER NOT NULL DEFAULT 0,
   child_calls      INTEGER NOT NULL DEFAULT 0,
+  transactions     INTEGER NOT NULL DEFAULT 0,
+  logs_generated   INTEGER NOT NULL DEFAULT 0,
+  logs_written     INTEGER NOT NULL DEFAULT 0,
+  file_read        INTEGER NOT NULL DEFAULT 0,
+  file_written     INTEGER NOT NULL DEFAULT 0,
+  net_read         INTEGER NOT NULL DEFAULT 0,
+  net_written      INTEGER NOT NULL DEFAULT 0,
   params_json      TEXT,
   calls_wal_offset INTEGER NOT NULL,
   blob_size        INTEGER,
@@ -132,7 +141,16 @@ type (
 		CpuTimeMs      int64
 		WaitTimeMs     int64
 		MemoryUsed     int64
+		QueueWaitMs    int
+		SuspendMs      int
 		ChildCalls     int
+		Transactions   int
+		LogsGenerated  int64
+		LogsWritten    int64
+		FileRead       int64
+		FileWritten    int64
+		NetRead        int64
+		NetWritten     int64
 		ParamsJson     string
 		CallsWalOffset int64
 	}
@@ -613,6 +631,20 @@ func (m *metaDb) partition(bucket int64) (*gorm.DB, error) {
 	if err := db.Exec(partitionSchema).Error; err != nil {
 		return nil, errors.Wrapf(err, "migrate partition %s", path)
 	}
+	// Metric columns that joined call_index after it shipped: a partition file
+	// written by a pre-upgrade collector needs the ALTERs; a fresh file gets
+	// the columns via CREATE TABLE, so the duplicate-column error is the
+	// common case. Partitions outlive an upgrade by at most the hot window.
+	for _, column := range []string{
+		"queue_wait_ms", "suspend_ms", "transactions", "logs_generated",
+		"logs_written", "file_read", "file_written", "net_read", "net_written",
+	} {
+		alter := fmt.Sprintf("ALTER TABLE call_index ADD COLUMN %s INTEGER NOT NULL DEFAULT 0", column)
+		if err := db.Exec(alter).Error; err != nil &&
+			!strings.Contains(err.Error(), "duplicate column name") {
+			return nil, errors.Wrapf(err, "migrate partition %s: %s", path, alter)
+		}
+	}
 	if err := m.meta.Exec(`INSERT OR IGNORE INTO call_partitions (bucket, path, created_at)
 		VALUES (?, ?, ?)`, bucket, path, time.Now().UnixMilli()).Error; err != nil {
 		return nil, errors.Wrap(err, "record partition")
@@ -651,11 +683,15 @@ func (m *metaDb) InsertCall(bucket int64, row CallIndexRow) error {
 		return db.Exec(`INSERT OR IGNORE INTO call_index
 			(pod_restart, trace_file_index, buffer_offset, record_index,
 			 ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-			 cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
+			 transactions, logs_generated, logs_written, file_read, file_written,
+			 net_read, net_written, params_json, calls_wal_offset)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			row.PodRestart, row.TraceFileIndex, row.BufferOffset, row.RecordIndex,
 			row.TsMs, row.DurationMs, row.MethodId, row.ThreadName, row.RetentionClass, row.ErrorFlag,
-			row.CpuTimeMs, row.WaitTimeMs, row.MemoryUsed, row.ChildCalls, row.ParamsJson, row.CallsWalOffset).Error
+			row.CpuTimeMs, row.WaitTimeMs, row.MemoryUsed, row.QueueWaitMs, row.SuspendMs, row.ChildCalls,
+			row.Transactions, row.LogsGenerated, row.LogsWritten, row.FileRead, row.FileWritten,
+			row.NetRead, row.NetWritten, row.ParamsJson, row.CallsWalOffset).Error
 	}
 	if err := insert(); err != nil {
 		m.dropCachedPartition(bucket)
@@ -684,7 +720,9 @@ func (m *metaDb) CallsInWindow(bucket, fromMs, toMs int64) ([]CallIndexRow, erro
 	var rows []CallIndexRow
 	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
 		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-		cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
+		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
+		transactions, logs_generated, logs_written, file_read, file_written,
+		net_read, net_written, params_json, calls_wal_offset
 		FROM call_index WHERE ts_ms >= ? AND ts_ms < ?`, fromMs, toMs).Scan(&rows).Error
 	return rows, err
 }
@@ -699,7 +737,9 @@ func (m *metaDb) FindCall(bucket int64, podRestart string, traceFileIndex, buffe
 	var rows []CallIndexRow
 	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
 		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-		cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
+		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
+		transactions, logs_generated, logs_written, file_read, file_written,
+		net_read, net_written, params_json, calls_wal_offset
 		FROM call_index WHERE pod_restart = ? AND trace_file_index = ? AND buffer_offset = ? AND record_index = ?`,
 		podRestart, traceFileIndex, bufferOffset, recordIndex).Scan(&rows).Error
 	if err != nil || len(rows) == 0 {

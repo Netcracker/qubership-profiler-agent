@@ -71,7 +71,16 @@ type (
 		CpuTimeMs       int64
 		WaitTimeMs      int64
 		MemoryUsed      int64
+		QueueWaitMs     int32
+		SuspendMs       int32
 		ChildCalls      int32
+		Transactions    int32
+		LogsGenerated   int64
+		LogsWritten     int64
+		FileRead        int64
+		FileWritten     int64
+		NetRead         int64
+		NetWritten      int64
 		ErrorFlag       bool
 		RetentionClass  string
 		Params          map[string][]string

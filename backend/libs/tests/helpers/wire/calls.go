@@ -18,7 +18,7 @@ import (
 const callsHeaderMagic = 0xFFFEFDFC
 
 // CallRecord is one closed root call in a synthetic calls stream. Field order
-// and encoding follow the version-1 wire format the Go decoder reads
+// and encoding follow the version-4 wire format the Go decoder reads
 // (backend/libs/parser/pipe/calls.go).
 type CallRecord struct {
 	DeltaMs        int64 // start time as a delta from the previous record (from base_ms for the first)
@@ -30,6 +30,27 @@ type CallRecord struct {
 	BufferOffset   int    // offset within TraceFileIndex where the call's first chunk begins
 	RecordIndex    int    // event index of the root ENTER within that chunk
 	Params         map[int][]string
+
+	// format >= 1 counters; the wire carries LogsWritten and
+	// (LogsGenerated − LogsWritten) as unsigned varints, so LogsGenerated
+	// must be ≥ LogsWritten.
+	LogsGenerated int64
+	LogsWritten   int64
+
+	// format >= 2
+	CpuTimeMs  int64
+	WaitTimeMs int64
+	MemoryUsed int64
+
+	// format >= 3
+	FileRead    int64
+	FileWritten int64
+	NetRead     int64
+	NetWritten  int64
+
+	// format >= 4
+	Transactions int
+	QueueWaitMs  int
 }
 
 // CallsStream encodes a version-1 calls stream with one record per entry in
@@ -55,13 +76,13 @@ func CallsStream(baseMs int64, deltasMs []int64) []byte {
 	return CallsStreamRecords(baseMs, records)
 }
 
-// CallsStreamRecords encodes a version-1 calls stream from explicit records.
+// CallsStreamRecords encodes a version-4 calls stream from explicit records.
 // The thread-name table mirrors the agent's: a thread name is written inline on
 // first use and referenced by index afterwards, so records are NOT decodable in
 // isolation from the file.
 func CallsStreamRecords(baseMs int64, records []CallRecord) []byte {
 	buf := &bytes.Buffer{}
-	putFixedLong(buf, uint64(callsHeaderMagic)<<32|1) // format marker + version 1
+	putFixedLong(buf, uint64(callsHeaderMagic)<<32|4) // format marker + version 4
 	putFixedLong(buf, uint64(baseMs))                 // base_ms
 
 	threadIndex := map[string]int{}
@@ -79,11 +100,20 @@ func CallsStreamRecords(baseMs int64, records []CallRecord) []byte {
 		if !known {
 			putVarString(buf, r.ThreadName) // first use of a thread carries its name
 		}
-		putVarInt(buf, 0) // logs written
-		putVarInt(buf, 0) // logs generated - logs written
+		putVarInt(buf, uint64(r.LogsWritten))
+		putVarInt(buf, uint64(r.LogsGenerated-r.LogsWritten)) // wire carries the difference
 		putVarInt(buf, uint64(r.TraceFileIndex))
 		putVarInt(buf, uint64(r.BufferOffset))
 		putVarInt(buf, uint64(r.RecordIndex))
+		putVarInt(buf, uint64(r.CpuTimeMs)) // format >= 2
+		putVarInt(buf, uint64(r.WaitTimeMs))
+		putVarInt(buf, uint64(r.MemoryUsed))
+		putVarInt(buf, uint64(r.FileRead)) // format >= 3
+		putVarInt(buf, uint64(r.FileWritten))
+		putVarInt(buf, uint64(r.NetRead))
+		putVarInt(buf, uint64(r.NetWritten))
+		putVarInt(buf, uint64(r.Transactions)) // format >= 4
+		putVarInt(buf, uint64(r.QueueWaitMs))
 		putVarInt(buf, uint64(len(r.Params)))
 		paramIds := make([]int, 0, len(r.Params))
 		for id := range r.Params {

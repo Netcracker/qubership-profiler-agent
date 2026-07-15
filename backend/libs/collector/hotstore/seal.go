@@ -578,7 +578,7 @@ func (s *Store) writeSealedFiles(ctx context.Context, pr *PodRestart, bucket int
 // (parquet_local + segment refcounts).
 func (s *Store) writeClassFile(ctx context.Context, pr *PodRestart, bucket int64, class string,
 	classRows []*sealRow, scratchDir string, dict map[int]string, redId int, hasRed bool,
-	pauses []suspendRecord) (SealedFile, error) {
+	pauses []SuspendPause) (SealedFile, error) {
 
 	key := pr.Key
 	seq, err := s.db.NextParquetSeq(key.String(), s.cfg.BucketStartMs(bucket), class)
@@ -692,7 +692,7 @@ func (s *Store) writeClassFile(ctx context.Context, pr *PodRestart, bucket int64
 // (§5.1 step 4), and every classification re-derived against the full
 // dictionary (§5.6).
 func (s *Store) renderRow(pr *PodRestart, row *sealRow, class string, dict map[int]string,
-	redId int, hasRed bool, pauses []suspendRecord) (*storageparquet.CallV2, error) {
+	redId int, hasRed bool, pauses []SuspendPause) (*storageparquet.CallV2, error) {
 
 	call := row.wal.Call
 	key := pr.Key
@@ -823,10 +823,10 @@ func openSegmentReader(path string) (*segmentReader, error) {
 }
 
 // readSuspendWal decodes the pod-restart's stop-the-world pauses (§3.6).
-func readSuspendWal(pr *PodRestart) ([]suspendRecord, error) {
-	var pauses []suspendRecord
+func readSuspendWal(pr *PodRestart) ([]SuspendPause, error) {
+	var pauses []SuspendPause
 	err := replayIfPresent(filepath.Join(pr.dir, "suspend.wal"), func(_ int64, body []byte) error {
-		var rec suspendRecord
+		var rec SuspendPause
 		if err := json.Unmarshal(body, &rec); err != nil {
 			return errors.Wrap(err, "decode suspend.wal record")
 		}
@@ -838,7 +838,7 @@ func readSuspendWal(pr *PodRestart) ([]suspendRecord, error) {
 
 // suspendOverlapMs sums the intersection of the call interval
 // [tsMs, tsMs+durationMs] with the pause intervals (§5.1 step 4).
-func suspendOverlapMs(pauses []suspendRecord, tsMs int64, durationMs int) int {
+func suspendOverlapMs(pauses []SuspendPause, tsMs int64, durationMs int) int {
 	callEnd := tsMs + int64(durationMs)
 	total := int64(0)
 	for _, p := range pauses {

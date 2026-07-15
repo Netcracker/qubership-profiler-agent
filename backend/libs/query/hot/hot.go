@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
 )
@@ -64,6 +65,13 @@ type (
 
 	valuesBody struct {
 		Values map[string]string `json:"values"`
+	}
+
+	suspendBody struct {
+		Events []struct {
+			StartMs    int64 `json:"start_ms"`
+			DurationMs int64 `json:"duration_ms"`
+		} `json:"events"`
 	}
 
 	// Dictionary is one replica's §2.6 snapshot plus the ETag the caller's
@@ -193,6 +201,39 @@ func (c *Client) FetchDictionary(ctx context.Context, baseURL string, tuple mode
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 		return dict, false, false, fmt.Errorf("GET %s: %s: %s", u, resp.Status, snippet)
 	}
+}
+
+// Suspend fetches the pod-restart's stop-the-world timeline from the replica
+// hosting it (08-ui-backend-requirements.md R7). found is false on 404 — the
+// pod-restart left this replica between the blob fetch and this call, and
+// the caller degrades to zero suspension rather than failing the tree.
+func (c *Client) Suspend(ctx context.Context, baseURL string, tuple model.PodTuple) (pauses []calltree.SuspendInterval, found bool, err error) {
+	u := baseURL + "/internal/v1/pods/" + url.PathEscape(podRestartPath(tuple)) + "/suspend"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "build replica request")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return nil, false, fmt.Errorf("GET %s: %s: %s", u, resp.Status, snippet)
+	}
+	var body suspendBody
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, false, errors.Wrapf(err, "decode %s", u)
+	}
+	pauses = make([]calltree.SuspendInterval, 0, len(body.Events))
+	for _, e := range body.Events {
+		pauses = append(pauses, calltree.SuspendInterval{TimeMs: e.StartMs, DurationMs: e.DurationMs})
+	}
+	return pauses, true, nil
 }
 
 // Values fetches big-parameter values from the replica's sql / xml value

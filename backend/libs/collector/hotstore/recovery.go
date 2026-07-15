@@ -148,14 +148,19 @@ func (s *Store) recoverPodRestart(ctx context.Context, key PodRestartKey) (*PodR
 	if err := pr.replayDictionary(); err != nil {
 		return nil, err
 	}
-	// params and suspend WALs are validated (and torn tails truncated) even
-	// though this slice keeps nothing from them in RAM; the seal pass reads
-	// suspend.wal again by offset 0.
-	for _, name := range []string{"params.wal", "suspend.wal"} {
-		if err := replayIfPresent(filepath.Join(pr.dir, name), func(int64, []byte) error { return nil }); err != nil {
-			return nil, err
-		}
+	// params.wal is validated (and its torn tail truncated) even though this
+	// slice keeps nothing from it in RAM.
+	if err := replayIfPresent(filepath.Join(pr.dir, "params.wal"), func(int64, []byte) error { return nil }); err != nil {
+		return nil, err
 	}
+	// suspend.wal is replayed into the RAM pause mirror BEFORE reconcileCalls,
+	// so a re-indexed call gets the same index-time suspend_ms attribution as
+	// the original insert. The seal pass still reads suspend.wal by offset 0.
+	pauses, err := readSuspendWal(pr)
+	if err != nil {
+		return nil, err
+	}
+	pr.pauses = pauses
 
 	if err := pr.rescanSegments(ctx); err != nil {
 		return nil, err
