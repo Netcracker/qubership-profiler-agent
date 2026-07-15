@@ -40,3 +40,6 @@ backend/charts/profiler-stack/charts/
 backend/charts/profiler-stack/templates/collector
 backend/charts/profiler-stack/templates/query
 
+
+# APM dependencies
+apm_modules/

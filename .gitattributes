@@ -124,3 +124,11 @@ gradlew         text eol=lf
 # with the python modules ``pickle``, ``dbm.*``,
 # ``shelve``, ``marshal``, ``anydbm``, & ``bsddb``
 # (among others).
+/.agents/** linguist-generated=true
+/.codex/** linguist-generated=true
+/.claude/apm-hooks.json linguist-generated=true
+/.claude/settings.json linguist-generated=true
+/.claude/rules/** linguist-generated=true
+/.claude/skills/** linguist-generated=true
+/.cursor/hooks.json linguist-generated=true
+/.cursor/rules/** linguist-generated=true
