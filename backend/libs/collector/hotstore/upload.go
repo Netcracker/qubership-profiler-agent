@@ -43,9 +43,13 @@ type (
 	}
 
 	// UploadStats counts one Pass's work (and, via CountersSnapshot, the
-	// process lifetime — the seam for the future Prometheus counters).
+	// process lifetime — the Prometheus seam).
 	UploadStats struct {
-		UploadedFiles      int64
+		UploadedFiles int64
+		// FailedPuts counts every failed PUT attempt, transient or permanent;
+		// its rate is the upload-failure alerting signal. RetriedPuts counts
+		// only the attempts a retry followed.
+		FailedPuts         int64
 		RetriedPuts        int64
 		QuarantinedFiles   int64
 		QuarantinedObjects int64
@@ -117,6 +121,7 @@ func (u *Uploader) accumulate(stats UploadStats) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.counters.UploadedFiles += stats.UploadedFiles
+	u.counters.FailedPuts += stats.FailedPuts
 	u.counters.RetriedPuts += stats.RetriedPuts
 	u.counters.QuarantinedFiles += stats.QuarantinedFiles
 	u.counters.QuarantinedObjects += stats.QuarantinedObjects
@@ -204,6 +209,9 @@ func (u *Uploader) putWithRetry(ctx context.Context, key string, put func() erro
 	delay := cfg.UploadRetryBaseDelay
 	for attempt := 1; ; attempt++ {
 		err := put()
+		if err != nil {
+			stats.FailedPuts++
+		}
 		if err == nil || IsPermanentUploadError(err) {
 			return err
 		}

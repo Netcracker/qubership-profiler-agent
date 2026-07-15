@@ -8,11 +8,18 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 )
 
+// The two §2.3.2 guard layers, as the `layer` label of the rejection counter.
+const (
+	guardLayerSpan = "span"
+	guardLayerCost = "cost"
+)
+
 // guardRejection is a §2.3.2 fail-closed verdict; its fields extend the
 // RFC 7807 body so the client can render a "narrow your query" prompt
 // instead of a bare error (02 §8). The span layer carries no estimate — it
 // fires before the LIST.
 type guardRejection struct {
+	Layer            string
 	Detail           string
 	SuggestedFilters []string
 	EstimatedFiles   int
@@ -56,6 +63,7 @@ func guardSpan(q model.CallsQuery, limit time.Duration) *guardRejection {
 		return nil
 	}
 	return &guardRejection{
+		Layer: guardLayerSpan,
 		Detail: fmt.Sprintf("time span %s exceeds PROFILER_WIDE_RANGE_LIMIT %s and no file-pruning filter is present",
 			span, limit),
 		SuggestedFilters: suggestedFilters(q),
@@ -76,6 +84,7 @@ func guardCost(q model.CallsQuery, files []cold.FileRef, maxFiles int, maxBytes 
 		return nil
 	}
 	return &guardRejection{
+		Layer: guardLayerCost,
 		Detail: fmt.Sprintf("estimated scan of %d files / %d bytes exceeds PROFILER_MAX_SCAN_FILES %d / PROFILER_MAX_SCAN_BYTES %d",
 			len(files), totalBytes, maxFiles, maxBytes),
 		SuggestedFilters: suggestedFilters(q),

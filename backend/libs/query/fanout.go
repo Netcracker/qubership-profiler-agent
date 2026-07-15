@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 )
@@ -51,7 +52,9 @@ func (s *Service) resolveHotTier(ctx context.Context) hotTier {
 		wg.Add(1)
 		go func(i int, baseURL string) {
 			defer wg.Done()
+			start := time.Now()
 			w, err := s.hot.HotWindow(ctx, baseURL)
+			s.metrics.observeFanout(start, err)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -121,7 +124,9 @@ func (s *Service) hotCalls(ctx context.Context, tier hotTier, q model.CallsQuery
 		wg.Add(1)
 		go func(baseURL string, rq model.CallsQuery) {
 			defer wg.Done()
+			start := time.Now()
 			rows, err := s.hot.Calls(ctx, baseURL, rq, after, limit)
+			s.metrics.observeFanout(start, err)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -156,7 +161,9 @@ func (s *Service) hotPods(ctx context.Context, fromMs, toMs int64) (pods []model
 		wg.Add(1)
 		go func(baseURL string) {
 			defer wg.Done()
+			start := time.Now()
 			entries, err := s.hot.Pods(ctx, baseURL, fromMs, toMs)
+			s.metrics.observeFanout(start, err)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {

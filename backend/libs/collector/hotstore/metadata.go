@@ -834,6 +834,50 @@ func (m *metaDb) SetWalsPurged(podRestart string, purgedAtMs int64) error {
 		"set wals_purged_at")
 }
 
+// QuarantineStats aggregates the stuck-quarantine state for the metrics
+// endpoint: rejected parquet files (parquet_local.upload_failed_at, 01 §8) and
+// rejected dictionary/suspend snapshots (pod_restarts.dict_upload_failed_at).
+// Oldest is the earliest failure timestamp, nil when nothing is quarantined.
+type QuarantineStats struct {
+	ParquetCount     int64
+	ParquetOldestMs  *int64
+	SnapshotCount    int64
+	SnapshotOldestMs *int64
+}
+
+// QuarantineStats reports how much quarantined state waits for a human. Both
+// populations only shrink on manual intervention, so a non-zero count is an
+// alerting signal, not a transient.
+func (m *metaDb) QuarantineStats() (QuarantineStats, error) {
+	var out QuarantineStats
+	row := struct {
+		N      int64
+		Oldest *int64
+	}{}
+	if err := m.meta.Raw(`SELECT COUNT(*) AS n, MIN(upload_failed_at) AS oldest
+		FROM parquet_local WHERE upload_failed_at IS NOT NULL`).Scan(&row).Error; err != nil {
+		return out, errors.Wrap(err, "count quarantined parquet")
+	}
+	out.ParquetCount, out.ParquetOldestMs = row.N, row.Oldest
+	row.N, row.Oldest = 0, nil
+	if err := m.meta.Raw(`SELECT COUNT(*) AS n, MIN(dict_upload_failed_at) AS oldest
+		FROM pod_restarts WHERE dict_upload_failed_at IS NOT NULL`).Scan(&row).Error; err != nil {
+		return out, errors.Wrap(err, "count quarantined snapshots")
+	}
+	out.SnapshotCount, out.SnapshotOldestMs = row.N, row.Oldest
+	return out, nil
+}
+
+// EvictedSegmentKeys lists the (pod_restart, stream, rolling_seq) of every
+// evicted segment; the janitor joins them against the in-RAM chunk index to
+// measure the dangling-refs gauge.
+func (m *metaDb) EvictedSegmentKeys() ([]SegmentRow, error) {
+	var rows []SegmentRow
+	err := m.meta.Raw(`SELECT pod_restart, stream, rolling_seq
+		FROM segments WHERE status = 'evicted'`).Scan(&rows).Error
+	return rows, err
+}
+
 // SegmentsForBudget lists every non-evicted segment in the deterministic
 // eviction order: oldest first by created_at, tie-broken by the catalog key
 // (01-write-contract.md §4.6 — refcount partitioning happens in the caller).

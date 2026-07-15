@@ -11,6 +11,7 @@ import (
 
 	appenv "github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/health"
+	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotread"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
@@ -57,13 +58,15 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 
 	// Bind the internal port before any heavy lifting so probes read
 	// LOADING/RECOVERY instead of connection-refused (03-lifecycle.md §2);
-	// the agent TCP listener stays down until recovery finishes.
+	// the agent TCP listener stays down until recovery finishes. /metrics
+	// rides the same port outside the gate, so a scrape works mid-recovery.
 	gate := health.NewGate("/internal/v1")
+	reg := metrics.NewRegistry()
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.InternalAPIPort))
 	if err != nil {
 		return pkgerrors.Wrap(err, "bind internal API")
 	}
-	internal := &http.Server{Handler: gate}
+	internal := &http.Server{Handler: metrics.Mux(reg, gate)}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- internal.Serve(ln) }()
 
@@ -74,7 +77,11 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 	}
 
 	gate.Set(health.StateLoading, "connecting to S3")
-	mc, err := s3.NewClient(ctx, cfg.S3.Params())
+	s3params, err := cfg.S3.Params()
+	if err != nil {
+		return fatal("resolve S3 credentials", err)
+	}
+	mc, err := s3.NewClient(ctx, s3params)
 	if err != nil {
 		return fatal("connect to S3", err)
 	}
@@ -112,6 +119,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 		return fatal("recover the hot store", err)
 	}
 
+	metrics.RegisterCollect(reg, svc.Store(), svc.Uploader())
 	gate.Mount(hotread.New(svc.Store()).Handler())
 	gate.Set(health.StateReady, "")
 	log.Info(ctx, "collector ready: agent :%d, internal API :%d, data dir %s",

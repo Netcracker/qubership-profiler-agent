@@ -25,6 +25,8 @@ type (
 		// §7.1). Nil falls back to DNS over Config.CollectorService; with that
 		// empty too the query stays cold-only.
 		HotDiscovery hot.Discovery
+		// Metrics receives the query Prometheus series; nil disables them.
+		Metrics *Metrics
 	}
 
 	// Service is the running query API: stateless, no PV (02 §1). The
@@ -37,16 +39,22 @@ type (
 		discovery hot.Discovery
 		dicts     *dictCache
 		echo      *echo.Echo
+		metrics   *Metrics
 	}
 )
 
 // New composes the query service; it binds nothing until Run.
 func New(opts Options) *Service {
 	cfg := opts.Config.Normalize()
+	coldStore := opts.ColdStore
+	if opts.Metrics != nil {
+		coldStore = countingColdStore{inner: coldStore, metrics: opts.Metrics}
+	}
 	s := &Service{
-		cfg:   cfg,
-		cold:  &cold.Source{Store: opts.ColdStore, ListConcurrency: cfg.ListConcurrency},
-		dicts: newDictCache(),
+		cfg:     cfg,
+		cold:    &cold.Source{Store: coldStore, ListConcurrency: cfg.ListConcurrency},
+		dicts:   newDictCache(),
+		metrics: opts.Metrics,
 	}
 	s.discovery = opts.HotDiscovery
 	if s.discovery == nil && cfg.CollectorService != "" {

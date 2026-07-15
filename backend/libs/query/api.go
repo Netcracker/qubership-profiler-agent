@@ -174,6 +174,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 		Partial:        len(partial) > 0,
 		PartialReasons: partial,
 	}
+	s.metrics.countPartial(resp.Partial)
 	if resp.PartialReasons == nil {
 		resp.PartialReasons = []string{}
 	}
@@ -219,6 +220,7 @@ func (s *Service) handlePods(c echo.Context) error {
 		Partial:        len(partial) > 0,
 		PartialReasons: partial,
 	}
+	s.metrics.countPartial(resp.Partial)
 	if resp.PartialReasons == nil {
 		resp.PartialReasons = []string{}
 	}
@@ -226,6 +228,7 @@ func (s *Service) handlePods(c echo.Context) error {
 }
 
 func (s *Service) sendGuardRejection(c echo.Context, rej *guardRejection) error {
+	s.metrics.countGuardRejection(rej.Layer)
 	p := problem{
 		Title:            "query too wide",
 		Status:           http.StatusBadRequest,

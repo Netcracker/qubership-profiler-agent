@@ -84,12 +84,13 @@ spec:
             - name: S3_BUCKET
               valueFrom:
                 configMapKeyRef: { name: profiler-backend-config, key: s3.bucket }
-            - name: S3_ACCESS_KEY
-              valueFrom:
-                secretKeyRef: { name: profiler-backend-s3, key: access-key }
-            - name: S3_SECRET_KEY
-              valueFrom:
-                secretKeyRef: { name: profiler-backend-s3, key: secret-key }
+            # S3 credentials are read from the mounted Secret volume, not from
+            # env (01-write-contract.md §9): the values never appear in the pod
+            # spec, and a Secret rotation updates the mounted files in place.
+            - name: S3_ACCESS_KEY_FILE
+              value: /etc/profiler/s3/access-key
+            - name: S3_SECRET_KEY_FILE
+              value: /etc/profiler/s3/secret-key
             # full env catalog: 03-lifecycle.md §10 + 01-write-contract.md §9
           readinessProbe:
             httpGet:
@@ -98,16 +99,23 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 3
+          # Liveness is recovery-independent: /health/live answers 200 through
+          # LOADING and RECOVERY and fails only on FATAL (03-lifecycle.md §4).
+          # Gating liveness on READY would kill the pod mid-recovery and loop
+          # it forever; only readiness waits for READY.
           livenessProbe:
             httpGet:
               path: /internal/v1/health/live
               port: internal
             initialDelaySeconds: 30
             periodSeconds: 30
-            failureThreshold: 3
+            failureThreshold: 5
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: s3-credentials
+              mountPath: /etc/profiler/s3
+              readOnly: true
           resources:
             requests:
               cpu: "500m"
@@ -115,6 +123,10 @@ spec:
             limits:
               cpu: "2"
               memory: "4Gi"
+      volumes:
+        - name: s3-credentials
+          secret:
+            secretName: profiler-backend-s3
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -168,7 +180,9 @@ Default: `20Gi` per replica. The trace segments dominate; the seal-model metadat
 - Seal scratch (`parquet-sealing/`) — one bucket's parquet in flight; transient, cleared on each seal.
 - Hot-retention parquet — bounded by `(uploaded parquet rate) × HOT_RETENTION` ≈ 3 × `parquet_max_size` per retention class ≈ 1 GB.
 
-Fit against `20Gi`: at `r = 25 K/s` (R = 4) the sum is ≈ 10 + 2.2 + 2 + 1 ≈ 15 GB — comfortable. At `r = 50 K/s` (R = 2) it is ≈ 10 + 4.5 + 4 + 1 ≈ 20 GB — at the edge. So the 100 K/s target wants **R ≥ 3–4 collectors**, or a larger PVC or a smaller segment cap. The RAM budget (`PROFILER_MEM_BUDGET`, `01-write-contract.md` §4.6) is a separate lever: `chunk_index` and seal-pass buffers are bounded by eviction, not by this PVC. Operators override per-environment via Helm values.
+Fit against `20Gi`: at `r = 25 K/s` (R = 4) the sum is ≈ 10 + 2.2 + 2 + 1 ≈ 15 GB — comfortable. At `r = 50 K/s` (R = 2) it is ≈ 10 + 4.5 + 4 + 1 ≈ 20 GB — at the edge. So the 100 K/s target wants **R ≥ 3–4 collectors**, or a larger PVC or a smaller segment cap.
+
+**The PVC must exceed the segment budget.** `PROFILER_CHUNKS_STAGING_MAX_BYTES` bounds only the trace/`sql`/`xml` segment files (`01-write-contract.md` §4.6); the WALs, the call-index SQLite files, the seal scratch, and the hot-retention parquet listed above share the same PV and are outside the budget. A PVC sized equal to the budget fills up with the unbudgeted components and hits `ENOSPC` before the eviction path ever engages. Size the PVC as segment budget + headroom for the rest (the `20Gi` default carries a `10GB` budget). The RAM budget (`PROFILER_MEM_BUDGET`, `01-write-contract.md` §4.6) is a separate lever: `chunk_index` and seal-pass buffers are bounded by eviction, not by this PVC. Operators override per-environment via Helm values.
 
 ## 4. `query` workload — Deployment + ClusterIP
 
@@ -211,7 +225,7 @@ spec:
             - name: S3_BUCKET
               valueFrom:
                 configMapKeyRef: { name: profiler-backend-config, key: s3.bucket }
-            # ... S3 creds same as collector
+            # ... S3 creds from the mounted Secret volume, same as collector (§3.2, §6)
           readinessProbe:
             httpGet: { path: /api/v1/health/ready, port: external }
             initialDelaySeconds: 2
@@ -271,7 +285,7 @@ spec:
           env:
             - name: PROFILER_MAINTAIN_INTERVAL
               value: "1h"
-            # S3 creds same as collector
+            # S3 creds from the mounted Secret volume, same as collector (§3.2, §6)
           resources:
             requests: { cpu: "100m", memory: "256Mi" }
             limits:   { cpu: "1",    memory: "1Gi" }
@@ -327,6 +341,8 @@ stringData:
 
 Both shared across `collect`, `query`, and `maintain` workloads.
 
+**The Secret is consumed as a volume, never as env.** Every workload mounts `profiler-backend-s3` at `/etc/profiler/s3` and points `S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE` at the mounted files (`01-write-contract.md` §9). This keeps the values out of pod specs, `kubectl describe`, and crash dumps of the env block, and a Secret rotation propagates to the mounted files without re-rendering the workload. (The process reads the files at startup; picking up a rotation without a restart is a future improvement.)
+
 ## 7. RBAC
 
 The collector, query, and maintain pods need no RBAC permissions in the MVP — they don't query the k8s API. DNS resolution is automatic via CoreDNS.
@@ -346,7 +362,7 @@ Operators override per-environment. Numbers are baseline for typical workloads (
 
 ## 9. Helm chart structure
 
-Existing `backend/charts/` directory keeps the same five sub-charts; their contents are rewritten:
+**Stage 1 ships a new self-contained chart, `backend/charts/profiler-backend/`,** holding the collector StatefulSet, the query Deployment, the maintain workload, the shared ConfigMap/Secret, an optional in-cluster MinIO for dev/smoke, and the monitoring objects (ServiceMonitor / PrometheusRule). The legacy sub-charts below keep serving the Java stack untouched until their Stage 4/5 retirement — the same reasoning that placed the Go binary at `apps/profiler-backend` instead of over the legacy `apps/` paths. The table records the eventual end-state for the legacy charts, not Stage 1 work:
 
 | Chart | Old shape | New shape (this contract) |
 |---|---|---|
@@ -450,7 +466,7 @@ Run the full umbrella chart with `collector.replicas: 1`, `query.replicas: 1`, `
 ## 12. What this contract does NOT cover
 
 - **Ingress / external routing** to `/api/v1` — varies per cluster (Ingress controller, OpenShift Route, AWS ALB, etc.). The Helm chart exposes an `ingress.enabled / className / host` block; specific values are operator-supplied.
-- **Monitoring** (Prometheus scrape, Grafana dashboards). The binary will expose `/metrics` (Prometheus format) on the internal port; the chart adds the scrape annotation; dashboards land in `backend/charts/profiler-stack/dashboards/` later.
+- **Grafana dashboards.** The binary exposes `/metrics` (Prometheus format): `collect` on the internal port, `query` on the external port (it has no internal one), `maintain` on its metrics port in loop mode. The `profiler-backend` chart ships ServiceMonitor/PodMonitor objects and a PrometheusRule with the baseline alerts; dashboards land later.
 - **Network policies** — supplied per-cluster.
 - **Service mesh** integration (Istio sidecar, Linkerd) — orthogonal to this contract; sidecars work as long as they don't terminate the agent's TCP stream.
 - **Backup of `metadata.sqlite`** — not needed: the database is rebuildable from PV contents (`03-lifecycle.md` §3.2).

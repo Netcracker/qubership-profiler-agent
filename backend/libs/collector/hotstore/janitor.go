@@ -17,14 +17,53 @@ import (
 	"github.com/pkg/errors"
 )
 
-// JanitorStats counts one JanitorPass's work — the seam for the future
-// Prometheus counters, like UploadStats.
+// JanitorStats counts one JanitorPass's work (and, via
+// JanitorCountersSnapshot, the process lifetime — the Prometheus seam, like
+// UploadStats).
 type JanitorStats struct {
 	ParquetDeleted    int64
 	PartitionsDropped int64
 	WalsPurged        int64
 	SegmentsEvicted   int64
 	EvictedBytes      int64
+}
+
+// JanitorCountersSnapshot returns the process-lifetime janitor counters.
+func (s *Store) JanitorCountersSnapshot() JanitorStats {
+	s.janitorMu.Lock()
+	defer s.janitorMu.Unlock()
+	return s.janitorCounters
+}
+
+func (s *Store) countJanitor(stats JanitorStats) {
+	s.janitorMu.Lock()
+	defer s.janitorMu.Unlock()
+	s.janitorCounters.ParquetDeleted += stats.ParquetDeleted
+	s.janitorCounters.PartitionsDropped += stats.PartitionsDropped
+	s.janitorCounters.WalsPurged += stats.WalsPurged
+	s.janitorCounters.SegmentsEvicted += stats.SegmentsEvicted
+	s.janitorCounters.EvictedBytes += stats.EvictedBytes
+}
+
+// SegmentsDiskUsage reports the on-disk bytes of the hot-store segments, as
+// last measured by the janitor's disk-budget walk, next to the configured
+// budget. Zero until the first pass runs.
+func (s *Store) SegmentsDiskUsage() (bytes, budget int64) {
+	return s.segmentsDiskBytes.Load(), s.cfg.ChunksStagingMaxBytes
+}
+
+// EvictedChunkRefs reports how many in-RAM chunk-index entries point at
+// evicted segments — memory the eviction cannot release until the
+// memory-budget task lands (risk B-3). Measured by the janitor pass.
+func (s *Store) EvictedChunkRefs() int64 {
+	return s.evictedChunkRefs.Load()
+}
+
+// QuarantineStats surfaces the stuck-quarantine gauges (01 §8): quarantined
+// parquet files and snapshot-blocked pod-restarts, with the oldest failure
+// time of each.
+func (s *Store) QuarantineStats() (QuarantineStats, error) {
+	return s.db.QuarantineStats()
 }
 
 // walFileNames are the per-pod-restart WAL files the §3.9 step-18 purge owns.
@@ -36,6 +75,7 @@ var walFileNames = []string{"dictionary.wal", "params.wal", "suspend.wal", "call
 // deterministically, mirroring SealDue.
 func (s *Store) JanitorPass(ctx context.Context, nowMs int64) (JanitorStats, error) {
 	var stats JanitorStats
+	defer func() { s.countJanitor(stats) }() // partial passes still count what they did
 	if err := s.dropAgedParquet(ctx, nowMs, &stats); err != nil {
 		return stats, err
 	}
@@ -45,8 +85,10 @@ func (s *Store) JanitorPass(ctx context.Context, nowMs int64) (JanitorStats, err
 	if err := s.purgeWals(ctx, nowMs, &stats); err != nil {
 		return stats, err
 	}
-	err := s.enforceDiskBudget(ctx, nowMs, &stats)
-	return stats, err
+	if err := s.enforceDiskBudget(ctx, nowMs, &stats); err != nil {
+		return stats, err
+	}
+	return stats, s.measureEvictedChunkRefs()
 }
 
 // dropAgedParquet implements 01-write-contract.md §6.3: a local parquet file
@@ -274,6 +316,7 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		}
 	}
 	if total <= budget {
+		s.segmentsDiskBytes.Store(total)
 		return nil
 	}
 	log.Warning(ctx, "janitor: hot-store segments hold %d bytes over the %d budget; evicting", total, budget)
@@ -297,6 +340,57 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes, refcount %d) under the disk budget",
 			c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size, c.row.Refcount)
 	}
+	s.segmentsDiskBytes.Store(total)
+	return nil
+}
+
+// measureEvictedChunkRefs counts the in-RAM chunk-index entries whose trace
+// segment was evicted (risk B-3): the seal and the trace endpoint tolerate
+// them, but their memory is released only by the future memory-budget task,
+// so the count must be visible before it becomes a problem. Runs inside the
+// janitor pass because it takes the store and per-pod locks.
+func (s *Store) measureEvictedChunkRefs() error {
+	rows, err := s.db.EvictedSegmentKeys()
+	if err != nil {
+		return err
+	}
+	evicted := make(map[string]map[int]struct{})
+	for _, row := range rows {
+		if row.Stream != StreamTrace {
+			continue // only trace segments carry chunk-index entries
+		}
+		seqs, ok := evicted[row.PodRestart]
+		if !ok {
+			seqs = map[int]struct{}{}
+			evicted[row.PodRestart] = seqs
+		}
+		seqs[row.RollingSeq] = struct{}{}
+	}
+
+	s.mu.Lock()
+	pods := make([]*PodRestart, 0, len(s.pods))
+	for _, pr := range s.pods {
+		pods = append(pods, pr)
+	}
+	s.mu.Unlock()
+
+	var dangling int64
+	for _, pr := range pods {
+		seqs, ok := evicted[pr.Key.String()]
+		if !ok {
+			continue
+		}
+		pr.mu.Lock()
+		for _, refs := range pr.chunks {
+			for _, ref := range refs {
+				if _, gone := seqs[ref.RollingSeq]; gone {
+					dangling++
+				}
+			}
+		}
+		pr.mu.Unlock()
+	}
+	s.evictedChunkRefs.Store(dangling)
 	return nil
 }
 

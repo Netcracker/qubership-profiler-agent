@@ -9,8 +9,15 @@ states, and the process wiring.
 |---|---|---|
 | `collect` | Collector write path: agent TCP (`:1715`), seal and upload loops, `/internal/v1` (`:8081`) | `libs/collector` |
 | `query` | Read path: `/api/v1` (`:8080`) over the hot fan-out and cold S3 tiers | `libs/query` |
+| `maintain` | S3 compaction + per-class retention TTL; loop by default, `--run-now` for a CronJob | `libs/maintain` |
 
-`maintain` and `all` (`03-lifecycle.md` §8-§9) are not implemented yet.
+`all` (`03-lifecycle.md` §9) is not implemented yet.
+
+Every subcommand serves Prometheus `/metrics`: `collect` on the internal port
+(scrapable through LOADING/RECOVERY), `query` on the external port, `maintain`
+on `PROFILER_METRICS_PORT` in loop mode (`--run-now` exits too fast to
+scrape). The series names are a stable contract — the catalogue lives in
+`charts/profiler-backend/README.md`.
 
 ## Quick start (docker-compose)
 
@@ -36,7 +43,8 @@ Everything comes from the environment. The authoritative catalogues are
 | `PROFILER_LOG_LEVEL` | `info` | Log level. |
 | `S3_ENDPOINT` | — (required) | S3/MinIO endpoint URL; an `https://` scheme enables TLS. |
 | `S3_BUCKET` | — (required) | Target bucket, created if missing. |
-| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — (required) | Credentials. |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials from the environment (dev, compose). |
+| `S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE` | — | Path to a file holding the credential (k8s mounts the Secret as a volume); trailing whitespace is trimmed. Set exactly one source per credential. |
 | `PROFILER_SHUTDOWN_DRAIN_GRACE` | `30s` | DRAINING hold after SIGTERM (`03` §5.1, §7.3). |
 
 ### `collect`

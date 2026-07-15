@@ -74,6 +74,11 @@ type (
 	Job struct {
 		store ObjectStore
 		cfg   Config
+
+		// OnPass, when set, receives every completed Pass's stats — the
+		// Prometheus counter seam. RunLoop calls it from the loop goroutine
+		// after each pass, including empty ones.
+		OnPass func(Stats)
 	}
 )
 
@@ -167,6 +172,9 @@ func (j *Job) RunLoop(ctx context.Context, interval time.Duration) error {
 		stats, err := j.Pass(ctx, time.Now())
 		if err != nil && ctx.Err() == nil {
 			log.Error(ctx, err, "maintain pass failed")
+		}
+		if j.OnPass != nil {
+			j.OnPass(stats)
 		}
 		if stats != (Stats{}) {
 			log.Info(ctx, "maintain pass: %+v", stats)

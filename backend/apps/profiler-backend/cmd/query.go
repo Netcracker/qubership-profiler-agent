@@ -10,6 +10,7 @@ import (
 
 	appenv "github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/health"
+	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
@@ -44,7 +45,11 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	}
 
 	// §7.1 step 2: verify the S3 side before serving; unrecoverable → FATAL.
-	mc, err := s3.NewClient(ctx, cfg.S3.Params())
+	s3params, err := cfg.S3.Params()
+	if err != nil {
+		return pkgerrors.Wrap(err, "resolve S3 credentials")
+	}
+	mc, err := s3.NewClient(ctx, s3params)
 	if err != nil {
 		return pkgerrors.Wrap(err, "connect to S3")
 	}
@@ -58,6 +63,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		log.Warning(ctx, "collector service %q does not resolve yet: %s", cfg.CollectorService, err)
 	}
 
+	reg := metrics.NewRegistry()
 	svc := query.New(query.Options{
 		Config: query.Config{
 			CursorTTL:        cfg.CursorTTL,
@@ -71,6 +77,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 			OverlapMargin:    cfg.OverlapMargin,
 		},
 		ColdStore: query.NewS3ObjectReader(mc),
+		Metrics:   query.NewMetrics(reg),
 	})
 
 	gate := health.NewGate("/api/v1")
@@ -84,7 +91,9 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	log.Info(ctx, "query ready: external API :%d, collector service %q",
 		cfg.ExternalAPIPort, cfg.CollectorService)
 
-	external := &http.Server{Handler: gate}
+	// query has no internal port, so /metrics rides the external one (04 §12);
+	// the ingress publishes /api/v1 only.
+	external := &http.Server{Handler: metrics.Mux(reg, gate)}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- external.Serve(ln) }()
 
