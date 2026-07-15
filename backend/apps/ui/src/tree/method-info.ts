@@ -11,6 +11,14 @@ export interface MethodInfo {
   shortClassName: string;
   /** Abbreviated signature, e.g. `void c.n.Class.setBeanFactory(o.s.b.f.BeanFactory)`. */
   signature: string;
+  /**
+   * Package with a trailing dot (`com.acme.orders.`), '' for the default
+   * package or an unparsed word. Rendered as the hidden-but-copyable span
+   * before `bareSignature`, so selecting a row copies the qualified name.
+   */
+  packagePrefix: string;
+  /** Visible row label: `Class.method(argTypes)`, no return type; '' when unparsed. */
+  bareSignature: string;
   /** `<Class>.java`, or `<generated>` for synthesised classes. */
   fileName: string;
   lineNumber: number;
@@ -71,6 +79,8 @@ export function parseMethod(original: string): MethodInfo {
     className: '',
     shortClassName: '',
     signature: original,
+    packagePrefix: '',
+    bareSignature: '',
     fileName: '',
     lineNumber: 0,
     isGenerated: false,
@@ -93,10 +103,16 @@ export function parseMethod(original: string): MethodInfo {
     info.lineNumber = line.lineNumber;
     parts = parts.slice(0, -1);
   }
-  if (parts.length !== 2) return info;
+  // Real dictionary words hold no space after the arg commas
+  // (line_parser.go), but split only at the first space anyway, so a
+  // `(A, B)` arg list still parses instead of falling back to the raw word.
+  const rest = parts.join(' ');
+  const firstSpace = rest.indexOf(' ');
+  if (firstSpace < 0) return info;
 
-  const returnType = shortClass(parts[0]!);
-  const methodRaw = parts[1]!
+  const returnType = shortClass(rest.slice(0, firstSpace));
+  const methodRaw = rest
+    .slice(firstSpace + 1)
     .replaceAll('$$EnhancerBySpringCGLIB', '')
     .replaceAll('$$FastClassBySpringCGLIB', '')
     .replaceAll('$STATICHOOK', '')
@@ -108,10 +124,14 @@ export function parseMethod(original: string): MethodInfo {
 
   info.className = className!;
   info.shortClassName = shortClass(className!);
+  const lastDot = className!.lastIndexOf('.');
+  info.packagePrefix = lastDot >= 0 ? className!.slice(0, lastDot + 1) : '';
   const args = argsRaw!
     .split(',')
+    .map((a) => a.trim())
     .map((a) => (a === '' ? a : shortClass(a)))
     .join(',');
   info.signature = `${returnType} ${shorten(qualifiedMethod!, 2)}(${args})`;
+  info.bareSignature = `${qualifiedMethod!.slice(info.packagePrefix.length)}(${args})`;
   return info;
 }

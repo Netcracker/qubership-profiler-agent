@@ -10,10 +10,34 @@ describe('parseMethod', () => {
     expect(info.className).toBe('com.netcracker.cloud.collector.storage.model.StreamFacadeCassandra');
     expect(info.shortClassName).toBe('c.n.c.c.s.m.StreamFacadeCassandra');
     expect(info.signature).toBe('void c.n.c.c.s.m.StreamFacadeCassandra.setBeanFactory(o.s.b.f.BeanFactory)');
+    expect(info.packagePrefix).toBe('com.netcracker.cloud.collector.storage.model.');
+    expect(info.bareSignature).toBe('StreamFacadeCassandra.setBeanFactory(o.s.b.f.BeanFactory)');
     expect(info.fileName).toBe('StreamFacadeCassandra.java');
     expect(info.lineNumber).toBe(67);
     expect(info.jarName).toBe('cassandra-dao-9.3.2.64.jar');
     expect(info.jarPath).toBe('BOOT-INF/lib');
+  });
+
+  it('parses a multi-arg signature (no space after the comma, the wire form)', () => {
+    const info = parseMethod(
+      'boolean com.acme.orders.InventoryService.reserve(com.acme.orders.Sku,int) (InventoryService.java:64) [orders.jar]',
+    );
+    expect(info.className).toBe('com.acme.orders.InventoryService');
+    expect(info.packagePrefix).toBe('com.acme.orders.');
+    expect(info.bareSignature).toBe('InventoryService.reserve(c.a.o.Sku,int)');
+    expect(info.signature).toBe('boolean c.a.o.InventoryService.reserve(c.a.o.Sku,int)');
+    expect(info.lineNumber).toBe(64);
+  });
+
+  it('survives a space inside the arg list instead of collapsing to the raw word', () => {
+    const info = parseMethod(
+      'void com.acme.web.ApiFilter.doFilter(ServletRequest, ServletResponse, FilterChain) (ApiFilter.java:52) [app.jar]',
+    );
+    expect(info.className).toBe('com.acme.web.ApiFilter');
+    expect(info.packagePrefix).toBe('com.acme.web.');
+    expect(info.bareSignature).toBe('ApiFilter.doFilter(ServletRequest,ServletResponse,FilterChain)');
+    expect(info.fileName).toBe('ApiFilter.java');
+    expect(info.jarName).toBe('app.jar');
   });
 
   it('strips CGLib noise from generated classes', () => {
@@ -40,6 +64,8 @@ describe('parseMethod', () => {
     const info = parseMethod('java.thread');
     expect(info.signature).toBe('java.thread');
     expect(info.className).toBe('');
+    expect(info.packagePrefix).toBe('');
+    expect(info.bareSignature).toBe('');
   });
 
   it('never throws on malformed words', () => {

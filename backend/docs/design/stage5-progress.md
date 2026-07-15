@@ -163,6 +163,31 @@ merge gates a usable tree. Status, decisions, and open issues per
     hints in the URL, params and Hotspots on the tree page; `make query-ui`
     orchestrates stack-up → seed → test → down
 
+- [ ] **Phase 11 — UI polish pass** (findings review, WP-A…WP-F)
+  - [x] WP-A: tree row relaid out to the old order — operations menu (with the
+    direction arrow) left of the bar, bar hugging the number, visible label
+    `Class.method(args)` with a hidden copyable package; `parseMethod`
+    hardened against spaces in arg lists; mock seed emits `(A,B)` like the
+    agent
+  - [x] WP-B: the pass-through reveal is reversible — every revealed chain
+    node carries a `⤴N` fold tag; the head's fold restores the exact
+    pre-reveal visible-row set
+  - [x] WP-C: Ctrl/Cmd stats render in a fixed overlay keyed off the hovered
+    node — the row DOM never remounts, so a text selection survives the
+    modifier
+  - [x] WP-D: Hotspots is a bottom-up tree again — dotted category names
+    group hierarchically (`transforms/hotspot-tree.ts`), and a method row
+    expands in place into its incoming callers via the lazy `notComputed`
+    graft (old M_NOT_COMPUTED / Tree__computeIncoming); the one-shot
+    incoming Drawer button is gone
+  - [x] WP-E 10a: derived views live as closeable tabs (old dynamic_tabs)
+    next to Call Tree · Hotspots · Parameters, each carrying its direction
+    and re-deriving from the current model on Adjust/Setup changes; the
+    one-shot Drawer is gone. 10b (state-restoring download) is scoped as an
+    open issue below, pending a decision
+  - [x] WP-F: virtualiser scale verified — the long-call mock seed now grows
+    deep/wide trees; measurements below, no code regression found
+
 ## Decisions log
 
 - **2026-07-05 — hot-tier `suspend_ms` is attributed at index time.** The wire
@@ -295,19 +320,128 @@ merge gates a usable tree. Status, decisions, and open issues per
   query-ui suite passes against the compose stack after the fix
   (discovery → selection → chips → tree drill → params → hotspots).
 
+- **2026-07-05 — WP-A row layout: deviations from profiler.mjs.** (1) The
+  direction arrow (`arrowthick-1-se`/`-nw`) doubles as the operations menu as
+  before, but the on-hover incoming/outgoing quick buttons and the row-end
+  kebab of the first port are gone — one left-side menu holds every action,
+  so nothing scrolls off screen at depth. (2) The visible label drops the
+  return type entirely; the old UI appended ` : ReturnType` after the args
+  for non-void methods. It stays in the row title and the Ctrl+hover stats.
+  (3) The hidden-but-copyable package span uses `font-size: 0` instead of the
+  old off-screen 1-px `span.p` — same selection behaviour, no global CSS
+  class. (4) `parseMethod` splits the word at the first space after stripping
+  the source/jar suffixes, so an arg list containing spaces (`(A, B)`) parses
+  instead of collapsing to the raw string; real dictionary words never carry
+  the space (`line_parser.go:44`), and the mock seed now matches the agent
+  (`(A,B)`).
+
+- **2026-07-05 — WP-B reveal marks the whole chain, not just the head.** The
+  first port revealed only the clicked node, so an interior chain node's own
+  (shorter) skip immediately re-hid the levels below it — the old renderer
+  threaded an `uncollapsed` flag down the chain for exactly this. Reveal now
+  marks the head and the interior nodes; each of them shows a `⤴N` fold tag
+  (a UI addition — the old renderer folded only from the head's icon), and
+  the fold prunes exactly what the reveal added, so the skipped state
+  returns bit-for-bit.
+
+- **2026-07-05 — WP-C stats moved from a Popover wrap to a fixed overlay.**
+  Wrapping the hovered row in `<Popover open>` reparented the row when the
+  modifier went down, and the browser drops a text selection whose nodes
+  move — the user could never Cmd-copy the label. The stats now render in a
+  `position: fixed` bottom-right layer (pointer-events none) keyed off the
+  hovered node; nothing in the row subtree changes, so the selection
+  survives. Deviation from the old UI: the old tooltip floated next to the
+  cursor; anchoring a floating layer to the row without touching its DOM
+  costs positioning logic the fixed panel avoids.
+
+- **2026-07-06 — WP-D restores the hotspot grouping hierarchy dropped by
+  5.3 deviation #2, with corrections to the record.** The old UI split
+  category (and module) names on '.' only when grouping hotspots
+  (`allocateGroupNode`); the tree colouring never split — so the hierarchy
+  returns as a hotspots-grouping feature, and `categories.ts` matching is
+  untouched. Deviations from profiler.mjs: (1) the old javaModules package
+  grouping stays dropped (07 §5.3 — category-first only); (2) group order
+  follows the profile weight order (heaviest first, `unsorted` last) instead
+  of re-sorting groups and methods together with sortNode, so headers never
+  chain-collapse; (3) the flat AntD table (a port-era interim) is replaced by
+  the shared TreeView in bottom-up direction, method rows carrying their
+  aggregated params as expandable rows; (4) skeleton node ids are negative,
+  like the old group nodes, so the positive ids the incoming graft mints
+  cannot collide with them; (5) the zero-self footnote moves below the tree.
+
+- **2026-07-06 — WP-F: the tree virtualiser scales; frame-time still needs a
+  visible tab.** Setup: `synthetic.ts` grows long calls (>10 s) to depth 11
+  with fanout 2–5, giving 1000–3000 visible rows once expanded (pinned by
+  `tree-scale.test.ts`). Measured in the mock app (28.3 s call, tree search
+  active so every chain is revealed): 1481 visible rows → 29–40 rendered row
+  elements and ~450–570 total DOM nodes, the same order as the 22-row
+  initial view (~394) — the DOM is O(visible window), not O(rows).
+  `buildRows` over a 1933-node model producing 2948 rows takes 0.32 ms/run
+  (vitest, M-series laptop), and it only reruns on expand/collapse/search —
+  scrolling slices the memoised array (VirtualList keeps `rows` identity).
+  rAF-based scroll frame timing was attempted twice (the preview browser and
+  a claude-in-chrome tab) and both suspended rAF as hidden tabs — the same
+  limitation the 5.1 calls-table note recorded; the 5.1 open issue now
+  covers the tree view too. No regression found, no code changed beyond the
+  seed.
+
+- **2026-07-06 — WP-E 10a: derived-view tabs hold the recipe, not the
+  result.** A tab stores `(op, methodIdx, category)`; the view derives from
+  the current model in a per-tab cache keyed on the model instance. So an
+  open tab follows Adjust/Setup edits like the old dynamic tabs did, while
+  opening or closing an unrelated tab does not re-derive (a re-derivation
+  mints fresh node ids and would wipe the other tabs' expansion state — the
+  view remounts, via a derivation sequence number, only when its model
+  actually changed). Deviation from profiler.mjs: the old tabs serialised
+  the source node as a tree-path into the URL (`Tabs__scheduleCreate`);
+  the new tabs are client-state only — URL persistence belongs to the 10b
+  design below.
+
 ## Open issues
 
+- **10b — downloadable self-contained HTML that restores state: design
+  note, decision pending.** The old "download" posted the page state to the
+  server (`profiler.mjs:3585-3593`: `pageState`, `adjustDuration`,
+  `businessCategories`), which baked a single-page HTML; reopening it
+  restored Adjust duration, Setup categories, and the created
+  incoming/outgoing tabs through a read-only `ro` mode
+  (`profiler.mjs:3537-3548`). The new UI is a static bundle embedded in the
+  query binary, so the bake needs one of:
+  1. *Backend endpoint* — `POST /api/v1/calls/{pk}/export` receives the
+     serialised UI state, inlines the JS bundle, the MessagePack tree
+     (base64), and the state into one HTML file. Pros: exact bytes of the
+     already-served tree, works for cold calls while the server can still
+     read them, output cacheable server-side. Cons: a new query endpoint
+     and its guard/limits; the bundle must be re-inlined per build.
+  2. *Client-side generator* — the running SPA assembles the HTML itself:
+     it already holds the decoded wire, both configs, and the open tab
+     specs; it embeds its own bundle (fetchable as a same-origin asset)
+     plus the raw tree bytes and a `window.__restore` blob, then triggers a
+     download. Pros: no backend change, works against any query version,
+     the export equals what the user sees. Cons: the bundle fetch adds
+     ~1 MB to the export; needs a boot path that prefers `__restore` over
+     the router.
+  State to serialise in either case: the call PK + hints, the adjust
+  config text, the category config text, and the open derived tabs as
+  `(op, methodIdx → method word, category)` — method *words*, not indexes,
+  so a re-decode with a different dictionary order still resolves. Restore
+  entry point: a `ro` boot flag that skips fetching, decodes the embedded
+  tree, applies both configs, and replays the tab specs through the same
+  `openOpTab` path. Leaning to option 2 (no new server surface, exports
+  keep working after retention evicts the call), but NOT building it until
+  the option is picked — this note is the 10b deliverable.
 - The hot `/internal/v1/calls` row never carries `truncated_reason` /
   `trace_blob_size`: `CallIndexRow` does not read the partition's `blob_size`
   and `truncated_reason` columns, so a truncated call looks intact until it
   goes cold. Predates this stage; surfaced by the parity test (which passes
   because both tiers see un-truncated calls).
-- Scroll frame-time profiling of the virtual calls table is pending a
-  visible-browser session: hidden tabs suspend rAF and ResizeObserver
-  delivery, so only structural metrics (bounded DOM, heap) were measurable
-  headlessly. Re-measure interactively before calling 5.1 performance done;
-  the escalation options (headless virtualiser, SlickGrid) stay documented
-  in the Stage 5 plan.
+- Scroll frame-time profiling of the virtual calls table — and, as of WP-F,
+  of the tree view — is pending a visible-browser session: hidden tabs
+  suspend rAF and ResizeObserver delivery, so only structural metrics
+  (bounded DOM, heap, buildRows cost) were measurable headlessly.
+  Re-measure interactively before calling 5.1/WP-F performance done; the
+  escalation options (headless virtualiser, SlickGrid) stay documented in
+  the Stage 5 plan.
 - The service→pods expansion for `/calls` uses the rail's `/pods` data,
   which follows the draft window; if the draft has moved past the committed
   window, a service selection can expand against slightly newer pod sets.

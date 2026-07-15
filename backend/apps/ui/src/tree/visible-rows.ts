@@ -121,7 +121,7 @@ export function buildRows(model: TreeModel, state: ExpansionState, searchActive 
   const visit = (x: TreeNode, depth: number): void => {
     const skippedLevels = searchActive || state.revealedChains.has(x.id) ? 0 : x.collapseLevels;
     const display = chainEnd(x, skippedLevels);
-    const hasChildren = display.children.length > 0 || x.params.length > 0;
+    const hasChildren = display.children.length > 0 || x.params.length > 0 || x.notComputed === true;
     const expanded = state.expanded.has(x.id);
     out.push({ kind: 'node', node: x, depth, skippedLevels, hasChildren, expanded });
     if (!expanded) return;

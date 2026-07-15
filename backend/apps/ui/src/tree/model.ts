@@ -34,6 +34,11 @@ export interface TreeNode {
   prevSelfExecutions?: number;
   /** Effective business category (old M_CATEGORY), assigned client-side. */
   category?: CategoryDef;
+  /**
+   * Children exist but are not built yet (old M_NOT_COMPUTED): the hotspot
+   * tree grafts a node's incoming callers on first expansion.
+   */
+  notComputed?: boolean;
 }
 
 /** A business category from Setup categories (old BC_COLOR / BC_NAME pair). */
