@@ -47,6 +47,22 @@ type Config struct {
 	// unbounded across passes as the contract requires.
 	UploadRetryAttempts  int
 	UploadRetryBaseDelay time.Duration
+	// HotRetention keeps uploaded parquet and its call-index partition on the
+	// PV past the upload (PROFILER_HOT_RETENTION, §6.3, 02 §4.2). Must satisfy
+	// hot_retention >= seal_interval + overlap_margin for the zero-gap window.
+	HotRetention time.Duration
+	// ChunksStagingMaxBytes bounds the on-disk bytes of the hot-store segment
+	// files (PROFILER_CHUNKS_STAGING_MAX_BYTES, §4.6). Over budget, the janitor
+	// evicts refcount-0 segments first, then the oldest referenced ones.
+	ChunksStagingMaxBytes int64
+	// WalPurgeGrace is the hold-back past a pod-restart's full flush before its
+	// WAL files are deleted (§3.5, 03 §3.9 step 18). The env name is an
+	// implementation choice recorded in stage1-progress.md.
+	WalPurgeGrace time.Duration
+	// JanitorCheckInterval paces JanitorPass (hot retention, WAL purge, disk
+	// budget). Zero disables the loop, mirroring SealCheckInterval: the collect
+	// wiring enables it; tests drive JanitorPass explicitly.
+	JanitorCheckInterval time.Duration
 }
 
 // Normalize fills unset fields with the contract defaults.
@@ -80,6 +96,15 @@ func (c Config) Normalize() Config {
 	}
 	if c.UploadRetryBaseDelay <= 0 {
 		c.UploadRetryBaseDelay = 200 * time.Millisecond
+	}
+	if c.HotRetention <= 0 {
+		c.HotRetention = 15 * time.Minute
+	}
+	if c.ChunksStagingMaxBytes <= 0 {
+		c.ChunksStagingMaxBytes = 10 << 30
+	}
+	if c.WalPurgeGrace <= 0 {
+		c.WalPurgeGrace = time.Hour
 	}
 	return c
 }

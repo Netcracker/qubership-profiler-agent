@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS pod_restarts (
   restart_time_ms  INTEGER NOT NULL,
   opened_at        INTEGER NOT NULL,
   closed_at        INTEGER,
-  dict_uploaded_at INTEGER
+  dict_uploaded_at INTEGER,
+  dict_upload_failed_at INTEGER,
+  wals_purged_at   INTEGER
 );
 CREATE TABLE IF NOT EXISTS segments (
   pod_restart  TEXT NOT NULL,
@@ -228,12 +230,18 @@ func openMetaDb(cfg Config) (*metaDb, error) {
 	if err := db.Exec(metaSchema).Error; err != nil {
 		return nil, errors.Wrap(err, "migrate metadata.sqlite")
 	}
-	// upload_failed_at joined the schema with the S3 slice; a metadata.sqlite
-	// created before it needs the column added (new files get it via CREATE
+	// Columns that joined the schema after their table shipped need the ALTER
+	// for a metadata.sqlite created before them (new files get them via CREATE
 	// TABLE above, so the duplicate-column error is the common case).
-	if err := db.Exec(`ALTER TABLE parquet_local ADD COLUMN upload_failed_at INTEGER`).Error; err != nil &&
-		!strings.Contains(err.Error(), "duplicate column name") {
-		return nil, errors.Wrap(err, "add parquet_local.upload_failed_at")
+	for _, alter := range []string{
+		`ALTER TABLE parquet_local ADD COLUMN upload_failed_at INTEGER`,
+		`ALTER TABLE pod_restarts ADD COLUMN dict_upload_failed_at INTEGER`,
+		`ALTER TABLE pod_restarts ADD COLUMN wals_purged_at INTEGER`,
+	} {
+		if err := db.Exec(alter).Error; err != nil &&
+			!strings.Contains(err.Error(), "duplicate column name") {
+			return nil, errors.Wrapf(err, "migrate: %s", alter)
+		}
 	}
 	return &metaDb{cfg: cfg, meta: db, parts: map[int64]*gorm.DB{}}, nil
 }
@@ -452,12 +460,25 @@ func (m *metaDb) ManifestBounds(podRestart string, dayStartMs, dayEndMs int64) (
 }
 
 // DictPendingPodRestarts lists closed pod-restarts whose dictionary/suspend
-// snapshots are still owed to S3 (03-lifecycle.md §3.9).
+// snapshots are still owed to S3 (03-lifecycle.md §3.9). A quarantined
+// pod-restart (dict_upload_failed_at set) has left the queue: its snapshot
+// waits in upload-failed/ for a human, not for the next pass.
 func (m *metaDb) DictPendingPodRestarts() ([]string, error) {
 	var rows []string
 	err := m.meta.Raw(`SELECT pod_restart FROM pod_restarts
-		WHERE closed_at IS NOT NULL AND dict_uploaded_at IS NULL ORDER BY pod_restart`).Scan(&rows).Error
+		WHERE closed_at IS NOT NULL AND dict_uploaded_at IS NULL AND dict_upload_failed_at IS NULL
+		ORDER BY pod_restart`).Scan(&rows).Error
 	return rows, err
+}
+
+// SetDictUploadFailed quarantines a pod-restart's snapshot uploads after a
+// permanent S3 rejection: it leaves the upload queue but keeps
+// dict_uploaded_at NULL, so the WAL purge never runs for it — the WALs stay on
+// the PV until a human resolves the rejection.
+func (m *metaDb) SetDictUploadFailed(podRestart string, failedAtMs int64) error {
+	return errors.Wrap(m.meta.Exec(`UPDATE pod_restarts SET dict_upload_failed_at = ?
+		WHERE pod_restart = ? AND dict_upload_failed_at IS NULL`, failedAtMs, podRestart).Error,
+		"set dict_upload_failed_at")
 }
 
 // SetDictUploaded gates the snapshot upload (01-write-contract.md §3.6): set
@@ -575,6 +596,9 @@ func (m *metaDb) partitionPath(bucket int64) string {
 }
 
 // partition opens (creating on first use) the call-index partition of bucket.
+// Re-opening a dropped bucket resurrects it (dropped_at cleared): the only
+// path that reaches a dropped bucket is InsertCall with a very late Call, and
+// its row must re-enter the seal loop rather than land in an invisible file.
 func (m *metaDb) partition(bucket int64) (*gorm.DB, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -593,26 +617,51 @@ func (m *metaDb) partition(bucket int64) (*gorm.DB, error) {
 		VALUES (?, ?, ?)`, bucket, path, time.Now().UnixMilli()).Error; err != nil {
 		return nil, errors.Wrap(err, "record partition")
 	}
+	if err := m.meta.Exec(`UPDATE call_partitions SET dropped_at = NULL
+		WHERE bucket = ? AND dropped_at IS NOT NULL`, bucket).Error; err != nil {
+		return nil, errors.Wrap(err, "resurrect partition")
+	}
 	m.parts[bucket] = db
 	return db, nil
 }
 
+// dropCachedPartition closes and forgets the cached handle of one bucket.
+func (m *metaDb) dropCachedPartition(bucket int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if db, ok := m.parts[bucket]; ok {
+		if sqlDb, err := db.DB(); err == nil {
+			_ = sqlDb.Close()
+		}
+		delete(m.parts, bucket)
+	}
+}
+
 // InsertCall indexes one Call record in its bucket's partition. INSERT OR
 // IGNORE keeps the recovery reconciliation (03 §3.4) idempotent: the PK is
-// immutable, so a duplicate insert carries identical values.
+// immutable, so a duplicate insert carries identical values. One retry with a
+// fresh handle covers the race with a concurrent janitor DropPartition: the
+// reopen resurrects the partition, so the late row stays visible.
 func (m *metaDb) InsertCall(bucket int64, row CallIndexRow) error {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return err
+	insert := func() error {
+		db, err := m.partition(bucket)
+		if err != nil {
+			return err
+		}
+		return db.Exec(`INSERT OR IGNORE INTO call_index
+			(pod_restart, trace_file_index, buffer_offset, record_index,
+			 ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+			 cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			row.PodRestart, row.TraceFileIndex, row.BufferOffset, row.RecordIndex,
+			row.TsMs, row.DurationMs, row.MethodId, row.ThreadName, row.RetentionClass, row.ErrorFlag,
+			row.CpuTimeMs, row.WaitTimeMs, row.MemoryUsed, row.ChildCalls, row.ParamsJson, row.CallsWalOffset).Error
 	}
-	return db.Exec(`INSERT OR IGNORE INTO call_index
-		(pod_restart, trace_file_index, buffer_offset, record_index,
-		 ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-		 cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		row.PodRestart, row.TraceFileIndex, row.BufferOffset, row.RecordIndex,
-		row.TsMs, row.DurationMs, row.MethodId, row.ThreadName, row.RetentionClass, row.ErrorFlag,
-		row.CpuTimeMs, row.WaitTimeMs, row.MemoryUsed, row.ChildCalls, row.ParamsJson, row.CallsWalOffset).Error
+	if err := insert(); err != nil {
+		m.dropCachedPartition(bucket)
+		return insert()
+	}
+	return nil
 }
 
 // MinTsMs reports one partition's earliest ts_ms, or nil when it is empty.
@@ -700,6 +749,111 @@ func (m *metaDb) Calls(bucket int64) ([]CallIndexRow, error) {
 		cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
 		FROM call_index ORDER BY ts_ms, pod_restart`).Scan(&rows).Error
 	return rows, err
+}
+
+// AgedUploadedParquet lists uploaded files past hot retention:
+// uploaded_at + retention <= now (01-write-contract.md §6.3). Quarantined and
+// pending files have uploaded_at NULL and never age out.
+func (m *metaDb) AgedUploadedParquet(nowMs, retentionMs int64) ([]ParquetLocalFile, error) {
+	var rows []ParquetLocalFile
+	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
+		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
+		upload_failed_at AS upload_failed_at_ms, s3_key
+		FROM parquet_local WHERE uploaded_at IS NOT NULL AND uploaded_at + ? <= ?
+		ORDER BY path`, retentionMs, nowMs).Scan(&rows).Error
+	return rows, err
+}
+
+// DeleteParquetLocalRow forgets one uploaded file the hot-retention janitor
+// deleted. Unlike DropParquetLocal it releases nothing: MarkUploaded already
+// released the segment refcounts when the upload committed.
+func (m *metaDb) DeleteParquetLocalRow(path string) error {
+	return errors.Wrap(m.meta.Exec(`DELETE FROM parquet_local WHERE path = ?`, path).Error,
+		"delete aged parquet row")
+}
+
+// BucketParquetCount reports how many parquet_local rows still reference the
+// bucket, in any state. A bucket is droppable from the hot index only at zero:
+// a pending or quarantined row means rows not yet durable in S3, and an
+// uploaded row still inside hot_retention means the overlap window is open.
+func (m *metaDb) BucketParquetCount(timeBucketMs int64) (int, error) {
+	var n int
+	err := m.meta.Raw(`SELECT COUNT(*) FROM parquet_local WHERE time_bucket_ms = ?`,
+		timeBucketMs).Scan(&n).Error
+	return n, err
+}
+
+// DropPartition closes the bucket's partition handle and marks the catalog row
+// dropped; the caller unlinks the SQLite files. Buckets() stops listing the
+// bucket, so every Buckets-driven reader (hot window, seal loop, FindCall)
+// forgets it atomically with the catalog update.
+func (m *metaDb) DropPartition(bucket, droppedAtMs int64) (string, error) {
+	m.dropCachedPartition(bucket)
+	var path string
+	if err := m.meta.Raw(`SELECT path FROM call_partitions WHERE bucket = ?`, bucket).
+		Scan(&path).Error; err != nil {
+		return "", err
+	}
+	return path, errors.Wrap(m.meta.Exec(`UPDATE call_partitions SET dropped_at = ?
+		WHERE bucket = ? AND dropped_at IS NULL`, droppedAtMs, bucket).Error, "mark partition dropped")
+}
+
+// WalPurgeCandidate is a closed pod-restart whose snapshots are in S3 and
+// whose WALs are still on the PV.
+type WalPurgeCandidate struct {
+	PodRestart       string
+	ClosedAtMs       int64
+	DictUploadedAtMs int64
+}
+
+// WalPurgeCandidates lists pod-restarts eligible for the 03 §3.9 step-18 WAL
+// purge check: closed, dictionary snapshot uploaded, not yet purged.
+func (m *metaDb) WalPurgeCandidates() ([]WalPurgeCandidate, error) {
+	var rows []WalPurgeCandidate
+	err := m.meta.Raw(`SELECT pod_restart, closed_at AS closed_at_ms, dict_uploaded_at AS dict_uploaded_at_ms
+		FROM pod_restarts
+		WHERE closed_at IS NOT NULL AND dict_uploaded_at IS NOT NULL AND wals_purged_at IS NULL
+		ORDER BY pod_restart`).Scan(&rows).Error
+	return rows, err
+}
+
+// HasPendingParquet reports whether any of the pod-restart's sealed files is
+// not confirmed in S3 (pending upload or quarantined) — either blocks the WAL
+// purge: the WAL is the only source a re-seal could decode the rows from.
+func (m *metaDb) HasPendingParquet(podRestart string) (bool, error) {
+	var n int
+	err := m.meta.Raw(`SELECT COUNT(*) FROM parquet_local
+		WHERE pod_restart = ? AND uploaded_at IS NULL`, podRestart).Scan(&n).Error
+	return n > 0, err
+}
+
+// SetWalsPurged records that the pod-restart's WAL files are gone.
+func (m *metaDb) SetWalsPurged(podRestart string, purgedAtMs int64) error {
+	return errors.Wrap(m.meta.Exec(`UPDATE pod_restarts SET wals_purged_at = ?
+		WHERE pod_restart = ? AND wals_purged_at IS NULL`, purgedAtMs, podRestart).Error,
+		"set wals_purged_at")
+}
+
+// SegmentsForBudget lists every non-evicted segment in the deterministic
+// eviction order: oldest first by created_at, tie-broken by the catalog key
+// (01-write-contract.md §4.6 — refcount partitioning happens in the caller).
+func (m *metaDb) SegmentsForBudget() ([]SegmentRow, error) {
+	var rows []SegmentRow
+	err := m.meta.Raw(`SELECT pod_restart, stream, rolling_seq, path, logical_size,
+		time_min_ms, time_max_ms, refcount, status
+		FROM segments WHERE status <> 'evicted'
+		ORDER BY created_at, pod_restart, stream, rolling_seq`).Scan(&rows).Error
+	return rows, err
+}
+
+// MarkSegmentEvicted records a disk-budget eviction: the file is gone but the
+// row survives with status 'evicted' and its refcount untouched, so the seal
+// pass truncates the affected calls with disk_budget (01-write-contract.md
+// §4.6) and an upload can still release the refcounts it pinned.
+func (m *metaDb) MarkSegmentEvicted(podRestart, stream string, seq int, evictedAtMs int64) error {
+	return errors.Wrap(m.meta.Exec(`UPDATE segments SET status = 'evicted', evicted_at = ?
+		WHERE pod_restart = ? AND stream = ? AND rolling_seq = ?`,
+		evictedAtMs, podRestart, stream, seq).Error, "mark segment evicted")
 }
 
 // MaxCallsWalOffset reports the highest calls.wal offset indexed for a

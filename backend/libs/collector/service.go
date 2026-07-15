@@ -104,6 +104,15 @@ func (s *Service) Run(ctx context.Context) error {
 			cancel()
 		})
 	}
+	// The janitor loop (01 §4.6/§6.3, 03 §3.9 step 18) keeps the PV inside the
+	// hot-retention and disk budgets; opt-in like the loops above.
+	if interval := s.store.Config().JanitorCheckInterval; interval > 0 {
+		gr.Add(func() error {
+			return s.store.RunJanitorLoop(ctx, interval)
+		}, func(error) {
+			cancel()
+		})
+	}
 	// The internal hot-read API (02-read-contract.md §3) serves for as long as
 	// the store does; the app wiring sets the bind address.
 	if s.hotread != nil {

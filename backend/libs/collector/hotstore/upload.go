@@ -45,12 +45,13 @@ type (
 	// UploadStats counts one Pass's work (and, via CountersSnapshot, the
 	// process lifetime — the seam for the future Prometheus counters).
 	UploadStats struct {
-		UploadedFiles    int64
-		RetriedPuts      int64
-		QuarantinedFiles int64
-		ManifestPuts     int64
-		SnapshotUploads  int64
-		SegmentsDeleted  int64
+		UploadedFiles      int64
+		RetriedPuts        int64
+		QuarantinedFiles   int64
+		QuarantinedObjects int64
+		ManifestPuts       int64
+		SnapshotUploads    int64
+		SegmentsDeleted    int64
 	}
 
 	// dictionarySnapshot is the S3 dictionary object (01 §3.6, 02 §2.6). The
@@ -118,6 +119,7 @@ func (u *Uploader) accumulate(stats UploadStats) {
 	u.counters.UploadedFiles += stats.UploadedFiles
 	u.counters.RetriedPuts += stats.RetriedPuts
 	u.counters.QuarantinedFiles += stats.QuarantinedFiles
+	u.counters.QuarantinedObjects += stats.QuarantinedObjects
 	u.counters.ManifestPuts += stats.ManifestPuts
 	u.counters.SnapshotUploads += stats.SnapshotUploads
 	u.counters.SegmentsDeleted += stats.SegmentsDeleted
@@ -244,6 +246,9 @@ func (u *Uploader) quarantine(ctx context.Context, f ParquetLocalFile, cause err
 // upsertManifest writes or refreshes the pods manifest of the file's UTC day
 // (01 §3.6): idempotent per (day, pod-restart), bounds over every file the
 // pod-restart sealed into that day so a later seal only widens time_max_ms.
+// A permanently rejected manifest is quarantined and treated as done: the
+// parquet object itself is already durable, so blocking its uploaded_at commit
+// would re-PUT it forever for a manifest S3 refuses to take.
 func (u *Uploader) upsertManifest(ctx context.Context, f ParquetLocalFile, done map[string]struct{}, stats *UploadStats) error {
 	dayStartMs := utcDayStartMs(f.TimeBucketMs)
 	doneKey := fmt.Sprintf("%s/%d", f.PodRestart, dayStartMs)
@@ -253,6 +258,11 @@ func (u *Uploader) upsertManifest(ctx context.Context, f ParquetLocalFile, done 
 	key, err := ParsePodRestartKey(f.PodRestart)
 	if err != nil {
 		return err
+	}
+	s3Key := path.Join("pods/v1", utcDayPath(dayStartMs), PodRestartHash(key)+".json")
+	if u.objectQuarantined(s3Key) {
+		done[doneKey] = struct{}{}
+		return nil
 	}
 	timeMinMs, timeMaxMs, ok, err := u.store.db.ManifestBounds(f.PodRestart, dayStartMs, dayStartMs+dayMs)
 	if err != nil {
@@ -275,13 +285,42 @@ func (u *Uploader) upsertManifest(ctx context.Context, f ParquetLocalFile, done 
 	if err != nil {
 		return errors.Wrap(err, "encode pods manifest")
 	}
-	s3Key := path.Join("pods/v1", utcDayPath(dayStartMs), PodRestartHash(key)+".json")
 	if err := u.putWithRetry(ctx, s3Key, func() error { return u.s3.PutBytes(ctx, s3Key, body) }, stats); err != nil {
-		return err
+		if !IsPermanentUploadError(err) {
+			return err
+		}
+		if qErr := u.quarantineObject(ctx, s3Key, body, err); qErr != nil {
+			return qErr
+		}
+		stats.QuarantinedObjects++
+		done[doneKey] = struct{}{}
+		return nil
 	}
 	done[doneKey] = struct{}{}
 	stats.ManifestPuts++
 	return nil
+}
+
+// quarantineObject persists a permanently rejected snapshot or manifest body
+// under upload-failed/<s3 key>, mirroring the parquet quarantine (01 §8): the
+// bytes wait for a human instead of retrying forever. Idempotent — a repeat
+// overwrites the same file.
+func (u *Uploader) quarantineObject(ctx context.Context, s3Key string, body []byte, cause error) error {
+	dest := filepath.Join(u.store.cfg.DataDir, "upload-failed", filepath.FromSlash(s3Key))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return errors.Wrap(err, "create upload-failed dir")
+	}
+	if err := os.WriteFile(dest, body, 0o644); err != nil {
+		return errors.Wrap(err, "write quarantined object")
+	}
+	log.Error(ctx, cause, "upload: S3 rejected %s permanently; body kept at %s, retry stopped", s3Key, dest)
+	return nil
+}
+
+// objectQuarantined reports whether a key already sits in upload-failed/.
+func (u *Uploader) objectQuarantined(s3Key string) bool {
+	_, err := os.Stat(filepath.Join(u.store.cfg.DataDir, "upload-failed", filepath.FromSlash(s3Key)))
+	return err == nil
 }
 
 // uploadSnapshots writes the dictionary and suspend-timeline objects of every
@@ -332,6 +371,9 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	// The shared helper keeps the writer and the cold reader on one key.
 	dictKey := model.DictionarySnapshotKey(key.Tuple())
 	if err := u.putWithRetry(ctx, dictKey, func() error { return u.s3.PutBytes(ctx, dictKey, dictBody) }, stats); err != nil {
+		if IsPermanentUploadError(err) {
+			return u.quarantineSnapshot(ctx, key, dictKey, dictBody, err, stats)
+		}
 		return err
 	}
 
@@ -353,6 +395,9 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	}
 	suspendKey := path.Join("suspend/v1", dayPath, hash+".json")
 	if err := u.putWithRetry(ctx, suspendKey, func() error { return u.s3.PutBytes(ctx, suspendKey, suspendBody) }, stats); err != nil {
+		if IsPermanentUploadError(err) {
+			return u.quarantineSnapshot(ctx, key, suspendKey, suspendBody, err, stats)
+		}
 		return err
 	}
 
@@ -362,6 +407,22 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	stats.SnapshotUploads++
 	log.Info(ctx, "uploaded dictionary and suspend snapshots of %s (%d words, %d pauses)",
 		key, len(words), len(events))
+	return nil
+}
+
+// quarantineSnapshot handles a permanent S3 rejection of a dictionary or
+// suspend object: the body moves to upload-failed/ and dict_upload_failed_at
+// takes the pod-restart out of the snapshot queue while dict_uploaded_at stays
+// NULL — so the WAL purge never runs and the WALs wait on the PV with the
+// quarantined body. Nothing else changes: snapshots pin no refcounts.
+func (u *Uploader) quarantineSnapshot(ctx context.Context, key PodRestartKey, s3Key string, body []byte, cause error, stats *UploadStats) error {
+	if err := u.quarantineObject(ctx, s3Key, body, cause); err != nil {
+		return err
+	}
+	if err := u.store.db.SetDictUploadFailed(key.String(), time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	stats.QuarantinedObjects++
 	return nil
 }
 

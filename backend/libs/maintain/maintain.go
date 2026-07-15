@@ -1,0 +1,180 @@
+package maintain
+
+import (
+	"context"
+	"time"
+
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
+)
+
+const (
+	// producerToken is the reserved <replica> slot value of a compacted
+	// object key (01-write-contract.md §7).
+	producerToken = "maintain"
+	// parquetPrefix roots every sealed-file key (01 §7).
+	parquetPrefix = "parquet/v1"
+)
+
+type (
+	// Config tunes one maintenance job. Zero fields take the contract
+	// defaults via Normalize.
+	Config struct {
+		// TimeBucket mirrors the producer's PROFILER_TIME_BUCKET (01 §9): the
+		// settled check needs the bucket end, and the key carries only the
+		// start. A mismatch with the collector only shifts the settled point
+		// by the difference.
+		TimeBucket time.Duration
+		// MinAge is how long past its end a bucket must be before compaction
+		// (PROFILER_COMPACTION_MIN_AGE): a younger bucket may still receive
+		// late-arrival patch files (01 §6.6), which would immediately
+		// re-fragment the compacted output.
+		MinAge time.Duration
+		// MinFiles is the object count that triggers a fresh compaction of a
+		// bucket-class group (PROFILER_COMPACTION_MIN_FILES). Residue of an
+		// earlier round — a maintain object plus stragglers — recompacts
+		// below the threshold so a bucket still converges to one object.
+		MinFiles int
+		// DeleteGrace delays the delete of a compaction's inputs after the
+		// compacted object is written (PROFILER_COMPACTION_DELETE_GRACE,
+		// 01 §6.6): a query whose LIST saw the inputs must still be able to
+		// read them one discovery-plus-read round later.
+		DeleteGrace time.Duration
+		// MaxGroupBytes skips a group whose total input size exceeds the
+		// budget — the merge materializes every input row in memory. The
+		// bucket stays uncompacted, which readers tolerate; a streaming merge
+		// is the upgrade path if real buckets ever hit this.
+		MaxGroupBytes int64
+		// ClassTTL maps a retention class to its TTL (01 §6.4). A class
+		// absent from the map never expires.
+		ClassTTL map[string]time.Duration
+		// SnapshotTTL expires the dictionaries/pods/suspend snapshot objects
+		// (PROFILER_RETENTION_DICTIONARY_TTL, 01 §3.6).
+		SnapshotTTL time.Duration
+	}
+
+	// Stats reports what one Pass did; the counters back the future
+	// Prometheus metrics and the test assertions.
+	Stats struct {
+		CompactedGroups     int // fresh compactions: one output written each
+		CompactedInputFiles int // inputs consumed by those outputs
+		CompactedRows       int // rows written into compacted objects
+		DedupedRows         int // duplicate-PK rows dropped by the merge
+		PendingDeleteGroups int // groups whose output exists, delete-grace pending
+		DeletedInputFiles   int // inputs removed after the grace
+		SkippedSmallGroups  int // groups below MinFiles with no residue
+		SkippedUnsettled    int // groups younger than bucket end + MinAge
+		SkippedOversized    int // groups over MaxGroupBytes
+		TTLParquetDeleted   int // parquet objects past their class TTL
+		TTLSnapshotsDeleted int // dictionary/pods/suspend objects past SnapshotTTL
+		Errors              int // logged failures the pass skipped over
+	}
+
+	// Job runs maintenance passes against one object store.
+	Job struct {
+		store ObjectStore
+		cfg   Config
+	}
+)
+
+// DefaultClassTTL returns the 01 §6.4 default per-class TTL mapping.
+func DefaultClassTTL() map[string]time.Duration {
+	return map[string]time.Duration{
+		model.RetentionShortClean:  24 * time.Hour,
+		model.RetentionNormalClean: 7 * 24 * time.Hour,
+		model.RetentionLongClean:   30 * 24 * time.Hour,
+		model.RetentionAnyError:    30 * 24 * time.Hour,
+		model.RetentionCorrupted:   7 * 24 * time.Hour,
+	}
+}
+
+// Normalize fills unset fields with the contract defaults (01 §9).
+func (c Config) Normalize() Config {
+	if c.TimeBucket <= 0 {
+		c.TimeBucket = 5 * time.Minute
+	}
+	if c.MinAge <= 0 {
+		c.MinAge = 30 * time.Minute
+	}
+	if c.MinFiles <= 0 {
+		c.MinFiles = 4
+	}
+	if c.DeleteGrace <= 0 {
+		c.DeleteGrace = 5 * time.Minute
+	}
+	if c.MaxGroupBytes <= 0 {
+		c.MaxGroupBytes = 256 << 20
+	}
+	if c.ClassTTL == nil {
+		c.ClassTTL = DefaultClassTTL()
+	}
+	if c.SnapshotTTL <= 0 {
+		c.SnapshotTTL = 35 * 24 * time.Hour
+	}
+	return c
+}
+
+// NewJob builds a job over the store with the normalized config.
+func NewJob(store ObjectStore, cfg Config) *Job {
+	return &Job{store: store, cfg: cfg.Normalize()}
+}
+
+// Pass runs one maintenance round at the given wall-clock instant: per
+// retention class, expire objects past their TTL (01 §6.4), then compact the
+// settled bucket groups (01 §6.6); finally expire the snapshot families
+// (01 §3.6). Failures on individual prefixes, groups, or objects are logged
+// and counted in Stats.Errors so one bad object cannot stall the rest; the
+// returned error is non-nil only when the context ends.
+func (j *Job) Pass(ctx context.Context, now time.Time) (Stats, error) {
+	var stats Stats
+	for _, class := range model.RetentionClasses {
+		if err := ctx.Err(); err != nil {
+			return stats, err
+		}
+		objects, err := j.store.List(ctx, parquetPrefix+"/"+class+"/")
+		if err != nil {
+			stats.Errors++
+			log.Error(ctx, err, "maintain: cannot list class %s", class)
+			continue
+		}
+		files := make([]parquetObject, 0, len(objects))
+		for _, obj := range objects {
+			// The prefix may hold foreign objects; only 01 §7 keys take part.
+			if po, ok := parseParquetKey(obj); ok {
+				files = append(files, po)
+			}
+		}
+		files = j.expireParquet(ctx, class, files, now, &stats)
+		for _, group := range groupByBucket(files) {
+			if err := ctx.Err(); err != nil {
+				return stats, err
+			}
+			j.compactGroup(ctx, class, group, now, &stats)
+		}
+	}
+	j.expireSnapshots(ctx, now, &stats)
+	return stats, ctx.Err()
+}
+
+// RunLoop runs Pass immediately and then on every interval tick until the
+// context ends. The immediate first pass matters for a singleton with a long
+// interval: a restarted maintainer must not sit idle for a full tick before
+// resuming a half-finished compaction round.
+func (j *Job) RunLoop(ctx context.Context, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		stats, err := j.Pass(ctx, time.Now())
+		if err != nil && ctx.Err() == nil {
+			log.Error(ctx, err, "maintain pass failed")
+		}
+		if stats != (Stats{}) {
+			log.Info(ctx, "maintain pass: %+v", stats)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}

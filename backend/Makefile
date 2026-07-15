@@ -23,7 +23,7 @@ export SKIP_FRONTEND
 
 # Application names (production components)
 # collector and query are excluded for now
-APPS := dumps-collector maintenance
+APPS := dumps-collector maintenance profiler-backend
 
 # Tool names (development/support tools)
 TOOLS := load-generator migration
@@ -174,6 +174,10 @@ migration-build:
 	@echo "==> Building migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration build
 
+profiler-backend-build:
+	@echo "==> Building profiler-backend..."
+	$(MAKE) -C $(APPS_DIR)/profiler-backend build
+
 query-build:
 	@echo "==> Building query..."
 	$(MAKE) -C $(APPS_DIR)/query build
@@ -197,6 +201,10 @@ maintenance-clean:
 migration-clean:
 	@echo "==> Cleaning migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration clean
+
+profiler-backend-clean:
+	@echo "==> Cleaning profiler-backend..."
+	$(MAKE) -C $(APPS_DIR)/profiler-backend clean
 
 query-clean:
 	@echo "==> Cleaning query..."
@@ -222,6 +230,10 @@ migration-test:
 	@echo "==> Testing migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration test
 
+profiler-backend-test:
+	@echo "==> Testing profiler-backend..."
+	$(MAKE) -C $(APPS_DIR)/profiler-backend test
+
 query-test:
 	@echo "==> Testing query..."
 	$(MAKE) -C $(APPS_DIR)/query test
@@ -245,6 +257,10 @@ maintenance-docker:
 migration-docker:
 	@echo "==> Building Docker image for migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration docker-build
+
+profiler-backend-docker:
+	@echo "==> Building Docker image for profiler-backend..."
+	$(MAKE) -C $(APPS_DIR)/profiler-backend docker-build
 
 query-docker:
 	@echo "==> Building Docker image for query..."
@@ -270,10 +286,28 @@ migration-archive:
 	@echo "==> Creating archive for migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration archive
 
+profiler-backend-archive:
+	@echo "==> Creating archive for profiler-backend..."
+	$(MAKE) -C $(APPS_DIR)/profiler-backend archive
+
 query-archive:
 	@echo "==> Creating archive for query..."
 	$(MAKE) -C $(APPS_DIR)/query archive
 
+
+# =============================================================================
+# SMOKE TEST (docker-compose stack: collector + query + MinIO)
+# =============================================================================
+
+.PHONY: smoke
+smoke:
+	@echo "==> Starting the dev stack..."
+	docker compose down -v --remove-orphans
+	docker compose up --build -d
+	@echo "==> Running the end-to-end smoke test..."
+	@status=0; go test -tags smoke -count=1 -timeout 20m -v ./libs/tests/smoke/... || status=$$?; \
+	docker compose down -v --remove-orphans; \
+	exit $$status
 
 # =============================================================================
 # CHARTS TARGETS
@@ -379,6 +413,10 @@ help-maintenance:
 help-migration:
 	@echo "Help for migration tool:"
 	$(MAKE) -C $(TOOLS_DIR)/migration help
+
+help-profiler-backend:
+	@echo "Help for profiler-backend application:"
+	$(MAKE) -C $(APPS_DIR)/profiler-backend help
 
 help-query:
 	@echo "Help for query application:"

@@ -16,10 +16,20 @@ func TestParseKey(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "normal_clean", ref.Class)
 	assert.EqualValues(t, 1234, ref.Size)
+	assert.Equal(t, "collector-2", ref.Replica, "the replica keeps its own dashes")
+	assert.Equal(t, "a7f3b2c1", ref.Hash)
 	wantMin := time.Date(2026, 4, 23, 14, 0, 3, 0, time.UTC).UnixMilli()
 	wantMax := time.Date(2026, 4, 23, 14, 4, 57, 0, time.UTC).UnixMilli() + 999
 	assert.Equal(t, wantMin, ref.TimeMinMs)
 	assert.Equal(t, wantMax, ref.TimeMaxMs, "timeMax widens to the end of its truncated second")
+
+	// A compacted object keys the reserved MaintainReplica token; its hash
+	// covers the compaction's inputs, so the point-fetch path reads it whole.
+	compacted := "parquet/v1/normal_clean/2026/04/23/14/maintain-9c2e-20260423T140000Z-20260423T140003Z-20260423T140457Z-0.parquet"
+	ref, ok = ParseKey(compacted, 1)
+	require.True(t, ok)
+	assert.Equal(t, MaintainReplica, ref.Replica)
+	assert.Equal(t, "9c2e", ref.Hash)
 
 	for _, bad := range []string{
 		"parquet/v1/normal_clean/2026/04/23/14/garbage.parquet",

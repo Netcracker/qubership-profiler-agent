@@ -16,6 +16,13 @@ import (
 // (01-write-contract.md §7); it must match hotstore's sealedNameStamp.
 const keyStamp = "20060102T150405Z"
 
+// MaintainReplica is the reserved <replica> token of a compacted object key
+// (01-write-contract.md §7). A cross-pod-restart compaction keys its output
+// by the hash of its inputs, not by any one pod-restart, so the point-fetch
+// path (scan.go) cannot prune such a file by hash and must read it whole for
+// every PK.
+const MaintainReplica = "maintain"
+
 // Clean-class duration bounds of the default 01 §6.4 mapping, used by the
 // §5.5 class pruning. The error classes carry calls of any duration and are
 // never pruned by a duration filter (02 §2.3.2).
@@ -34,6 +41,7 @@ type (
 		Key       string
 		Size      int64
 		Class     string
+		Replica   string
 		Hash      string
 		TimeMinMs int64
 		TimeMaxMs int64
@@ -181,7 +189,11 @@ func ParseKey(key string, size int64) (FileRef, bool) {
 		Key:   key,
 		Size:  size,
 		Class: class,
-		Hash:  parts[len(parts)-5],
+		// <replica> may itself contain dashes (collector-0), so it is
+		// everything left of the hash. A compacted object carries the reserved
+		// MaintainReplica token here (01 §7); the point-fetch path keys off it.
+		Replica: strings.Join(parts[:len(parts)-5], "-"),
+		Hash:    parts[len(parts)-5],
 		// The key stamps are second-precision (01 §7) while row ts_ms is
 		// milliseconds: both bounds are truncated downward in the key. Widen
 		// timeMax to the end of its second so a row in the truncated tail

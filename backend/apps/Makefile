@@ -7,9 +7,9 @@
 # Set SKIP_FRONTEND=Y to exclude the query (frontend) app from builds
 # collector and maintenance are excluded for now
 ifeq ($(SKIP_FRONTEND),Y)
-APPS := dumps-collector
+APPS := dumps-collector profiler-backend
 else
-APPS := dumps-collector query
+APPS := dumps-collector profiler-backend query
 endif
 
 # Default target
