@@ -38,20 +38,24 @@ func CreateMockServerListener() *MockServerListener {
 	}
 }
 
-func (m *MockServerListener) RegisterPod(pod *server.ConnectedPod) {
+func (m *MockServerListener) RegisterPod(pod *server.ConnectedPod) error {
 	m.pods[pod.PodName] = &MockPod{ConnectedPod: pod, streams: make(map[string]*MockStream)}
+	return nil
 }
 
-func (m *MockServerListener) AppendData(ctx context.Context, pod *server.ConnectedPod, handleId common.Uuid, chunk string) int {
-	return len(chunk)
+func (m *MockServerListener) AppendData(ctx context.Context, pod *server.ConnectedPod, handleId common.Uuid, chunk string) (int, error) {
+	return len(chunk), nil
 }
 
 func (m *MockServerListener) RegisterStream(ctx context.Context, pod *server.ConnectedPod,
 	handleId common.Uuid, streamType string, resetRequired int, requestedRollingSequenceId int,
-	rollingSequenceId int, rotationPeriod uint64, requiredRotationSize uint64) {
+	rollingSequenceId int, rotationPeriod uint64, requiredRotationSize uint64) error {
 
 	m.pods[pod.PodName] = &MockPod{ConnectedPod: pod, streams: make(map[string]*MockStream)}
+	return nil
+}
 
+func (m *MockServerListener) PodDisconnected(ctx context.Context, pod *server.ConnectedPod) {
 }
 
 func (m *MockServerListener) SentCommand(ctx context.Context, c model.Command) {

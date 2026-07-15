@@ -66,6 +66,7 @@ func TracesPipeReader(ctx context.Context, b *PipeReader) <-chan TraceItem {
 			eventTime := -realTimeOffset
 			j := 0
 			sp := 0
+			finished := false
 			for !b.EOF() {
 				j++
 
@@ -77,6 +78,7 @@ func TracesPipeReader(ctx context.Context, b *PipeReader) <-chan TraceItem {
 
 				if typ == EventFinishRecord {
 					log.ExtraTrace(ctx, " * [%d:%d] got EVENT_FINISH_RECORD=%v", lines, j, EventFinishRecord)
+					finished = true
 					break
 				}
 				etime := int(header&0x7f) >> 2
@@ -153,12 +155,14 @@ func TracesPipeReader(ctx context.Context, b *PipeReader) <-chan TraceItem {
 				lines, threadId, rtTime(realTime), j, len(tagIds), nBytes, pos, pos)
 
 			ch <- TraceItem{
-				Id:     lines,
-				Offset: pos,
-				Time:   trRecordTime,
-				bytes:  nBytes,
-				Data:   b.GetAndEmptyBuffer(), // TODO check performance
-				debug:  s.String(),
+				Id:       lines,
+				Offset:   pos,
+				ThreadId: threadId,
+				Time:     trRecordTime,
+				Complete: finished,
+				bytes:    nBytes,
+				Data:     b.GetAndEmptyBuffer(), // TODO check performance
+				debug:    s.String(),
 			}
 			lines++
 		}

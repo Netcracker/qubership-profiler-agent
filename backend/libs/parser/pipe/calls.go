@@ -36,6 +36,10 @@ func CallsPipeReader(ctx context.Context, b *PipeReader) <-chan CallItem {
 		log.Debug(ctx, " * start time: %v -  %v", startTime, time.UnixMilli(int64(startTime)).UTC().String())
 
 		threadNames := []string{}
+		// The wire stores each record's start as a zig-zag delta from the previous
+		// record, seeded by the file header (01-write-contract.md §5.1). Accumulate
+		// to recover the absolute time; startTime is the header base_ms.
+		callTimeMs := int64(startTime)
 		for !b.EOF() {
 			if ctx.Err() != nil {
 				return
@@ -143,7 +147,8 @@ func CallsPipeReader(ctx context.Context, b *PipeReader) <-chan CallItem {
 				}
 			}
 
-			cTime := time.UnixMilli(int64(startTime) + dst.Time)
+			callTimeMs += int64(dst.Time)
+			cTime := time.UnixMilli(callTimeMs)
 			ch <- CallItem{
 				id:   lines,
 				Time: cTime,

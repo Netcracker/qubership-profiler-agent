@@ -1,0 +1,154 @@
+# Backend implementation workflow
+
+This file is for implementation work under `backend/`. Code-review, bug-analysis, and architectural-discussion sessions don't need it — those only need the mandatory reading list in `backend/CLAUDE.md`.
+
+## 1. Per-session loop
+
+Each implementation session is one bounded unit of work. The loop:
+
+1. **Read context.** `backend/CLAUDE.md` mandatory list, then the current `stage{N}-plan.md` and `stage{N}-progress.md`.
+2. **Pick the next task.** The user names it (e.g. "Stage 1b.2" or "the dictionary WAL"). If unclear, ask. Don't pick yourself unless the user has explicitly said "next task" or similar.
+3. **Plan mode.** Enter plan mode (`EnterPlanMode`). Produce a concrete plan for this task: files to touch, types and functions to add, tests to write, acceptance criteria. Confirm with the user before exiting plan mode.
+4. **Branch off.** Cut a feature branch from `main` (or from the stage branch if one exists). See §3.
+5. **Implement and test.** Code on the branch. Tests are mandatory and live alongside the code (§6).
+6. **Update progress.** Append to `stage{N}-progress.md` **in the same commit** as the code (not a separate commit). Status table → check off the task; decisions log → add any architectural notes worth keeping; open issues → record what you saw but didn't fix.
+7. **Commit + push + PR.** See §4 for commits and §5 for PRs.
+
+## 2. Stage and task decomposition
+
+A **stage** is a coherent slice of the project plan (Stage 0 = contracts, Stage 1 = collector skeleton, Stage 2 = durability, etc.). Each stage gets two documents in `backend/docs/design/`:
+
+- `stage{N}-plan.md` — task list with dependencies and per-task acceptance criteria.
+- `stage{N}-progress.md` — status, decisions log, open issues. Same shape as `stage0-progress.md`.
+
+A **task** is one PR-sized unit. Rules of thumb:
+
+- One task = one PR. If a PR's diff grows past ~500 LOC of substantive change, that's a hint to split.
+- Tasks declare their dependencies in `stage{N}-plan.md`. Unblocked tasks can be picked up in parallel sessions.
+- Cross-cutting changes (formatting sweeps, lint fixes, dependency bumps) get their own task. Don't bundle them into a feature task.
+
+## 3. Branches
+
+- Feature branches: `feat/stage{N}-<task-slug>`. Examples: `feat/stage1a-cmd-dispatcher`, `feat/stage1b2-dictionary-wal`.
+- The stage parent branch is optional. Use one (`feat/stage{N}`) only when incremental staging review is wanted; otherwise feature branches go straight to `main` via PR.
+- All branches push to the `vs` remote only: `git push vs HEAD:<branch>`.
+- **Never push to `origin`.** PRs are opened against the upstream `origin` from `vs` (§5).
+
+## 4. Commits
+
+Match the repo's existing Conventional Commits style:
+
+```
+<type>(profiler): <subject under 70 chars>
+
+<body: explain why, not what — the diff already shows what>
+
+Co-Authored-By: <name> <email>
+```
+
+Types:
+- `feat` — new functionality.
+- `fix` — bug fix.
+- `refactor` — code restructuring with no behavior change.
+- `test` — tests-only change.
+- `docs` — documentation only.
+- `chore` — build, deps, tooling.
+- `perf` — performance only.
+
+Scope is `profiler`.
+
+Per-commit hygiene:
+- Stage specific files by name (no `git add -A` / `git add .`).
+- Bundle progress-doc updates into the same commit as the code they describe.
+- One commit = one logical change. Multiple commits per PR are fine if each compiles and passes tests.
+
+The `Co-Authored-By` trailer is required for agent-authored commits. The conventional value:
+
+```
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+```
+
+## 5. Pull requests
+
+Open against the upstream `origin/main` from the `vs` fork:
+
+```bash
+gh pr create \
+  --repo Netcracker/qubership-profiler-agent \
+  --base main \
+  --head vlsi:<branch> \
+  --title "<type>(profiler): <subject>" \
+  --body "$(cat <<'EOF'
+## Summary
+- 1–3 bullets: what changed, why.
+
+## Test plan
+- [ ] Concrete checks the reviewer can run locally.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+PR conventions:
+
+- PRs open as **regular** by default. Use `--draft` only when the user has explicitly asked for an exploratory PR.
+- The PR description references its `stage{N}-progress.md` entry by anchor link so reviewers can jump to the context fast.
+- No force-push to a PR once review has started. Add new commits instead; let the reviewer see the delta.
+- Merge strategy (squash vs merge) is the maintainer's call. Don't decide unilaterally.
+
+## 6. Tests and fixtures
+
+- New tests are written in **Kotlin** (project convention; see root `CLAUDE.md`).
+- **Synthetic fixtures only.** Never commit a captured wire-protocol dump (`.protocol`, `.bin`, `.pcap`, raw S3 objects, etc.). Project memory documents this constraint; it predates Stage 1.
+- Synthetic interleaved trace streams for chunk-reassembly tests (`01-write-contract.md` §4) live in a discoverable location under `backend/libs/tests/helpers/`. Generators are versioned; the generated bytes are not.
+- Integration tests use **docker-compose with MinIO** as the S3 target. The filesystem-S3 emulator is deferred (`deferred.md` — ship only when a concrete consumer needs it).
+- Unit tests live next to the code they cover (Go convention `*_test.go`); integration suites that span modules go under `backend/libs/tests/integration/`.
+
+## 7. Updating the progress doc
+
+`stage{N}-progress.md` has three sections that update at different cadences:
+
+- **Status checklist.** Update on every task completion. Same commit as the code.
+- **Decisions log.** Append-only. Each entry has a date, the question, the choice taken, and the reason. Never edit a prior entry — supersede it with a new entry that references it. Use absolute dates (`2026-06-18`), not relative ones.
+- **Open issues / Stage N → Stage N+1 readiness.** Things you saw but didn't fix. Carry them forward to the next stage's plan when this stage closes.
+
+## 8. When contracts change
+
+The `01–05` contracts in `backend/docs/design/` are the source of truth. They change only when implementation proves a contract is wrong or incomplete.
+
+The protocol when this happens:
+
+1. **Stop coding.** Don't try to make the code work against an outdated contract.
+2. **Update the contract.** Separate commit, with rationale in the commit message and an entry in the `stage{N}-progress.md` decisions log if structural.
+3. **Surface to the user.** The contract is shared infrastructure; don't change it silently.
+4. **Then resume coding.** The branch can be merged or split per the user's call.
+
+Implementation-only choices (which Go library, how to structure internal interfaces, code organization) are **not** contract changes. They go straight into the progress doc decisions log.
+
+## 9. What not to do
+
+- Don't commit binary fixtures or captured production data.
+- Don't push to `origin` — only to `vs`.
+- Don't skip `Co-Authored-By` on agent commits.
+- Don't bundle progress-doc updates into a separate commit from the work they describe; they get out of sync that way.
+- Don't pick the next task without confirming with the user.
+- Don't update `01–05` unless a real contract change is happening. For most decisions, the progress doc is the right home.
+- Don't enlarge a PR after review starts. New work goes in a new PR.
+- Don't run `--no-verify` or skip pre-commit hooks without an explicit user request — pre-commit failures point at real problems most of the time.
+
+## 10. Where does this fact go?
+
+A quick lookup for the perennial "where do I write this down?" question:
+
+| Fact | Goes in |
+|---|---|
+| Architectural contract (write/read shape, lifecycle, layout) | `01–05` design docs |
+| Stage plan and acceptance criteria | `stage{N}-plan.md` |
+| What's done, decisions taken during implementation, open issues | `stage{N}-progress.md` |
+| Idea explicitly deferred, with revisit trigger | `deferred.md` |
+| Workflow rule for future sessions | this file |
+| Repo-wide "how to behave in `backend/`" | `backend/CLAUDE.md` |
+| Repo-wide non-backend rule | root `CLAUDE.md` |
+| User preferences across all projects | global auto-memory (`~/.claude/projects/.../memory/`) |
+| In-conversation working state | nowhere — it's ephemeral |
