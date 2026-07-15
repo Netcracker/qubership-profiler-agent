@@ -492,6 +492,51 @@ merge gates a usable tree. Status, decisions, and open issues per
   `s3-ca` volume mounted alongside the existing `s3-credentials` one on the
   collector, query, and both maintain workloads.
 
+- **2026-07-09 — Pods Info links out to dumps-collector for td/top dumps
+  only.** PR 708 review #18 flagged that Pods Info has no way to reach the
+  thread/top dumps `dumps-collector` already captures for a pod-restart.
+  `dumps-collector` is a separate deployment with its own ingress
+  (`dumps-collector-<namespace>.<CLOUD_PUBLIC_HOST>` by default), so there
+  is no in-cluster way to derive its base URL. It needs an explicit new
+  setting: `query.dumpsCollectorUrl` in the profiler-backend chart, plumbed
+  through `DUMPS_COLLECTOR_URL` to a new `GET /api/v1/config` endpoint that
+  the UI reads once at startup. `dumps-collector`'s own routes
+  (`apps/dumps-collector/pkg/server/http_server.go`) confirmed the scope
+  before committing to this design:
+  `/cdt/v2/download?dateFrom&dateTo&type={td,top}&namespace&service&podName`
+  needs only values Pods Info already has per row, so a link is
+  constructible for thread and top dumps. Heap dumps are not: their route,
+  `/cdt/v2/heaps/download/:handle`, needs an opaque handle from a prior
+  listing call that dumps-collector does not expose. Pods Info therefore
+  renders a "Dumps" column with "Thread dumps"/"Top dumps" links only when
+  `dumps_collector_url` is non-empty, and omits the column entirely
+  (feature unavailable, not an error) when the deployment left it unset.
+
+- **2026-07-09 — Calls warns before a wide service selection builds an
+  oversized request, instead of sending it.** PR 708 review #8: `/calls`
+  has no `service` param (02 §2.3), so the UI expands a service selection
+  into repeatable `pod` params client-side; on a large cluster that can
+  build a request line long enough for a proxy or browser to reject
+  outright. `callsQueryUrlLength` (`api/endpoints.ts`) sizes the request
+  the same way `fetchCallsFirstPage` builds it; `CallsPage` compares it
+  against `CALLS_URL_LENGTH_LIMIT` (6000 characters, comfortably under the
+  ~8 KB `large_client_header_buffers` default most ingress proxies apply to
+  one header line) and, when it is over, shows a "Selection too wide"
+  banner with a one-click "Clear selection" action instead of firing the
+  request.
+
+- **2026-07-09 — `libs/maintain` compaction tests pin fixture time relative to
+  the test run, not a fixed calendar date.** `maintain_test.go`'s
+  `testBucketStart` was `time.Date(2026, 7, 1, ...)`; by 2026-07-09 that
+  bucket was older than `normal_clean`'s 7-day TTL (`model.RetentionTiers`),
+  so `Pass`'s TTL-expiry step deleted the seeded inputs before the compaction
+  step ever saw them — `TestCompactionLifecycle` and four sibling tests all
+  failed with zero compacted groups. Not a compaction regression: `git
+  stash` reproduced the same failures on a clean tree. Fixed by deriving
+  `testBucketStart` from `time.Now()` (2 hours back, truncated to the 5-minute
+  bucket), comfortably past `MinAge` (30 min) and far inside every class's TTL
+  (shortest is 2 days) regardless of when the suite runs.
+
 ## Open issues
 
 - **10b — downloadable self-contained HTML that restores state: design

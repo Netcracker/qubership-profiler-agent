@@ -29,17 +29,29 @@ function categoryColor(index: number): string {
   return `hsl(${(index * 150) % 360},100%,95%)`;
 }
 
-export function parseCategoryConfig(text: string): CategoryConfig {
+function parseCategoryLines(text: string): {
+  raw: { name: string; pattern: string; appliesTo: 'node' | 'children' }[];
+  invalidLines: number[];
+} {
   const raw: { name: string; pattern: string; appliesTo: 'node' | 'children' }[] = [];
-  for (const lineRaw of text.split('\n')) {
+  const invalidLines: number[] = [];
+  text.split('\n').forEach((lineRaw, i) => {
     const line = lineRaw.trim();
-    if (line === '' || line.startsWith('#')) continue;
+    if (line === '' || line.startsWith('#')) return;
     const m = /(\S+)\s+(.+\S)/.exec(line);
-    if (m === null) continue;
+    if (m === null) {
+      invalidLines.push(i + 1);
+      return;
+    }
     const pattern = m[2]!;
     if (pattern.startsWith('>')) raw.push({ name: m[1]!, pattern: pattern.slice(1), appliesTo: 'children' });
     else raw.push({ name: m[1]!, pattern, appliesTo: 'node' });
-  }
+  });
+  return { raw, invalidLines };
+}
+
+export function parseCategoryConfig(text: string): CategoryConfig {
+  const { raw } = parseCategoryLines(text);
   // Longest pattern first: the most specific rule wins.
   raw.sort((a, b) => b.pattern.length - a.pattern.length);
 
@@ -56,6 +68,11 @@ export function parseCategoryConfig(text: string): CategoryConfig {
     rules.push({ category: def, pattern: wildcardToRegExp(r.pattern), patternLength: r.pattern.length, appliesTo: r.appliesTo });
   }
   return { categories, rules };
+}
+
+/** Line numbers the modal should flag before Apply silently drops them (PR 708 review #14). */
+export function invalidCategoryLines(text: string): number[] {
+  return parseCategoryLines(text).invalidLines;
 }
 
 /**

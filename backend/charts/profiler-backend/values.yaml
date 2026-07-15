@@ -128,6 +128,15 @@ query:
     # Falls back to "<fullname>-query-<NAMESPACE>.eg.<CLOUD_PUBLIC_HOST>" —
     # same caveat as query.ingress.host above.
     host: ""
+  # Base URL of a dumps-collector deployment (netcracker/qubership-profiler
+  # dumps-collector chart), so the Pods Info screen can link out to its
+  # thread/top dump download for a pod-restart. dumps-collector is a separate
+  # deployment with its own ingress — there is no in-cluster way to derive
+  # this, so it stays empty (dump link-out disabled) unless set explicitly,
+  # scheme included, e.g.
+  # "https://dumps-collector-<namespace>.<cloud-public-host>" (matching the
+  # dumps-collector chart's own default ingress host convention).
+  dumpsCollectorUrl: ""
 
 maintain:
   # cronjob: one pod per run (batch/v1 CronJob, --run-now).

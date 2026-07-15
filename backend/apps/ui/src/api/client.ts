@@ -51,7 +51,8 @@ export function isCursorRejection(e: unknown): e is ApiError {
 export type QueryParamValue = string | number | boolean | undefined;
 export type QueryParams = Record<string, QueryParamValue | readonly (string | number)[]>;
 
-function buildUrl(path: string, params?: QueryParams): string {
+/** Exported so callers can size a request before sending it (PR 708 review #8). */
+export function buildUrl(path: string, params?: QueryParams): string {
   const sp = new URLSearchParams();
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value === undefined) continue;

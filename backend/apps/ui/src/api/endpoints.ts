@@ -1,6 +1,6 @@
-import { getBinary, getJson } from './client';
+import { buildUrl, getBinary, getJson } from './client';
 import { pkToPath } from './pk';
-import type { CallPK, CallsResponse, PodsResponse, RetentionClass } from './types';
+import type { CallPK, CallsResponse, ConfigResponse, PodsResponse, RetentionClass } from './types';
 import { TREE_WIRE_VERSION, decodeTree } from '../msgpack/decode';
 import type { TreeWire } from '../msgpack/tree-wire';
 
@@ -19,23 +19,43 @@ export interface CallsFilter {
   limit?: number;
 }
 
-export function fetchCallsFirstPage(filter: CallsFilter, signal?: AbortSignal): Promise<CallsResponse> {
-  return getJson<CallsResponse>(
-    '/api/v1/calls',
-    {
-      from: filter.fromMs,
-      to: filter.toMs,
-      pod: filter.pods,
-      method: filter.method || undefined,
-      duration_min_ms: filter.durationMinMs || undefined,
-      duration_max_ms: filter.durationMaxMs || undefined,
-      error_only: filter.errorOnly || undefined,
-      retention_class: filter.retentionClasses,
-      limit: filter.limit,
-    },
-    signal,
-  );
+function callsQueryParams(filter: CallsFilter) {
+  return {
+    from: filter.fromMs,
+    to: filter.toMs,
+    pod: filter.pods,
+    method: filter.method || undefined,
+    duration_min_ms: filter.durationMinMs || undefined,
+    duration_max_ms: filter.durationMaxMs || undefined,
+    error_only: filter.errorOnly || undefined,
+    retention_class: filter.retentionClasses,
+    limit: filter.limit,
+  };
 }
+
+export function fetchCallsFirstPage(filter: CallsFilter, signal?: AbortSignal): Promise<CallsResponse> {
+  return getJson<CallsResponse>('/api/v1/calls', callsQueryParams(filter), signal);
+}
+
+/**
+ * Length of the GET /calls request line this filter would produce.
+ * Expanding a service selection into repeatable `pod` params (02 §2.3
+ * has no `service` param) can build a very long URL on a large cluster;
+ * this lets the UI warn before sending something a proxy or browser
+ * would reject outright (PR 708 review #8).
+ */
+export function callsQueryUrlLength(filter: CallsFilter): number {
+  return buildUrl('/api/v1/calls', callsQueryParams(filter)).length;
+}
+
+/**
+ * Conservative cap on the GET /calls request line, comfortably under the
+ * ~8 KB default `large_client_header_buffers` most ingress proxies (e.g.
+ * nginx) apply to a single header line — the profiler-backend chart does
+ * not raise it — leaving headroom for the scheme, host, and other headers
+ * this length does not count (PR 708 review #8).
+ */
+export const CALLS_URL_LENGTH_LIMIT = 6000;
 
 /**
  * Follow-up page. The cursor carries the frozen query (02 §2.3.1); re-sending
@@ -47,6 +67,11 @@ export function fetchCallsNextPage(cursor: string, signal?: AbortSignal): Promis
 
 export function fetchPods(fromMs: number, toMs: number, signal?: AbortSignal): Promise<PodsResponse> {
   return getJson<PodsResponse>('/api/v1/pods', { from: fromMs, to: toMs }, signal);
+}
+
+/** Deployment-specific values (currently just the dumps-collector base URL). */
+export function fetchConfig(signal?: AbortSignal): Promise<ConfigResponse> {
+  return getJson<ConfigResponse>('/api/v1/config', undefined, signal);
 }
 
 /**

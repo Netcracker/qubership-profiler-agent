@@ -25,26 +25,51 @@ function wildcardToRegExp(ref: string): RegExp {
   return new RegExp(escaped.join('.*'));
 }
 
-export function parseAdjustConfig(text: string): AdjustRule[] {
+interface ParsedAdjustConfig {
+  rules: AdjustRule[];
+  /** 1-based numbers of lines that are neither blank/comment nor a valid rule. */
+  invalidLines: number[];
+}
+
+function parseAdjustConfigFull(text: string): ParsedAdjustConfig {
   const rules: AdjustRule[] = [];
-  for (const lineRaw of text.split('\n')) {
+  const invalidLines: number[] = [];
+  text.split('\n').forEach((lineRaw, i) => {
     const line = lineRaw.trim();
-    if (line === '' || line.startsWith('#')) continue;
+    if (line === '' || line.startsWith('#')) return;
     const m = /(\S+)\s+(.+\S)/.exec(line);
-    if (m === null) continue;
+    if (m === null) {
+      invalidLines.push(i + 1);
+      return;
+    }
     let factor = Number(m[1]);
     if (Number.isNaN(factor)) {
       const frac = /([^/]+)\/(.+)/.exec(m[1]!);
-      if (frac === null) continue;
+      if (frac === null) {
+        invalidLines.push(i + 1);
+        return;
+      }
       factor = Number(frac[1]) / Number(frac[2]);
     }
-    if (Number.isNaN(factor)) continue;
+    if (Number.isNaN(factor)) {
+      invalidLines.push(i + 1);
+      return;
+    }
     rules.push({ factor, pattern: wildcardToRegExp(m[2]!), patternLength: m[2]!.length });
-  }
+  });
   // Ascending by pattern length, so the longest match assigns last and wins
   // (the old parse kept the same order).
   rules.sort((a, b) => a.patternLength - b.patternLength);
-  return rules;
+  return { rules, invalidLines };
+}
+
+export function parseAdjustConfig(text: string): AdjustRule[] {
+  return parseAdjustConfigFull(text).rules;
+}
+
+/** Line numbers the modal should flag before Apply silently drops them (PR 708 review #13). */
+export function invalidAdjustLines(text: string): number[] {
+  return parseAdjustConfigFull(text).invalidLines;
 }
 
 /** Resolves the per-method factor map (old Tree__adjustDuration_parsed). */

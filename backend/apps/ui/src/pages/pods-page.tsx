@@ -1,14 +1,40 @@
-import { Alert, Badge, Empty, Layout, Table, Typography } from 'antd';
-import { useMemo } from 'react';
+import { Alert, Badge, Empty, Layout, Space, Table, Typography } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
+import { useConfig } from '../api/use-config';
 import { formatTs } from '../calls/format';
+import { PeriodControls } from '../controls/period-controls';
+import type { DraftWindow } from '../controls/period-controls';
+import { DiscoveryRail } from '../discovery/discovery-rail';
+import type { RailSelection } from '../discovery/discovery-rail';
 import { usePods } from '../discovery/use-pods';
-import { parseCallsSearch } from '../url/search-params';
+import { callsSearchToParams, parseCallsSearch } from '../url/search-params';
+import type { CallsSearchState } from '../url/search-params';
 
-// Pods Info (09 §4): the pod-restarts behind the current selection. Dumps
-// stay in dumps-collector; the per-row link-out lands with the link-template
-// seam (07 §3.4).
+// dumps-collector (07 §3.4) is a separate deployment with its own ingress;
+// its base URL only exists when the operator configured it (values.yaml
+// query.dumpsCollectorUrl). Only td/top dumps have a download-by-window
+// route — heap dumps need a listing/handle-discovery step that dumps-
+// collector does not expose, so they stay out of this link-out (PR 708
+// review #18).
+function dumpDownloadUrl(dumpsCollectorUrl: string, type: 'td' | 'top', row: PodRow): string {
+  const sp = new URLSearchParams({
+    dateFrom: String(row.timeMinMs),
+    dateTo: String(row.timeMaxMs),
+    type,
+    namespace: row.namespace,
+    service: row.service,
+    podName: row.pod,
+  });
+  return `${dumpsCollectorUrl}/cdt/v2/download?${sp.toString()}`;
+}
+
+// Pods Info (09 §4): the pod-restarts behind the current selection. Opening
+// this screen directly must not require a detour through Calls first — it
+// carries the same period picker + discovery rail (09 §2.1-2.2), sharing the
+// URL scheme with Calls (09 §6). Dumps stay in dumps-collector; the per-row
+// link-out lands with the link-template seam (07 §3.4).
 
 interface PodRow {
   key: string;
@@ -22,9 +48,40 @@ interface PodRow {
 }
 
 export function PodsPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const search = useMemo(() => parseCallsSearch(searchParams), [searchParams]);
+
+  const [draftWindow, setDraftWindow] = useState<DraftWindow>({ fromMs: search.fromMs, toMs: search.toMs });
+  const [draftSelection, setDraftSelection] = useState<RailSelection>({
+    services: search.services,
+    pods: search.pods,
+  });
+
+  // Resync drafts when the committed state changes under us (back/forward,
+  // a shared link), mirroring CallsPage.
+  const selectionKey = [...search.services, '|', ...search.pods].join(',');
+  useEffect(() => {
+    setDraftWindow({ fromMs: search.fromMs, toMs: search.toMs });
+    setDraftSelection({ services: search.services, pods: search.pods });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.fromMs, search.toMs, selectionKey]);
+
+  // The rail follows the draft window, so services are selectable before the
+  // first Apply; the pods table stays keyed on the committed URL.
+  const { state: railPodsState } = usePods(draftWindow.fromMs, draftWindow.toMs);
   const { state } = usePods(search.fromMs, search.toMs);
+  const configState = useConfig();
+  const dumpsCollectorUrl = configState.kind === 'ready' ? configState.config.dumps_collector_url : '';
+
+  const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
+  const apply = (): void =>
+    commitSearch({
+      ...search,
+      fromMs: draftWindow.fromMs,
+      toMs: draftWindow.toMs,
+      services: draftSelection.services,
+      pods: draftSelection.pods,
+    });
 
   const rows = useMemo<PodRow[]>(() => {
     if (state.kind !== 'ready') return [];
@@ -51,53 +108,98 @@ export function PodsPage() {
     return out;
   }, [state, search.services]);
 
-  if (search.fromMs === null || search.toMs === null) {
-    return (
-      <Layout.Content style={{ display: 'grid', placeItems: 'center', padding: 24 }}>
-        <Empty description="Pick a period on the Calls tab first — the pod list needs a window." />
-      </Layout.Content>
-    );
-  }
-
   return (
-    <Layout.Content style={{ padding: '12px 16px' }}>
-      {state.kind === 'error' ? <Alert type="error" showIcon title="Cannot load pods" description={state.message} /> : null}
-      {state.kind === 'ready' && state.partial ? (
-        <Alert type="warning" showIcon title="Pod list may be incomplete" description={state.partialReasons.join('; ')} />
-      ) : null}
-      <Table<PodRow>
-        size="small"
-        loading={state.kind === 'loading'}
-        dataSource={rows}
-        pagination={false}
-        columns={[
-          {
-            title: 'Pod',
-            key: 'pod',
-            render: (_, r) => (
-              <span>
-                <Badge status={r.live ? 'success' : 'default'} />{' '}
-                <Typography.Text>
-                  {r.namespace}/{r.service}/{r.pod}
-                </Typography.Text>
-              </span>
-            ),
-          },
-          { title: 'Restart', key: 'restart', width: 200, render: (_, r) => formatTs(r.restartTimeMs) },
-          {
-            title: 'Data range',
-            key: 'range',
-            width: 380,
-            render: (_, r) => `${formatTs(r.timeMinMs)} — ${formatTs(r.timeMaxMs)}`,
-          },
-          {
-            title: 'State',
-            key: 'state',
-            width: 100,
-            render: (_, r) => (r.live ? 'live' : 'closed'),
-          },
-        ]}
-      />
-    </Layout.Content>
+    <Layout style={{ flex: 1, minHeight: 0 }}>
+      <Layout.Sider
+        width={320}
+        theme="light"
+        breakpoint="lg"
+        collapsedWidth={0}
+        zeroWidthTriggerStyle={{ top: 0, left: 0, zIndex: 20 }}
+        style={{ borderRight: '1px solid #f0f0f0' }}
+      >
+        <DiscoveryRail pods={railPodsState} selection={draftSelection} onSelectionChange={setDraftSelection} />
+      </Layout.Sider>
+      <Layout.Content style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <PeriodControls
+          window={draftWindow}
+          onWindowChange={setDraftWindow}
+          onApply={apply}
+          applying={state.kind === 'loading'}
+        />
+        {search.fromMs === null || search.toMs === null ? (
+          <Empty style={{ marginTop: 48 }} description="Pick a period and Apply to see pods." />
+        ) : (
+          <>
+            {state.kind === 'error' ? (
+              <Alert type="error" showIcon title="Cannot load pods" description={state.message} />
+            ) : null}
+            {state.kind === 'ready' && state.partial ? (
+              <Alert type="warning" showIcon title="Pod list may be incomplete" description={state.partialReasons.join('; ')} />
+            ) : null}
+            <Table<PodRow>
+              size="small"
+              loading={state.kind === 'loading'}
+              dataSource={rows}
+              pagination={false}
+              scroll={{ x: 'max-content' }}
+              columns={[
+                {
+                  title: 'Pod',
+                  key: 'pod',
+                  render: (_, r) => (
+                    <span>
+                      <Badge status={r.live ? 'success' : 'default'} />{' '}
+                      <Typography.Text>
+                        {r.namespace}/{r.service}/{r.pod}
+                      </Typography.Text>
+                    </span>
+                  ),
+                },
+                // "Session start"/"Data freshness" name what these columns
+                // actually carry — a profiler pod-restart and call-data
+                // recency in the window — not a Kubernetes restart count or
+                // pod phase (PR 708 review #17).
+                { title: 'Session start', key: 'restart', width: 200, render: (_, r) => formatTs(r.restartTimeMs) },
+                {
+                  title: 'Data range',
+                  key: 'range',
+                  width: 380,
+                  render: (_, r) => `${formatTs(r.timeMinMs)} — ${formatTs(r.timeMaxMs)}`,
+                },
+                {
+                  title: 'Data freshness',
+                  key: 'state',
+                  width: 140,
+                  render: (_, r) => (r.live ? 'recent data' : 'no recent data'),
+                },
+                // Only rendered when dumps-collector is configured for this
+                // deployment (values.yaml query.dumpsCollectorUrl); otherwise
+                // the link-out has nowhere to point (PR 708 review #18).
+                ...(dumpsCollectorUrl
+                  ? [
+                      {
+                        title: 'Dumps',
+                        key: 'dumps',
+                        width: 160,
+                        render: (_: unknown, r: PodRow) => (
+                          <Space size="small">
+                            <Typography.Link href={dumpDownloadUrl(dumpsCollectorUrl, 'td', r)} target="_blank" rel="noreferrer">
+                              Thread dumps
+                            </Typography.Link>
+                            <Typography.Link href={dumpDownloadUrl(dumpsCollectorUrl, 'top', r)} target="_blank" rel="noreferrer">
+                              Top dumps
+                            </Typography.Link>
+                          </Space>
+                        ),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </>
+        )}
+      </Layout.Content>
+    </Layout>
   );
 }

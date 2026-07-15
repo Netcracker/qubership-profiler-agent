@@ -123,7 +123,11 @@ func (tr *TcpReader) read(ctx context.Context, o interface{}) {
 		}
 	}
 	if tr.err != nil {
-		log.Error(ctx, tr.err, "could not read at pos # %d", tr.pos)
+		if IsExpectedDisconnect(tr.err) {
+			log.Debug(ctx, "connection closed at pos # %d: %v", tr.pos, tr.err)
+		} else {
+			log.Error(ctx, tr.err, "could not read at pos # %d", tr.pos)
+		}
 	}
 	tr.pos += uint64(binary.Size(o))
 }

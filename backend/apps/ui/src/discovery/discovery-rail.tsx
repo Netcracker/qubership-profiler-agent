@@ -37,8 +37,13 @@ function matchesSearch(svc: ServiceNode, needle: string): boolean {
   );
 }
 
+// "live"/"closed" described profiler data freshness in the selected window,
+// not Kubernetes pod status — a healthy, Running pod reads as "closed" here
+// if it simply has no recent profiled calls (PR 708 review #17).
 function liveDot(live: boolean): React.ReactNode {
-  return <Badge status={live ? 'success' : 'default'} title={live ? 'live: still ingesting' : 'closed'} />;
+  return (
+    <Badge status={live ? 'success' : 'default'} title={live ? 'recent data in this window' : 'no recent data in this window'} />
+  );
 }
 
 export function DiscoveryRail({ pods, selection, onSelectionChange }: DiscoveryRailProps) {
@@ -68,7 +73,7 @@ export function DiscoveryRail({ pods, selection, onSelectionChange }: DiscoveryR
             <span>
               {liveDot(svc.live)} {svc.service}{' '}
               <Typography.Text type="secondary">
-                · {svc.restartCount} restart{svc.restartCount === 1 ? '' : 's'}
+                · {svc.restartCount} profiler session{svc.restartCount === 1 ? '' : 's'}
               </Typography.Text>
             </span>
           ),

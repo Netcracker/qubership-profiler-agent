@@ -31,7 +31,11 @@ func (m *MinioClient) ListObjects(ctx context.Context) ([]*minio.ObjectInfo, err
 	}
 
 	ts := time.Since(startTime)
-	log.Info(ctx, "[%s] Got list of %d object in %v", bucketName, len(objects), ts)
+	// A routine successful LIST runs on every maintain/janitor pass (every
+	// minute or faster on a busy stand) — DEBUG keeps steady-state volume
+	// from burying real anomalies (PR 708 review #27); ObserveOperation still
+	// carries it as a metric for anyone watching LIST cost over time.
+	log.Debug(ctx, "[%s] Got list of %d object in %v", bucketName, len(objects), ts)
 	ObserveOperation(ts.Seconds(), len(objects), operationTypeList)
 
 	return objects, nil
@@ -56,7 +60,9 @@ func (m *MinioClient) ListObjectsWithPrefix(ctx context.Context, prefix string) 
 	}
 
 	ts := time.Since(startTime)
-	log.Info(ctx, "[%s] Got list of %d object with prefix %s in %v", bucketName, len(objects), prefix, ts)
+	// See ListObjects: routine per-pass LIST calls stay at DEBUG (PR 708
+	// review #27).
+	log.Debug(ctx, "[%s] Got list of %d object with prefix %s in %v", bucketName, len(objects), prefix, ts)
 	ObserveOperation(ts.Seconds(), len(objects), operationTypeList)
 
 	return objects, nil

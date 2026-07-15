@@ -207,4 +207,26 @@ describe('searchTree', () => {
   it('returns null for a blank query', () => {
     expect(searchTree(model, '  ')).toBeNull();
   });
+
+  it('matches a visible param value and expands the node that owns it', () => {
+    // root's own param row (sql: 'select 1'), not a descendant node — the
+    // match needs root itself expanded, not just root's ancestors (PR 708
+    // review #10).
+    const result = searchTree(model, 'select 1');
+    expect(result).not.toBeNull();
+    expect(result!.matched.has(model.root.id)).toBe(true);
+    expect(result!.expand.has(model.root.id)).toBe(true);
+  });
+
+  it('matches a bind value nested under its SQL group', () => {
+    const result = searchTree(model, '42');
+    expect(result).not.toBeNull();
+    expect(result!.matched.has(model.root.id)).toBe(true);
+  });
+
+  it('matches a param key name, not just its value', () => {
+    const result = searchTree(model, 'binds');
+    expect(result).not.toBeNull();
+    expect(result!.matched.has(model.root.id)).toBe(true);
+  });
 });
