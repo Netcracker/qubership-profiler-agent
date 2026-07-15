@@ -46,7 +46,7 @@ The collector keeps five artifacts. They live in different storage tiers because
 | Artifact | Storage | Why |
 |---|---|---|
 | Dictionary / params / suspend WAL | Local RWO PV, append-only file | Required for restart recovery and for decoding trace bytes already received. The agent does not retransmit these streams (§3). |
-| `calls.wal` | Local RWO PV, append-only file | Full Call records as received, one file per pod-restart. Source for the seal pass (§6) and for hot single-row `/calls/{pk}` fetches, located by the SQLite offset. |
+| `calls.wal` | Local RWO PV, append-only file | Decoded Call records, one file per pod-restart, retaining raw parameter dictionary ids for seal re-derivation (§5.6). Source for the seal pass (§6) and for hot single-row `/calls/{pk}` fetches, located by the SQLite offset. |
 | Trace segments | Local RWO PV, gzip segment files | The hot store: the raw interleaved trace stream, written once (§4.4). Source for per-call blob assembly at seal time. Refcounted; unlinked once every call whose chunks it holds is sealed and uploaded. |
 | `metadata.sqlite` | Local RWO PV, SQLite | The call index (PK + filter columns + `calls.wal` offset), the segment catalog (logical byte range per segment), refcounts, seal watermarks, and upload checkpoints. No bulk bytes. |
 | Parquet | Local RWO PV, then S3 | Materialized by the seal pass (§6), never on the write path. Sealed once, kept locally for `hot_retention` past upload (§6.3), authoritative in S3. |
@@ -330,6 +330,8 @@ error_flag := dictId("call.red") ∈ keys(Call.Params)
 
 `callInfo.isCorrupted` is not available on the read path: a corrupted call never becomes a Call record (the same `Dumper.java:945-947` gate excludes it), so the collector never sees one. The `corrupted` retention class (§6.4) therefore stays reserved but empty in the MVP; keeping its key space reserved means that surfacing corruption later, if the agent ever emits it, would not re-partition history.
 
+**Seal is authoritative; the write-time value is provisional.** `error_flag` and the `retention_class` it feeds are also computed on the write path (§5.1) into the SQLite index, but only for hot-tier filtering. That value is provisional: `dictId("call.red")` is unknown until the dictionary entry arrives, and the `dictionary` and `calls` streams decode on independent pipelines, so the first errored call of a pod-restart can be indexed before `call.red` resolves. The seal pass re-derives both from the call's raw parameter ids against the complete dictionary — guaranteed present by the bucket-close grace — and is the sole source of truth for the S3 key (§7) and the parquet `retention_class` column. For this to hold, `calls.wal` must retain raw parameter dictionary ids, not resolved names: a dictionary miss at write time must stay recoverable at seal.
+
 ## 6. Seal semantics
 
 Parquet is produced by a seal pass, never on the write path (§4.3, §5.1). A seal loop watches the SQLite index and runs one pass per `(pod-restart, bucket)`.
@@ -385,7 +387,7 @@ A seal pass for one `(pod-restart, bucket)`:
 
 1. Reads the bucket's calls from the SQLite index (rows with this `bucket`).
 2. Collects the segments those calls reference from the segment catalog and walks them **in segment order**. Each segment is decompressed exactly once; its chunks are routed into the per-call blob under assembly, following each call's chunk chain to the depth-0 exit (§4.3).
-3. Finalizes a blob when its last chunk is read: prefixes it with the pod-restart's 8-byte `timerStartTime` (§4.5), reads the call's remaining columns from `calls.wal` by offset, resolves the external value-stream references, and appends the row to the retention-class writer (§6.4). The per-call buffer is then freed.
+3. Finalizes a blob when its last chunk is read: prefixes it with the pod-restart's 8-byte `timerStartTime` (§4.5), reads the call's remaining columns from `calls.wal` by offset, resolves the external value-stream references, re-derives `error_flag` and `retention_class` from the call's raw parameter ids against the complete dictionary (§5.6, not the provisional write-time value), and appends the row to the writer for that class (§6.4). The per-call buffer is then freed.
 4. Closes the writers, uploads (§6.2), advances the seal watermark, and releases segment refcounts.
 
 Because the walk is segment-ordered rather than call-ordered, no segment is decompressed twice within a pass, however many or however long the calls that reference it. Peak buffer memory is the trace volume of calls still open across the segment cursor — dominated by long calls, capped by `PROFILER_MEM_BUDGET`, with overflow spilling to a temp file under `parquet-sealing/`.
@@ -437,7 +439,7 @@ Why date in the path even though `ts_ms` is in the file: query needs to LIST eff
       dictionary.wal
       params.wal
       suspend.wal
-      calls.wal              # full Call records as received; source for the seal pass and hot single-row fetches
+      calls.wal              # decoded Call records (raw param dict-ids retained for seal re-derivation, §5.6); source for the seal pass and hot single-row fetches
       trace/
         000000.gz            # raw interleaved trace stream, gzip segments (hot store); one file per agent rolling_seq
         000001.gz
