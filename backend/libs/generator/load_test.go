@@ -10,6 +10,7 @@ import (
 )
 
 func TestLoadData(t *testing.T) {
+	skipIfNoData(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	opts := createTestOptions()
 

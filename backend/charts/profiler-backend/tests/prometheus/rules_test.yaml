@@ -80,3 +80,61 @@ tests:
             exp_annotations:
               summary: "Hot-store segments near the disk budget"
               description: "Segment files exceed 90% of PROFILER_CHUNKS_STAGING_MAX_BYTES; the janitor will start evicting segments and calls will seal with truncated_reason=disk_budget."
+
+  # Loop errors: the seal loop climbs by one failure per minute (well over the
+  # 3-in-15m threshold), the other two loops stay flat. The alert must fire
+  # after its 10m for-window, and NOT while only a couple of failures have
+  # accrued.
+  - interval: 1m
+    input_series:
+      - series: "profiler_seal_loop_errors_total"
+        values: "0+1x40"
+      - series: "profiler_upload_loop_errors_total"
+        values: "0x40"
+      - series: "profiler_janitor_loop_errors_total"
+        values: "0x40"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ProfilerLoopErrors
+        exp_alerts: [] # only ~5 failures and the 10m for-window is still open
+      - eval_time: 30m
+        alertname: ProfilerLoopErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "A collector maintenance loop keeps failing"
+              description: "The seal, upload, or janitor loop logged repeated pass failures over the last 15 minutes; the hot→cold handoff may be stalling."
+
+  # A healthy pipeline with the occasional single failed pass must never page.
+  - interval: 1m
+    input_series:
+      - series: "profiler_seal_loop_errors_total"
+        values: "0 0 0 1 1x36"
+      - series: "profiler_upload_loop_errors_total"
+        values: "0x40"
+      - series: "profiler_janitor_loop_errors_total"
+        values: "0x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ProfilerLoopErrors
+        exp_alerts: []
+
+  # Upload backlog: the oldest pending upload ages one minute per minute past
+  # the 30-minute line. The alert fires after its 10m for-window.
+  - interval: 1m
+    input_series:
+      - series: "profiler_upload_lag_seconds"
+        values: "0+60x80" # ages one minute per minute from t=0
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ProfilerUploadBacklogStale
+        exp_alerts: [] # lag under 30m
+      - eval_time: 50m
+        alertname: ProfilerUploadBacklogStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Sealed parquet is not reaching S3"
+              description: "The oldest pending upload has waited over 30 minutes; upload_backlog is not draining and the collector PV keeps growing."

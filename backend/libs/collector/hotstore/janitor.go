@@ -11,6 +11,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
@@ -26,6 +28,20 @@ type JanitorStats struct {
 	WalsPurged        int64
 	SegmentsEvicted   int64
 	EvictedBytes      int64
+	// QuarantineDropped counts quarantined parquet files removed by the
+	// age/size cap (№2) — bounded, loudly-logged data loss.
+	QuarantineDropped int64
+	// SnapshotsAbandoned counts snapshot uploads given up past the quarantine
+	// age cap (№2), unblocking the pod-restart's WAL purge.
+	SnapshotsAbandoned int64
+	// DictionariesUnloaded / ChunkIndexesReleased count the mem-budget
+	// evictions of closed pod-restarts' in-RAM state (№1).
+	DictionariesUnloaded int64
+	ChunkIndexesReleased int64
+	// MemPressureSeals counts pod-restart buckets the mem budget early-sealed
+	// (01 §6.1 trigger 3): closed-state eviction alone did not fit the budget,
+	// so the oldest unsealed bucket was flushed to unpin its chunk indexes.
+	MemPressureSeals int64
 }
 
 // JanitorCountersSnapshot returns the process-lifetime janitor counters.
@@ -43,6 +59,11 @@ func (s *Store) countJanitor(stats JanitorStats) {
 	s.janitorCounters.WalsPurged += stats.WalsPurged
 	s.janitorCounters.SegmentsEvicted += stats.SegmentsEvicted
 	s.janitorCounters.EvictedBytes += stats.EvictedBytes
+	s.janitorCounters.QuarantineDropped += stats.QuarantineDropped
+	s.janitorCounters.SnapshotsAbandoned += stats.SnapshotsAbandoned
+	s.janitorCounters.DictionariesUnloaded += stats.DictionariesUnloaded
+	s.janitorCounters.ChunkIndexesReleased += stats.ChunkIndexesReleased
+	s.janitorCounters.MemPressureSeals += stats.MemPressureSeals
 }
 
 // SegmentsDiskUsage reports the on-disk bytes of the hot-store segments, as
@@ -53,8 +74,10 @@ func (s *Store) SegmentsDiskUsage() (bytes, budget int64) {
 }
 
 // EvictedChunkRefs reports how many in-RAM chunk-index entries point at
-// evicted segments — memory the eviction cannot release until the
-// memory-budget task lands (risk B-3). Measured by the janitor pass.
+// evicted segments (risk B-3), as measured by the janitor pass. The
+// mem-budget eviction (№1) releases them together with the chunk index of a
+// closed, fully-sealed pod-restart; refs held by live connections stay
+// counted until their calls seal.
 func (s *Store) EvictedChunkRefs() int64 {
 	return s.evictedChunkRefs.Load()
 }
@@ -66,13 +89,21 @@ func (s *Store) QuarantineStats() (QuarantineStats, error) {
 	return s.db.QuarantineStats()
 }
 
+// UploadBacklog surfaces the pending-upload gauges: the number of sealed files
+// still owed to S3 and the sealed_at of the oldest, for upload_backlog and
+// upload_lag_seconds. oldestSealedMs is nil when the queue is empty.
+func (s *Store) UploadBacklog() (count int64, oldestSealedMs *int64, err error) {
+	return s.db.UploadBacklog()
+}
+
 // walFileNames are the per-pod-restart WAL files the §3.9 step-18 purge owns.
 var walFileNames = []string{"dictionary.wal", "params.wal", "suspend.wal", "calls.wal"}
 
 // JanitorPass runs one janitor round at the given wall clock: aged local
 // parquet, then the hot-index partitions it unblocks, then the WAL purge, then
-// the disk-budget eviction. nowMs is a parameter so tests replay history
-// deterministically, mirroring SealDue.
+// the disk-budget eviction, the quarantine cap, and the mem-budget eviction.
+// nowMs is a parameter so tests replay history deterministically, mirroring
+// SealDue.
 func (s *Store) JanitorPass(ctx context.Context, nowMs int64) (JanitorStats, error) {
 	var stats JanitorStats
 	defer func() { s.countJanitor(stats) }() // partial passes still count what they did
@@ -88,7 +119,204 @@ func (s *Store) JanitorPass(ctx context.Context, nowMs int64) (JanitorStats, err
 	if err := s.enforceDiskBudget(ctx, nowMs, &stats); err != nil {
 		return stats, err
 	}
-	return stats, s.measureEvictedChunkRefs()
+	if err := s.capQuarantine(ctx, nowMs, &stats); err != nil {
+		return stats, err
+	}
+	if err := s.enforceMemBudget(ctx, &stats); err != nil {
+		return stats, err
+	}
+	if err := s.measureEvictedChunkRefs(); err != nil {
+		return stats, err
+	}
+	// Everything above can change the pending backlog (dropped partitions,
+	// dropped quarantine rows), so the №2 gates recompute last.
+	return stats, s.refreshBackpressure(ctx)
+}
+
+// refreshBackpressure recomputes the №2 pending-upload backlog — sealed
+// parquet still owed to S3 plus the live call-index partitions on disk — and
+// flips the two gates: the seal loop pauses once the pending parquet alone
+// reaches half the budget (the data stays in WALs and segments, producing no
+// new pending parquet), and ingest refuses RCV_DATA once the whole backlog
+// reaches the full budget (the server answers ACK_ERROR before writing, so
+// the agent buffers and retries). Called by recovery, the janitor pass, the
+// seal loop, and the upload pass, so the gates lift promptly once S3 drains.
+func (s *Store) refreshBackpressure(ctx context.Context) error {
+	pending, err := s.db.PendingParquetBytes()
+	if err != nil {
+		return err
+	}
+	paths, err := s.db.PartitionPaths()
+	if err != nil {
+		return err
+	}
+	var partitions int64
+	for _, p := range paths {
+		for _, f := range []string{p, p + "-wal"} {
+			if info, err := os.Stat(f); err == nil {
+				partitions += info.Size()
+			}
+		}
+	}
+	s.pendingParquetBytes.Store(pending)
+	s.partitionsDiskBytes.Store(partitions)
+	budget := s.cfg.PendingUploadMaxBytes
+	// The seal gate reads ONLY the pending parquet share: sealing is what
+	// grows it, and the upload loop drains it independently of sealing. Were
+	// the partitions counted here too, a paused seal would pin its unsealed
+	// partitions, which would keep the gate tripped — a deadlock. The ingest
+	// gate reads the whole backlog, because agent data grows the partitions
+	// whether or not sealing runs.
+	s.setGate(ctx, &s.sealPaused, pending >= budget/2, "seal", pending, budget/2)
+	s.setGate(ctx, &s.ingestPaused, pending+partitions >= budget, "ingest", pending+partitions, budget)
+	return nil
+}
+
+// setGate flips one backpressure gate, logging only the transitions.
+func (s *Store) setGate(ctx context.Context, gate *atomic.Bool, engaged bool, name string, total, budget int64) {
+	if gate.Swap(engaged) == engaged {
+		return
+	}
+	if engaged {
+		log.Warning(ctx, "backpressure: %s paused — pending backlog holds %d bytes against the %d budget", name, total, budget)
+	} else {
+		log.Info(ctx, "backpressure: %s resumed (%d of %d budget)", name, total, budget)
+	}
+}
+
+// capQuarantine bounds the upload-failed/ quarantine (№2). Quarantined
+// parquet past QuarantineMaxAge — or the oldest of it while the total exceeds
+// QuarantineMaxBytes — is dropped together with its parquet_local row, which
+// releases the segment refcounts it pinned and lets the WAL purge proceed;
+// the loss is bounded and logged. Snapshot quarantines past the age cap are
+// abandoned the same way: dict_uploaded_at is stamped so the purge unblocks,
+// while the rejected body stays under upload-failed/ for a human.
+func (s *Store) capQuarantine(ctx context.Context, nowMs int64, stats *JanitorStats) error {
+	maxAgeMs := s.cfg.QuarantineMaxAge.Milliseconds()
+	rows, err := s.db.QuarantinedParquet()
+	if err != nil {
+		return err
+	}
+	sizes := make([]int64, len(rows))
+	var total int64
+	for i, f := range rows {
+		if info, err := os.Stat(f.Path); err == nil {
+			sizes[i] = info.Size()
+		}
+		total += sizes[i]
+	}
+	for i, f := range rows { // oldest failure first: the size cap evicts oldest
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		overAge := f.UploadFailedAtMs != nil && *f.UploadFailedAtMs+maxAgeMs <= nowMs
+		if !overAge && total <= s.cfg.QuarantineMaxBytes {
+			break // rows are ordered by failure time; nothing later is older
+		}
+		if err := os.Remove(f.Path); err != nil && !os.IsNotExist(err) {
+			log.Error(ctx, err, "janitor: cannot drop quarantined parquet %s; keeping its row", f.Path)
+			continue
+		}
+		if err := s.db.DropParquetLocal(f.Path); err != nil {
+			return err
+		}
+		total -= sizes[i]
+		stats.QuarantineDropped++
+		log.Warning(ctx, "janitor: dropped quarantined parquet %s (%d rows) past the quarantine cap — these calls are lost to the cold tier",
+			f.Path, f.RowCount)
+	}
+	abandoned, err := s.db.AbandonQuarantinedSnapshots(nowMs-maxAgeMs, nowMs)
+	if err != nil {
+		return err
+	}
+	if abandoned > 0 {
+		stats.SnapshotsAbandoned += abandoned
+		log.Warning(ctx, "janitor: abandoned %d snapshot uploads past the quarantine age cap; their WAL purge unblocks, the rejected bodies stay under upload-failed/", abandoned)
+	}
+	return nil
+}
+
+// enforceMemBudget implements PROFILER_MEM_BUDGET (01 §4.6, №1): when the
+// in-RAM pod-restart state exceeds the budget, closed pod-restarts are
+// evicted oldest first — the dictionary maps always (they reload from the
+// WAL), the chunk index once every indexed call is sealed (hot trace reads
+// of those rows then fall through to the cold tier). Live connections are
+// never touched. When that is not enough, the oldest unsealed bucket is
+// early-sealed (01 §6.1 trigger 3) so the chunk indexes it pins become
+// releasable — an unsealed hot bucket no longer wedges the budget.
+func (s *Store) enforceMemBudget(ctx context.Context, stats *JanitorStats) error {
+	budget := s.cfg.MemBudgetBytes
+	s.mu.Lock()
+	pods := make([]*PodRestart, 0, len(s.pods))
+	for _, pr := range s.pods {
+		pods = append(pods, pr)
+	}
+	s.mu.Unlock()
+
+	var total int64
+	for _, pr := range pods {
+		total += pr.memFootprint()
+	}
+	if total <= budget {
+		s.inRamBytes.Store(total)
+		return nil
+	}
+
+	closed := make([]*PodRestart, 0, len(pods))
+	for _, pr := range pods {
+		if pr.Closed() {
+			closed = append(closed, pr)
+		}
+	}
+	sort.Slice(closed, func(i, j int) bool {
+		return closed[i].Key.RestartTimeMs < closed[j].Key.RestartTimeMs
+	})
+	release := func() error {
+		for _, pr := range closed {
+			if total <= budget {
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			before := pr.memFootprint()
+			if pr.unloadDictionary() {
+				stats.DictionariesUnloaded++
+			}
+			unsealed, err := s.db.HasUnsealedCalls(pr.Key.String())
+			if err != nil {
+				return err
+			}
+			if !unsealed && pr.releaseChunkIndex() {
+				stats.ChunkIndexesReleased++
+				log.Warning(ctx, "mem budget: released the chunk index of %v; hot trace reads of its rows fall through to the cold tier", pr.Key)
+			}
+			total -= before - pr.memFootprint()
+		}
+		return nil
+	}
+	if err := release(); err != nil {
+		return err
+	}
+	if total > budget {
+		// Trigger 3: flush the oldest dirty bucket, then re-try the release —
+		// a chunk index an unsealed call pinned is now releasable.
+		sealedPods, err := s.sealOldestUnsealedBucket(ctx)
+		if err != nil {
+			return err
+		}
+		if sealedPods > 0 {
+			stats.MemPressureSeals += int64(sealedPods)
+			if err := release(); err != nil {
+				return err
+			}
+		}
+	}
+	s.inRamBytes.Store(total)
+	if total > budget {
+		log.Warning(ctx, "mem budget: %d bytes still held against the %d budget after evicting closed pod-restarts; live connections hold the rest", total, budget)
+	}
+	return nil
 }
 
 // dropAgedParquet implements 01-write-contract.md §6.3: a local parquet file
@@ -273,23 +501,35 @@ func removeEmptyParents(root, dir string) {
 	}
 }
 
-// forgetPodRestart releases the in-RAM state of a purged pod-restart.
+// forgetPodRestart releases the in-RAM state of a purged pod-restart, and
+// the service's intern pool with it once no pod-restart references it (№1).
 func (s *Store) forgetPodRestart(key PodRestartKey) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.pods, key.String())
+	s.dropInternPoolLocked(key.Service)
 }
 
 // enforceDiskBudget implements the 01-write-contract.md §4.6 eviction: when
 // the hot-store segment files exceed ChunksStagingMaxBytes on disk, delete
-// segment files in the deterministic order refcount-0 first, then the oldest
-// referenced ones, never a segment still open for writes. The catalog row
-// stays with status 'evicted', so a call whose chunks lived there seals with
-// trace_blob = NULL and truncated_reason = disk_budget — the janitor only
-// creates the condition, the seal pass records it.
+// segment files in a deterministic tier order — refcount-0 segments of
+// fully-sealed pod-restarts first, then the referenced ones, and the segments
+// of pod-restarts with unsealed calls strictly LAST (№7, the HasUnsealedCalls
+// check mirroring the deletion sweep): a seal that has not run yet will read
+// those segments — the trace chains AND the sql/xml values, whose refcount
+// rises only when the seal commits, so plain refcount ordering used to evict
+// them FIRST and lose the values silently. A segment still open for writes is
+// never evicted. The catalog row of an evicted segment stays with status
+// 'evicted', so a call whose chunks lived there seals with trace_blob = NULL
+// and truncated_reason = disk_budget — the janitor only creates the
+// condition, the seal pass records it.
 func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *JanitorStats) error {
 	budget := s.cfg.ChunksStagingMaxBytes
 	rows, err := s.db.SegmentsForBudget()
+	if err != nil {
+		return err
+	}
+	unsealed, err := s.db.UnsealedPodRestarts()
 	if err != nil {
 		return err
 	}
@@ -298,7 +538,7 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		size int64
 	}
 	var total int64
-	var zeroRef, referenced []candidate
+	var zeroRef, referenced, owedSeal []candidate
 	for _, row := range rows {
 		info, err := os.Stat(row.Path)
 		if err != nil {
@@ -306,12 +546,14 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		}
 		size := info.Size()
 		total += size
-		if row.Status == "open" {
-			continue // never evict under a live gzip writer
-		}
-		if row.Refcount == 0 {
+		switch {
+		case row.Status == "open":
+			// never evict under a live gzip writer
+		case unsealed[row.PodRestart]:
+			owedSeal = append(owedSeal, candidate{row, size})
+		case row.Refcount == 0:
 			zeroRef = append(zeroRef, candidate{row, size})
-		} else {
+		default:
 			referenced = append(referenced, candidate{row, size})
 		}
 	}
@@ -320,12 +562,21 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		return nil
 	}
 	log.Warning(ctx, "janitor: hot-store segments hold %d bytes over the %d budget; evicting", total, budget)
-	for _, c := range append(zeroRef, referenced...) {
+	for _, c := range append(append(zeroRef, referenced...), owedSeal...) {
 		if total <= budget {
 			break
 		}
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		// The candidate list may predate a seal commit that pinned the
+		// segment; re-check the live catalog row before the unlink (№7).
+		refcount, status, err := s.db.SegmentRefcount(c.row.PodRestart, c.row.Stream, c.row.RollingSeq)
+		if err != nil {
+			return err
+		}
+		if status != c.row.Status || refcount != c.row.Refcount {
+			continue // stale snapshot; the next pass re-classifies it
 		}
 		if err := os.Remove(c.row.Path); err != nil && !os.IsNotExist(err) {
 			log.Error(ctx, err, "janitor: cannot evict segment %s", c.row.Path)
@@ -337,8 +588,13 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		total -= c.size
 		stats.SegmentsEvicted++
 		stats.EvictedBytes += c.size
-		log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes, refcount %d) under the disk budget",
-			c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size, c.row.Refcount)
+		if unsealed[c.row.PodRestart] {
+			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes) that an OWED SEAL still needed — its calls will seal truncated (disk_budget)",
+				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size)
+		} else {
+			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes, refcount %d) under the disk budget",
+				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size, c.row.Refcount)
+		}
 	}
 	s.segmentsDiskBytes.Store(total)
 	return nil
@@ -346,9 +602,9 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 
 // measureEvictedChunkRefs counts the in-RAM chunk-index entries whose trace
 // segment was evicted (risk B-3): the seal and the trace endpoint tolerate
-// them, but their memory is released only by the future memory-budget task,
-// so the count must be visible before it becomes a problem. Runs inside the
-// janitor pass because it takes the store and per-pod locks.
+// them, and the mem-budget eviction (enforceMemBudget) releases them for
+// closed, fully-sealed pod-restarts — this gauge shows what remains. Runs
+// inside the janitor pass because it takes the store and per-pod locks.
 func (s *Store) measureEvictedChunkRefs() error {
 	rows, err := s.db.EvictedSegmentKeys()
 	if err != nil {
@@ -405,6 +661,7 @@ func (s *Store) RunJanitorLoop(ctx context.Context, interval time.Duration) erro
 			return ctx.Err()
 		case <-ticker.C:
 			if _, err := s.JanitorPass(ctx, time.Now().UnixMilli()); err != nil && ctx.Err() == nil {
+				s.janitorLoopErrors.Add(1)
 				log.Error(ctx, err, "janitor pass failed")
 			}
 		}

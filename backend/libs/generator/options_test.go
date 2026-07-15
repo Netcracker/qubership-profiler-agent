@@ -1,14 +1,28 @@
 package generator
 
 import (
-	"github.com/stretchr/testify/assert"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
 	DataDir = "../tests/resources/data"
 )
+
+// skipIfNoData skips a legacy generator test when the sample dump corpus under
+// DataDir is absent. That corpus (dumps.td/dumps.top plus ui5min.bin captures)
+// is real captured data the project deliberately never commits (see
+// WORKFLOW.md §6), so on a clean checkout the directory does not exist.
+func skipIfNoData(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(DataDir); os.IsNotExist(err) {
+		t.Skip("missing sample corpus libs/tests/resources/data " +
+			"(captured dumps are never committed; see WORKFLOW.md §6)")
+	}
+}
 
 func createTestOptions() Options {
 	opts := Options{

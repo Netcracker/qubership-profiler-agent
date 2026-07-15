@@ -150,10 +150,23 @@ describe('decodeTree', () => {
     expect(() => readRoot(bytes)).toThrow(/nesting deeper/);
   });
 
-  it('rejects 64-bit integers above the safe JS range', () => {
-    // uint64 2^63.
-    const bytes = new Uint8Array([0xcf, 0x80, 0, 0, 0, 0, 0, 0, 0]);
-    expect(() => readRoot(bytes)).toThrow(/safe JS range/);
+  it('ignores an unknown int64 field beyond the safe JS range (02 §2.5.1)', () => {
+    // Forward compat: a future backend appends an int64 field the UI does not
+    // know, and its value exceeds 2^53. The decode must skip it silently and
+    // still return the known fields — not throw in the generic layer.
+    const top = treeToValue(FIXTURE);
+    top.set(42, 2n ** 60n); // unknown field, value past the safe JS range
+    const node = top.get(3) as MsgMap;
+    node.set(50, -(2n ** 62n)); // an unknown negative int64 too
+    expect(decodeTree(encodeValue(top))).toEqual(FIXTURE);
+  });
+
+  it('rejects a known field whose int64 exceeds the safe JS range', () => {
+    // The range check moved to the known-field reader: a durationMs past 2^53
+    // is genuine data corruption, not forward compat, so it must still throw.
+    const top = treeToValue(FIXTURE);
+    (top.get(3) as MsgMap).set(1, 2n ** 60n); // node durationMs
+    expect(() => decodeTree(encodeValue(top))).toThrow(/safe JS range/);
   });
 });
 
@@ -169,5 +182,14 @@ describe('generic value layer', () => {
       const s = 'π'.repeat(len);
       expect(readRoot(encodeValue(s))).toBe(s);
     }
+  });
+
+  it('carries a 64-bit integer beyond the safe range as a bigint, without throwing', () => {
+    // uint64 2^63 and int64 -2^63: too large for a JS number, so the generic
+    // layer surfaces them as bigints for the typed layer to skip or reject.
+    expect(readRoot(new Uint8Array([0xcf, 0x80, 0, 0, 0, 0, 0, 0, 0]))).toBe(2n ** 63n);
+    expect(readRoot(new Uint8Array([0xd3, 0x80, 0, 0, 0, 0, 0, 0, 0]))).toBe(-(2n ** 63n));
+    // A value that fits the safe range still narrows to a number.
+    expect(readRoot(new Uint8Array([0xcf, 0, 0, 0, 0, 0, 0, 0, 1]))).toBe(1);
   });
 });

@@ -20,3 +20,13 @@ const (
 	ACK_OK          byte = 0x00
 	ACK_ERROR_MAGIC byte = 0xFF
 )
+
+// DataBufferSize is the agent's DATA_BUFFER_SIZE (ProtocolConst.java): the
+// fixed-size buffer a length-prefixed field is read into. The agent's
+// FieldIOReader.Field() rejects any field whose length exceeds it, so the
+// collector never receives a longer one; a length past this ceiling on the wire
+// is a malformed or hostile client, and a decoder that honoured it would try to
+// allocate up to 4 GiB from a single wire-supplied length. Both the server
+// framing (libs/io) and the offline parser (libs/parser/pipe) cap fixed-string
+// reads at this size (06 §2).
+const DataBufferSize = 1024

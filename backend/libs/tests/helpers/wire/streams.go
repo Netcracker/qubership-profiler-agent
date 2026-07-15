@@ -38,8 +38,11 @@ func ParamsStream(params []ParamDef) []byte {
 	return phrase(body.Bytes())
 }
 
-// SuspendEvent is one stop-the-world pause: a start-time delta from the
-// previous event (from the stream base for the first) and a duration.
+// SuspendEvent is one stop-the-world pause. DeltaMs is the delta to the pause
+// END from the previous event's end (from the stream base for the first), and
+// AmountMs is the duration. The agent timestamps a delay after detecting it, so
+// the wire carries the pause end, not its start; a pause spans
+// [end − AmountMs, end] (backend/libs/parser/pipe/suspend.go, №4).
 type SuspendEvent struct {
 	DeltaMs  int
 	AmountMs int

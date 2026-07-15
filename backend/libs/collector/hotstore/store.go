@@ -1,6 +1,7 @@
 package hotstore
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,9 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
@@ -59,6 +62,9 @@ type (
 	}
 
 	// SuspendPause is one suspend.wal body: an absolute stop-the-world pause.
+	// TimeMs is the pause END (the agent timestamps a delay after detecting it),
+	// so the pause spans [TimeMs − DurationMs, TimeMs]; suspendOverlapMs builds
+	// the interval that way (№4).
 	SuspendPause struct {
 		TimeMs     int64 `json:"time_ms"`
 		DurationMs int   `json:"duration_ms"`
@@ -81,9 +87,14 @@ type (
 		store *Store
 		dir   string
 
-		mu           sync.Mutex
-		closed       bool // no new writes accepted
-		finalized    bool // WAL footers written, catalog row closed
+		mu        sync.Mutex
+		closed    bool // no new writes accepted
+		finalized bool // WAL footers written, catalog row closed
+		// dict / dictIds are the in-RAM dictionary. On a CLOSED pod-restart
+		// they are a lazy handle (№1): nil means unloaded, and ensureDictLocked
+		// replays dictionary.wal on demand — Close and the mem-budget janitor
+		// unload them, so a disconnected pod-restart stops holding its words
+		// twice in RAM until the WAL purge.
 		dict         map[int]string
 		dictIds      map[string]int
 		nextWordId   int
@@ -112,8 +123,21 @@ type (
 		mu   sync.Mutex
 		pods map[string]*PodRestart
 
+		// intern holds one canonical copy of every dictionary word per service
+		// (№1): the pods of one service send near-identical dictionaries, so
+		// the word bytes are shared across their pod-restarts. A pool is
+		// dropped once the service's last tracked pod-restart is forgotten.
+		internMu sync.Mutex
+		intern   map[string]map[string]string
+
 		sealMu       sync.Mutex
 		sealCounters SealCounters
+		// sealingPairs guards each (pod-restart, bucket) against concurrent
+		// seals — the №9 worker pool racing the memory-pressure trigger.
+		sealPairMu   sync.Mutex
+		sealingPairs map[string]struct{}
+		// sealSkippedBuckets counts pairs a pass skipped after a failure (№8).
+		sealSkippedBuckets atomic.Int64
 
 		janitorMu       sync.Mutex
 		janitorCounters JanitorStats
@@ -122,6 +146,22 @@ type (
 		// or locking every pod-restart on each /metrics request.
 		segmentsDiskBytes atomic.Int64
 		evictedChunkRefs  atomic.Int64
+		inRamBytes        atomic.Int64
+
+		// Backpressure over the pending-upload backlog (№2), recomputed by
+		// refreshBackpressure: the seal loop reads sealPaused, ingest reads
+		// ingestPaused before writing anything.
+		pendingParquetBytes atomic.Int64
+		partitionsDiskBytes atomic.Int64
+		sealPaused          atomic.Bool
+		ingestPaused        atomic.Bool
+		sealQueueDepth      atomic.Int64
+
+		// Loop-error counters incremented at the seal/janitor pass-failed log
+		// sites (the Prometheus *_loop_errors_total seam). A single failed pass
+		// is transient; a sustained rate means the loop is wedged.
+		sealLoopErrors    atomic.Int64
+		janitorLoopErrors atomic.Int64
 	}
 )
 
@@ -160,7 +200,38 @@ func Open(cfg Config) (*Store, error) {
 		_ = lock.Close()
 		return nil, err
 	}
-	return &Store{cfg: cfg, db: db, lock: lock, pods: map[string]*PodRestart{}}, nil
+	return &Store{cfg: cfg, db: db, lock: lock,
+		pods: map[string]*PodRestart{}, intern: map[string]map[string]string{}}, nil
+}
+
+// internWord returns the canonical instance of word within the service's
+// pool (№1), so identical dictionaries of one service's pods share bytes.
+func (s *Store) internWord(service, word string) string {
+	s.internMu.Lock()
+	defer s.internMu.Unlock()
+	pool, ok := s.intern[service]
+	if !ok {
+		pool = map[string]string{}
+		s.intern[service] = pool
+	}
+	if w, ok := pool[word]; ok {
+		return w
+	}
+	pool[word] = word
+	return word
+}
+
+// dropInternPoolLocked releases a service's word pool once no tracked
+// pod-restart of the service remains; the caller holds s.mu.
+func (s *Store) dropInternPoolLocked(service string) {
+	for _, pr := range s.pods {
+		if pr.Key.Service == service {
+			return
+		}
+	}
+	s.internMu.Lock()
+	delete(s.intern, service)
+	s.internMu.Unlock()
 }
 
 // acquireLock flocks collector.lock so two collector processes cannot share a
@@ -256,6 +327,43 @@ func (s *Store) PodRestartKeys() []PodRestartKey {
 	}
 	return keys
 }
+
+// PodsSize reports how many pod-restarts the store tracks in RAM right now —
+// the store_pods_size gauge. Unbounded growth signals a leak in the hot store
+// (the memory-budget task, focus B, bounds it).
+func (s *Store) PodsSize() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pods)
+}
+
+// SealLoopErrors and JanitorLoopErrors report the process-lifetime count of
+// failed seal/janitor passes (the *_loop_errors_total seam).
+func (s *Store) SealLoopErrors() int64    { return s.sealLoopErrors.Load() }
+func (s *Store) JanitorLoopErrors() int64 { return s.janitorLoopErrors.Load() }
+
+// MemUsage reports the in-RAM pod-restart footprint as last measured by the
+// janitor's mem-budget step, next to the configured budget (№1).
+func (s *Store) MemUsage() (bytes, budget int64) {
+	return s.inRamBytes.Load(), s.cfg.MemBudgetBytes
+}
+
+// PendingUploadUsage reports the №2 backlog as last measured by
+// refreshBackpressure: un-uploaded sealed parquet bytes and the on-disk
+// call-partition bytes, next to the budget they share.
+func (s *Store) PendingUploadUsage() (parquetBytes, partitionBytes, budget int64) {
+	return s.pendingParquetBytes.Load(), s.partitionsDiskBytes.Load(), s.cfg.PendingUploadMaxBytes
+}
+
+// SealPaused and IngestPaused report the №2 backpressure gates: sealing
+// pauses at half the pending budget, ingest refuses RCV_DATA at the full one.
+func (s *Store) SealPaused() bool   { return s.sealPaused.Load() }
+func (s *Store) IngestPaused() bool { return s.ingestPaused.Load() }
+
+// SealQueueDepth reports the (pod-restart, bucket) pairs due for sealing as
+// of the last SealDue pass — the seal_queue_depth gauge. It keeps counting
+// while backpressure pauses sealing, which is exactly when it matters.
+func (s *Store) SealQueueDepth() int64 { return s.sealQueueDepth.Load() }
 
 // Segments exposes the segment catalog for tests and the future seal pass.
 func (s *Store) Segments(key PodRestartKey) ([]SegmentRow, error) {
@@ -372,7 +480,14 @@ func (pr *PodRestart) Finalized() bool {
 // arrival index within the pod-restart). The WAL body follows 01 §3.2:
 // varint(word_id) varint(word_len) word_bytes.
 func (pr *PodRestart) AppendDictionaryWord(word string) (int, error) {
+	word = pr.store.internWord(pr.Key.Service, word)
 	pr.mu.Lock()
+	if pr.closed {
+		// The maps are unloaded past Close (№1); a late append would write a
+		// nil map and its WAL is footered anyway.
+		pr.mu.Unlock()
+		return 0, errors.Errorf("pod-restart %s is closed", pr.Key)
+	}
 	id := pr.nextWordId
 	pr.nextWordId++
 	pr.dict[id] = word
@@ -397,10 +512,97 @@ func (pr *PodRestart) ResetDictionary() {
 	pr.dictIds = map[string]int{}
 }
 
-// Dictionary returns a copy of the in-RAM dictionary.
+// applyDictRecordLocked decodes one dictionary.wal body (01 §3.2:
+// varint(word_id) varint(word_len) word_bytes) into the maps. pr.mu is held,
+// or the pod-restart is not shared yet (recovery).
+func (pr *PodRestart) applyDictRecordLocked(body []byte) error {
+	id, n := binary.Uvarint(body)
+	if n <= 0 {
+		return errors.New("dictionary.wal: bad word_id varint")
+	}
+	wordLen, m := binary.Uvarint(body[n:])
+	if m <= 0 || n+m+int(wordLen) != len(body) {
+		return errors.New("dictionary.wal: word length does not match the record")
+	}
+	word := pr.store.internWord(pr.Key.Service, string(body[n+m:]))
+	pr.dict[int(id)] = word
+	pr.dictIds[word] = int(id)
+	if int(id) >= pr.nextWordId {
+		pr.nextWordId = int(id) + 1
+	}
+	return nil
+}
+
+// ensureDictLocked reloads an unloaded dictionary from dictionary.wal (№1).
+// pr.mu is held. A reload failure logs and keeps what replayed: the caller
+// degrades to "#<id>" placeholders, same as a genuine dictionary miss, and a
+// purged WAL reads as empty.
+func (pr *PodRestart) ensureDictLocked() {
+	if pr.dict != nil {
+		return
+	}
+	pr.dict, pr.dictIds = map[int]string{}, map[string]int{}
+	pr.nextWordId = 0
+	_, err := replayIfPresent(filepath.Join(pr.dir, "dictionary.wal"), func(_ int64, body []byte) error {
+		return pr.applyDictRecordLocked(body)
+	})
+	if err != nil {
+		log.Error(context.Background(), err, "lazy dictionary reload of %v", pr.Key)
+	}
+}
+
+// unloadDictionary drops the in-RAM dictionary maps of a closed pod-restart
+// (№1) and reports whether anything was dropped. dictionary.wal stays the
+// source of truth: seal, snapshot upload, and hot reads reload on demand.
+func (pr *PodRestart) unloadDictionary() bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	if !pr.closed || pr.dict == nil {
+		return false
+	}
+	pr.dict, pr.dictIds = nil, nil
+	return true
+}
+
+// releaseChunkIndex drops chunk_index[*] of a closed pod-restart whose every
+// indexed call is sealed (№1): no seal pass needs the chains any more, and a
+// hot /calls/{pk}/trace of its rows answers 404 — the blob's durable copy is
+// in the sealed parquet. Reports whether anything was dropped.
+func (pr *PodRestart) releaseChunkIndex() bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	if !pr.closed || len(pr.chunks) == 0 {
+		return false
+	}
+	pr.chunks = map[uint64][]ChunkRef{}
+	return true
+}
+
+// memFootprint estimates the pod-restart's in-RAM bytes: dictionary words
+// plus map headers, chunk-index entries, and the pause mirror. Interned words
+// are counted once per pod-restart that references them — an overcount that
+// keeps the budget conservative.
+func (pr *PodRestart) memFootprint() int64 {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	const mapEntry = 64 // rough per-entry map cost; dict words sit in two maps
+	var total int64
+	for _, w := range pr.dict {
+		total += int64(len(w)) + 2*mapEntry
+	}
+	for _, refs := range pr.chunks {
+		total += int64(len(refs))*int64(unsafe.Sizeof(ChunkRef{})) + mapEntry
+	}
+	total += int64(len(pr.pauses)) * int64(unsafe.Sizeof(SuspendPause{}))
+	return total
+}
+
+// Dictionary returns a copy of the in-RAM dictionary, reloading a closed
+// pod-restart's unloaded maps from the WAL first.
 func (pr *PodRestart) Dictionary() map[int]string {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
+	pr.ensureDictLocked()
 	out := make(map[int]string, len(pr.dict))
 	for k, v := range pr.dict {
 		out[k] = v
@@ -408,11 +610,22 @@ func (pr *PodRestart) Dictionary() map[int]string {
 	return out
 }
 
+// DictWord resolves one dictionary id — the targeted lookup the hot /calls
+// path uses instead of copying the whole map per request (№15).
+func (pr *PodRestart) DictWord(id int) (string, bool) {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	pr.ensureDictLocked()
+	w, ok := pr.dict[id]
+	return w, ok
+}
+
 // DictId resolves a word to its dictionary id, the reverse lookup §5.6 needs
 // for the call.red marker.
 func (pr *PodRestart) DictId(word string) (int, bool) {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
+	pr.ensureDictLocked()
 	id, ok := pr.dictIds[word]
 	return id, ok
 }
@@ -485,7 +698,10 @@ func (pr *PodRestart) AppendSuspend(timeMs int64, durationMs int) error {
 		return err
 	}
 	pr.mu.Lock()
-	pr.pauses = append(pr.pauses, rec)
+	// Keep the RAM mirror normalized so the index-time suspend_ms attribution
+	// (and the /internal suspend snapshot) never double-counts an overlapping
+	// or duplicated pause — see normalizeSuspendPauses.
+	pr.pauses = normalizeSuspendPauses(append(pr.pauses, rec))
 	pr.mu.Unlock()
 	return nil
 }
@@ -557,6 +773,7 @@ func (pr *PodRestart) indexCall(tsMs int64, call data.Call, walOffset int64) err
 // keys(Call.Params).
 func (pr *PodRestart) hasErrorMarker(call data.Call) bool {
 	pr.mu.Lock()
+	pr.ensureDictLocked()
 	id, known := pr.dictIds[errorMarkerParam]
 	pr.mu.Unlock()
 	if !known {
@@ -574,6 +791,7 @@ func (pr *PodRestart) paramsJson(params map[data.TagId][]string) string {
 		return ""
 	}
 	pr.mu.Lock()
+	pr.ensureDictLocked()
 	resolved := make(map[string][]string, len(params))
 	for id, values := range params {
 		name, ok := pr.dict[id]
@@ -626,6 +844,10 @@ func (pr *PodRestart) Close() error {
 	keep(pr.store.db.ClosePodRestart(pr.Key, time.Now().UnixMilli()))
 	pr.mu.Lock()
 	pr.finalized = true
+	// The connection is gone: dictionary lookups are now rare (seal, snapshot
+	// upload, hot reads) and reload from the just-footered WAL on demand, so
+	// the two maps — the bulk of a pod-restart's footprint — go now (№1).
+	pr.dict, pr.dictIds = nil, nil
 	pr.mu.Unlock()
 	return firstErr
 }

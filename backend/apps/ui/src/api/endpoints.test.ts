@@ -1,5 +1,9 @@
+import { HttpResponse, http } from 'msw';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { TREE_WIRE_VERSION } from '../msgpack/decode';
+import { encodeTree } from '../msgpack/encode';
+import type { TreeWire } from '../msgpack/tree-wire';
 import { server } from '../mocks/node';
 import { ApiError } from './client';
 import { fetchCallsFirstPage, fetchTree } from './endpoints';
@@ -47,5 +51,37 @@ describe('fetchTree against the mock', () => {
       children.forEach(walk);
     };
     walk(tree.root);
+  });
+
+  it('sends Accept-Version so a future v2 keeps serving v1 (02 §2.5.4)', async () => {
+    const stub: TreeWire = {
+      v: TREE_WIRE_VERSION,
+      methods: ['m'],
+      params: [],
+      root: {
+        methodIdx: 0,
+        durationMs: 1,
+        selfDurationMs: 1,
+        suspensionMs: 0,
+        selfSuspensionMs: 0,
+        executions: 1,
+        selfExecutions: 1,
+      },
+    };
+    let seenVersion: string | null = 'unset';
+    server.use(
+      http.get('/api/v1/calls/:pk/tree', ({ request }) => {
+        seenVersion = request.headers.get('Accept-Version');
+        const body = encodeTree(stub);
+        return new HttpResponse(body.buffer as ArrayBuffer, {
+          headers: { 'Content-Type': 'application/x-msgpack' },
+        });
+      }),
+    );
+
+    const call = await coldCall();
+    const tree = await fetchTree(call.pk, { tsMs: call.ts_ms, retentionClass: call.retention_class });
+    expect(seenVersion).toBe(String(TREE_WIRE_VERSION));
+    expect(tree.v).toBe(TREE_WIRE_VERSION);
   });
 });

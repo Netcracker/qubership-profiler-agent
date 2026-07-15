@@ -23,6 +23,12 @@ export class ApiError extends Error {
   }
 }
 
+// TODO(error-classification-fragility): the helpers below (and the /tree state
+// machine in tree/use-tree.ts) branch on the RFC 7807 `title` / `detail` prose,
+// which 02 §8 does not pin as a stable contract. A backend wording change would
+// silently misroute an error. A machine-readable error code needs a contract +
+// backend change (out of Focus E scope), so this stays string-matched for now.
+
 /** Wide-query guard rejection (02 §2.3.2); api.go titles it "query too wide". */
 export function isWideQueryRejection(e: unknown): e is ApiError {
   return e instanceof ApiError && e.status === 400 && e.problem?.title === 'query too wide';
@@ -86,9 +92,10 @@ export async function getBinary(
   accept: string,
   params?: QueryParams,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<Uint8Array> {
   const res = await fetch(buildUrl(path, params), {
-    headers: { Accept: accept },
+    headers: { Accept: accept, ...headers },
     signal: signal ?? null,
   });
   if (!res.ok) throw await toApiError(res);

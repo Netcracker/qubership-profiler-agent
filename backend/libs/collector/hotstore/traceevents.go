@@ -2,6 +2,7 @@ package hotstore
 
 import (
 	"encoding/binary"
+	"unicode/utf16"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/pipe"
 	"github.com/pkg/errors"
@@ -95,14 +96,15 @@ func ParseChunk(chunk []byte, visit func(index int, ev TraceEvent) bool) (thread
 				if pos+2*runes > len(chunk) {
 					return threadId, pos, errors.New("torn tag string value")
 				}
-				value := make([]rune, runes)
-				for i := range value {
-					// The agent writes UTF-16-ish 2-byte chars; mirror the pipe
-					// reader's readChar (string(rune(int16))).
-					value[i] = rune(int16(binary.BigEndian.Uint16(chunk[pos+2*i:])))
+				// The agent writes each char as one UTF-16 code unit; decode the
+				// run as a whole so surrogate pairs reassemble into full runes
+				// (mirror PipeReader.ReadVarString, not a signed per-char cast).
+				units := make([]uint16, runes)
+				for i := range units {
+					units[i] = binary.BigEndian.Uint16(chunk[pos+2*i:])
 				}
 				pos += 2 * runes
-				ev.Value = string(value)
+				ev.Value = string(utf16.Decode(units))
 			case pipe.ParamBig, pipe.ParamBigDedup:
 				var err error
 				if ev.BigSeq, err = uvarint(); err != nil {

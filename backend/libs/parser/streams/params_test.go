@@ -12,6 +12,7 @@ import (
 )
 
 func TestReadParams_TestService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	testParamsFile := filepath.Join(ResourceDir, "test-service", "test-service.params.protocol")
 	expectedParamsLog := filepath.Join(ResourceDir, "test-service", "test-service.params.expected.txt")
@@ -27,6 +28,7 @@ func TestReadParams_TestService(t *testing.T) {
 }
 
 func TestReadParams_5minService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	testParamsFile := filepath.Join(ResourceDir, "u5min", "u5min-service.params.protocol")
 	expectedParamsLog := filepath.Join(ResourceDir, "u5min", "u5min-service.params.expected.txt")

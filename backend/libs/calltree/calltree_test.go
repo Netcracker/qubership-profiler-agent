@@ -1,6 +1,8 @@
 package calltree
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
@@ -66,6 +68,43 @@ func TestBuildNestingAndTimes(t *testing.T) {
 	assert.Equal(t, "com.example.Service.render", tree.Methods[r.MethodIdx])
 	assert.Equal(t, int64(1), r.DurationMs)
 	assert.Empty(t, tree.Params)
+}
+
+func TestBuildRejectsOversizedTagStringLength(t *testing.T) {
+	// A corrupt inline-tag var-string length must fail the decode, never panic.
+	// A uint64 past MaxInt64 would wrap negative and make([]rune, n) would
+	// panic; a merely huge length would over-allocate. Both must be errors.
+	buf := &bytes.Buffer{}
+	putLong := func(v uint64) {
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], v)
+		buf.Write(b[:])
+	}
+	putLong(uint64(timerStartMs))       // timer epoch
+	putLong(7)                          // threadId
+	putLong(uint64(timerStartMs))       // chunk startMs
+	buf.Write([]byte{0x00, 0x01})       // ENTER, delta 0, method id 1
+	buf.Write([]byte{0x02, 0x04, 0x00}) // TAG, delta 0, tag id 4, PARAM_INLINE
+	prefix := buf.Bytes()
+
+	for _, tc := range []struct {
+		name  string
+		runes []byte
+	}{
+		// 2^63: fits uint64 but overflows int64 — the panic case.
+		{"overflows int64", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}},
+		// 2^40: a valid int64 far past the bytes actually present.
+		{"exceeds remaining bytes", []byte{0x80, 0x80, 0x80, 0x80, 0x20}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			blob := append(append([]byte(nil), prefix...), tc.runes...)
+			blob = append(blob, 0x03) // EVENT_FINISH_RECORD
+			require.NotPanics(t, func() {
+				_, err := Build(blob, 0, dictOpt())
+				require.Error(t, err)
+			})
+		})
+	}
 }
 
 func TestBuildDeltaContinuation(t *testing.T) {
@@ -304,11 +343,13 @@ func TestBuildSuspensionAttribution(t *testing.T) {
 		wire.Exit(20),
 	}})
 	opts := dictOpt()
+	// SuspendInterval.TimeMs is the pause END, so a pause spans
+	// [TimeMs − DurationMs, TimeMs] (№4). The comments give that span.
 	opts.Suspend = []SuspendInterval{
-		{TimeMs: timerStartMs + 50, DurationMs: 5}, // past the root exit: ignored
-		{TimeMs: timerStartMs + 18, DurationMs: 4}, // [18, 22): 2 ms child, 2 ms root self
-		{TimeMs: timerStartMs + 5, DurationMs: 2},  // [5, 7): before the child, root self
-		{TimeMs: timerStartMs + 12, DurationMs: 3}, // [12, 15): inside the child
+		{TimeMs: timerStartMs + 55, DurationMs: 5}, // [50, 55): past the root exit, ignored
+		{TimeMs: timerStartMs + 22, DurationMs: 4}, // [18, 22): 2 ms child, 2 ms root self
+		{TimeMs: timerStartMs + 7, DurationMs: 2},  // [5, 7): before the child, root self
+		{TimeMs: timerStartMs + 15, DurationMs: 3}, // [12, 15): inside the child
 	}
 
 	tree, err := Build(blob, 0, opts)
@@ -336,7 +377,8 @@ func TestBuildSuspensionAcrossMergedInvocations(t *testing.T) {
 		wire.Exit(6),
 	}})
 	opts := dictOpt()
-	opts.Suspend = []SuspendInterval{{TimeMs: timerStartMs + 4, DurationMs: 8}}
+	// The pause spans [4, 12): TimeMs is the end (№4).
+	opts.Suspend = []SuspendInterval{{TimeMs: timerStartMs + 12, DurationMs: 8}}
 
 	tree, err := Build(blob, 0, opts)
 	require.NoError(t, err)
@@ -353,14 +395,17 @@ func TestBuildSuspensionAcrossMergedInvocations(t *testing.T) {
 }
 
 func TestNormalizeSuspend(t *testing.T) {
+	// SuspendInterval.TimeMs is the pause END, so a pause spans
+	// [TimeMs − DurationMs, TimeMs] (№4). Inputs span [30,35), [0,10), [5,25):
+	// the last two overlap into one [0,25) pause.
 	got := normalizeSuspend([]SuspendInterval{
-		{TimeMs: 30, DurationMs: 5},
-		{TimeMs: 0, DurationMs: 10},
-		{TimeMs: 5, DurationMs: 20}, // overlaps the previous: one [0, 25) pause
+		{TimeMs: 35, DurationMs: 5},
+		{TimeMs: 10, DurationMs: 10},
+		{TimeMs: 25, DurationMs: 20}, // overlaps the previous: one [0, 25) pause
 	})
 	assert.Equal(t, []SuspendInterval{
-		{TimeMs: 0, DurationMs: 25},
-		{TimeMs: 30, DurationMs: 5},
+		{TimeMs: 25, DurationMs: 25}, // [0, 25)
+		{TimeMs: 35, DurationMs: 5},  // [30, 35)
 	}, got, "unsorted and overlapping pauses normalize; overlap is never double-counted")
 }
 

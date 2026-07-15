@@ -8,6 +8,7 @@ import {
   EmptyPausedBanner,
   LoadMoreErrorBanner,
   PartialBanner,
+  PodsPartialBanner,
   TooWideBanner,
 } from '../calls/calls-banners';
 import { CallsTable } from '../calls/calls-table';
@@ -176,6 +177,9 @@ export function CallsPage() {
                 </Button>
               }
             />
+          ) : null}
+          {podsState.kind === 'ready' && podsState.partial && hasSelection ? (
+            <PodsPartialBanner reasons={podsState.partialReasons} onRetry={refetchPods} />
           ) : null}
           {state.kind === 'ready' && state.partial ? (
             <PartialBanner reasons={state.partialReasons} onRetry={refetch} />

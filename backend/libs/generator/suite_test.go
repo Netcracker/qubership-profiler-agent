@@ -8,6 +8,7 @@ import (
 )
 
 func TestPrepareSuite(t *testing.T) {
+	skipIfNoData(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	opts := createTestOptions()
 	data, err := LoadData(ctx, opts)

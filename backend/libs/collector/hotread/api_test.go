@@ -329,3 +329,34 @@ func TestInternalValues(t *testing.T) {
 		assert.Equal(t, want, resp.StatusCode, path)
 	}
 }
+
+// TestInternalCallsMethodFilterPagination pins the №15 page loop: the method
+// filter runs in Go on top of the SQL page bound, so when the newest rows are
+// rejected by it, the handler must fetch deeper pages rather than return a
+// short (incomplete) result.
+func TestInternalCallsMethodFilterPagination(t *testing.T) {
+	store := openTestStore(t)
+	pr := addPod(t, store, "pod-m", 1, "com.example.Wanted.run", "com.example.Noise.run")
+	// Newest-first the methods alternate Noise, Wanted, Noise, Wanted, Wanted:
+	// a limit-2 method=Wanted query must dig past the Noise rows.
+	for i, method := range []int{0, 0, 1, 0, 1} { // index 0 = oldest
+		addCall(t, pr, baseMs+int64(i), data.Call{
+			Method: method, Duration: 10, ThreadName: "t",
+			TraceFileIndex: 1, BufferOffset: i * 100, RecordIndex: 0,
+		})
+	}
+	srv := httptest.NewServer(hotread.New(store).Handler())
+	t.Cleanup(srv.Close)
+
+	params := url.Values{
+		"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1000)},
+		"method": {"Wanted"}, "limit": {"2"},
+	}
+	var got page
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/internal/v1/calls", params, &got))
+	require.Len(t, got.Calls, 2, "rows rejected by the Go-side method filter must not shorten the page")
+	assert.Equal(t, []int64{baseMs + 3, baseMs + 1}, []int64{got.Calls[0].TsMs, got.Calls[1].TsMs})
+	for _, call := range got.Calls {
+		assert.Equal(t, "com.example.Wanted.run", call.Method)
+	}
+}

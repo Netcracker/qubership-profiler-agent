@@ -55,3 +55,28 @@ groups:
         annotations:
           summary: "S3 uploads are failing"
           description: "PUT attempts to S3 failed within the last 10 minutes; pending parquet stays on the PV and retries with backoff."
+      # A single failed pass is transient (the loop retries on the next tick);
+      # a sustained rate across seal/upload/janitor means a loop is wedged and
+      # the hot→cold pipeline is not making progress.
+      - alert: ProfilerLoopErrors
+        expr: >-
+          increase(profiler_seal_loop_errors_total[15m])
+            + increase(profiler_upload_loop_errors_total[15m])
+            + increase(profiler_janitor_loop_errors_total[15m]) > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A collector maintenance loop keeps failing"
+          description: "The seal, upload, or janitor loop logged repeated pass failures over the last 15 minutes; the hot→cold handoff may be stalling."
+      # The upload queue should drain within a few upload intervals. A pending
+      # file older than 30 minutes means the uploader cannot keep up or is
+      # blocked, and the PV keeps accumulating sealed parquet.
+      - alert: ProfilerUploadBacklogStale
+        expr: profiler_upload_lag_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sealed parquet is not reaching S3"
+          description: "The oldest pending upload has waited over 30 minutes; upload_backlog is not draining and the collector PV keeps growing."

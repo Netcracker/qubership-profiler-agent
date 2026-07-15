@@ -2,8 +2,7 @@
 // environment, following the catalogues of 01-write-contract.md §9,
 // 02-read-contract.md §9, and 03-lifecycle.md §10. Only the knobs the
 // composed services actually honour are parsed: accepting an env var the
-// process would ignore misleads operators, so the ones that belong to
-// unshipped features (memory budget, hot retention, seal concurrency, ...)
+// process would ignore misleads operators, so knobs of unshipped features
 // stay unparsed until those features land.
 package envconfig
 
@@ -45,6 +44,9 @@ type (
 		SealCheckInterval    time.Duration `envconfig:"PROFILER_SEAL_CHECK_INTERVAL" default:"15s"`
 		UploadCheckInterval  time.Duration `envconfig:"PROFILER_UPLOAD_CHECK_INTERVAL" default:"30s"`
 		JanitorCheckInterval time.Duration `envconfig:"PROFILER_JANITOR_CHECK_INTERVAL" default:"30s"`
+		// SealConcurrency bounds the parallel seal passes of one loop tick
+		// (01 §6.1, §9).
+		SealConcurrency int `envconfig:"PROFILER_SEAL_CONCURRENCY" default:"4"`
 
 		// HotRetention keeps uploaded parquet and the matching call-index
 		// partitions on the PV past upload (01 §6.3, 02 §4.2).
@@ -56,6 +58,27 @@ type (
 		// pod-restart's WAL files are deleted; the env name is an
 		// implementation choice recorded in stage1-progress.md.
 		WalPurgeGrace time.Duration `envconfig:"PROFILER_WAL_PURGE_GRACE" default:"1h"`
+		// MemBudget caps the hot store's in-RAM pod-restart state (01 §9,
+		// §4.6): over budget the janitor unloads closed pod-restarts'
+		// dictionaries and, once fully sealed, their chunk indexes.
+		MemBudget ByteSize `envconfig:"PROFILER_MEM_BUDGET" default:"2GB"`
+		// PendingUploadMaxBytes bounds the un-uploaded backlog (sealed parquet
+		// owed to S3 plus live call partitions) when S3 falls behind: once
+		// pending parquet alone reaches half the budget sealing pauses, once
+		// the whole backlog reaches the full budget ingest refuses agent data
+		// so the PV never runs to ENOSPC. The env name is an implementation
+		// choice recorded in stage1-progress.md, like the quarantine knobs
+		// below.
+		PendingUploadMaxBytes ByteSize `envconfig:"PROFILER_PENDING_UPLOAD_MAX_BYTES" default:"2GB"`
+		// QuarantineRetestInterval re-tests permanently-rejected uploads;
+		// QuarantineMaxAge / QuarantineMaxBytes cap the upload-failed/
+		// quarantine so it cannot pin the WAL purge or fill the PV.
+		QuarantineRetestInterval time.Duration `envconfig:"PROFILER_QUARANTINE_RETEST_INTERVAL" default:"1h"`
+		QuarantineMaxAge         TTL           `envconfig:"PROFILER_QUARANTINE_MAX_AGE" default:"7d"`
+		QuarantineMaxBytes       ByteSize      `envconfig:"PROFILER_QUARANTINE_MAX_BYTES" default:"1GB"`
+		// UploadConcurrency bounds the parallel S3 PUT workers of one upload
+		// pass.
+		UploadConcurrency int `envconfig:"PROFILER_UPLOAD_CONCURRENCY" default:"4"`
 
 		ShutdownDrainGrace time.Duration `envconfig:"PROFILER_SHUTDOWN_DRAIN_GRACE" default:"30s"`
 

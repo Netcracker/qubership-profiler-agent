@@ -37,6 +37,11 @@ export interface CallJSON {
   thread_name: string;
   cpu_time_ms: number;
   wait_time_ms: number;
+  // TODO(int64-precision): memory_used / logs_* / file_* / net_* are int64 on
+  // the wire; res.json() parses them as JS numbers and loses precision above
+  // 2^53 (~9 PB). A bigint-aware parse would ripple through formatBytes and the
+  // numeric column sort (calls/columns.tsx), so it is deferred until a real
+  // value can approach that range.
   memory_used: number;
   queue_wait_ms: number;
   suspend_ms: number;

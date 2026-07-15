@@ -2,6 +2,7 @@ package parser
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,7 +14,20 @@ const (
 	ResourceDir = "../tests/resources/"
 )
 
+// skipIfNoPodDump skips a legacy pod-dump parser test when the captured
+// ui5min.protocol fixture is absent. That fixture is a 1.6 MB real pod capture
+// which the project deliberately never commits (see WORKFLOW.md §6: "Never
+// commit a captured wire-protocol dump"), so on a clean checkout it is missing.
+func skipIfNoPodDump(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(ResourceDir, "ui5min.protocol")); os.IsNotExist(err) {
+		t.Skip("missing captured fixture libs/tests/resources/ui5min.protocol " +
+			"(real pod dumps are never committed; see WORKFLOW.md §6)")
+	}
+}
+
 func TestParsePodDump(t *testing.T) {
+	skipIfNoPodDump(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 
 	testDumpFile := filepath.Join(ResourceDir, "ui5min.protocol")

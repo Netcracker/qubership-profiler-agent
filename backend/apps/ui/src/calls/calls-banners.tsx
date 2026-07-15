@@ -95,6 +95,28 @@ export function PartialBanner({ reasons, onRetry }: { reasons: string[]; onRetry
   );
 }
 
+/**
+ * A partial /pods result drops pods from the rail, which silently narrows the
+ * /calls pod filter (expandSelection). The rail shows its own notice, but the
+ * results table gives no hint they may be incomplete — so surface it here too
+ * (09 §5 Partial). Amber: the shown calls are real, just possibly not all.
+ */
+export function PodsPartialBanner({ reasons, onRetry }: { reasons: string[]; onRetry: () => void }) {
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      title="These results may be narrowed — the pod list is incomplete"
+      description={reasons.length > 0 ? reasons.join('; ') : undefined}
+      action={
+        <Button size="small" onClick={onRetry}>
+          Retry pods
+        </Button>
+      }
+    />
+  );
+}
+
 export function CursorExpiredBanner({ onReload }: { onReload: () => void }) {
   return (
     <Alert

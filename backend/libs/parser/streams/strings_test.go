@@ -12,6 +12,7 @@ import (
 )
 
 func TestReadStringStreams_TestService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 
 	t.Run("sql", func(t *testing.T) {
@@ -34,6 +35,7 @@ func TestReadStringStreams_TestService(t *testing.T) {
 }
 
 func TestReadStringStreams_5minService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 
 	t.Run("sql", func(t *testing.T) {

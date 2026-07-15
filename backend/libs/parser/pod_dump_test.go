@@ -10,6 +10,7 @@ import (
 )
 
 func TestParsedPodDump_ByType(t *testing.T) {
+	skipIfNoPodDump(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	testDumpFile := filepath.Join(ResourceDir, "ui5min.protocol")
 	data, err := ParsePodTcpDump(ctx, TcpFile{"ui5min.protocol", testDumpFile})

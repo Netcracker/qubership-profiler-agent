@@ -26,11 +26,15 @@ type (
 		pos       int64 // technical: position in bytes stream
 	}
 	SuspendItem struct { // for dictionary streams
-		id     int       // ordinal number in a list
-		Amount int       // suspend time (ms)
-		Time   time.Time // start time of suspend
-		delta  int       // technical: delta from prev number
-		pos    int64     // technical: position in bytes stream
+		id     int // ordinal number in a list
+		Amount int // suspend time (ms)
+		// Time is the pause END: the agent timestamps a stop-the-world delay
+		// after detecting it (TimerCache dates[pos]=now), so the pause spans
+		// [Time − Amount, Time]. Consumers store this end and build the interval
+		// that way (SuspendLog.getSuspendDuration uses start = date − delay) (№4).
+		Time  time.Time
+		delta int   // technical: delta from prev number
+		pos   int64 // technical: position in bytes stream
 	}
 	CallItem struct {
 		id   int       // ordinal number in a list

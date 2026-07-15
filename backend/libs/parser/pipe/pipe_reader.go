@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"fmt"
 	"io"
 	"slices"
-	"strings"
+	"unicode/utf16"
+
+	"github.com/Netcracker/qubership-profiler-backend/libs/common"
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 )
 
 type (
@@ -19,16 +22,24 @@ type (
 		chars      int64        // chars already be read
 		needBuffer bool         // required for parsing traces
 		buffer     bytes.Buffer // internal buffer to keep the latest n bytes
+		// err records a non-EOF failure (a torn read, a length past the cap).
+		// A clean EOF leaves it nil; Err() lets the ingest decoder tell a clean
+		// end from a malformed stream and answer ACK_ERROR_MAGIC (06 §6, №21).
+		err error
 	}
 )
 
 func NewPipeReader(reader io.Reader, needBuffer bool) *PipeReader {
-	var buf bytes.Buffer
-	return &PipeReader{reader, false, 0, needBuffer, buf}
+	return &PipeReader{reader: reader, needBuffer: needBuffer}
 }
 
 func (b *PipeReader) EOF() bool {
 	return b.isDone
+}
+
+// Err reports the non-EOF error that stopped the reader, or nil on a clean end.
+func (b *PipeReader) Err() error {
+	return b.err
 }
 
 func (b *PipeReader) Done() {
@@ -90,8 +101,19 @@ func (b *PipeReader) ReadUuid(ctx context.Context) (common.Uuid, error) {
 
 func (b *PipeReader) ReadFixedString(ctx context.Context) (string, error) {
 	length, err := b.readLen(ctx)
-	// TODO safety check (warning and limit for length > 2mb ?)
-	//  * reason: must be err, because we have limiter (4kb for large objects) on the profiler agent side
+	if err != nil {
+		return "", err
+	}
+	// The agent caps a fixed-string field at DATA_BUFFER_SIZE
+	// (FieldIOReader.Field rejects length > buffer). A larger length is a
+	// malformed or hostile client; honouring it would allocate up to 4 GiB from
+	// one wire-supplied number, so we refuse it instead of make()-ing (№13).
+	if length > model.DataBufferSize {
+		err := fmt.Errorf("fixed-string length %d exceeds max %d at pos %d",
+			length, model.DataBufferSize, b.chars)
+		b.setErr(err)
+		return "", err
+	}
 	data := make([]byte, length)
 	err = b.read(ctx, data)
 	b.Next(length)
@@ -254,23 +276,27 @@ func (b *PipeReader) ReadVarString(ctx context.Context) (int, int, string) {
 	}
 	if length > maxLength {
 		// Exception: "Expecting string of max length %maxLength, got %length chars at %position"
-		b.isDone = true
+		b.setErr(fmt.Errorf("var-string length %d exceeds max %d at pos %d", length, maxLength, b.chars))
 		return -1, 0, ""
 	}
-	var sb strings.Builder
-	var char string
+	// The agent writes each char as one UTF-16 code unit (DataOutputStreamEx
+	// .writeChars); a non-BMP rune is a surrogate pair, i.e. two code units.
+	// Collect the whole run and decode once so utf16.Decode reassembles the
+	// pairs into full runes — decoding unit by unit would truncate them
+	// (DataInputStreamEx.readString does the same: char[length] then new String).
+	units := make([]uint16, 0, length)
 	for i := 0; i < length; i++ {
-		char, err = b.readChar(ctx)
+		u, err := b.readChar(ctx)
 		if err != nil {
 			b.isDone = true
-			return -1, int(b.chars - before), sb.String()
+			return -1, int(b.chars - before), string(utf16.Decode(units))
 		}
-		sb.WriteString(char)
+		units = append(units, u)
 	}
 	// length of returned string
 	// actual number of bytes which were read (including varint in the beginning)
 	// actual string
-	return length, int(b.chars - before), sb.String()
+	return length, int(b.chars - before), string(utf16.Decode(units))
 }
 
 func (b *PipeReader) readLen(ctx context.Context) (uint32, error) {
@@ -280,18 +306,26 @@ func (b *PipeReader) readLen(ctx context.Context) (uint32, error) {
 	return op, err
 }
 
-func (b *PipeReader) readChar(ctx context.Context) (string, error) {
-	var op int16
+// readChar reads one UTF-16 code unit (an unsigned big-endian uint16, matching
+// the agent's DataInputStreamEx.readChar: (c1<<8)|c2). It is unsigned so a code
+// unit >= U+8000 is not sign-extended to a negative rune, and a surrogate half
+// is returned intact for utf16.Decode to reassemble. Callers collect the units
+// and decode the whole run — see ReadVarString.
+func (b *PipeReader) readChar(ctx context.Context) (uint16, error) {
+	var op uint16
 	err := b.read(ctx, &op)
 	b.Next(2)
-	//return string(op)
-	return string(rune(op)), err
+	return op, err
 }
 
 func (b *PipeReader) read(ctx context.Context, o interface{}) error {
 	err := binary.Read(b.reader, binary.BigEndian, o)
 	if err == io.EOF {
 		b.Done()
+	} else if err != nil {
+		// A short read mid-record (io.ErrUnexpectedEOF) or a transport error is
+		// a torn stream, not a clean end; record it so Err() can surface it.
+		b.setErr(err)
 	}
 	// keep latest bytes (for traces, etc.) - should clear buffer in the end!
 	if err == nil && b.needBuffer {
@@ -301,4 +335,12 @@ func (b *PipeReader) read(ctx context.Context, o interface{}) error {
 		}
 	}
 	return err
+}
+
+// setErr records the first non-EOF failure and marks the reader done.
+func (b *PipeReader) setErr(err error) {
+	if b.err == nil {
+		b.err = err
+	}
+	b.isDone = true
 }

@@ -62,6 +62,10 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 	// rides the same port outside the gate, so a scrape works mid-recovery.
 	gate := health.NewGate("/internal/v1")
 	reg := metrics.NewRegistry()
+	// The cdt_minio_* series register on the Prometheus default registry inside
+	// s3.NewClient; expose them on this subcommand's own registry too, or a
+	// scrape of /metrics would never see them.
+	s3.RegisterMetrics(reg)
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.InternalAPIPort))
 	if err != nil {
 		return pkgerrors.Wrap(err, "bind internal API")
@@ -102,11 +106,19 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 			DurationThresholds:    [2]time.Duration(cfg.DurationThresholds),
 			Replica:               replica,
 			SealCheckInterval:     cfg.SealCheckInterval,
+			SealConcurrency:       cfg.SealConcurrency,
 			UploadCheckInterval:   cfg.UploadCheckInterval,
 			JanitorCheckInterval:  cfg.JanitorCheckInterval,
 			HotRetention:          cfg.HotRetention,
 			ChunksStagingMaxBytes: int64(cfg.ChunksStagingMaxBytes),
 			WalPurgeGrace:         cfg.WalPurgeGrace,
+			MemBudgetBytes:        int64(cfg.MemBudget),
+			PendingUploadMaxBytes: int64(cfg.PendingUploadMaxBytes),
+
+			QuarantineRetestInterval: cfg.QuarantineRetestInterval,
+			QuarantineMaxAge:         time.Duration(cfg.QuarantineMaxAge),
+			QuarantineMaxBytes:       int64(cfg.QuarantineMaxBytes),
+			UploadConcurrency:        cfg.UploadConcurrency,
 		},
 		Server: server.ConnectionOpts{
 			ProtocolPort:         cfg.AgentPort,
@@ -120,6 +132,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 	}
 
 	metrics.RegisterCollect(reg, svc.Store(), svc.Uploader())
+	metrics.RegisterIngest(reg, svc.Ingest())
 	gate.Mount(hotread.New(svc.Store()).Handler())
 	gate.Set(health.StateReady, "")
 	log.Info(ctx, "collector ready: agent :%d, internal API :%d, data dir %s",

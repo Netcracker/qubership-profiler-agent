@@ -96,9 +96,11 @@ func TestTreeAndTraceAPI(t *testing.T) {
 	sendStream(t, acC, model.StreamDictionary, 0, wire.DictionaryStream(treeDictWords))
 	// The R7 timeline against C2's windows (root [5, 24), q [8, 13),
 	// p [14, 17)): [6, 8) is root self time, [9, 11) falls inside q,
-	// [15, 16) inside p. The snapshot rides to S3 with the dictionary.
+	// [15, 16) inside p. DeltaMs is the delta to the pause END, so a pause spans
+	// [end−amount, end] (№4): ends 8, 11, 16. The snapshot rides to S3 with the
+	// dictionary.
 	sendStream(t, acC, model.StreamSuspend, 0, wire.SuspendStream(timerStartMs, []wire.SuspendEvent{
-		{DeltaMs: 6, AmountMs: 2}, {DeltaMs: 3, AmountMs: 2}, {DeltaMs: 6, AmountMs: 1},
+		{DeltaMs: 8, AmountMs: 2}, {DeltaMs: 3, AmountMs: 2}, {DeltaMs: 5, AmountMs: 1},
 	}))
 	sendStream(t, acC, model.StreamSql, 0, sqlColdData)
 	sendStream(t, acC, model.StreamXml, 0, xmlColdData)
@@ -145,9 +147,11 @@ func TestTreeAndTraceAPI(t *testing.T) {
 	require.True(t, ok)
 	sendStream(t, acH, model.StreamDictionary, 0, wire.DictionaryStream(treeDictWords))
 	// The R7 timeline against the hot windows (root [5, 20), q [8, 13)):
-	// [6, 8) is root self time, [9, 10) falls inside q.
+	// [6, 8) is root self time, [9, 10) falls inside q. DeltaMs is the delta to
+	// the pause END, so a pause spans [end−amount, end] (№4): end 8 → [6, 8),
+	// end 10 → [9, 10).
 	sendStream(t, acH, model.StreamSuspend, 0, wire.SuspendStream(timerStartMs, []wire.SuspendEvent{
-		{DeltaMs: 6, AmountMs: 2}, {DeltaMs: 3, AmountMs: 1},
+		{DeltaMs: 8, AmountMs: 2}, {DeltaMs: 2, AmountMs: 1},
 	}))
 	sendStream(t, acH, model.StreamSql, 0, sqlHotData)
 	sendStream(t, acH, model.StreamTrace, 0, fileH)
@@ -208,6 +212,33 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		assert.Equal(t, "sql", tree.Params[child.Params[0].ParamIdx])
 		assert.Equal(t, []calltree.ParamGroup{{Value: hotSqlValue, DurationMs: 5, Executions: 1}},
 			child.Params[0].Groups, "hot big params resolve from the replica's value segments")
+	})
+
+	t.Run("hot /tree: a values transport error fails the tree, not degrades it", func(t *testing.T) {
+		// §2.5.3: a failed /values fetch must not serve a 200 with SQL silently
+		// downgraded to unresolved groups. It fails like the dictionary and
+		// suspend transport paths — 504 — so the client never trusts corrupted
+		// R11 aggregation. Absent references (a successful response) still
+		// render as unresolved; only the transport failure is fatal.
+		base := hotread.New(storeA).Handler()
+		faulty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/values") {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			base.ServeHTTP(w, r)
+		}))
+		t.Cleanup(faulty.Close)
+		fdisco := &scriptedDiscovery{}
+		fdisco.set(faulty.URL)
+		fapi := httptest.NewServer(query.New(query.Options{
+			Config:       query.Config{WideRangeLimit: 30 * 24 * time.Hour},
+			ColdStore:    fake,
+			HotDiscovery: fdisco,
+		}).Handler())
+		t.Cleanup(fapi.Close)
+
+		getProblem(t, fapi, "/api/v1/calls/"+pkHot+"/tree", nil, http.StatusGatewayTimeout)
 	})
 
 	t.Run("cold /tree: snapshot dictionary, sealed big params, record_index noise", func(t *testing.T) {

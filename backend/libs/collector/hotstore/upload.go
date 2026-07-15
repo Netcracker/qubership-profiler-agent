@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
@@ -40,6 +41,11 @@ type (
 
 		mu       sync.Mutex
 		counters UploadStats
+
+		// loopErrors counts failed upload passes at the pass-failed log site
+		// (the upload_loop_errors_total seam). Per-file PUT failures are counted
+		// separately by UploadStats.FailedPuts; this is a whole-pass failure.
+		loopErrors atomic.Int64
 	}
 
 	// UploadStats counts one Pass's work (and, via CountersSnapshot, the
@@ -56,6 +62,11 @@ type (
 		ManifestPuts       int64
 		SnapshotUploads    int64
 		SegmentsDeleted    int64
+		// RequeuedFiles / RequeuedSnapshots count the №2 quarantine re-tests:
+		// permanently-rejected uploads put back into their queues after the
+		// retest interval.
+		RequeuedFiles     int64
+		RequeuedSnapshots int64
 	}
 
 	// dictionarySnapshot is the S3 dictionary object (01 §3.6, 02 §2.6). The
@@ -69,7 +80,11 @@ type (
 	}
 
 	suspendSnapshotEvent struct {
-		StartMs    int64 `json:"start_ms"`
+		// EndMs is the wall-clock instant the agent timestamped the pause after
+		// detecting the delay (TimerCache dates[pos]=now); the pause spans
+		// [EndMs − DurationMs, EndMs]. Readers build the interval that way
+		// (calltree treats SuspendInterval.TimeMs as the end) (№4).
+		EndMs      int64 `json:"end_ms"`
 		DurationMs int   `json:"duration_ms"`
 	}
 
@@ -117,87 +132,183 @@ func (u *Uploader) CountersSnapshot() UploadStats {
 	return u.counters
 }
 
+// LoopErrors reports the process-lifetime count of failed upload passes (the
+// upload_loop_errors_total seam), distinct from the per-file FailedPuts.
+func (u *Uploader) LoopErrors() int64 { return u.loopErrors.Load() }
+
+// add merges another stats bundle in; used by the pass accumulator and by
+// the №25 upload workers merging their per-worker counts.
+func (s *UploadStats) add(o UploadStats) {
+	s.UploadedFiles += o.UploadedFiles
+	s.FailedPuts += o.FailedPuts
+	s.RetriedPuts += o.RetriedPuts
+	s.QuarantinedFiles += o.QuarantinedFiles
+	s.QuarantinedObjects += o.QuarantinedObjects
+	s.ManifestPuts += o.ManifestPuts
+	s.SnapshotUploads += o.SnapshotUploads
+	s.SegmentsDeleted += o.SegmentsDeleted
+	s.RequeuedFiles += o.RequeuedFiles
+	s.RequeuedSnapshots += o.RequeuedSnapshots
+}
+
 func (u *Uploader) accumulate(stats UploadStats) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	u.counters.UploadedFiles += stats.UploadedFiles
-	u.counters.FailedPuts += stats.FailedPuts
-	u.counters.RetriedPuts += stats.RetriedPuts
-	u.counters.QuarantinedFiles += stats.QuarantinedFiles
-	u.counters.QuarantinedObjects += stats.QuarantinedObjects
-	u.counters.ManifestPuts += stats.ManifestPuts
-	u.counters.SnapshotUploads += stats.SnapshotUploads
-	u.counters.SegmentsDeleted += stats.SegmentsDeleted
+	u.counters.add(stats)
 }
 
-// Pass runs one upload round: pending parquet files, then the snapshot
-// objects of closed pod-restarts, then the refcount-0 segment sweep. Per-file
-// failures are logged and left for the next pass; only a context or SQLite
-// failure aborts the pass.
+// Pass runs one upload round: the quarantine re-test, pending parquet files,
+// then the snapshot objects of closed pod-restarts, then the refcount-0
+// segment sweep. Per-file failures are logged and left for the next pass;
+// only a context or SQLite failure aborts the pass.
 func (u *Uploader) Pass(ctx context.Context) (UploadStats, error) {
 	var stats UploadStats
 	defer func() { u.accumulate(stats) }()
 
+	if err := u.requeueQuarantined(ctx, &stats); err != nil {
+		return stats, err
+	}
 	if err := u.uploadPending(ctx, &stats); err != nil {
 		return stats, err
 	}
 	if err := u.uploadSnapshots(ctx, &stats); err != nil {
 		return stats, err
 	}
-	err := u.sweepSegments(ctx, &stats)
-	return stats, err
+	if err := u.sweepSegments(ctx, &stats); err != nil {
+		return stats, err
+	}
+	// Confirmed uploads shrink the pending backlog: lift the №2 gates now
+	// rather than a janitor pass later.
+	return stats, u.store.refreshBackpressure(ctx)
 }
 
-// uploadPending drains parquet_local rows with uploaded_at IS NULL. Per file
-// the order is fixed by invariant C1: PUT the object, refresh the day's pods
-// manifest, and only then commit uploaded_at together with the refcount
-// release — any failure before the commit leaves the row pending and the next
-// pass redoes the idempotent PUTs.
+// requeueQuarantined implements the №2 slow re-test: quarantined parquet and
+// snapshot uploads whose last rejection is older than the retest interval
+// re-enter their queues. A rejection that persists re-quarantines with a
+// fresh timestamp, so the re-test costs one PUT per interval, not a hot loop.
+func (u *Uploader) requeueQuarantined(ctx context.Context, stats *UploadStats) error {
+	cutoffMs := time.Now().UnixMilli() - u.store.cfg.QuarantineRetestInterval.Milliseconds()
+	files, err := u.store.db.RequeueQuarantinedParquet(cutoffMs)
+	if err != nil {
+		return err
+	}
+	snapshots, err := u.store.db.RequeueQuarantinedSnapshots(cutoffMs)
+	if err != nil {
+		return err
+	}
+	stats.RequeuedFiles += files
+	stats.RequeuedSnapshots += snapshots
+	if files+snapshots > 0 {
+		log.Info(ctx, "upload: re-testing %d quarantined files and %d quarantined snapshot uploads", files, snapshots)
+	}
+	return nil
+}
+
+// uploadPending drains parquet_local rows with uploaded_at IS NULL over a
+// bounded worker pool (№25): one stuck PUT no longer head-of-line-blocks the
+// backlog. Per file the order is fixed by invariant C1: PUT the object,
+// refresh the day's pods manifest, and only then commit uploaded_at together
+// with the refcount release — any failure before the commit leaves the row
+// pending and the next pass redoes the idempotent PUTs.
 func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) error {
 	files, err := u.store.db.PendingUploads()
 	if err != nil {
 		return err
 	}
-	manifestsDone := map[string]struct{}{}
-	for _, f := range files {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if _, err := os.Stat(f.Path); err != nil {
-			// Recovery clears rows whose file is gone (03 §3.6); mid-flight the
-			// pass just skips them.
-			log.Warning(ctx, "upload: sealed parquet %s is missing on disk, skipping", f.Path)
-			continue
-		}
-		err := u.putWithRetry(ctx, f.S3Key, func() error { return u.s3.PutFile(ctx, f.S3Key, f.Path) }, stats)
-		if IsPermanentUploadError(err) {
-			if qErr := u.quarantine(ctx, f, err, stats); qErr != nil {
-				log.Error(ctx, qErr, "upload: quarantine of %s failed; the file stays pending", f.Path)
-			}
-			continue
-		}
-		if err != nil {
-			if ctx.Err() != nil {
-				return err
-			}
-			log.Error(ctx, err, "upload: PUT %s failed after retries; will retry next pass", f.S3Key)
-			continue
-		}
-		if err := u.upsertManifest(ctx, f, manifestsDone, stats); err != nil {
-			if ctx.Err() != nil {
-				return err
-			}
-			// uploaded_at stays NULL, so the next pass re-runs the parquet PUT
-			// and the manifest PUT; both are idempotent.
-			log.Error(ctx, err, "upload: pods manifest for %s failed; %s stays pending", f.PodRestart, f.S3Key)
-			continue
-		}
-		if err := u.store.db.MarkUploaded(f.Path, time.Now().UnixMilli()); err != nil {
-			return err
-		}
-		stats.UploadedFiles++
-		log.Info(ctx, "uploaded %s (%d rows)", f.S3Key, f.RowCount)
+	if len(files) == 0 {
+		return nil
 	}
+	workers := u.store.cfg.UploadConcurrency
+	if workers > len(files) {
+		workers = len(files)
+	}
+
+	var (
+		mu            sync.Mutex // guards firstErr, manifestsDone, and the merge into stats
+		firstErr      error
+		manifestsDone = map[string]struct{}{}
+	)
+	jobs := make(chan ParquetLocalFile)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var local UploadStats
+			for f := range jobs {
+				mu.Lock()
+				stop := firstErr != nil
+				mu.Unlock()
+				if stop || ctx.Err() != nil {
+					continue // drain the channel; the pass is already failing
+				}
+				if err := u.uploadOne(ctx, f, &local, &mu, manifestsDone); err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+				}
+			}
+			mu.Lock()
+			stats.add(local)
+			mu.Unlock()
+		}()
+	}
+	for _, f := range files {
+		jobs <- f
+	}
+	close(jobs)
+	wg.Wait()
+	return firstErr
+}
+
+// uploadOne runs the §6.2 sequence for one file. A per-file failure is
+// logged and left for the next pass (nil); only a context or SQLite failure
+// comes back as an error and fails the pass.
+func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *UploadStats,
+	manifestMu *sync.Mutex, manifestsDone map[string]struct{}) error {
+
+	if _, err := os.Stat(f.Path); err != nil {
+		// Recovery clears rows whose file is gone (03 §3.6); mid-flight the
+		// pass just skips them.
+		log.Warning(ctx, "upload: sealed parquet %s is missing on disk, skipping", f.Path)
+		return nil
+	}
+	err := u.putWithRetry(ctx, f.S3Key, func() error { return u.s3.PutFile(ctx, f.S3Key, f.Path) }, stats)
+	if IsPermanentUploadError(err) {
+		if qErr := u.quarantine(ctx, f, err, stats); qErr != nil {
+			log.Error(ctx, qErr, "upload: quarantine of %s failed; the file stays pending", f.Path)
+		}
+		return nil
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		log.Error(ctx, err, "upload: PUT %s failed after retries; will retry next pass", f.S3Key)
+		return nil
+	}
+	// The manifest upsert is serialized across workers: manifestsDone dedups
+	// per (pod-restart, day) and the PUT itself is idempotent, so coarse
+	// serialization is correct and manifests are rare next to parquet PUTs.
+	manifestMu.Lock()
+	mErr := u.upsertManifest(ctx, f, manifestsDone, stats)
+	manifestMu.Unlock()
+	if mErr != nil {
+		if ctx.Err() != nil {
+			return mErr
+		}
+		// uploaded_at stays NULL, so the next pass re-runs the parquet PUT
+		// and the manifest PUT; both are idempotent.
+		log.Error(ctx, mErr, "upload: pods manifest for %s failed; %s stays pending", f.PodRestart, f.S3Key)
+		return nil
+	}
+	if err := u.store.db.MarkUploaded(f.Path, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	stats.UploadedFiles++
+	log.Info(ctx, "uploaded %s (%d rows)", f.S3Key, f.RowCount)
 	return nil
 }
 
@@ -388,7 +499,7 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	}
 	events := make([]suspendSnapshotEvent, 0, len(pauses))
 	for _, p := range pauses {
-		events = append(events, suspendSnapshotEvent{StartMs: p.TimeMs, DurationMs: p.DurationMs})
+		events = append(events, suspendSnapshotEvent{EndMs: p.TimeMs, DurationMs: p.DurationMs})
 	}
 	suspendBody, err := json.Marshal(suspendSnapshot{
 		RestartTimeMs: key.RestartTimeMs,
@@ -413,6 +524,9 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	stats.SnapshotUploads++
 	log.Info(ctx, "uploaded dictionary and suspend snapshots of %s (%d words, %d pauses)",
 		key, len(words), len(events))
+	// The snapshot reloaded a closed pod-restart's dictionary; drop the lazy
+	// handle back to the WAL (№1).
+	pr.unloadDictionary()
 	return nil
 }
 
@@ -496,6 +610,7 @@ func (u *Uploader) Run(ctx context.Context, interval time.Duration) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if _, err := u.Pass(ctx); err != nil && ctx.Err() == nil {
+				u.loopErrors.Add(1)
 				log.Error(ctx, err, "upload pass failed")
 			}
 		}

@@ -72,6 +72,9 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	}
 
 	reg := metrics.NewRegistry()
+	// Expose the cdt_minio_* series (registered on the default registry inside
+	// s3.NewClient) on this subcommand's own registry too.
+	s3.RegisterMetrics(reg)
 	svc := query.New(query.Options{
 		Config: query.Config{
 			CursorTTL:        cfg.CursorTTL,

@@ -13,6 +13,7 @@ import (
 )
 
 func TestReadSuspend_TestService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	t1 := time.Date(2023, 7, 24, 12, 26, 17, 657000000, time.UTC)
 	t2 := time.Date(2023, 7, 24, 12, 27, 52, 925000000, time.UTC)
@@ -41,6 +42,7 @@ func TestReadSuspend_TestService(t *testing.T) {
 }
 
 func TestReadSuspend_5minService(t *testing.T) {
+	skipIfNoFixtures(t)
 	ctx := log.SetLevel(context.Background(), log.DEBUG)
 	t1 := time.Date(2023, 8, 4, 16, 42, 6, 615000000, time.UTC)
 	t2 := time.Date(2023, 8, 4, 16, 48, 0, 317000000, time.UTC)

@@ -1,0 +1,117 @@
+package hotstore
+
+// №24: the partition handle cache is a bounded LRU with a capped connection
+// pool. №15: CallsPage pushes the /calls filters and the page bound into SQL
+// while keeping tie groups whole.
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func indexRow(pod string, tsMs int64, seq int, durationMs int, errorFlag bool) CallIndexRow {
+	return CallIndexRow{
+		PodRestart: fmt.Sprintf("ns/svc/%s/%d", pod, janitorCallTs), TraceFileIndex: seq,
+		BufferOffset: 0, RecordIndex: 0, TsMs: tsMs, DurationMs: durationMs,
+		RetentionClass: RetentionShortClean, ErrorFlag: errorFlag, CallsWalOffset: int64(seq),
+	}
+}
+
+// TestPartitionCacheLRU pins №24: at most PartitionCacheSize handles stay
+// open, the least-recently-used one closes first, and an evicted bucket's
+// rows stay readable through a reopened handle.
+func TestPartitionCacheLRU(t *testing.T) {
+	store, err := Open(Config{DataDir: t.TempDir(), PartitionCacheSize: 2})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	buckets := make([]int64, 4)
+	for i := range buckets {
+		buckets[i] = store.cfg.Bucket(janitorCallTs) + int64(i)
+		require.NoError(t, store.db.InsertCall(buckets[i],
+			indexRow("pod-l", store.cfg.BucketStartMs(buckets[i]), i+1, 10, false)))
+		store.db.mu.Lock()
+		open := len(store.db.parts)
+		store.db.mu.Unlock()
+		assert.LessOrEqual(t, open, 2, "the handle cache never exceeds PartitionCacheSize")
+	}
+
+	for _, bucket := range buckets {
+		rows, err := store.Calls(bucket)
+		require.NoError(t, err)
+		assert.Len(t, rows, 1, "an evicted bucket reopens and still holds its row")
+	}
+
+	db, err := store.db.partition(buckets[0])
+	require.NoError(t, err)
+	sqlDb, err := db.DB()
+	require.NoError(t, err)
+	assert.Equal(t, 2, sqlDb.Stats().MaxOpenConnections, "the partition pool is capped (№24)")
+}
+
+// TestCallsPageFiltersAndLimit pins №15: the SQL page carries the pushable
+// filters, returns the newest `limit` ts values WITH complete tie groups,
+// and deeper pages resume below the boundary.
+func TestCallsPageFiltersAndLimit(t *testing.T) {
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	bucket := store.cfg.Bucket(janitorCallTs)
+	base := store.cfg.BucketStartMs(bucket)
+
+	// Three rows tie at base+100; older rows at +99 / +98; one errored row of
+	// another pod at +97.
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-a", base+100, 1, 50, false)))
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-a", base+100, 2, 500, false)))
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-b", base+100, 3, 50, false)))
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-a", base+99, 4, 50, false)))
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-a", base+98, 5, 50, false)))
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-b", base+97, 6, 50, true)))
+
+	window := model.CallsQuery{FromMs: base, ToMs: base + 1000}
+	page, err := store.CallsPage(bucket, window, window.FromMs, window.ToMs, 2)
+	require.NoError(t, err)
+	assert.Len(t, page, 3, "the boundary tie group comes back whole")
+	for _, row := range page {
+		assert.EqualValues(t, base+100, row.TsMs)
+	}
+
+	next, err := store.CallsPage(bucket, window, window.FromMs, page[len(page)-1].TsMs, 2)
+	require.NoError(t, err)
+	require.Len(t, next, 2, "the next page resumes strictly below the boundary")
+	assert.EqualValues(t, base+99, next[0].TsMs)
+	assert.EqualValues(t, base+98, next[1].TsMs)
+
+	filtered, err := store.CallsPage(bucket,
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, DurationMinMs: 100},
+		base, base+1000, 10)
+	require.NoError(t, err)
+	require.Len(t, filtered, 1, "the duration filter runs in SQL")
+	assert.Equal(t, 2, filtered[0].TraceFileIndex)
+
+	errored, err := store.CallsPage(bucket,
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, ErrorOnly: true},
+		base, base+1000, 10)
+	require.NoError(t, err)
+	require.Len(t, errored, 1)
+	assert.Equal(t, 6, errored[0].TraceFileIndex)
+
+	byPod, err := store.CallsPage(bucket,
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Pods: []string{"ns/svc/pod-b"}},
+		base, base+1000, 10)
+	require.NoError(t, err)
+	require.Len(t, byPod, 2, "the pod filter matches by pod_restart prefix")
+	for _, row := range byPod {
+		assert.Contains(t, row.PodRestart, "/pod-b/")
+	}
+	// A pod id that PREFIXES another must not leak the longer pod's rows.
+	prefixPod, err := store.CallsPage(bucket,
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Pods: []string{"ns/svc/pod"}},
+		base, base+1000, 10)
+	require.NoError(t, err)
+	assert.Empty(t, prefixPod, "prefix matching stops at the '/' separator")
+}

@@ -21,8 +21,15 @@ export class MsgpackDecodeError extends Error {
   }
 }
 
-/** Generic MessagePack value. Ext payloads surface as opaque Uint8Array. */
-export type MsgValue = null | boolean | number | string | Uint8Array | MsgValue[] | MsgMap;
+/**
+ * Generic MessagePack value. Ext payloads surface as opaque Uint8Array. A
+ * 64-bit integer outside the safe JS range surfaces as a bigint rather than
+ * throwing: the generic layer cannot know whether it belongs to a known field
+ * or an unknown one, and §2.5.1 requires unknown int keys to be ignored
+ * silently. The typed layer applies the safe-range check only when it reads a
+ * known field (see requireInt).
+ */
+export type MsgValue = null | boolean | number | bigint | string | Uint8Array | MsgValue[] | MsgMap;
 export type MsgMap = Map<number | string, MsgValue>;
 
 const MAX_DEPTH = 128;
@@ -83,18 +90,18 @@ class Reader {
     return v;
   }
 
-  u64(): number {
+  u64(): number | bigint {
     this.need(8);
     const v = this.view.getBigUint64(this.pos);
     this.pos += 8;
-    return toSafeNumber(v);
+    return narrowInt(v);
   }
 
-  i64(): number {
+  i64(): number | bigint {
     this.need(8);
     const v = this.view.getBigInt64(this.pos);
     this.pos += 8;
-    return toSafeNumber(v);
+    return narrowInt(v);
   }
 
   f32(): number {
@@ -127,10 +134,17 @@ class Reader {
   }
 }
 
-function toSafeNumber(v: bigint): number {
-  if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new MsgpackDecodeError(`integer ${v} exceeds the safe JS range`);
-  }
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+
+/**
+ * Narrows a decoded 64-bit integer to a JS number when it fits the safe range,
+ * and keeps it as a bigint otherwise. It never throws: the generic layer must
+ * carry any well-formed integer so that an unknown field with a large value is
+ * skipped rather than failing the whole decode (§2.5.1). The typed layer
+ * enforces the safe range on the known fields it actually reads.
+ */
+function narrowInt(v: bigint): number | bigint {
+  if (v > MAX_SAFE || v < -MAX_SAFE) return v;
   return Number(v);
 }
 
@@ -153,11 +167,13 @@ function readMap(r: Reader, len: number, depth: number): MsgMap {
   for (let i = 0; i < len; i++) {
     const key = readValue(r, depth);
     const value = readValue(r, depth);
-    // The contract keys records by int; string keys are tolerated and left
-    // for the typed layer to ignore. Any other key type marks a foreign format.
+    // The contract keys records by int; string keys are tolerated and left for
+    // the typed layer to ignore. A bigint key is an int field number past 2^53
+    // — no known field uses one, so drop it (still forward-compatible, §2.5.1).
+    // Any other key type marks a foreign format.
     if (typeof key === 'number' || typeof key === 'string') {
       out.set(key, value);
-    } else {
+    } else if (typeof key !== 'bigint') {
       throw new MsgpackDecodeError(`map key must be an integer or string, got ${describe(key)}`);
     }
   }
@@ -269,6 +285,14 @@ function describe(v: MsgValue): string {
 
 // --- Typed layer: field numbers of the merged-v1 records (02 §2.5.3) ---
 
+/**
+ * Tree wire version this decoder understands (02 §2.5.4). The /tree client
+ * sends it as the `Accept-Version` request header so a future breaking v2 keeps
+ * serving v1 to this UI over the compatibility window instead of breaking it
+ * silently. Mirrors the Go `calltree.Version`.
+ */
+export const TREE_WIRE_VERSION = 1;
+
 const enum TreeField {
   V = 0,
   Methods = 1,
@@ -309,6 +333,14 @@ function asMap(v: MsgValue | undefined, what: string): MsgMap {
 
 function requireInt(m: MsgMap, key: number, what: string): number {
   const v = m.get(key);
+  // A bigint reaches here only when a KNOWN field carried a 64-bit value
+  // outside the safe JS range. The v1 tree fields (durations, indices,
+  // executions) never legitimately exceed 2^53, so treat it as corrupt input
+  // rather than silently losing precision. The generic layer already skips
+  // unknown large ints (§2.5.1); this check guards the fields the model reads.
+  if (typeof v === 'bigint') {
+    throw new MsgpackDecodeError(`${what} field ${key} integer ${v} exceeds the safe JS range`);
+  }
   if (typeof v !== 'number' || !Number.isInteger(v)) {
     throw new MsgpackDecodeError(`${what} field ${key} must be an integer, got ${v === undefined ? 'nothing' : describe(v)}`);
   }
@@ -347,8 +379,8 @@ function optionalArray(m: MsgMap, key: number, what: string): MsgValue[] | undef
 export function decodeTree(bytes: Uint8Array): TreeWire {
   const top = asMap(readRoot(bytes), 'tree envelope');
   const v = requireInt(top, TreeField.V, 'tree');
-  if (v !== 1) {
-    throw new MsgpackDecodeError(`unsupported tree version ${v}; this decoder understands 1`);
+  if (v !== TREE_WIRE_VERSION) {
+    throw new MsgpackDecodeError(`unsupported tree version ${v}; this decoder understands ${TREE_WIRE_VERSION}`);
   }
   const methods = requireStringArray(top, TreeField.Methods, 'tree');
   const params = requireStringArray(top, TreeField.Params, 'tree');

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Profiler config for the real-agent E2E harness (scripts/e2e-realagent).
+
+  AdversarialMain drives the agent through the programmatic Profiler API, so it
+  needs no bytecode instrumentation of its own methods. We mark the whole
+  test-app package do-not-profile so the ONLY call the backend sees is the
+  synthetic top-level call opened by AdversarialMain.recordAdversarialCall().
+  That keeps the /calls assertion deterministic: exactly one adversarial method,
+  with exactly the three parameters we emit.
+-->
+<profiler-configuration>
+    <log-retention max-age="8 days" max-size="2 Gb"/>
+    <parameters>
+        <parameter name="jmeter.step" index="true" list="true" order="50"/>
+        <parameter name="call.red" index="true" list="false" order="500"/>
+        <parameter name="call.idle" index="true" list="false" order="700"/>
+    </parameters>
+    <ruleset>
+        <rule>
+            <class>com.netcracker.profiler.**</class>
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>com.netcracker.profilerTest.testapp.**</class>
+            <do-not-profile/>
+        </rule>
+    </ruleset>
+</profiler-configuration>

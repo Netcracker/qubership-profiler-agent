@@ -73,6 +73,9 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 // Store exposes the hot store for the read API and for tests.
 func (s *Service) Store() *hotstore.Store { return s.store }
 
+// Ingest exposes the ingest listener for the /metrics endpoint (№21).
+func (s *Service) Ingest() *ingest.Listener { return s.ingest }
+
 // Uploader exposes the upload task for the metrics endpoint; nil when the
 // service composes without an ObjectStore.
 func (s *Service) Uploader() *hotstore.Uploader { return s.uploader }

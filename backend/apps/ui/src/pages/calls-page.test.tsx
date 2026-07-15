@@ -1,8 +1,10 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { podsInRange } from '../mocks/synthetic';
 import { server } from '../mocks/node';
 import { CallsPage } from './calls-page';
 
@@ -50,5 +52,36 @@ describe('CallsPage', () => {
       timeout: 5000,
     });
     expect(screen.queryByText('Query too wide')).not.toBeInTheDocument();
+  });
+
+  it('warns in the results area when a partial /pods narrows the selection', async () => {
+    // A partial /pods drops pods from the rail and silently narrows the /calls
+    // pod filter; the results table must say so, not just the rail (09 §5).
+    server.use(
+      http.get('/api/v1/pods', ({ request }) => {
+        const sp = new URL(request.url).searchParams;
+        const fromMs = Number(sp.get('from'));
+        const toMs = Number(sp.get('to'));
+        return HttpResponse.json({
+          pods: podsInRange(fromMs, toMs, Date.now()),
+          partial: true,
+          partial_reasons: ['collector-2 timed out'],
+        });
+      }),
+    );
+
+    const to = Date.now();
+    renderCallsPage(`from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0&service=payments/billing`);
+
+    const banner = await screen.findByText(
+      /These results may be narrowed/,
+      undefined,
+      { timeout: 5000 },
+    );
+    const alert = banner.closest('[role="alert"]');
+    expect(alert).not.toBeNull();
+    // The originating reason travels with the content-area banner (the rail
+    // shows its own copy, so scope the assertion to this alert).
+    expect(within(alert as HTMLElement).getByText(/collector-2 timed out/)).toBeInTheDocument();
   });
 });

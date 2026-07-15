@@ -20,6 +20,19 @@ var (
 	uuid0 = common.ToUuid([16]byte{})
 )
 
+// skipIfNoFixtures skips a legacy stream-parser test when the captured
+// wire-protocol fixtures are absent. Those *.protocol dumps are real pod
+// captures that the project deliberately never commits (see WORKFLOW.md §6:
+// "Never commit a captured wire-protocol dump"), so on a clean checkout the
+// ResourceDir tree does not exist and these tests cannot run.
+func skipIfNoFixtures(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(ResourceDir); os.IsNotExist(err) {
+		t.Skip("missing captured fixtures under libs/tests/resources/streams/ " +
+			"(*.protocol pod dumps are never committed; see WORKFLOW.md §6)")
+	}
+}
+
 func testChunk(t *testing.T, stream model.StreamType, fileName string) *model.Chunk {
 	c, err := readChunk(uuid0, stream, 0, fileName)
 	require.Nil(t, err)
