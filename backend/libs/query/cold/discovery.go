@@ -27,11 +27,14 @@ var cleanClassUpperMs = map[string]int64{
 
 type (
 	// FileRef is one discovered parquet candidate: everything the read plan
-	// needs, obtained from the LIST alone (02 §5.1).
+	// needs, obtained from the LIST alone (02 §5.1). Hash is the key's
+	// pod-restart hash — the point-fetch path uses it to skip other
+	// pod-restarts' files without opening them.
 	FileRef struct {
 		Key       string
 		Size      int64
 		Class     string
+		Hash      string
 		TimeMinMs int64
 		TimeMaxMs int64
 	}
@@ -178,6 +181,7 @@ func ParseKey(key string, size int64) (FileRef, bool) {
 		Key:   key,
 		Size:  size,
 		Class: class,
+		Hash:  parts[len(parts)-5],
 		// The key stamps are second-precision (01 §7) while row ts_ms is
 		// milliseconds: both bounds are truncated downward in the key. Widen
 		// timeMax to the end of its second so a row in the truncated tail

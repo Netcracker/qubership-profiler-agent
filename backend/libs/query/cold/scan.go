@@ -13,38 +13,23 @@ import (
 	"github.com/xitongsys/parquet-go/source"
 )
 
-// traceBlobField is the CallV2 struct field backing the trace_blob column;
-// dropColumn matches it by the reader's in-name path.
-const traceBlobField = "TraceBlob"
+// The CallV2 struct fields backing the blob-sized columns; the list path
+// drops both (02 §5.4, §2.3.2), the point-fetch path reads both.
+const (
+	traceBlobField = "TraceBlob"
+	bigParamsField = "BigParamsJson"
+)
 
 // ScanFile reads one discovered parquet file with column projection — the
-// trace_blob column chunks are never read on the list path (02 §5.4,
-// §2.3.2) — applies the row filter ts_ms ∈ [from, to) plus the §2.3
-// predicates and the keyset seek, and returns the surviving rows in the
+// trace_blob and big_params_json column chunks are never read on the list
+// path (02 §5.4, §2.3.2) — applies the row filter ts_ms ∈ [from, to) plus the
+// §2.3 predicates and the keyset seek, and returns the surviving rows in the
 // file's native (ts_ms DESC, pk ASC) order (01 §5.2), ready to be one merge
 // run. A listed-but-deleted object returns an empty result (§5.1).
 func ScanFile(ctx context.Context, store ObjectStore, ref FileRef, q model.CallsQuery, after *model.Position) ([]model.CallRow, error) {
-	obj, err := store.Open(ctx, ref.Key)
-	if errors.Is(err, ErrNotFound) {
-		return nil, nil // compacted away after the LIST (02 §5.1)
-	}
-	if err != nil {
-		return nil, errors.Wrapf(err, "open %s", ref.Key)
-	}
-	defer func() { _ = obj.Close() }()
-
-	pr, err := reader.NewParquetReader(&objectFile{obj: obj, size: obj.Size()}, new(storageparquet.CallV2), 1)
-	if err != nil {
-		return nil, errors.Wrapf(err, "read parquet footer of %s", ref.Key)
-	}
-	defer pr.ReadStop()
-	if err := dropColumn(pr, traceBlobField); err != nil {
-		return nil, errors.Wrapf(err, "project %s", ref.Key)
-	}
-
-	rows := make([]storageparquet.CallV2, pr.GetNumRows())
-	if err := pr.Read(&rows); err != nil {
-		return nil, errors.Wrapf(err, "read %s", ref.Key)
+	rows, err := readRows(ctx, store, ref, traceBlobField, bigParamsField)
+	if err != nil || rows == nil {
+		return nil, err
 	}
 
 	out := make([]model.CallRow, 0, len(rows))
@@ -59,6 +44,71 @@ func ScanFile(ctx context.Context, store ObjectStore, ref FileRef, q model.Calls
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// FetchCall reads one call's full row — trace_blob and big_params_json
+// included — from the discovered candidates. Candidates whose key-encoded
+// pod-restart hash cannot match the PK are skipped without an open; the rest
+// are read whole, one by one, until the PK matches (a point fetch touches the
+// couple of files of one 5-minute bucket, so row-group pruning is not worth
+// its weight yet). ok is false when no candidate holds the PK.
+func FetchCall(ctx context.Context, store ObjectStore, files []FileRef, pk model.PK) (*storageparquet.CallV2, bool, error) {
+	hash := model.PodRestartHash(model.PodTuple{
+		Namespace: pk.PodNamespace, Service: pk.PodService,
+		Pod: pk.PodName, RestartTimeMs: pk.RestartTimeMs,
+	})
+	for _, ref := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		if ref.Hash != hash {
+			continue // another pod-restart's file (compaction may blank the hash later)
+		}
+		rows, err := readRows(ctx, store, ref)
+		if err != nil {
+			return nil, false, err
+		}
+		for i := range rows {
+			row := &rows[i]
+			if row.Namespace == pk.PodNamespace && row.ServiceName == pk.PodService &&
+				row.PodName == pk.PodName && row.RestartTimeMs == pk.RestartTimeMs &&
+				row.TraceFileIndex == pk.TraceFileIndex && row.BufferOffset == pk.BufferOffset &&
+				row.RecordIndex == pk.RecordIndex {
+				return row, true, nil
+			}
+		}
+	}
+	return nil, false, nil
+}
+
+// readRows materializes a file's rows with the named struct fields projected
+// away. A listed-but-deleted object returns nil rows (02 §5.1).
+func readRows(ctx context.Context, store ObjectStore, ref FileRef, dropFields ...string) ([]storageparquet.CallV2, error) {
+	obj, err := store.Open(ctx, ref.Key)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil // compacted away after the LIST (02 §5.1)
+	}
+	if err != nil {
+		return nil, errors.Wrapf(err, "open %s", ref.Key)
+	}
+	defer func() { _ = obj.Close() }()
+
+	pr, err := reader.NewParquetReader(&objectFile{obj: obj, size: obj.Size()}, new(storageparquet.CallV2), 1)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read parquet footer of %s", ref.Key)
+	}
+	defer pr.ReadStop()
+	for _, field := range dropFields {
+		if err := dropColumn(pr, field); err != nil {
+			return nil, errors.Wrapf(err, "project %s", ref.Key)
+		}
+	}
+
+	rows := make([]storageparquet.CallV2, pr.GetNumRows())
+	if err := pr.Read(&rows); err != nil {
+		return nil, errors.Wrapf(err, "read %s", ref.Key)
+	}
+	return rows, nil
 }
 
 // dropColumn removes one column's buffer before any row is read, so its

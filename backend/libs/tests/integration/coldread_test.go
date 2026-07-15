@@ -47,6 +47,7 @@ type coldFakeStore struct {
 	objects        map[string][]byte
 	lists          []string
 	opens          []string
+	gets           []string
 	reads          map[string][][2]int64
 	notFoundOnOpen map[string]bool
 }
@@ -108,6 +109,7 @@ func (f *coldFakeStore) Open(_ context.Context, key string) (cold.Object, error)
 func (f *coldFakeStore) Get(_ context.Context, key string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gets = append(f.gets, key)
 	data, ok := f.objects[key]
 	if !ok || f.notFoundOnOpen[key] {
 		return nil, cold.ErrNotFound
@@ -152,6 +154,24 @@ func (f *coldFakeStore) openedKeys() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.opens...)
+}
+
+func (f *coldFakeStore) gotKeys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.gets...)
+}
+
+// allKeys lists every stored object key.
+func (f *coldFakeStore) allKeys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keys := make([]string, 0, len(f.objects))
+	for key := range f.objects {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (f *coldFakeStore) readRanges(key string) [][2]int64 {
@@ -647,6 +667,8 @@ type podsBody struct {
 		Service       string `json:"service"`
 		Pod           string `json:"pod"`
 		RestartTimeMs int64  `json:"restart_time_ms"`
+		TimeMinMs     int64  `json:"time_min_ms"`
+		TimeMaxMs     int64  `json:"time_max_ms"`
 	} `json:"pods"`
 	Partial bool `json:"partial"`
 }

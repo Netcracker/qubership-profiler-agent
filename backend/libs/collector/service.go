@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotread"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/ingest"
 	"github.com/Netcracker/qubership-profiler-backend/libs/server"
@@ -23,6 +24,11 @@ type (
 		// §6.2). Nil disables uploads, mirroring the opt-in seal loop; the
 		// collector app wiring passes an S3ObjectStore.
 		ObjectStore hotstore.ObjectStore
+		// InternalAPIAddr binds the /internal/v1 hot-read API
+		// (02-read-contract.md §3; PROFILER_INTERNAL_API_PORT, default 8081).
+		// Empty disables it, mirroring the opt-in loops; tests serve
+		// hotread.New(store).Handler() themselves.
+		InternalAPIAddr string
 	}
 
 	// Service is the running write path: exclusive PV owner plus TCP listener.
@@ -31,6 +37,8 @@ type (
 		ingest   *ingest.Listener
 		tcp      *server.Service
 		uploader *hotstore.Uploader
+		hotread  *hotread.API
+		hotAddr  string
 	}
 )
 
@@ -54,6 +62,10 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 	}
 	if opts.ObjectStore != nil {
 		svc.uploader = hotstore.NewUploader(store, opts.ObjectStore)
+	}
+	if opts.InternalAPIAddr != "" {
+		svc.hotread = hotread.New(store)
+		svc.hotAddr = opts.InternalAPIAddr
 	}
 	return svc, nil
 }
@@ -88,6 +100,15 @@ func (s *Service) Run(ctx context.Context) error {
 	if interval := s.store.Config().UploadCheckInterval; s.uploader != nil && interval > 0 {
 		gr.Add(func() error {
 			return s.uploader.Run(ctx, interval)
+		}, func(error) {
+			cancel()
+		})
+	}
+	// The internal hot-read API (02-read-contract.md §3) serves for as long as
+	// the store does; the app wiring sets the bind address.
+	if s.hotread != nil {
+		gr.Add(func() error {
+			return s.hotread.Run(ctx, s.hotAddr)
 		}, func(error) {
 			cancel()
 		})

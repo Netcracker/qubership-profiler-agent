@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
 )
 
@@ -113,6 +114,14 @@ type (
 // String renders the scalar pod_restart key used across the SQLite tables.
 func (k PodRestartKey) String() string {
 	return fmt.Sprintf("%s/%s/%s/%d", k.Namespace, k.Service, k.PodName, k.RestartTimeMs)
+}
+
+// Tuple converts the key to the shared read-path identity shape.
+func (k PodRestartKey) Tuple() model.PodTuple {
+	return model.PodTuple{
+		Namespace: k.Namespace, Service: k.Service,
+		Pod: k.PodName, RestartTimeMs: k.RestartTimeMs,
+	}
 }
 
 func (k PodRestartKey) dir(dataDir string) string {
