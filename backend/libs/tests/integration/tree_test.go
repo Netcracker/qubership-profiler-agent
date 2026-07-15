@@ -25,7 +25,6 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xitongsys/parquet-go/reader"
 )
 
 const (
@@ -272,7 +271,7 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		row := sealedCallRow(t, fake, keyC, 2)
 		require.NotNil(t, row.TraceBlob)
 		gotCold, _ := getTrace(t, api, pkCold, coldHints)
-		assert.Equal(t, []byte(*row.TraceBlob), gotCold)
+		assert.Equal(t, row.TraceBlob, gotCold)
 		require.NotNil(t, row.BigParamsJson, "the seal inlined the call's big params next to the blob")
 		var sealed map[string]string
 		require.NoError(t, json.Unmarshal([]byte(*row.BigParamsJson), &sealed))
@@ -371,11 +370,7 @@ func sealedCallRow(t *testing.T, fake *coldFakeStore, key hotstore.PodRestartKey
 		}
 		obj, err := fake.Open(context.Background(), objKey)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(&testParquetFile{obj: obj, size: obj.Size()}, new(storageparquet.CallV2), 1)
-		require.NoError(t, err)
-		rows := make([]storageparquet.CallV2, pr.GetNumRows())
-		require.NoError(t, pr.Read(&rows))
-		pr.ReadStop()
+		rows := readParquetRows[storageparquet.CallV2](t, obj)
 		_ = obj.Close()
 		for i := range rows {
 			if rows[i].RecordIndex == recordIndex {

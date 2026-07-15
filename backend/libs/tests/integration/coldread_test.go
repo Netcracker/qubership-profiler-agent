@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -25,11 +25,9 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
+	"github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xitongsys/parquet-go-source/local"
-	"github.com/xitongsys/parquet-go/reader"
-	"github.com/xitongsys/parquet-go/source"
 )
 
 const (
@@ -451,11 +449,7 @@ func TestColdReadPath(t *testing.T) {
 		obj, err := fake.Open(ctx, fileB2.S3Key)
 		require.NoError(t, err)
 		defer func() { _ = obj.Close() }()
-		pr, err := reader.NewParquetReader(&testParquetFile{obj: obj, size: obj.Size()}, new(storageparquet.CallV2), 1)
-		require.NoError(t, err)
-		defer pr.ReadStop()
-		rows := make([]storageparquet.CallV2, pr.GetNumRows())
-		require.NoError(t, pr.Read(&rows))
+		rows := readParquetRows[storageparquet.CallV2](t, obj)
 		require.Len(t, rows, 1)
 		require.NotNil(t, rows[0].TraceBlob, "the unprojected read returns the blob")
 
@@ -766,73 +760,41 @@ func assertTraceBlobNotRead(t *testing.T, fake *coldFakeStore) {
 	require.Positive(t, checked, "the projection check must cover at least one parquet object")
 }
 
-// testParquetFile adapts a cold.Object to parquet-go's source surface for
-// the unprojected positive-control read (mirrors the production adapter in
-// libs/query/cold).
-type testParquetFile struct {
-	obj  cold.Object
-	size int64
-	pos  int64
-}
-
-func (f *testParquetFile) Read(p []byte) (int, error) {
-	if f.pos >= f.size {
-		return 0, io.EOF
+// readParquetRows reads every row of a cold object through the T read schema
+// with parquet-go's name-based column matching (mirrors the production reader
+// in libs/query/cold).
+func readParquetRows[T any](t *testing.T, obj cold.Object) []T {
+	t.Helper()
+	f, err := parquet.OpenFile(obj, obj.Size())
+	require.NoError(t, err)
+	r := parquet.NewGenericReader[T](f)
+	defer func() { _ = r.Close() }()
+	rows := make([]T, r.NumRows())
+	n, err := r.Read(rows)
+	if err != nil {
+		require.ErrorIs(t, err, io.EOF)
 	}
-	n, err := f.obj.ReadAt(p, f.pos)
-	f.pos += int64(n)
-	if err == io.EOF && n > 0 {
-		err = nil
-	}
-	return n, err
-}
-
-func (f *testParquetFile) Seek(offset int64, whence int) (int64, error) {
-	switch whence {
-	case io.SeekStart:
-		f.pos = offset
-	case io.SeekCurrent:
-		f.pos += offset
-	case io.SeekEnd:
-		f.pos = f.size + offset
-	}
-	return f.pos, nil
-}
-
-func (f *testParquetFile) Open(string) (source.ParquetFile, error) {
-	return &testParquetFile{obj: f.obj, size: f.size}, nil
-}
-func (f *testParquetFile) Close() error { return nil }
-func (f *testParquetFile) Write([]byte) (int, error) {
-	return 0, fmt.Errorf("read-only")
-}
-func (f *testParquetFile) Create(string) (source.ParquetFile, error) {
-	return nil, fmt.Errorf("read-only")
+	require.Equal(t, len(rows), n, "the reader must return every footer-promised row")
+	return rows
 }
 
 // traceBlobChunkRanges returns the [start, end) byte ranges of every
 // trace_blob column chunk in the file.
 func traceBlobChunkRanges(t *testing.T, data []byte) [][2]int64 {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "footer-probe.parquet")
-	require.NoError(t, os.WriteFile(path, data, 0o644))
-	fr, err := local.NewLocalFileReader(path)
+	f, err := parquet.OpenFile(bytes.NewReader(data), int64(len(data)))
 	require.NoError(t, err)
-	defer func() { _ = fr.Close() }()
-	pr, err := reader.NewParquetReader(fr, nil, 1)
-	require.NoError(t, err)
-	defer pr.ReadStop()
 
 	var ranges [][2]int64
-	for _, rg := range pr.Footer.RowGroups {
+	for _, rg := range f.Metadata().RowGroups {
 		for _, col := range rg.Columns {
 			schemaPath := col.MetaData.PathInSchema
 			if len(schemaPath) == 0 || !strings.EqualFold(schemaPath[0], "trace_blob") {
 				continue
 			}
 			start := col.MetaData.DataPageOffset
-			if col.MetaData.DictionaryPageOffset != nil {
-				start = *col.MetaData.DictionaryPageOffset
+			if col.MetaData.DictionaryPageOffset > 0 && col.MetaData.DictionaryPageOffset < start {
+				start = col.MetaData.DictionaryPageOffset
 			}
 			ranges = append(ranges, [2]int64{start, start + col.MetaData.TotalCompressedSize})
 		}

@@ -287,6 +287,8 @@ schema CallV2 {
 
 **Compression and row order.** Every file is ZSTD-compressed. This matters most for `trace_blob` and `params`: the blob is stored uncompressed after seal assembly (§6.5), so the parquet codec is what keeps the cluster's ~6 MB/s of raw trace from landing in S3 unshrunk for the whole TTL. Rows are written sorted by `(ts_ms DESC, pk ASC)`, the total order the read path paginates on (`02-read-contract.md` §2.3.1). Sorting inside the file gives each row group a tight `ts_ms` min/max for pruning and lets the cold-tier k-way merge treat the file as an already-sorted run, with no in-memory re-sort.
 
+**Schema evolution.** The reader (`parquet-go/parquet-go`) matches a file's footer schema to `CallV2` by column NAME: adding a column and removing a column are backward-readable changes — a column missing from an older file reads back as zero/NULL, and a column dropped from the struct is skipped without fetching its chunks. Column names are therefore the compatibility contract: never reuse a name with a different meaning. Non-additive changes — renaming a column, changing its type, or reinterpreting its values — are NOT transparently readable: they need a versioned reader that branches on the `profiler.schema_version` key the seal pass stamps into every file's key-value footer metadata (currently `2`; bumped only by a non-additive change — additive ones do not touch it). That reader is deferred until the first such change (`deferred.md`); it must land before old and new files coexist inside the 30-day retention window.
+
 ### 5.3 Differences from old `CallParquet`
 
 | Change | Reason |
@@ -298,7 +300,7 @@ schema CallV2 {
 | Renamed `Calls` → `child_calls` | "calls" is overloaded with "list of calls"; this is the per-tree counter. |
 | Removed `convertedtype=UINT_*` annotations | Parquet's UINT_64 is poorly supported in some readers. INT64 with documented "always non-negative" suffices. |
 | `TraceId string "seqId_bufOffset_recordIndex"` → three `INT32` columns (`trace_file_index`, `buffer_offset`, `record_index`) | Better column compression, cheaper integer comparison at dedup time, no string parsing on the read path. Decision recorded; no open question remains. |
-| Removed `non_blocking_ms` | No wire source: `writeCall` never emits it and the Go decoder has no field for it (`Dumper.java:1059-1108`, `backend/libs/parser/pipe/calls.go`). Re-adding a column later is additive. |
+| Removed `non_blocking_ms` | No wire source: `writeCall` never emits it and the Go decoder has no field for it (`Dumper.java:1059-1108`, `backend/libs/parser/pipe/calls.go`). Re-adding a column later is additive — backward-readable by name, older rows read as zero; see Schema evolution in §5.2. |
 
 ### 5.4 Sharding: time bucket × retention class
 

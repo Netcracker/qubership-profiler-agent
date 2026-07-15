@@ -19,10 +19,8 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/pipe"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
+	"github.com/parquet-go/parquet-go"
 	"github.com/pkg/errors"
-	"github.com/xitongsys/parquet-go-source/local"
-	parquetgen "github.com/xitongsys/parquet-go/parquet"
-	"github.com/xitongsys/parquet-go/writer"
 )
 
 // Truncation reasons for trace_blob = NULL (01-write-contract.md §5.2).
@@ -589,25 +587,32 @@ func (s *Store) writeClassFile(ctx context.Context, pr *PodRestart, bucket int64
 	}
 
 	scratch := filepath.Join(scratchDir, fmt.Sprintf("%s-%d.parquet", class, seq))
-	fw, err := local.NewLocalFileWriter(scratch)
+	fw, err := os.Create(scratch)
 	if err != nil {
 		return SealedFile{}, errors.Wrap(err, "create seal scratch file")
 	}
-	pw, err := writer.NewParquetWriter(fw, new(storageparquet.CallV2), 2)
-	if err != nil {
-		_ = fw.Close()
-		return SealedFile{}, errors.Wrap(err, "create parquet writer")
-	}
-	pw.CompressionType = parquetgen.CompressionCodec_ZSTD // §5.2: every file is ZSTD
+	// §5.2: every file is ZSTD. The schema-version stamp lets a future reader
+	// branch on a non-additive CallV2 change; additive evolution needs no bump
+	// (the reader null-fills by column name). Page bounds are skipped for the
+	// blob-sized columns — their min/max would copy blob prefixes into the
+	// footer for a column nobody range-prunes on.
+	pw := parquet.NewGenericWriter[storageparquet.CallV2](fw,
+		parquet.Compression(&parquet.Zstd),
+		parquet.KeyValueMetadata(storageparquet.SchemaVersionKey, storageparquet.SchemaVersion),
+		parquet.SkipPageBounds("trace_blob"),
+		parquet.SkipPageBounds("big_params_json"),
+	)
 
 	timeMin, timeMax := int64(0), int64(0)
 	segRowCounts := map[segKey]int{}
 	for i, row := range classRows {
 		v, err := s.renderRow(pr, row, class, dict, redId, hasRed, pauses)
 		if err != nil {
+			_ = fw.Close()
 			return SealedFile{}, err
 		}
-		if err := pw.Write(v); err != nil {
+		if _, err := pw.Write([]storageparquet.CallV2{*v}); err != nil {
+			_ = fw.Close()
 			return SealedFile{}, errors.Wrap(err, "write parquet row")
 		}
 		if i == 0 || row.idx.TsMs < timeMin {
@@ -620,7 +625,8 @@ func (s *Store) writeClassFile(ctx context.Context, pr *PodRestart, bucket int64
 			segRowCounts[sk]++
 		}
 	}
-	if err := pw.WriteStop(); err != nil {
+	if err := pw.Close(); err != nil {
+		_ = fw.Close()
 		return SealedFile{}, errors.Wrap(err, "finish parquet file")
 	}
 	if err := fw.Close(); err != nil {
@@ -743,8 +749,7 @@ func (s *Store) renderRow(pr *PodRestart, row *sealRow, class string, dict map[i
 	if err != nil {
 		return nil, errors.Wrap(err, "read assembled blob")
 	}
-	blobStr := string(blob)
-	v.TraceBlob = &blobStr
+	v.TraceBlob = blob
 	if len(row.bigValues) > 0 {
 		encoded, err := json.Marshal(row.bigValues)
 		if err != nil {

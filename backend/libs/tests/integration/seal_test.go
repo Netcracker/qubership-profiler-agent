@@ -15,11 +15,10 @@ import (
 	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
+	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/format"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xitongsys/parquet-go-source/local"
-	parquetgen "github.com/xitongsys/parquet-go/parquet"
-	"github.com/xitongsys/parquet-go/reader"
 )
 
 // The seal fixture: five closed root calls of one pod-restart, all in one
@@ -183,12 +182,12 @@ func TestSealPass(t *testing.T) {
 		}
 		return file[offsets[i]:end]
 	}
-	concat := func(parts ...[]byte) string {
+	concat := func(parts ...[]byte) []byte {
 		var b []byte
 		for _, p := range parts {
 			b = append(b, p...)
 		}
-		return string(b)
+		return b
 	}
 
 	t.Run("any_error re-derived against the full dictionary", func(t *testing.T) {
@@ -204,8 +203,8 @@ func TestSealPass(t *testing.T) {
 		assert.Equal(t, "com.example.Db.query", c4.Method)
 		assert.Equal(t, []string{"1"}, c4.Params.Get("call.red"), "raw param ids resolve at seal")
 		require.NotNil(t, c4.TraceBlob)
-		assert.Equal(t, concat(blobPrefix, chunk(file2, off2, 0)), *c4.TraceBlob)
-		root := decodeBlobTree(t, []byte(*c4.TraceBlob), timerStartMs, 0)
+		assert.Equal(t, concat(blobPrefix, chunk(file2, off2, 0)), c4.TraceBlob)
+		root := decodeBlobTree(t, c4.TraceBlob, timerStartMs, 0)
 		assert.Equal(t, sealMethodQuery, root.method)
 		assert.Empty(t, root.children)
 	})
@@ -222,16 +221,16 @@ func TestSealPass(t *testing.T) {
 
 		// C2: one chunk of thread 2, an inline tag on the root.
 		require.NotNil(t, c2.TraceBlob)
-		assert.Equal(t, concat(blobPrefix, chunk(file1, off1, 1)), *c2.TraceBlob)
-		c2Root := decodeBlobTree(t, []byte(*c2.TraceBlob), timerStartMs, 0)
+		assert.Equal(t, concat(blobPrefix, chunk(file1, off1, 1)), c2.TraceBlob)
+		c2Root := decodeBlobTree(t, c2.TraceBlob, timerStartMs, 0)
 		assert.Equal(t, sealMethodQuery, c2Root.method)
 		assert.Equal(t, []string{"req-1"}, c2Root.tags[sealDictRequestId])
 
 		// P shares its first (and only) chunk with C1's root ENTER: the head
 		// noise past P's depth-0 exit stays in the blob and the reader trims it.
 		require.NotNil(t, p.TraceBlob)
-		assert.Equal(t, concat(blobPrefix, chunk(file1, off1, 0)), *p.TraceBlob)
-		pRoot := decodeBlobTree(t, []byte(*p.TraceBlob), timerStartMs, 0)
+		assert.Equal(t, concat(blobPrefix, chunk(file1, off1, 0)), p.TraceBlob)
+		pRoot := decodeBlobTree(t, p.TraceBlob, timerStartMs, 0)
 		assert.Equal(t, sealMethodHandle, pRoot.method)
 		assert.Empty(t, pRoot.children, "head noise (C1's ENTER) must not join P's tree")
 
@@ -244,9 +243,9 @@ func TestSealPass(t *testing.T) {
 		assert.Equal(t, "com.example.Service.process", c1.Method)
 		assert.Equal(t, []string{"req-1"}, c1.Params.Get("request.id"))
 		require.NotNil(t, c1.TraceBlob)
-		assert.Equal(t, concat(blobPrefix, chunk(file1, off1, 0), chunk(file1, off1, 2)), *c1.TraceBlob,
+		assert.Equal(t, concat(blobPrefix, chunk(file1, off1, 0), chunk(file1, off1, 2)), c1.TraceBlob,
 			"the blob is the concatenation of the call's FULL chunks after the timer epoch")
-		c1Root := decodeBlobTree(t, []byte(*c1.TraceBlob), timerStartMs, 2)
+		c1Root := decodeBlobTree(t, c1.TraceBlob, timerStartMs, 2)
 		assert.Equal(t, sealMethodProcess, c1Root.method)
 		assert.Equal(t, []string{"deep"}, c1Root.tags[sealDictRequestId])
 		require.Len(t, c1Root.children, 1)
@@ -332,29 +331,30 @@ func TestSealPass(t *testing.T) {
 
 // readCallV2 reads a sealed parquet file back with the CallV2 schema.
 func readCallV2(t *testing.T, path string) []storageparquet.CallV2 {
-	fr, err := local.NewLocalFileReader(path)
+	rows, err := parquet.ReadFile[storageparquet.CallV2](path)
 	require.NoError(t, err)
-	defer func() { _ = fr.Close() }()
-	pr, err := reader.NewParquetReader(fr, new(storageparquet.CallV2), 1)
-	require.NoError(t, err)
-	defer pr.ReadStop()
-	rows := make([]storageparquet.CallV2, pr.GetNumRows())
-	require.NoError(t, pr.Read(&rows))
 	return rows
 }
 
-// assertZstd checks every column chunk of the file is ZSTD-compressed (§5.2).
+// assertZstd checks every column chunk of the file is ZSTD-compressed (§5.2)
+// and that the seal stamped the schema version into the footer metadata.
 func assertZstd(t *testing.T, path string) {
-	fr, err := local.NewLocalFileReader(path)
+	f, err := os.Open(path)
 	require.NoError(t, err)
-	defer func() { _ = fr.Close() }()
-	pr, err := reader.NewParquetReader(fr, nil, 1)
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
 	require.NoError(t, err)
-	defer pr.ReadStop()
-	require.NotEmpty(t, pr.Footer.RowGroups)
-	for _, rg := range pr.Footer.RowGroups {
+	pf, err := parquet.OpenFile(f, info.Size())
+	require.NoError(t, err)
+
+	version, ok := pf.Lookup(storageparquet.SchemaVersionKey)
+	assert.True(t, ok, "%s must carry the schema-version stamp", filepath.Base(path))
+	assert.Equal(t, storageparquet.SchemaVersion, version)
+
+	require.NotEmpty(t, pf.Metadata().RowGroups)
+	for _, rg := range pf.Metadata().RowGroups {
 		for _, col := range rg.Columns {
-			assert.Equal(t, parquetgen.CompressionCodec_ZSTD, col.MetaData.Codec,
+			assert.Equal(t, format.Zstd, col.MetaData.Codec,
 				"column %v of %s", col.MetaData.PathInSchema, filepath.Base(path))
 		}
 	}

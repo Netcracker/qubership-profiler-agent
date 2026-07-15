@@ -54,6 +54,11 @@ pending (see open issues).
   - [x] `libs/query` — `GET /api/v1/calls/{pk}/trace` (§2.4: octet-stream, PK ETag, immutable, Range via `ServeContent`) and `GET /api/v1/calls/{pk}/tree` (§2.5: msgpack, per-tree dictionary, per-route gzip, `Accept-Version`); tiered point lookup (replicas first, then cold within the `?ts_ms=`/`?retention_class=` hint window, `02` §2.2), per-pod-restart dictionary caches (hot: ETag revalidation; cold: immutable), §8 verdict (504 only when every attempted source failed)
   - [x] `libs/query/model` — `PodRestartHash` + `DictionarySnapshotKey` shared by the seal/upload writers and the cold reader (day pinned cross-midnight by a unit test)
   - [x] Tests: `calltree` unit suite (nesting/times, delta continuation, noise trimming, multi-chunk, params, dict miss, msgpack roundtrip + unknown-key skip), `hotstore` value-reader suite, `hotread` values endpoint, synthetic integration `libs/tests/integration/tree_test.go` — hot and cold `/tree` (names, rel-times, durations, inlined sql/xml values, explicit `unresolved` marker, self-contained minimal dictionary, `v` envelope, gzip, `Accept-Version`), cold dictionary from the restart-day snapshot, `/trace` byte-equal on both tiers + Range, guided 404 without `ts_ms`
+- [x] **Parquet library migration: xitongsys → parquet-go/parquet-go** (branch `feat/stage1-parquet-go-migration`)
+  - [x] `libs/storage/parquet` — `CallV2` tags in the parquet-go dialect (column names unchanged — the name is now the compatibility contract), the `CallV2Projected` list-path read shape, `Parameters` simplified to `map[string][]string`, `profiler.schema_version` stamp constants; a unit test pins the projected twin to the full schema
+  - [x] `libs/collector/hotstore` — seal writer on `GenericWriter`: ZSTD kept, row order kept, `profiler.schema_version = 2` stamped into the footer metadata, page bounds skipped for the blob-sized columns
+  - [x] `libs/query/cold` — reader on `GenericReader` with native name-based projection (the `ColumnBuffers` deletion hack is gone), read errors checked and wrapped, the `source.ParquetFile` adapter replaced by the object's own `ReadAt` + `Size`
+  - [x] Integration tests ported; the coldread read-offset assertion (no read starts inside a `trace_blob` chunk, with the unprojected positive control) survives against the new reader; new `schemaevolution_test.go` pins narrow-file → current-struct null-fill on both cold read paths
 - [ ] Budgets and janitors: segment refcounts/eviction, idle accumulator timeout, memory budget (`01` §4.6)
 - [ ] Collector app wiring: `profiler-backend collect` subcommand, readiness states, Prometheus metrics (`03` §2)
 
@@ -438,6 +443,63 @@ one failed. A tier legitimately skipped — cold under the cutoff, a replica
 whose hot window misses the range — counts as neither, so a hot-only query
 with a dead S3 still answers from the replicas, and vice versa.
 
+### 2026-07-04 — parquet library switched to parquet-go/parquet-go: columns match by NAME
+
+**Question:** the 2026-07-03 "CallV2 columns are NOT freely additive" decision
+left schema evolution blocked: xitongsys/parquet-go's `RenameSchema` aligns a
+file's footer schema to the target struct by column INDEX, so reading an
+older, narrower file through a wider CallV2 panics instead of null-filling.
+Build the footer-sniffing versioned reader, or change the library?
+
+**Choice:** replace xitongsys/parquet-go with github.com/parquet-go/parquet-go
+across writer and reader in one change. The library matches file columns to
+the struct by NAME and applies add/remove conversion rules: a column missing
+from the file null-fills, a column absent from the read struct is masked so
+its pages are never fetched. No production files exist (Stage 1 is
+pre-release), so no data migration.
+
+Consequences:
+
+- **Supersedes "CallV2 columns are NOT freely additive"** — additive changes
+  and column removals are now backward-readable by name; renames and type
+  changes still are not. The contract rule moved with it (`01` §5.2, `02`
+  §2.3), per `WORKFLOW.md` §8.
+- **Supersedes "column projection = dropping the reader's column buffer"** —
+  the list path now reads through `CallV2Projected`, the CallV2 twin without
+  the blob-sized columns; the name match IS the projection. The coldread
+  read-offset test still pins that no read starts inside a `trace_blob`
+  chunk, and a unit test pins the twin against the full schema.
+- **Discharges two open issues:** "parquet-go swallows column read errors"
+  (the new `readRows` checks and wraps every error and fails on a row-count
+  shortfall — a corrupted column now fails the scan instead of yielding
+  zeros) and the per-column transport buffer allocated at chunk size for
+  dropped columns (masked chunks allocate nothing).
+- **Every sealed file stamps `profiler.schema_version = 2`** into its
+  key-value footer metadata — the escape hatch for a future NON-additive
+  change; additive changes do not bump it. The versioned reader keyed on the
+  stamp is recorded in `deferred.md`.
+- `trace_blob` is `[]byte` in Go now (was `*string`); the parquet type is
+  unchanged (optional BYTE_ARRAY, no UTF8 annotation). `params` is written as
+  a standard `MAP<UTF8, LIST<UTF8>>` via the `parquet-value:",list"` tag, and
+  `Parameters` simplified to `map[string][]string`. The `*ParamsValueList`
+  wrapper survives as `LegacyParameters` on the legacy `CallParquet` only —
+  the xitongsys dialect cannot derive a MAP value schema from a bare
+  `[]string`, and the legacy file shape must not change under its consumers.
+  Page bounds (min/max statistics) are skipped for `trace_blob` and
+  `big_params_json` so footers do not carry blob prefixes as column
+  statistics.
+- The library reports an unconvertible file schema (rename / type change) by
+  panicking inside the reader; `readRows` recovers it into that file's scan
+  error so a foreign or future-versioned object degrades to a failed source,
+  not a crashed query service.
+- **xitongsys is gone from `go.mod`.** Its only remaining importer was the
+  legacy `libs/parquet` writer, used solely by `tools/data-generator` (support
+  tooling of the retired dumps pipeline). Porting the writer would have changed
+  the legacy file shapes it emits for consumers this stage does not own, so the
+  maintainer retired `libs/parquet` and `tools/data-generator` outright;
+  `go mod tidy` then dropped `xitongsys/parquet-go` and
+  `xitongsys/parquet-go-source`.
+
 ## Open issues
 
 - **`stage1-plan.md` does not exist yet.** This slice was specified directly
@@ -491,18 +553,16 @@ with a dead S3 still answers from the replicas, and vice versa.
 - **CallV2 needs a `trace_blob_size` column.** The cold list path emits
   `trace_blob_size: null` because the schema carries no size and the
   projection forbids reading the blob (see the 2026-07-03 decision). Adding
-  the column at seal is additive on the write side only — see the
-  "NOT freely additive" decision: shipping it after release requires the
-  footer-sniffing versioned reader first. Do both before Stage 5 wires the
-  UI if the calls table wants to show blob sizes.
+  the column at seal is additive and backward-readable by name (2026-07-04
+  decision): rows sealed before it read back as NULL, which degrades to
+  today's behaviour. Do it before Stage 5 wires the UI if the calls table
+  wants to show blob sizes.
 - **Cold scan reads each candidate file whole, sequentially.** `ScanFile`
   materializes every projected row of a file before filtering, files scan one
   after another, and each page re-reads every file (`02` §2.3.1 accepts the
   re-scan). Row-group `ts_ms` pruning from the sorted layout (`01` §5.2),
   parallel per-file scans, and streaming reads are deferred until profiling
-  shows the need. parquet-go also allocates each column's buffered transport
-  at chunk size — including `trace_blob`'s before the projection drops it —
-  so a huge blob chunk costs a transient allocation even unread.
+  shows the need.
 - **Hot `/internal/v1/calls` does not read sealed local parquet** (`02` §3
   source 4). Safe today because call partitions are never dropped, so the
   index covers everything; the parquet source MUST land in the same task as
@@ -522,11 +582,6 @@ with a dead S3 still answers from the replicas, and vice versa.
 - **Fan-out health probes run on every page.** Two HTTP round-trips per
   replica per page (hot-window + calls); a short-TTL cache of the hot-window
   report is the obvious lever if page latency ever matters.
-- **parquet-go swallows column read errors.** `reader.Read` discards
-  `ReadRows` errors (`table, _ :=`), so a corrupted column yields zero values
-  silently instead of failing the scan. Affects any tier reading parquet;
-  worth a wrapper check (row count vs values) if silent data loss ever
-  matters more than availability.
 - **`/api/v1/calls/{pk}` and `/api/v1/pods/{pod-restart}/dictionary` are not
   implemented.** Both sit in the `02` §2.1 endpoint table; the slice-6 scope
   covered only `/trace` and `/tree` (which needs no external dictionary — the

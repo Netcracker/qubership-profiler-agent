@@ -4,7 +4,7 @@
 .PHONY: help build-all clean-all test-all docker-build-all archive-all
 
 # Variables
-TOOLS := data-generator load-generator migration
+TOOLS := load-generator migration
 
 # Default target
 help:
@@ -73,10 +73,6 @@ archive-all:
 	@echo "==> All deployment archives created successfully!"
 
 # Individual tool targets
-data-generator-build:
-	@echo "==> Building data-generator..."
-	$(MAKE) -C data-generator build
-
 load-generator-build:
 	@echo "==> Building load-generator..."
 	$(MAKE) -C load-generator build
@@ -84,10 +80,6 @@ load-generator-build:
 migration-build:
 	@echo "==> Building migration..."
 	$(MAKE) -C migration build
-
-data-generator-clean:
-	@echo "==> Cleaning data-generator..."
-	$(MAKE) -C data-generator clean
 
 load-generator-clean:
 	@echo "==> Cleaning load-generator..."
@@ -97,10 +89,6 @@ migration-clean:
 	@echo "==> Cleaning migration..."
 	$(MAKE) -C migration clean
 
-data-generator-test:
-	@echo "==> Testing data-generator..."
-	$(MAKE) -C data-generator test
-
 load-generator-test:
 	@echo "==> Testing load-generator..."
 	$(MAKE) -C load-generator test
@@ -109,10 +97,6 @@ migration-test:
 	@echo "==> Testing migration..."
 	$(MAKE) -C migration test
 
-data-generator-docker:
-	@echo "==> Building Docker image for data-generator..."
-	$(MAKE) -C data-generator docker-build
-
 load-generator-docker:
 	@echo "==> Building Docker image for load-generator..."
 	$(MAKE) -C load-generator docker-build
@@ -120,10 +104,6 @@ load-generator-docker:
 migration-docker:
 	@echo "==> Building Docker image for migration..."
 	$(MAKE) -C migration docker-build
-
-data-generator-archive:
-	@echo "==> Creating archive for data-generator..."
-	$(MAKE) -C data-generator archive
 
 load-generator-archive:
 	@echo "==> Creating archive for load-generator..."
@@ -134,10 +114,6 @@ migration-archive:
 	$(MAKE) -C migration archive
 
 # Help targets for individual tools
-help-data-generator:
-	@echo "Help for data-generator tool:"
-	$(MAKE) -C data-generator help
-
 help-load-generator:
 	@echo "Help for load-generator tool:"
 	$(MAKE) -C load-generator help

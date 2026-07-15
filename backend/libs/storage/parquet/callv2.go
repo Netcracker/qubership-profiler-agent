@@ -4,6 +4,12 @@ package parquet
 // is ZSTD-compressed and holds rows of exactly one retention class, sorted by
 // (ts_ms DESC, pk ASC); the writer lives in libs/collector/hotstore.
 //
+// The struct tags use the parquet-go/parquet-go dialect. Column NAMES are the
+// compatibility contract: the library matches a file's columns to this struct
+// by name, so adding or removing a column stays backward-readable (a missing
+// column reads as zero/NULL), while renaming a column or changing its type
+// does not — those need a reader keyed on the SchemaVersion footer stamp.
+//
 // Column notes that the tags cannot carry:
 //   - counters annotated UINT_* in the old CallParquet stay plain INT64 here:
 //     the values are always non-negative, and parquet's unsigned converted
@@ -12,44 +18,44 @@ package parquet
 //     is in truncated_reason.
 type CallV2 struct {
 	// identity
-	TsMs           int64  `parquet:"name=ts_ms, type=INT64"`
-	PodId          string `parquet:"name=pod_id, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-	RestartTimeMs  int64  `parquet:"name=restart_time_ms, type=INT64"`
-	TraceFileIndex int32  `parquet:"name=trace_file_index, type=INT32"`
-	BufferOffset   int32  `parquet:"name=buffer_offset, type=INT32"`
-	RecordIndex    int32  `parquet:"name=record_index, type=INT32"`
-	ThreadName     string `parquet:"name=thread_name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	TsMs           int64  `parquet:"ts_ms"`
+	PodId          string `parquet:"pod_id,dict"`
+	RestartTimeMs  int64  `parquet:"restart_time_ms"`
+	TraceFileIndex int32  `parquet:"trace_file_index"`
+	BufferOffset   int32  `parquet:"buffer_offset"`
+	RecordIndex    int32  `parquet:"record_index"`
+	ThreadName     string `parquet:"thread_name,dict"`
 
 	// dimensions
-	Namespace   string `parquet:"name=namespace, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-	ServiceName string `parquet:"name=service_name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-	PodName     string `parquet:"name=pod_name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-	Method      string `parquet:"name=method, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	Namespace   string `parquet:"namespace,dict"`
+	ServiceName string `parquet:"service_name,dict"`
+	PodName     string `parquet:"pod_name,dict"`
+	Method      string `parquet:"method,dict"`
 
 	// metrics (raw, not aggregated)
-	DurationMs    int32 `parquet:"name=duration_ms, type=INT32"`
-	CpuTimeMs     int64 `parquet:"name=cpu_time_ms, type=INT64"`
-	WaitTimeMs    int64 `parquet:"name=wait_time_ms, type=INT64"`
-	MemoryUsed    int64 `parquet:"name=memory_used, type=INT64"`
-	QueueWaitMs   int32 `parquet:"name=queue_wait_ms, type=INT32"`
-	SuspendMs     int32 `parquet:"name=suspend_ms, type=INT32"`
-	ChildCalls    int32 `parquet:"name=child_calls, type=INT32"`
-	Transactions  int32 `parquet:"name=transactions, type=INT32"`
-	LogsGenerated int64 `parquet:"name=logs_generated, type=INT64"`
-	LogsWritten   int64 `parquet:"name=logs_written, type=INT64"`
-	FileRead      int64 `parquet:"name=file_read, type=INT64"`
-	FileWritten   int64 `parquet:"name=file_written, type=INT64"`
-	NetRead       int64 `parquet:"name=net_read, type=INT64"`
-	NetWritten    int64 `parquet:"name=net_written, type=INT64"`
+	DurationMs    int32 `parquet:"duration_ms"`
+	CpuTimeMs     int64 `parquet:"cpu_time_ms"`
+	WaitTimeMs    int64 `parquet:"wait_time_ms"`
+	MemoryUsed    int64 `parquet:"memory_used"`
+	QueueWaitMs   int32 `parquet:"queue_wait_ms"`
+	SuspendMs     int32 `parquet:"suspend_ms"`
+	ChildCalls    int32 `parquet:"child_calls"`
+	Transactions  int32 `parquet:"transactions"`
+	LogsGenerated int64 `parquet:"logs_generated"`
+	LogsWritten   int64 `parquet:"logs_written"`
+	FileRead      int64 `parquet:"file_read"`
+	FileWritten   int64 `parquet:"file_written"`
+	NetRead       int64 `parquet:"net_read"`
+	NetWritten    int64 `parquet:"net_written"`
 
 	// classification (re-derived at seal; 01-write-contract.md §5.6)
-	ErrorFlag      bool   `parquet:"name=error_flag, type=BOOLEAN"`
-	RetentionClass string `parquet:"name=retention_class, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	ErrorFlag      bool   `parquet:"error_flag"`
+	RetentionClass string `parquet:"retention_class,dict"`
 
 	// semi-structured
-	Params          Parameters `parquet:"name=params, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
-	TraceBlob       *string    `parquet:"name=trace_blob, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
-	TruncatedReason *string    `parquet:"name=truncated_reason, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY, repetitiontype=OPTIONAL"`
+	Params          Parameters `parquet:"params" parquet-value:",list"`
+	TraceBlob       []byte     `parquet:"trace_blob,optional"`
+	TruncatedReason *string    `parquet:"truncated_reason,optional,dict"`
 
 	// big_params_json inlines the call's big-parameter values, resolved at
 	// seal from the sql / xml value segments the blob references — the
@@ -58,5 +64,56 @@ type CallV2 struct {
 	// {"<stream>:<seq>:<offset>": value}; NULL when the call has none. A
 	// single scalar column (not a MAP) so the list-path projection can drop
 	// it the same way it drops trace_blob.
-	BigParamsJson *string `parquet:"name=big_params_json, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+	BigParamsJson *string `parquet:"big_params_json,optional"`
 }
+
+// CallV2Projected is the list-path read shape (02-read-contract.md §5.4,
+// §2.3.2): CallV2 minus the blob-sized columns. Reading through it makes the
+// library mask the trace_blob and big_params_json chunks, so their pages are
+// never fetched. Field tags must stay identical to their CallV2 twins — the
+// name match IS the projection.
+type CallV2Projected struct {
+	TsMs           int64  `parquet:"ts_ms"`
+	PodId          string `parquet:"pod_id,dict"`
+	RestartTimeMs  int64  `parquet:"restart_time_ms"`
+	TraceFileIndex int32  `parquet:"trace_file_index"`
+	BufferOffset   int32  `parquet:"buffer_offset"`
+	RecordIndex    int32  `parquet:"record_index"`
+	ThreadName     string `parquet:"thread_name,dict"`
+
+	Namespace   string `parquet:"namespace,dict"`
+	ServiceName string `parquet:"service_name,dict"`
+	PodName     string `parquet:"pod_name,dict"`
+	Method      string `parquet:"method,dict"`
+
+	DurationMs    int32 `parquet:"duration_ms"`
+	CpuTimeMs     int64 `parquet:"cpu_time_ms"`
+	WaitTimeMs    int64 `parquet:"wait_time_ms"`
+	MemoryUsed    int64 `parquet:"memory_used"`
+	QueueWaitMs   int32 `parquet:"queue_wait_ms"`
+	SuspendMs     int32 `parquet:"suspend_ms"`
+	ChildCalls    int32 `parquet:"child_calls"`
+	Transactions  int32 `parquet:"transactions"`
+	LogsGenerated int64 `parquet:"logs_generated"`
+	LogsWritten   int64 `parquet:"logs_written"`
+	FileRead      int64 `parquet:"file_read"`
+	FileWritten   int64 `parquet:"file_written"`
+	NetRead       int64 `parquet:"net_read"`
+	NetWritten    int64 `parquet:"net_written"`
+
+	ErrorFlag      bool   `parquet:"error_flag"`
+	RetentionClass string `parquet:"retention_class,dict"`
+
+	Params          Parameters `parquet:"params" parquet-value:",list"`
+	TruncatedReason *string    `parquet:"truncated_reason,optional,dict"`
+}
+
+// SchemaVersionKey and SchemaVersion stamp the CallV2 shape into every sealed
+// file's key-value footer metadata. Additive changes (and column removals) do
+// NOT bump the version — the reader null-fills by column name. Bump it only
+// on a non-additive change (type change, rename, semantic change), so a
+// future reader can branch on the stamp before touching the rows.
+const (
+	SchemaVersionKey = "profiler.schema_version"
+	SchemaVersion    = "2"
+)
