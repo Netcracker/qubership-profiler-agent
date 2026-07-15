@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -108,6 +109,14 @@ type (
 
 		sealMu       sync.Mutex
 		sealCounters SealCounters
+
+		janitorMu       sync.Mutex
+		janitorCounters JanitorStats
+		// Gauges measured by the janitor pass; their freshness is the janitor
+		// interval, which is fine for a scrape and avoids stat-walking the PV
+		// or locking every pod-restart on each /metrics request.
+		segmentsDiskBytes atomic.Int64
+		evictedChunkRefs  atomic.Int64
 	}
 )
 

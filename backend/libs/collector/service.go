@@ -73,6 +73,10 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 // Store exposes the hot store for the read API and for tests.
 func (s *Service) Store() *hotstore.Store { return s.store }
 
+// Uploader exposes the upload task for the metrics endpoint; nil when the
+// service composes without an ObjectStore.
+func (s *Service) Uploader() *hotstore.Uploader { return s.uploader }
+
 // Run serves agent connections until ctx is cancelled or the listener fails,
 // then finalizes open pod-restarts and releases the PV. It follows the
 // oklog/run all-in-one pattern of apps/dumps-collector.

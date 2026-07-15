@@ -8,6 +8,7 @@
 package envconfig
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -91,6 +92,9 @@ type (
 		// *_CHECK_INTERVAL knobs; the name is an implementation choice
 		// recorded in stage1-progress.md.
 		CheckInterval time.Duration `envconfig:"PROFILER_MAINTAIN_CHECK_INTERVAL" default:"5m"`
+		// MetricsPort serves /metrics and /health/live in loop mode; the
+		// one-shot --run-now mode (a CronJob pod) binds nothing.
+		MetricsPort int `envconfig:"PROFILER_METRICS_PORT" default:"8081"`
 		// TimeBucket must mirror the collector's value: the settled check
 		// needs the bucket end and the object key carries only the start.
 		TimeBucket time.Duration `envconfig:"PROFILER_TIME_BUCKET" default:"5m"`
@@ -113,25 +117,63 @@ type (
 	// S3 carries the object-store connection shared by the subcommands
 	// (01 §9). The scheme of S3_ENDPOINT selects TLS; the path prefix is not
 	// configurable — the seal pass bakes `parquet/v1` into every key (01 §7).
+	// Each credential comes from exactly one source: the env value (dev,
+	// compose) or a file path (k8s mounts the Secret as a volume, 04 §6).
 	S3 struct {
-		Endpoint  string `envconfig:"S3_ENDPOINT" required:"true"`
-		Bucket    string `envconfig:"S3_BUCKET" required:"true"`
-		AccessKey string `envconfig:"S3_ACCESS_KEY" required:"true"`
-		SecretKey string `envconfig:"S3_SECRET_KEY" required:"true"`
+		Endpoint      string `envconfig:"S3_ENDPOINT" required:"true"`
+		Bucket        string `envconfig:"S3_BUCKET" required:"true"`
+		AccessKey     string `envconfig:"S3_ACCESS_KEY"`
+		SecretKey     string `envconfig:"S3_SECRET_KEY"`
+		AccessKeyFile string `envconfig:"S3_ACCESS_KEY_FILE"`
+		SecretKeyFile string `envconfig:"S3_SECRET_KEY_FILE"`
 	}
 )
 
-// Params maps the env shape onto the libs/s3 connection parameters.
-func (s S3) Params() s3.Params {
+// Params maps the env shape onto the libs/s3 connection parameters, resolving
+// file-based credentials. Files are read once, at startup; picking up a
+// rotated Secret without a restart is a recorded open issue.
+func (s S3) Params() (s3.Params, error) {
+	access, err := credential("S3_ACCESS_KEY", s.AccessKey, s.AccessKeyFile)
+	if err != nil {
+		return s3.Params{}, err
+	}
+	secret, err := credential("S3_SECRET_KEY", s.SecretKey, s.SecretKeyFile)
+	if err != nil {
+		return s3.Params{}, err
+	}
 	p := s3.Params{
 		Endpoint:        s.Endpoint,
-		AccessKeyID:     s.AccessKey,
-		SecretAccessKey: s.SecretKey,
+		AccessKeyID:     access,
+		SecretAccessKey: secret,
 		UseSSL:          strings.HasPrefix(s.Endpoint, "https://"),
 		BucketName:      s.Bucket,
 	}
 	p.Prepare() // strips the scheme the UseSSL check just consumed
-	return p
+	return p, nil
+}
+
+// credential resolves one env-or-file credential pair. Trailing whitespace is
+// trimmed from the file body: Secret files routinely carry a final newline
+// that would otherwise become part of the key.
+func credential(name, value, file string) (string, error) {
+	switch {
+	case value != "" && file != "":
+		return "", errors.Errorf("%s and %s_FILE are both set; set exactly one", name, name)
+	case file != "":
+		body, err := os.ReadFile(file)
+		if err != nil {
+			return "", errors.Wrapf(err, "read %s_FILE", name)
+		}
+		v := strings.TrimRight(string(body), " \t\r\n")
+		if v == "" {
+			return "", errors.Errorf("%s_FILE %q holds an empty credential", name, file)
+		}
+		return v, nil
+	case value != "":
+		return value, nil
+	default:
+		return "", errors.Errorf("missing %s: set it or %s_FILE", name, name)
+	}
 }
 
 // ParseCollect reads the `collect` configuration from the environment.

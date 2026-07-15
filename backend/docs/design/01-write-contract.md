@@ -496,7 +496,8 @@ Why date in the path even though `ts_ms` is in the file: query needs to LIST eff
 | `PROFILER_COMPACTION_DELETE_GRACE` | `5m` | Delay before a `maintain` compaction deletes its input objects, after the compacted object is written (§6.6). Must exceed one discovery-plus-read round so a concurrent query never loses rows mid-compaction. |
 | `S3_ENDPOINT` | — | MinIO/S3 endpoint URL. |
 | `S3_BUCKET` | — | Target bucket. |
-| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials. |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials from the environment. For each credential, set exactly one source: the env form or the `*_FILE` form below. |
+| `S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE` | — | Path to a file holding the credential; trailing whitespace is trimmed. The k8s manifests mount the S3 Secret as a volume and point these at it (`04-storage-layout.md` §3.2, §6), so the credential never appears in a pod spec or `kubectl describe`. The env forms remain for dev/compose. |
 | `S3_PATH_PREFIX` | `parquet/v1` | Object key prefix below the bucket. |
 | `STATEFULSET_ORDINAL` | (from `HOSTNAME`) | Used in S3 object key. |
 

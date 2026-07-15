@@ -2,12 +2,15 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	appenv "github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/envconfig"
+	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/maintain"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
@@ -45,7 +48,11 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 
 	// The job is stateless (03 §8): S3 access is its only dependency and a
 	// failure is FATAL, mirroring the query startup.
-	mc, err := s3.NewClient(ctx, cfg.S3.Params())
+	s3params, err := cfg.S3.Params()
+	if err != nil {
+		return pkgerrors.Wrap(err, "resolve S3 credentials")
+	}
+	mc, err := s3.NewClient(ctx, s3params)
 	if err != nil {
 		return pkgerrors.Wrap(err, "connect to S3")
 	}
@@ -67,13 +74,18 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 	})
 
 	if maintainRunNow {
+		// One-shot CronJob mode: the pod exits right after the pass, so a
+		// scrape endpoint would never be seen — stats go to the log only.
 		stats, err := job.Pass(ctx, time.Now())
 		log.Info(ctx, "maintain pass: %+v", stats)
 		return err
 	}
 
-	log.Info(ctx, "maintain ready: check interval %s, delete grace %s, min age %s, min files %d",
-		cfg.CheckInterval, cfg.CompactionDeleteGrace, cfg.CompactionMinAge, cfg.CompactionMinFiles)
+	reg := metrics.NewRegistry()
+	job.OnPass = metrics.RegisterMaintain(reg).Observe
+
+	log.Info(ctx, "maintain ready: check interval %s, delete grace %s, min age %s, min files %d, metrics :%d",
+		cfg.CheckInterval, cfg.CompactionDeleteGrace, cfg.CompactionMinAge, cfg.CompactionMinFiles, cfg.MetricsPort)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -87,6 +99,25 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 		return err
 	}, func(error) {
 		cancel()
+	})
+	// The metrics listener lives and dies with the loop; the job itself has no
+	// readiness state (03 §8) — /health/live just says the process runs.
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics.Handler(reg))
+	mux.HandleFunc("/health/live", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	metricsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.MetricsPort), Handler: mux}
+	gr.Add(func() error {
+		err := metricsSrv.ListenAndServe()
+		if pkgerrors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}, func(error) {
+		shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shCancel()
+		_ = metricsSrv.Shutdown(shCtx)
 	})
 	// No drain phase: the job serves no traffic, and a pass interrupted
 	// between the compacted PUT and the input deletes is resumed by the next

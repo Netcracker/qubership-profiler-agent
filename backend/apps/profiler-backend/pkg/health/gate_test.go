@@ -28,6 +28,9 @@ func TestGateLifecycle(t *testing.T) {
 	rec = get(t, g, "/internal/v1/health/ready")
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.JSONEq(t, `{"state":"RECOVERY","details":"replaying WALs"}`, rec.Body.String())
+	assert.Equal(t, http.StatusOK, get(t, g, "/internal/v1/health/live").Code,
+		"liveness is recovery-independent: a long recovery must never earn a kubelet kill, "+
+			"or the pod loops LOADING→kill→LOADING forever (03 §4)")
 	assert.Equal(t, http.StatusServiceUnavailable, get(t, g, "/internal/v1/calls").Code,
 		"API routes answer 503 until the handler is mounted")
 

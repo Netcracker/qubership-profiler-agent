@@ -2,6 +2,7 @@ package envconfig
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -62,7 +63,8 @@ func TestCollectDefaults(t *testing.T) {
 	assert.Equal(t, ByteSize(10<<30), c.ChunksStagingMaxBytes)
 	assert.Equal(t, time.Hour, c.WalPurgeGrace)
 
-	p := c.S3.Params()
+	p, err := c.S3.Params()
+	require.NoError(t, err)
 	assert.Equal(t, "minio:9000", p.Endpoint)
 	assert.False(t, p.UseSSL)
 	assert.Equal(t, "profiler-data", p.BucketName)
@@ -81,7 +83,9 @@ func TestQueryDefaults(t *testing.T) {
 	assert.Equal(t, "profiler-collector-headless", q.CollectorService)
 	assert.Equal(t, 8081, q.CollectorPort)
 	assert.Equal(t, ByteSize(2<<30), q.MaxScanBytes)
-	assert.True(t, q.S3.Params().UseSSL)
+	p, err := q.S3.Params()
+	require.NoError(t, err)
+	assert.True(t, p.UseSSL)
 }
 
 func TestTTLDecode(t *testing.T) {
@@ -134,5 +138,59 @@ func TestS3Required(t *testing.T) {
 		require.NoError(t, os.Unsetenv(key))
 	}
 	_, err := ParseCollect()
-	assert.Error(t, err)
+	assert.Error(t, err, "S3_ENDPOINT and S3_BUCKET stay required at parse time")
+
+	// The credentials are validated at Params() time, not at parse time: the
+	// parser cannot know which of the env/file sources the deployment uses.
+	t.Setenv("S3_ENDPOINT", "http://minio:9000")
+	t.Setenv("S3_BUCKET", "profiler-data")
+	c, err := ParseCollect()
+	require.NoError(t, err)
+	_, err = c.S3.Params()
+	assert.ErrorContains(t, err, "missing S3_ACCESS_KEY")
+}
+
+func TestS3FileCredentials(t *testing.T) {
+	dir := t.TempDir()
+	accessPath := filepath.Join(dir, "access-key")
+	secretPath := filepath.Join(dir, "secret-key")
+	// Secret files routinely end with a newline; it must not become part of
+	// the credential.
+	require.NoError(t, os.WriteFile(accessPath, []byte("file-ak\n"), 0o600))
+	require.NoError(t, os.WriteFile(secretPath, []byte("file-sk"), 0o600))
+
+	base := S3{Endpoint: "http://minio:9000", Bucket: "profiler-data"}
+
+	s := base
+	s.AccessKeyFile, s.SecretKeyFile = accessPath, secretPath
+	p, err := s.Params()
+	require.NoError(t, err)
+	assert.Equal(t, "file-ak", p.AccessKeyID)
+	assert.Equal(t, "file-sk", p.SecretAccessKey)
+
+	s = base
+	s.AccessKey, s.SecretKey = "env-ak", "env-sk"
+	p, err = s.Params()
+	require.NoError(t, err)
+	assert.Equal(t, "env-ak", p.AccessKeyID)
+
+	// Both sources for one credential is a misconfiguration, not a precedence
+	// question: fail loudly instead of silently picking one.
+	s = base
+	s.AccessKey, s.AccessKeyFile, s.SecretKey = "env-ak", accessPath, "env-sk"
+	_, err = s.Params()
+	assert.ErrorContains(t, err, "both set")
+
+	s = base
+	s.AccessKeyFile = filepath.Join(dir, "does-not-exist")
+	s.SecretKey = "env-sk"
+	_, err = s.Params()
+	assert.ErrorContains(t, err, "read S3_ACCESS_KEY_FILE")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "empty"), []byte("\n"), 0o600))
+	s = base
+	s.AccessKeyFile = filepath.Join(dir, "empty")
+	s.SecretKey = "env-sk"
+	_, err = s.Params()
+	assert.ErrorContains(t, err, "empty credential")
 }
