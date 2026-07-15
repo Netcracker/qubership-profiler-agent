@@ -38,7 +38,7 @@ describe('fetchTree against the mock', () => {
 
   it('decodes the tree when the hints travel with the request', async () => {
     const call = await coldCall();
-    const tree = await fetchTree(call.pk, { tsMs: call.ts_ms, retentionClass: call.retention_class });
+    const { wire: tree } = await fetchTree(call.pk, { tsMs: call.ts_ms, retentionClass: call.retention_class });
     expect(tree.v).toBe(1);
     expect(tree.methods.length).toBeGreaterThan(0);
     expect(tree.root.durationMs).toBe(call.duration_ms);
@@ -80,7 +80,7 @@ describe('fetchTree against the mock', () => {
     );
 
     const call = await coldCall();
-    const tree = await fetchTree(call.pk, { tsMs: call.ts_ms, retentionClass: call.retention_class });
+    const { wire: tree } = await fetchTree(call.pk, { tsMs: call.ts_ms, retentionClass: call.retention_class });
     expect(seenVersion).toBe(String(TREE_WIRE_VERSION));
     expect(tree.v).toBe(TREE_WIRE_VERSION);
   });

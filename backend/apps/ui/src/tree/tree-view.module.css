@@ -1,0 +1,118 @@
+.treeView {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+}
+
+/* `ch` tracks the font: room for ~40 characters of query text. */
+.searchInput {
+  width: 40ch;
+}
+
+.listContainer {
+  flex: 1;
+  min-height: 240px;
+}
+
+/* Shared row layout for node and param rows; per-row padding/background stay inline. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.paramRow {
+  color: var(--ant-color-text-secondary);
+}
+
+.iconBtn {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+}
+
+.iconBtnMuted {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--ant-color-text-tertiary);
+}
+
+.chainTag {
+  cursor: pointer;
+  margin-inline-end: 0;
+}
+
+.tagFlush {
+  margin-inline-end: 0;
+}
+
+/* Duration bar; width scales with the node duration and stays inline. */
+.durationBar {
+  display: inline-block;
+  height: 8px;
+  background: var(--ant-color-primary-border);
+  border-radius: 2px;
+}
+
+.tabularNums {
+  font-variant-numeric: tabular-nums;
+}
+
+.methodName {
+  flex: 1;
+}
+
+.paramValue {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* font-size:0 hides the package yet keeps it selectable, so copying the row
+   yields the qualified name (old span.p). */
+.pkgPrefix {
+  font-size: 0;
+}
+
+/* Stats popover floating over the tree. */
+.statsPopover {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  background: var(--ant-color-bg-elevated);
+  border: 1px solid var(--ant-color-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  padding: 12px;
+  pointer-events: none;
+}
+
+.statsContent {
+  max-width: 480px;
+}
+
+.statsSignature {
+  margin-bottom: 4px;
+}
+
+.statLabel {
+  padding-right: 12px;
+}
+
+.statValue {
+  text-align: right;
+}
+
+.stacktracePre {
+  max-height: 400px;
+  overflow: auto;
+  font-size: 12px;
+}

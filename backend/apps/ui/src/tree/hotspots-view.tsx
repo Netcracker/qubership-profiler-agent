@@ -6,6 +6,7 @@ import type { TreeModel, TreeNode } from './model';
 import { buildHotspotTree, graftIncoming } from './transforms/hotspot-tree';
 import type { CategoryProfile } from './transforms/flat-profile';
 import { TreeView } from './tree-view';
+import styles from './hotspots-view.module.css';
 
 // Hotspots (09 §3.5) as the old UI's bottom-up tree: dotted category names
 // group hierarchically, and a method row expands in place into its incoming
@@ -22,8 +23,8 @@ export function HotspotsView({ model, profiles }: HotspotsViewProps) {
   const zeroSelf = profiles.reduce((sum, p) => sum + p.zeroSelfCount, 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, height: '100%' }}>
-      <div style={{ flex: 1, minHeight: 0 }}>
+    <div className={styles.hotspots}>
+      <div className={styles.treeContainer}>
         <TreeView
           model={hotspot.model}
           direction="bottom-up"

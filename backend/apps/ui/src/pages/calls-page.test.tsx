@@ -30,6 +30,27 @@ function renderCallsPage(query: string) {
 }
 
 describe('CallsPage', () => {
+  it('lands on the default last-hour window with no URL params', async () => {
+    // No `from`/`to`: Calls opts into the default window, so the rail and the
+    // /calls fan-out both populate without the user first picking a period.
+    const callsRequests: string[] = [];
+    const onRequestStart = ({ request }: { request: Request }): void => {
+      if (request.url.includes('/api/v1/calls')) callsRequests.push(request.url);
+    };
+    server.events.on('request:start', onRequestStart);
+    try {
+      renderCallsPage('duration_min_ms=0');
+      await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+      const spanOk = callsRequests.some((u) => {
+        const sp = new URL(u).searchParams;
+        return Number(sp.get('to')) - Number(sp.get('from')) === 60 * 60 * 1000;
+      });
+      expect(spanOk).toBe(true);
+    } finally {
+      server.events.removeListener('request:start', onRequestStart);
+    }
+  });
+
   it('renders calls rows for an applied window', async () => {
     const to = Date.now();
     renderCallsPage(`from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
@@ -88,18 +109,16 @@ describe('CallsPage', () => {
     expect(within(alert as HTMLElement).getByText(/collector-2 timed out/)).toBeInTheDocument();
   });
 
-  it('does not refetch calls when the draft period moves before Apply', async () => {
-    // The synthetic topology's pod names are window-invariant (mocks/synthetic.ts),
-    // so a real committed-vs-draft mixup would not show up in the /calls pod
-    // filter against the default handler. Key the returned pod on the
-    // requested window's span instead, so the committed (15 min) and draft
-    // (1 h) windows resolve to distinguishable, disjoint pod sets.
+  it('applies a picked period immediately, refetching calls without a separate Apply', async () => {
+    // Key the returned pod on the requested window's span so the committed
+    // (15 min) and the picked (1 h) windows resolve to distinguishable pods,
+    // making the refetched window observable in the /calls pod filter.
     server.use(
       http.get('/api/v1/pods', ({ request }) => {
         const sp = new URL(request.url).searchParams;
         const fromMs = Number(sp.get('from'));
         const toMs = Number(sp.get('to'));
-        const pod = toMs - fromMs <= 20 * 60 * 1000 ? 'committed-window-pod' : 'draft-window-pod';
+        const pod = toMs - fromMs <= 20 * 60 * 1000 ? 'narrow-window-pod' : 'wide-window-pod';
         return HttpResponse.json({
           pods: [
             { namespace: 'payments', service: 'billing', pod, restart_time_ms: fromMs, time_min_ms: fromMs, time_max_ms: toMs },
@@ -111,39 +130,23 @@ describe('CallsPage', () => {
     );
 
     const callsRequests: string[] = [];
-    const podsRequests: string[] = [];
     const onRequestStart = ({ request }: { request: Request }): void => {
       if (request.url.includes('/api/v1/calls')) callsRequests.push(request.url);
-      else if (request.url.includes('/api/v1/pods')) podsRequests.push(request.url);
     };
     server.events.on('request:start', onRequestStart);
 
     try {
       const to = Date.now();
       renderCallsPage(`from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0&service=payments/billing`);
-      await waitFor(() => expect(callsRequests.some((u) => u.includes('committed-window-pod'))).toBe(true), {
+      await waitFor(() => expect(callsRequests.some((u) => u.includes('narrow-window-pod'))).toBe(true), {
         timeout: 5000,
       });
 
-      // Moving the draft period to "1 h" resolves the rail against a
-      // disjoint pod (09 §2.2; PR 708 review #1). AntD hides the radio input
-      // under `pointer-events: none` and handles clicks on the visible label
-      // instead, so fireEvent bypasses userEvent's (correct, but here
-      // unhelpful) pointer-events check.
-      const podsCountBeforeDraftChange = podsRequests.length;
-      fireEvent.click(screen.getByText('1 h'));
-      await waitFor(() => expect(podsRequests.length).toBeGreaterThan(podsCountBeforeDraftChange), { timeout: 5000 });
-      // Let the draft /pods response finish propagating through React state
-      // and effects — a mixup would refetch /calls in that same settle
-      // window, so give it the chance before asserting its absence.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // The draft-window /pods answer must not leak into the still-committed
-      // /calls fetch.
-      expect(callsRequests.some((u) => u.includes('draft-window-pod'))).toBe(false);
-
-      await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
-      await waitFor(() => expect(callsRequests.some((u) => u.includes('draft-window-pod'))).toBe(true), {
+      // Picking "Last 1 hour" applies at once (Grafana-style): the /calls
+      // fan-out refetches against the wider window with no Apply click.
+      fireEvent.click(screen.getByRole('button', { name: 'Time range' }));
+      fireEvent.click(screen.getByText('Last 1 hour'));
+      await waitFor(() => expect(callsRequests.some((u) => u.includes('wide-window-pod'))).toBe(true), {
         timeout: 5000,
       });
     } finally {

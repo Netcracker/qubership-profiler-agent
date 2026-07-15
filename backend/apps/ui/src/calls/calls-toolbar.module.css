@@ -1,0 +1,24 @@
+.columnSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 28ch;
+}
+
+.rowBetween {
+  justify-content: space-between;
+  width: 100%;
+}
+
+.toolbar {
+  padding: 8px 0;
+}
+
+/* `ch` sizes these fields to their content, not a fixed pixel count. */
+.durationInput {
+  width: 22ch;
+}
+
+.methodInput {
+  width: 34ch;
+}

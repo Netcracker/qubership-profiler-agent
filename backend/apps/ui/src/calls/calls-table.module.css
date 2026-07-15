@@ -1,0 +1,21 @@
+.tableContainer {
+  flex: 1;
+  min-height: 200px;
+}
+
+/* Positions the drag handle against the header cell. */
+.resizeCell {
+  position: relative;
+}
+
+/* Drag handle for a resizable header cell; sits over the column border. */
+.resizeHandle {
+  position: absolute;
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  z-index: 1;
+  user-select: none;
+}

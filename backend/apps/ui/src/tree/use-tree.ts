@@ -16,7 +16,8 @@ export type TreeState =
   | { kind: 'cold'; detail: string }
   | { kind: 'truncated'; detail: string }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; wire: TreeWire };
+  // bytes ride along so the page can bake a self-contained HTML export (10b).
+  | { kind: 'ready'; wire: TreeWire; bytes: Uint8Array };
 
 export function useTree(pk: CallPK | null, hints: TreeHints): { state: TreeState; refetch: () => void } {
   const [state, setState] = useState<TreeState>({ kind: 'loading' });
@@ -31,7 +32,7 @@ export function useTree(pk: CallPK | null, hints: TreeHints): { state: TreeState
     abortRef.current = controller;
     setState({ kind: 'loading' });
     fetchTree(pk, hints, controller.signal)
-      .then((wire) => setState({ kind: 'ready', wire }))
+      .then(({ wire, bytes }) => setState({ kind: 'ready', wire, bytes }))
       .catch((e: unknown) => {
         if (controller.signal.aborted) return;
         if (e instanceof ApiError && e.status === 404) {

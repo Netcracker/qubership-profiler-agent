@@ -1,0 +1,16 @@
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 12px;
+}
+
+.spinTop {
+  margin-top: 24px;
+}
+
+.tree {
+  overflow: auto;
+  flex: 1;
+}

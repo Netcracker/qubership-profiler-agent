@@ -1,0 +1,83 @@
+.errorLayout {
+  min-height: 100vh;
+}
+
+.errorContent {
+  padding: 24px;
+}
+
+.layout {
+  height: 100vh;
+}
+
+/* Descendant selector beats antd's `.ant-layout-header` defaults (height,
+   padding, colour). */
+.layout .header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--ant-color-text-light-solid);
+  height: auto;
+  min-height: 64px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.headerLeft {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Descendant selector beats antd's `h5.ant-typography` default margin/colour. */
+.header .headerTitle {
+  margin: 0;
+  color: var(--ant-color-text-light-solid);
+  max-width: min(60vw, 520px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerRight {
+  flex: 0 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.content {
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.centerBox {
+  display: grid;
+  place-items: center;
+  flex: 1;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.tabs {
+  flex: 1;
+  min-height: 0;
+}
+
+.tabPane {
+  height: calc(100vh - 200px);
+}
+
+/* `ch` caps the value column at ~70 characters, tracking the font. */
+.paramValueCell {
+  max-width: 70ch;
+  overflow: hidden;
+}
+
+.alertGap {
+  margin-top: 8px;
+}

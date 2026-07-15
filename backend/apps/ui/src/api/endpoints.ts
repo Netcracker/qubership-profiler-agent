@@ -84,7 +84,13 @@ export interface TreeHints {
   retentionClass?: RetentionClass;
 }
 
-export async function fetchTree(pk: CallPK, hints: TreeHints, signal?: AbortSignal): Promise<TreeWire> {
+/** The decoded tree plus the raw bytes it came from, so the self-contained HTML export can embed the exact server bytes without re-encoding (10b). */
+export interface FetchedTree {
+  wire: TreeWire;
+  bytes: Uint8Array;
+}
+
+export async function fetchTree(pk: CallPK, hints: TreeHints, signal?: AbortSignal): Promise<FetchedTree> {
   const bytes = await getBinary(
     `/api/v1/calls/${encodeURIComponent(pkToPath(pk))}/tree`,
     'application/x-msgpack',
@@ -94,5 +100,5 @@ export async function fetchTree(pk: CallPK, hints: TreeHints, signal?: AbortSign
     // over the compatibility window (02 §2.5.4) instead of breaking it silently.
     { 'Accept-Version': String(TREE_WIRE_VERSION) },
   );
-  return decodeTree(bytes);
+  return { wire: decodeTree(bytes), bytes };
 }

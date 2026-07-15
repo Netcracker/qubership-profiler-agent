@@ -1,0 +1,28 @@
+.page {
+  flex: 1;
+  min-height: 0;
+}
+
+.sider {
+  border-right: 1px solid var(--ant-color-border-secondary);
+}
+
+.content {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Reserve a left gutter for the collapsed rail's pinned trigger. */
+.railGutter {
+  padding-left: 52px;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.emptyTop {
+  margin-top: 48px;
+}

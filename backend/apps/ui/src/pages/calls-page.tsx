@@ -1,4 +1,4 @@
-import { Alert, Button, Empty, Layout, Space, Typography } from 'antd';
+import { Alert, Button, Empty, Layout, Space, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -21,14 +21,17 @@ import { isIdleMethod } from '../calls/idle-tags';
 import { useCallsQuery } from '../calls/use-calls-query';
 import { PeriodControls } from '../controls/period-controls';
 import type { DraftWindow } from '../controls/period-controls';
-import { DiscoveryRail } from '../discovery/discovery-rail';
+import { resolveUrlTime } from '../controls/time-range';
+import { DiscoveryRail, selectionEquals } from '../discovery/discovery-rail';
 import type { RailSelection } from '../discovery/discovery-rail';
 import { expandSelection } from '../discovery/group-pods';
 import { usePods } from '../discovery/use-pods';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
 import type { CallsFilter } from '../api/endpoints';
-import { callsSearchToParams, parseCallsSearch } from '../url/search-params';
+import { callsSearchToParams, freezeWindow, hasRelativeWindow, parseCallsSearch } from '../url/search-params';
 import type { CallsSearchState } from '../url/search-params';
+import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
+import styles from './calls-page.module.css';
 
 // Discovery + Calls (09 §2). The URL is the source of truth; the rail and the
 // period picker edit a draft that Apply commits to the URL, which keys the
@@ -39,7 +42,9 @@ const VIRTUAL = import.meta.env.MODE !== 'test';
 
 export function CallsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const search = useMemo(() => parseCallsSearch(searchParams), [searchParams]);
+  // Resolve relative window tokens against one `now` per URL change; the memo
+  // freezes it, so `now-3h` does not drift (and refetch) on every render.
+  const search = useMemo(() => parseCallsSearch(searchParams, Date.now(), { defaultWindow: true }), [searchParams]);
 
   const [draftWindow, setDraftWindow] = useState<DraftWindow>({ fromMs: search.fromMs, toMs: search.toMs });
   const [draftSelection, setDraftSelection] = useState<RailSelection>({
@@ -47,6 +52,9 @@ export function CallsPage() {
     pods: search.pods,
   });
   const [prefs, setPrefs] = useState<ColumnPrefs>(() => loadColumnPrefs(DEFAULT_COLUMN_ORDER));
+  // Tracked so the content can reserve a gutter for the collapsed rail's
+  // trigger, which is pinned to the top-left corner (PR 708 review #8).
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   // Resync drafts when the committed state changes under us (back/forward,
   // a shared link, a pinned pod).
@@ -87,6 +95,7 @@ export function CallsPage() {
       pods: podFilter,
       method: search.query === '' ? undefined : search.query,
       durationMinMs: search.durationMinMs === 0 ? undefined : search.durationMinMs,
+      durationMaxMs: search.durationMaxMs === 0 ? undefined : search.durationMaxMs,
       errorOnly: search.errorOnly ? true : undefined,
       retentionClasses: search.retentionClasses.length === 0 ? undefined : search.retentionClasses,
     };
@@ -103,14 +112,32 @@ export function CallsPage() {
 
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
 
-  const apply = (): void =>
+  // A range change stores its raw tokens (a relative range stays live) and
+  // applies at once, keeping the current rail selection; the rail follows via
+  // the draft window without waiting for the URL round-trip.
+  const commitRange = (tokens: { from: string; to: string }): void => {
+    const now = Date.now();
+    setDraftWindow({ fromMs: resolveUrlTime(tokens.from, now), toMs: resolveUrlTime(tokens.to, now) });
     commitSearch({
       ...search,
-      fromMs: draftWindow.fromMs,
-      toMs: draftWindow.toMs,
+      from: tokens.from || null,
+      to: tokens.to || null,
       services: draftSelection.services,
       pods: draftSelection.pods,
     });
+  };
+
+  // The sibling Apply commits rail-selection edits against the committed window.
+  const apply = (): void =>
+    commitSearch({ ...search, services: draftSelection.services, pods: draftSelection.pods });
+  // Apply has work only when the draft selection diverges from the committed one.
+  const selectionDirty = !selectionEquals(draftSelection, search);
+
+  // `y` freezes a live relative range into an absolute permalink (GitHub-style).
+  usePermalinkHotkey(hasRelativeWindow(search), () => {
+    commitSearch(freezeWindow(search));
+    message.success('Time range pinned to a permalink');
+  });
 
   const pinPod = (tuple: string): void => {
     if (search.pods.includes(tuple)) return;
@@ -144,30 +171,34 @@ export function CallsPage() {
     ) : undefined;
 
   return (
-    <Layout style={{ flex: 1, minHeight: 0 }}>
+    <Layout className={styles.page}>
       <Layout.Sider
         width={320}
         theme="light"
         breakpoint="lg"
         collapsedWidth={0}
+        onCollapse={setRailCollapsed}
         // The default zero-width trigger has no header row to sit in here
         // (CallsPage has none) and ends up painted under the toolbar; pin it
         // to the top-left corner, above everything, so it stays visible and
-        // clickable once the sider auto-collapses on narrow viewports.
+        // clickable once the sider auto-collapses on narrow viewports. The
+        // content reserves a left gutter while collapsed so it does not sit on
+        // top of the period control (PR 708 review #8).
         zeroWidthTriggerStyle={{ top: 0, left: 0, zIndex: 20 }}
         // `overflow: auto` here (rather than on DiscoveryRail's own Tree,
         // which already scrolls itself) clips the zero-width trigger to
         // invisible once the sider collapses to ~1px — the trigger is an
         // absolutely-positioned sibling inside this same clipped box.
-        style={{ borderRight: '1px solid #f0f0f0' }}
+        className={styles.sider}
       >
         <DiscoveryRail pods={railPodsState} selection={draftSelection} onSelectionChange={setDraftSelection} />
       </Layout.Sider>
-      <Layout.Content style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <Layout.Content className={`${styles.content}${railCollapsed ? ` ${styles.railGutter}` : ''}`}>
         <PeriodControls
-          window={draftWindow}
-          onWindowChange={setDraftWindow}
+          value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
+          onCommitRange={commitRange}
           onApply={apply}
+          canApply={selectionDirty}
           applying={state.kind === 'loading'}
         />
         <CallsToolbar
@@ -177,7 +208,7 @@ export function CallsPage() {
           onPrefsChange={changePrefs}
           disabled={search.fromMs === null}
         />
-        <Space orientation="vertical" style={{ width: '100%' }} size={8}>
+        <Space orientation="vertical" className={styles.fullWidth} size={8}>
           {selectionTooWide ? <SelectionTooWideBanner search={search} onSearchChange={commitSearch} /> : null}
           {state.kind === 'too-wide' ? (
             <TooWideBanner problem={state.problem} search={search} onSearchChange={commitSearch} />
@@ -225,18 +256,18 @@ export function CallsPage() {
         {/* selectionTooWide already has its own banner above; no Empty needed. */}
         {state.kind === 'idle' && !waitingForExpansion && !selectionTooWide ? (
           <Empty
-            style={{ marginTop: 48 }}
+            className={styles.emptyTop}
             description={
               selectionEmpty
                 ? 'The selected services have no pods in this window.'
-                : 'Select a namespace or service and a period, then Apply.'
+                : 'Select a namespace or service, then Apply.'
             }
           />
         ) : state.kind === 'loading' || waitingForExpansion ? (
           <CallsTable rows={[]} loading prefs={prefs} onPrefsChange={changePrefs} virtual={VIRTUAL} />
         ) : state.kind === 'ready' ? (
           visibleRows.length === 0 && state.nextCursor === null && !state.emptyPaused ? (
-            <Empty style={{ marginTop: 48 }} description="No calls match the filters in this window." />
+            <Empty className={styles.emptyTop} description="No calls match the filters in this window." />
           ) : (
             <CallsTable
               rows={visibleRows}

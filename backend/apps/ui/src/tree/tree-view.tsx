@@ -1,7 +1,7 @@
 import { EyeOutlined, MoreOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography } from 'antd';
+import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography, theme } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import { formatCount, formatDurationMs } from '../calls/format';
 import { useElementHeight } from '../ui/use-element-height';
@@ -9,13 +9,14 @@ import { parseMethod } from './method-info';
 import type { MethodInfo } from './method-info';
 import { totalExecutions } from './model';
 import type { TreeModel, TreeNode } from './model';
-import { ParamValueModal } from './param-value-viewer';
+import { detectLanguage, InlineHighlight, ParamValueModal } from './param-value-viewer';
 import type { ParamValueTarget } from './param-value-viewer';
 import { searchTree } from './search';
 import { stacktraceText } from './stacktrace';
 import { VirtualList } from './virtual-list';
 import { buildRows, expandLarge, initialExpansion } from './visible-rows';
 import type { NodeRow, ParamRow, TreeRow } from './visible-rows';
+import styles from './tree-view.module.css';
 
 // The Call Tree tab (09 §3.3–§3.4): virtualised rows, one-click expansion
 // that skips pass-through chains, params as aggregated mini-tree rows,
@@ -72,15 +73,15 @@ function StatsContent({ node, dict }: { node: TreeNode; dict: MethodDict }) {
   const executions = node.selfExecutions;
   const stat = (label: string, value: string): ReactNode => (
     <tr key={label}>
-      <td style={{ paddingRight: 12 }}>
+      <td className={styles.statLabel}>
         <Typography.Text type="secondary">{label}</Typography.Text>
       </td>
-      <td style={{ textAlign: 'right' }}>{value}</td>
+      <td className={styles.statValue}>{value}</td>
     </tr>
   );
   return (
-    <div style={{ maxWidth: 480 }}>
-      <Typography.Paragraph style={{ marginBottom: 4 }} code>
+    <div className={styles.statsContent}>
+      <Typography.Paragraph className={styles.statsSignature} code>
         {info.signature}
       </Typography.Paragraph>
       <table>
@@ -104,16 +105,6 @@ function StatsContent({ node, dict }: { node: TreeNode; dict: MethodDict }) {
     </div>
   );
 }
-
-const rowBase: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  height: ROW_HEIGHT,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  fontSize: 13,
-};
 
 /** Per-node operations (09 §3.4), backed by the 5.3 transforms. */
 export interface TreeViewOps {
@@ -144,6 +135,7 @@ interface TreeViewProps {
 
 export function TreeView({ model, direction = 'top-down', onCapped, ops, initialExpanded, computeChildren }: TreeViewProps) {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const dict = useMethodDict(model);
   const [containerRef, height] = useElementHeight<HTMLDivElement>(480);
   const ctrlHeld = useCtrlHeld();
@@ -261,10 +253,10 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
     const isMatch = search !== null && search.matched.has(node.id);
     const content = (
       <div
+        className={styles.row}
         style={{
-          ...rowBase,
           paddingLeft: row.depth * 16,
-          background: marked.has(node.id) ? '#fff1f0' : isMatch ? '#fffbe6' : node.category?.color,
+          background: marked.has(node.id) ? token.colorErrorBg : isMatch ? token.colorWarningBg : node.category?.color,
         }}
         onMouseEnter={() => setHoverNode(node)}
         onMouseLeave={() => setHoverNode((cur) => (cur?.id === node.id ? null : cur))}
@@ -272,7 +264,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
         <Button
           size="small"
           type="text"
-          style={{ width: 22, minWidth: 22, height: 22, padding: 0 }}
+          className={styles.iconBtn}
           disabled={!row.hasChildren}
           aria-label={row.hasChildren ? (row.expanded ? 'Collapse node' : 'Expand node') : undefined}
           aria-hidden={row.hasChildren ? undefined : true}
@@ -323,14 +315,14 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
             type="text"
             title="Operations"
             aria-label={`Open node operations${direction === 'bottom-up' ? ' (bottom-up view)' : ''}`}
-            style={{ width: 22, minWidth: 22, height: 22, padding: 0, color: '#999' }}
+            className={styles.iconBtnMuted}
           >
             <MoreOutlined />
           </Button>
         </Dropdown>
         {row.skippedLevels > 0 ? (
           <Tag
-            style={{ cursor: 'pointer', marginInlineEnd: 0 }}
+            className={styles.chainTag}
             title={`${row.skippedLevels} pass-through level${row.skippedLevels > 1 ? 's' : ''} skipped — click to reveal`}
             onClick={() => revealChain(row)}
           >
@@ -338,7 +330,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
           </Tag>
         ) : node.collapseLevels > 0 && revealedChains.has(node.id) && search === null ? (
           <Tag
-            style={{ cursor: 'pointer', marginInlineEnd: 0 }}
+            className={styles.chainTag}
             title={`${node.collapseLevels} pass-through level${node.collapseLevels > 1 ? 's' : ''} revealed — click to fold back`}
             onClick={() => collapseChain(row)}
           >
@@ -346,17 +338,9 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
           </Tag>
         ) : null}
         {barWidth >= 0.6 ? (
-          <span
-            style={{
-              display: 'inline-block',
-              width: barWidth,
-              height: 8,
-              background: '#91caff',
-              borderRadius: 2,
-            }}
-          />
+          <span className={styles.durationBar} style={{ width: barWidth }} />
         ) : null}
-        <Typography.Text style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <Typography.Text className={styles.tabularNums}>
           {formatDurationMs(node.durationMs)} ({formatDurationMs(node.selfDurationMs)})
         </Typography.Text>
         {node.suspensionMs > 0 ? (
@@ -369,14 +353,14 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
             ×{formatCount(node.selfExecutions)}
           </Typography.Text>
         ) : null}
-        <Typography.Text ellipsis style={{ flex: 1 }} title={info.original}>
+        <Typography.Text ellipsis className={styles.methodName} title={info.original}>
           {info.bareSignature === '' ? (
             info.original
           ) : (
             <>
               {/* font-size:0 hides the package yet keeps it selectable, so
                   copying the row yields the qualified name (old span.p). */}
-              <span style={{ fontSize: 0 }}>{info.packagePrefix}</span>
+              <span className={styles.pkgPrefix}>{info.packagePrefix}</span>
               {info.bareSignature}
             </>
           )}
@@ -389,12 +373,13 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
   const renderParamRow = (row: ParamRow): ReactNode => {
     const key = model.paramKeys[row.keyIdx] ?? `param ${row.keyIdx}`;
     const isOther = row.group.value === '::other';
+    const language = isOther ? null : detectLanguage(key, row.group.value);
     return (
-      <div style={{ ...rowBase, paddingLeft: row.depth * 16 + 8, color: '#666' }}>
+      <div className={`${styles.row} ${styles.paramRow}`} style={{ paddingLeft: row.depth * 16 + 8 }}>
         <Button
           size="small"
           type="text"
-          style={{ width: 22, minWidth: 22, height: 22, padding: 0 }}
+          className={styles.iconBtn}
           disabled={!row.hasChildren}
           onClick={() => toggleParam(row)}
         >
@@ -402,20 +387,20 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
         </Button>
         {/* Duration and invocations sit left of the value, the way the old
             renderSimpleTag laid tags out (duration, count, then the value). */}
-        <Typography.Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <Typography.Text type="secondary" className={styles.tabularNums}>
           {formatDurationMs(row.group.durationMs)} ×{formatCount(row.group.executions)}
         </Typography.Text>
-        <Tag style={{ marginInlineEnd: 0 }}>{key}</Tag>
+        <Tag className={styles.tagFlush}>{key}</Tag>
         <Typography.Text
           type={isOther ? 'secondary' : undefined}
           italic={isOther}
-          ellipsis
-          style={{ flex: 1 }}
+          ellipsis={language === null}
+          className={styles.paramValue}
           title={row.group.value}
         >
-          {row.group.value}
+          {language === null ? row.group.value : <InlineHighlight language={language} value={row.group.value} />}
         </Typography.Text>
-        {row.group.unresolved === true ? <Tag color="orange">unresolved</Tag> : null}
+        {row.group.unresolved === true ? <Tag color="warning">unresolved</Tag> : null}
         {!isOther ? (
           <Button
             size="small"
@@ -423,7 +408,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
             icon={<EyeOutlined />}
             title="View full value"
             aria-label="View full value"
-            style={{ width: 22, minWidth: 22, height: 22, padding: 0, color: '#999' }}
+            className={styles.iconBtnMuted}
             onClick={() => setParamValue({ key, value: row.group.value })}
           />
         ) : null}
@@ -432,13 +417,13 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%' }}>
+    <div className={styles.treeView}>
       <Space>
         <Input.Search
           placeholder="Search in the tree"
           allowClear
           size="small"
-          style={{ width: 280 }}
+          className={styles.searchInput}
           onSearch={setQuery}
           onChange={(e) => {
             if (e.target.value === '') setQuery('');
@@ -454,7 +439,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
       {search !== null && search.matchCount === 0 ? (
         <Alert type="info" showIcon title="Nothing in the tree matches the search." />
       ) : null}
-      <div ref={containerRef} style={{ flex: 1, minHeight: 240 }}>
+      <div ref={containerRef} className={styles.listContainer}>
         <VirtualList
           items={rows}
           rowHeight={ROW_HEIGHT}
@@ -467,20 +452,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
           Popover — reparenting the row would drop the user's text selection
           (the whole point of the copyable package span). */}
       {ctrlHeld && hoverNode !== null ? (
-        <div
-          style={{
-            position: 'fixed',
-            right: 24,
-            bottom: 24,
-            zIndex: 1000,
-            background: '#fff',
-            border: '1px solid #d9d9d9',
-            borderRadius: 8,
-            boxShadow: '0 6px 16px rgba(0, 0, 0, 0.12)',
-            padding: 12,
-            pointerEvents: 'none',
-          }}
-        >
+        <div className={styles.statsPopover}>
           <StatsContent node={hoverNode} dict={dict} />
         </div>
       ) : null}
@@ -501,7 +473,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
           </Button>
         }
       >
-        <pre style={{ maxHeight: 400, overflow: 'auto', fontSize: 12 }}>{stacktrace}</pre>
+        <pre className={styles.stacktracePre}>{stacktrace}</pre>
       </Modal>
       <ParamValueModal target={paramValue} onClose={() => setParamValue(null)} />
     </div>

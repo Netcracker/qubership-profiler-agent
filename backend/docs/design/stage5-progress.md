@@ -609,8 +609,76 @@ merge gates a usable tree. Status, decisions, and open issues per
   logging-volume fix. `TestResolveBigValuesAggregatesLoss` starves five calls
   through one missing segment and asserts a single summary with no per-call
   `to eviction` line.
+- **2026-07-11 — PR 708 #8 + #9: mobile layout fixes, browser-verified.** #8:
+  the collapsed discovery rail's zero-width trigger is pinned to the top-left
+  corner and sat on top of the period control on a narrow viewport. CallsPage
+  and PodsPage now track the collapse via `onCollapse` and add a 52px left
+  gutter to the content while collapsed, so the trigger has its own strip.
+  #9: the Call Tree header action group used `flex: '0 0 auto'`, which pinned
+  it to its one-row max-content width and pushed `Raw trace` off a 375px
+  viewport; `flex: '0 1 auto'` + `minWidth: 0` lets it shrink so its existing
+  `wrap` wraps the buttons, and `Raw trace` drops to its own right-aligned row.
+  Verified in the mock dev server at 375×812: on Calls and Pods the period
+  control clears the trigger, and on the Call Tree all three header buttons are
+  fully visible.
+- **2026-07-11 — PR 708 #7: Local Hotspots scopes to the selected subtree.**
+  The `local` op stored only `methodIdx` and derived through `outgoingCalls`,
+  which merges *every* occurrence of that method, so Local Hotspots on one row
+  pulled in unrelated branches that happen to call the same method. The tab now
+  also stores the selected node's `id` (a stable pre-order index — the model
+  rebuilds from the same wire on Adjust/Setup edits, so the id survives), and a
+  new `localHotspots(model, node)` seeds the same merge core with just that one
+  node (`mergeFrom` extracted from `outgoingCalls`, behaviour unchanged for the
+  latter). `findNodeById` resolves the id at derive time, falling back to the
+  whole-method merge if the node is gone. `transforms.test.ts` pins the fix:
+  Local Hotspots on Query.run under one service reports 300 ms / ×30, while the
+  whole-method merge still totals 600 ms / ×40. Verified the Call Tree renders
+  and derives cleanly against a multi-branch mock trace.
+- **2026-07-11 — PR 708 #16/#17: chart hygiene notes (Low, docs only).**
+  Documented the two dev-stand surprises without changing defaults: `image.tag:
+  dev` and `minio.image: …:latest` are mutable, so a rebuild does not roll pods
+  until they are recreated (#16), and the chart renders no MinIO console
+  Ingress, so the console is reached by `kubectl port-forward` (#17). Pinning
+  digests in the Dockerfile and chart is left for a deliberate supply-chain
+  pass. #18 (inline dev S3 credentials) was already covered: `secret-s3.yaml`
+  carries the "production should pass s3.auth.existingSecret" warning.
+
+- **2026-07-15 — Calls lands on a default last-hour window; Pods stays
+  Apply-gated.** Opening `/calls` with no `from`/`to` used to leave the rail
+  empty (the rail needs a window to list services, `use-pods.ts`) behind an
+  Empty prompt that read "Select a namespace or service and a period" — a
+  dead end, since no service is selectable before a period is picked. Calls
+  now opts into a default window (`now-1h`..`now`) via
+  `parseCallsSearch(..., { defaultWindow: true })`, so the rail and the
+  `/calls` fan-out both populate on open, Grafana-style. This relaxes the
+  2026-07-05 "period stays Apply-gated" note *for the Calls landing only*:
+  the first `/calls` fires on the default window without an Apply. It stays
+  bounded — 1 h is well under `PROFILER_WIDE_RANGE_LIMIT` (6 h) and the
+  default `duration_min_ms=500` is itself a file-pruning filter, so the wide
+  guard never trips. The default is opt-in, so Pods keeps its own
+  "Pick a period and Apply to see pods." prompt (09 §5, PR 708 #16); its
+  empty state and test are unchanged. The residual Calls Empty now only
+  covers a chosen selection that resolves to no pods.
 
 ## Open issues
+
+- **PR 708 #14 — read contract advertises unregistered endpoints (Medium,
+  decision).** `02-read-contract.md` documents external `GET
+  /pods/{pod-restart}/dictionary` and `GET /calls/{pk}`, but query registers
+  neither. Decide whether to implement them (a feature) or mark them deferred
+  in the contract; not touched pending that call.
+- **PR 708 #15 — malformed trace EOF can ACK before forcing resend (Medium,
+  protocol).** `decodeTrace` logs a short header but the wrapper returns nil, so
+  `AppendData` succeeds and the server sends `ACK_OK` instead of
+  `ACK_ERROR_MAGIC`; the agent does not resend. The fix must propagate a decode
+  error to the ACK path — agent-facing, so held for a careful protocol pass
+  with the real-agent E2E in the loop.
+- **PR 708 #19 — UI ships AntD 6, contract says "AntD 4.24 only" (Low,
+  decision).** `07-ui-design.md:43` is a locked decision the shipped UI (antd
+  6.5, @ant-design/icons 6.x) contradicts. Either downgrade (large, risky — the
+  UI is built on AntD 6 APIs) or unlock the decision to AntD 6; the latter is a
+  doc change but reverses a locked call, so left to the maintainer.
+
 
 - **10b — downloadable self-contained HTML that restores state: design
   note, decision pending.** The old "download" posted the page state to the

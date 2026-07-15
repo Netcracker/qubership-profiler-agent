@@ -58,6 +58,58 @@ describe('CallsToolbar method-substring input', () => {
   });
 });
 
+describe('CallsToolbar duration filter', () => {
+  afterEach(cleanup);
+
+  it('commits an upper-bound expression to min 0 / max on Enter', async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    render(
+      <CallsToolbar search={search()} onSearchChange={onSearchChange} prefs={defaultColumnPrefs(DEFAULT_COLUMN_ORDER)} onPrefsChange={vi.fn()} disabled={false} />,
+    );
+    const input = screen.getByLabelText('Duration filter');
+    await user.clear(input);
+    await user.type(input, '<100ms{Enter}');
+    expect(onSearchChange).toHaveBeenLastCalledWith(expect.objectContaining({ durationMinMs: 0, durationMaxMs: 100 }));
+  });
+
+  it('commits a range expression to both bounds', async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    render(
+      <CallsToolbar search={search()} onSearchChange={onSearchChange} prefs={defaultColumnPrefs(DEFAULT_COLUMN_ORDER)} onPrefsChange={vi.fn()} disabled={false} />,
+    );
+    const input = screen.getByLabelText('Duration filter');
+    await user.clear(input);
+    await user.type(input, '100ms..200ms{Enter}');
+    expect(onSearchChange).toHaveBeenLastCalledWith(expect.objectContaining({ durationMinMs: 100, durationMaxMs: 200 }));
+  });
+
+  it('does not commit an unparseable expression', async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    render(
+      <CallsToolbar search={search()} onSearchChange={onSearchChange} prefs={defaultColumnPrefs(DEFAULT_COLUMN_ORDER)} onPrefsChange={vi.fn()} disabled={false} />,
+    );
+    const input = screen.getByLabelText('Duration filter') as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, 'fast{Enter}');
+    expect(onSearchChange).not.toHaveBeenCalled();
+    expect(input.value).toBe('fast');
+  });
+
+  it('a preset chip sets a lower bound and clears the upper one', async () => {
+    // AntD hides the real radio input behind a label with pointer-events: none.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const onSearchChange = vi.fn();
+    render(
+      <CallsToolbar search={search({ durationMinMs: 0, durationMaxMs: 100 })} onSearchChange={onSearchChange} prefs={defaultColumnPrefs(DEFAULT_COLUMN_ORDER)} onPrefsChange={vi.fn()} disabled={false} />,
+    );
+    await user.click(screen.getByRole('radio', { name: '>100ms' }));
+    expect(onSearchChange).toHaveBeenLastCalledWith(expect.objectContaining({ durationMinMs: 100, durationMaxMs: 0 }));
+  });
+});
+
 describe('CallsToolbar column settings', () => {
   afterEach(cleanup);
 

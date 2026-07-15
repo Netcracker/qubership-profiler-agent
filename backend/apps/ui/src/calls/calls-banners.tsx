@@ -65,7 +65,7 @@ export function TooWideBanner({ problem, search, onSearchChange }: TooWideBanner
             <Typography.Text type="secondary">
               Estimated scan by class:{' '}
               {byClass.map(([cls, bytes]) => (
-                <Tag key={cls} color={cls === dominant ? 'orange' : undefined}>
+                <Tag key={cls} color={cls === dominant ? 'warning' : undefined}>
                   {cls}: {formatBytes(bytes)}
                 </Tag>
               ))}

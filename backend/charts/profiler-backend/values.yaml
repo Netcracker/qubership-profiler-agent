@@ -10,6 +10,10 @@
 image:
   registry: ""
   repository: profiler-backend
+  # `dev` is a mutable tag for local/smoke use: a rebuild reuses it, so loading
+  # a new image does not roll running pods until they are recreated (delete the
+  # pod, or bump a pod-template annotation). Pin an immutable version or a
+  # @sha256 digest for any shared or production deployment (PR 708 review #16).
   tag: dev
   pullPolicy: IfNotPresent
 imagePullSecrets: []
@@ -181,8 +185,12 @@ retention:
 
 # In-cluster MinIO for dev and smoke runs. Storage is an emptyDir — data dies
 # with the pod. Point s3.endpoint at a real object store for anything else.
+# The chart renders no console Ingress: reach the console locally with
+# `kubectl port-forward` to consolePort (PR 708 review #17).
 minio:
   enabled: false
+  # A mutable tag, like image.tag above — pin a dated MinIO release for any
+  # shared deployment (PR 708 review #16).
   image: minio/minio:latest
   consolePort: 9001
 

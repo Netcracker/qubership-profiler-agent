@@ -1,4 +1,4 @@
-import { Alert, Badge, Empty, Layout, Space, Table, Typography } from 'antd';
+import { Alert, Badge, Empty, Layout, Space, Table, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -6,11 +6,15 @@ import { useConfig } from '../api/use-config';
 import { formatTs } from '../calls/format';
 import { PeriodControls } from '../controls/period-controls';
 import type { DraftWindow } from '../controls/period-controls';
-import { DiscoveryRail } from '../discovery/discovery-rail';
+import { resolveUrlTime } from '../controls/time-range';
+import { DiscoveryRail, selectionEquals } from '../discovery/discovery-rail';
 import type { RailSelection } from '../discovery/discovery-rail';
 import { usePods } from '../discovery/use-pods';
-import { callsSearchToParams, parseCallsSearch } from '../url/search-params';
+import { useZone } from '../ui/timezone';
+import { callsSearchToParams, freezeWindow, hasRelativeWindow, parseCallsSearch } from '../url/search-params';
 import type { CallsSearchState } from '../url/search-params';
+import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
+import styles from './pods-page.module.css';
 
 // dumps-collector (07 §3.4) is a separate deployment with its own ingress;
 // its base URL only exists when the operator configured it (values.yaml
@@ -62,13 +66,20 @@ interface PodRow {
 
 export function PodsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const search = useMemo(() => parseCallsSearch(searchParams), [searchParams]);
+  // One `now` per URL change anchors relative tokens; the memo freezes it.
+  const search = useMemo(() => parseCallsSearch(searchParams, Date.now()), [searchParams]);
+  // The app-wide display zone: the pod table's timestamps follow it like the
+  // calls table and the call tree do (the URL stays Unix ms).
+  const zone = useZone();
 
   const [draftWindow, setDraftWindow] = useState<DraftWindow>({ fromMs: search.fromMs, toMs: search.toMs });
   const [draftSelection, setDraftSelection] = useState<RailSelection>({
     services: search.services,
     pods: search.pods,
   });
+  // Reserve a gutter for the collapsed rail's top-left trigger, as CallsPage
+  // does (PR 708 review #8).
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   // Resync drafts when the committed state changes under us (back/forward,
   // a shared link), mirroring CallsPage.
@@ -88,14 +99,32 @@ export function PodsPage() {
   const dumpsEnabled = isHttpUrl(dumpsCollectorUrl);
 
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
-  const apply = (): void =>
+
+  // A range change stores its raw tokens and applies at once; the rail follows
+  // via the draft window without waiting for the URL round-trip.
+  const commitRange = (tokens: { from: string; to: string }): void => {
+    const now = Date.now();
+    setDraftWindow({ fromMs: resolveUrlTime(tokens.from, now), toMs: resolveUrlTime(tokens.to, now) });
     commitSearch({
       ...search,
-      fromMs: draftWindow.fromMs,
-      toMs: draftWindow.toMs,
+      from: tokens.from || null,
+      to: tokens.to || null,
       services: draftSelection.services,
       pods: draftSelection.pods,
     });
+  };
+
+  // The sibling Apply commits rail-selection edits against the committed window.
+  const apply = (): void =>
+    commitSearch({ ...search, services: draftSelection.services, pods: draftSelection.pods });
+  // Apply has work only when the draft selection diverges from the committed one.
+  const selectionDirty = !selectionEquals(draftSelection, search);
+
+  // `y` freezes a live relative range into an absolute permalink (GitHub-style).
+  usePermalinkHotkey(hasRelativeWindow(search), () => {
+    commitSearch(freezeWindow(search));
+    message.success('Time range pinned to a permalink');
+  });
 
   const rows = useMemo<PodRow[]>(() => {
     if (state.kind !== 'ready') return [];
@@ -130,26 +159,28 @@ export function PodsPage() {
   }, [state, search.services, search.pods]);
 
   return (
-    <Layout style={{ flex: 1, minHeight: 0 }}>
+    <Layout className={styles.page}>
       <Layout.Sider
         width={320}
         theme="light"
         breakpoint="lg"
         collapsedWidth={0}
+        onCollapse={setRailCollapsed}
         zeroWidthTriggerStyle={{ top: 0, left: 0, zIndex: 20 }}
-        style={{ borderRight: '1px solid #f0f0f0' }}
+        className={styles.sider}
       >
         <DiscoveryRail pods={railPodsState} selection={draftSelection} onSelectionChange={setDraftSelection} />
       </Layout.Sider>
-      <Layout.Content style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <Layout.Content className={`${styles.content}${railCollapsed ? ` ${styles.railGutter}` : ''}`}>
         <PeriodControls
-          window={draftWindow}
-          onWindowChange={setDraftWindow}
+          value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
+          onCommitRange={commitRange}
           onApply={apply}
+          canApply={selectionDirty}
           applying={state.kind === 'loading'}
         />
         {search.fromMs === null || search.toMs === null ? (
-          <Empty style={{ marginTop: 48 }} description="Pick a period and Apply to see pods." />
+          <Empty className={styles.emptyTop} description="Pick a period and Apply to see pods." />
         ) : (
           <>
             {state.kind === 'error' ? (
@@ -157,6 +188,17 @@ export function PodsPage() {
             ) : null}
             {state.kind === 'ready' && state.partial ? (
               <Alert type="warning" showIcon title="Pod list may be incomplete" description={state.partialReasons.join('; ')} />
+            ) : null}
+            {/* Say why the dump links are missing rather than leaving a silent
+                gap: the link-out only exists when the operator points this
+                deployment at a dumps-collector (values.yaml query.dumpsCollectorUrl). */}
+            {state.kind === 'ready' && !dumpsEnabled && rows.length > 0 ? (
+              <Alert
+                type="info"
+                showIcon
+                title="Thread and top dump links are hidden"
+                description="This deployment has no dumps-collector configured. Set query.dumpsCollectorUrl in the chart values to link a thread and top dump per pod-restart."
+              />
             ) : null}
             <Table<PodRow>
               size="small"
@@ -181,12 +223,12 @@ export function PodsPage() {
                 // actually carry — a profiler pod-restart and call-data
                 // recency in the window — not a Kubernetes restart count or
                 // pod phase (PR 708 review #17).
-                { title: 'Session start', key: 'restart', width: 200, render: (_, r) => formatTs(r.restartTimeMs) },
+                { title: 'Session start', key: 'restart', width: 200, render: (_, r) => formatTs(r.restartTimeMs, zone) },
                 {
                   title: 'Data range',
                   key: 'range',
                   width: 380,
-                  render: (_, r) => `${formatTs(r.timeMinMs)} — ${formatTs(r.timeMaxMs)}`,
+                  render: (_, r) => `${formatTs(r.timeMinMs, zone)} — ${formatTs(r.timeMaxMs, zone)}`,
                 },
                 {
                   title: 'Data freshness',

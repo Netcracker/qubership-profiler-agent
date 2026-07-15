@@ -1,0 +1,20 @@
+/* Brand palette values that have no antd semantic token, kept next to
+   profiler-theme.ts so the whole palette lives in one place. The rest of the
+   palette is the token map in that file. */
+:root {
+  /* Mid step of the duration heat ramp, between colorWarning and colorError
+     (APIHUB deprecated-orange). Used by durationHeat in calls/format.ts. */
+  --pf-color-heat-mid: #ef9206;
+
+  /* Darker draft-chip blue for processing tags: colorInfo (#61AAF2) is too pale
+     on the light info background, so tag text uses this instead. */
+  --pf-color-tag-info-text: #004eae;
+}
+
+/* Processing tags (sql, duration, SQL param keys) inherit colorInfo for their
+   text, which reads faintly on the pale info fill. Swap in the darker brand
+   blue. antd's own rule carries specificity 0,4,0, so `!important` is the clean
+   way to win without matching its brittle internal class chain. */
+.ant-tag-processing {
+  color: var(--pf-color-tag-info-text) !important;
+}

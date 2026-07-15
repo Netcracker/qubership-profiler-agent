@@ -1,4 +1,11 @@
 import dayjs from 'dayjs';
+import timezone from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc';
+
+import { BROWSER_ZONE } from '../controls/time-range';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 /** 412ms · 4.6s · 3m 12s · 1h 04m — compact, no sub-ms noise. */
 export function formatDurationMs(ms: number): string {
@@ -25,19 +32,21 @@ export function formatCount(n: number): string {
   return n.toLocaleString('en-US');
 }
 
-/** Timestamps display in the browser timezone (09 §2.3); the URL stays Unix ms. */
-export function formatTs(tsMs: number): string {
-  return dayjs(tsMs).format('YYYY-MM-DD HH:mm:ss.SSS');
+/** Render a timestamp in the display timezone (default: the browser's); the URL stays Unix ms. */
+export function formatTs(tsMs: number, zone: string = BROWSER_ZONE): string {
+  return (zone === BROWSER_ZONE ? dayjs(tsMs) : dayjs(tsMs).tz(zone)).format('YYYY-MM-DD HH:mm:ss.SSS');
 }
 
-export function formatTsShort(tsMs: number): string {
-  return dayjs(tsMs).format('MM-DD HH:mm:ss');
+export function formatTsShort(tsMs: number, zone: string = BROWSER_ZONE): string {
+  return (zone === BROWSER_ZONE ? dayjs(tsMs) : dayjs(tsMs).tz(zone)).format('MM-DD HH:mm:ss');
 }
 
-/** Heat colour for the duration dot: green → yellow → orange → red. */
+// Heat colour for the duration dot: success → warning → mid-amber → error.
+// Every step is a theme variable: three antd semantic tokens plus the brand
+// mid-amber (--pf-color-heat-mid, defined in theme/theme.css).
 export function durationHeat(ms: number): string {
-  if (ms < 100) return '#52c41a';
-  if (ms < 1000) return '#faad14';
-  if (ms < 3000) return '#fa8c16';
-  return '#f5222d';
+  if (ms < 100) return 'var(--ant-color-success)';
+  if (ms < 1000) return 'var(--ant-color-warning)';
+  if (ms < 3000) return 'var(--pf-color-heat-mid)';
+  return 'var(--ant-color-error)';
 }

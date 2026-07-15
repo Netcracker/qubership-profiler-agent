@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TreeNodeWire, TreeWire } from '../msgpack/tree-wire';
 import { buildTreeModel } from './model';
 import { TreeView } from './tree-view';
+import styles from './tree-view.module.css';
 
 // Row layout of the redesigned tree row (old treeNode2html order):
 // [toggle] [direction/operations menu] [bar][number] … Class.method(args),
@@ -51,10 +52,11 @@ describe('TreeView row layout', () => {
     const label = screen.getByTitle(METHODS[1]!);
     // Selecting the row copies the qualified name…
     expect(label.textContent).toBe('com.acme.orders.CheckoutFlow.placeOrder(Cart)');
-    // …but the package span is invisible (font-size 0, never display:none).
+    // …but the package span is invisible (the pkgPrefix class sets font-size 0,
+    // never display:none, so it stays selectable).
     const pkg = label.querySelector('span');
     expect(pkg?.textContent).toBe('com.acme.orders.');
-    expect(pkg?.style.fontSize).toBe('0px');
+    expect(pkg?.className).toContain(styles.pkgPrefix);
   });
 
   it('puts an accessible operations menu left of the label', () => {

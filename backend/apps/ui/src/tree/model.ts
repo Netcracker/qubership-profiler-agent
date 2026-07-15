@@ -121,6 +121,21 @@ export function totalExecutions(node: TreeNode): number {
   return node.selfExecutions + node.childExecutions;
 }
 
+/**
+ * Finds a node by its stable pre-order id. buildTreeModel assigns ids in
+ * pre-order from the wire, and the model rebuilds from the same wire on every
+ * config change, so an id survives Adjust/Setup edits — letting a derived tab
+ * pin the exact selected node rather than only its method (PR 708 review #7).
+ */
+export function findNodeById(root: TreeNode, id: number): TreeNode | null {
+  if (root.id === id) return root;
+  for (const child of root.children) {
+    const found = findNodeById(child, id);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
 /** Follows the dominant-first-child chain `levels` deep (old collapse skip). */
 export function chainEnd(node: TreeNode, levels: number): TreeNode {
   let out = node;

@@ -37,14 +37,25 @@ function derived(model: TreeModel, root: TreeNode, extraMethods: string[] = []):
   };
 }
 
-/**
- * Outgoing calls (old mergeTopDown): every occurrence of the method merges
- * its subtree into one node; a nested occurrence folds into the root, so
- * self-recursion cannot inflate totals.
- */
-export function outgoingCalls(model: TreeModel, methodIdx: number): TreeModel {
-  const root = freshNode(methodIdx);
+// Recompute totals bottom-up from the merged selves (old computeTotals).
+function computeTotals(node: TreeNode): void {
+  node.durationMs = node.selfDurationMs;
+  node.suspensionMs = node.selfSuspensionMs;
+  node.childExecutions = 0;
+  for (const child of node.children) {
+    computeTotals(child);
+    node.durationMs += child.durationMs;
+    node.suspensionMs += child.suspensionMs;
+    node.childExecutions += child.selfExecutions + child.childExecutions;
+  }
+}
 
+// mergeFrom folds the given seed subtrees into one node keyed on methodIdx: a
+// nested occurrence of the same method folds into the root, so self-recursion
+// cannot inflate totals. outgoingCalls seeds it with every occurrence of the
+// method in the tree; localHotspots seeds it with a single selected node.
+function mergeFrom(model: TreeModel, methodIdx: number, seeds: TreeNode[]): TreeModel {
+  const root = freshNode(methodIdx);
   const copy = (src: TreeNode, dst: TreeNode): void => {
     dst.selfDurationMs += src.selfDurationMs;
     dst.selfSuspensionMs += src.selfSuspensionMs;
@@ -55,31 +66,38 @@ export function outgoingCalls(model: TreeModel, methodIdx: number): TreeModel {
       else copy(child, getOrCreateChild(dst, child.methodIdx));
     }
   };
+  for (const seed of seeds) copy(seed, root);
+  computeTotals(root);
+  sortNode(root, 'duration');
+  return derived(model, root);
+}
 
+/**
+ * Outgoing calls (old mergeTopDown): every occurrence of the method merges
+ * its subtree into one node; a nested occurrence folds into the root, so
+ * self-recursion cannot inflate totals.
+ */
+export function outgoingCalls(model: TreeModel, methodIdx: number): TreeModel {
+  const seeds: TreeNode[] = [];
   const find = (node: TreeNode): void => {
     if (node.methodIdx === methodIdx) {
-      copy(node, root);
-      return; // nested occurrences fold during the copy
+      seeds.push(node); // nested occurrences fold during the copy
+      return;
     }
     node.children.forEach(find);
   };
   find(model.root);
+  return mergeFrom(model, methodIdx, seeds);
+}
 
-  // Old computeTotals: totals recompute bottom-up from the merged selves.
-  const computeTotals = (node: TreeNode): void => {
-    node.durationMs = node.selfDurationMs;
-    node.suspensionMs = node.selfSuspensionMs;
-    node.childExecutions = 0;
-    for (const child of node.children) {
-      computeTotals(child);
-      node.durationMs += child.durationMs;
-      node.suspensionMs += child.suspensionMs;
-      node.childExecutions += child.selfExecutions + child.childExecutions;
-    }
-  };
-  computeTotals(root);
-  sortNode(root, 'duration');
-  return derived(model, root);
+/**
+ * Local Hotspots (PR 708 review #7): the merged profile of one selected
+ * node's own subtree, not every occurrence of its method. Seeding the merge
+ * with just that node keeps unrelated branches — the same method reached
+ * through a different call path — out of the result.
+ */
+export function localHotspots(model: TreeModel, node: TreeNode): TreeModel {
+  return mergeFrom(model, node.methodIdx, [node]);
 }
 
 interface BottomUpAccumulator {
