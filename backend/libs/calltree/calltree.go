@@ -10,6 +10,7 @@ package calltree
 import (
 	"encoding/binary"
 	"fmt"
+	"sort"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/pipe"
 	"github.com/pkg/errors"
@@ -24,28 +25,48 @@ type (
 		Root    *Node
 	}
 
-	// Node is one call in the tree (§2.5.3). Times are milliseconds relative
-	// to the root's enter, reconstructed as timerStartTime + Σ(event deltas)
-	// within each chunk (01-write-contract.md §4.2).
+	// Node is one merged tree node (§2.5.3): every metric comes in a
+	// self/total pair. Total duration spans enter to exit as reconstructed
+	// from the event deltas (01-write-contract.md §4.2); self is total minus
+	// the children's totals. Suspension intersects each invocation's
+	// [enter, exit] with the Options.Suspend timeline
+	// (08-ui-backend-requirements.md R7), split self/total the same way.
 	Node struct {
-		MethodIdx  int
-		EnterMsRel int64
-		DurationMs int64
-		Params     []Param
-		Children   []*Node
+		MethodIdx        int
+		DurationMs       int64
+		SelfDurationMs   int64
+		SuspensionMs     int64
+		SelfSuspensionMs int64
+		Executions       int64
+		SelfExecutions   int64
+		Params           []Param
+		Children         []*Node
 	}
 
-	// Param is one parameter of a node (§2.5.3). Values keeps the tag-event
-	// order. Unresolved lists the indexes of values whose big-parameter
-	// reference could not be resolved; such a value carries the textual
-	// reference instead of the payload, so nothing is lost silently.
+	// Param is one parameter of a node (§2.5.3): an aggregated mini-tree, not
+	// a flat value list — a node can hold thousands of SQL texts
+	// (08-ui-backend-requirements.md R11). Groups is ordered by durationMs
+	// descending, with the ::other bucket, when present, last.
 	Param struct {
-		ParamIdx   int
-		Values     []string
-		Unresolved []int
+		ParamIdx int
+		Groups   []ParamGroup
 	}
 
-	// Options resolve the blob's dictionary ids and big-parameter references.
+	// ParamGroup is one aggregated value group (§2.5.3). Value carries the
+	// first-seen full text, the literal "::other" for the overflow bucket, or
+	// the "<stream>:<seq>:<offset>" reference text when Unresolved — an
+	// unresolvable value is marked, never dropped silently. Params nests
+	// binds under their SQL.
+	ParamGroup struct {
+		Value      string
+		DurationMs int64
+		Executions int64
+		Params     []Param
+		Unresolved bool
+	}
+
+	// Options resolve the blob's dictionary ids and big-parameter references
+	// and carry the suspension timeline the tree attributes from.
 	Options struct {
 		// Dict resolves a dictionary id to its word. A missing word renders as
 		// the "#<id>" placeholder, matching the /calls list path.
@@ -54,6 +75,23 @@ type (
 		// sql / xml value streams (01-write-contract.md §4.4). false marks the
 		// value unresolved. Nil treats every reference as unresolved.
 		BigValue func(stream string, seq int, offset int64) (string, bool)
+		// Suspend is the pod-restart's global stop-the-world timeline
+		// (08-ui-backend-requirements.md R7): on the hot tier the replica's
+		// suspend.wal mirror, on the cold tier the suspend/v1 snapshot. Both
+		// are agent wall-clock Unix ms — the same clock as the trace timer
+		// epoch, so intervals intersect without translation. Build sorts and
+		// merges the pauses itself; empty means zero suspension everywhere.
+		Suspend []SuspendInterval
+		// MaxParamGroups caps the value groups per container — a node's
+		// top-level params jointly, or one group's nested params (02 §2.5.3).
+		// 0 means the contract default of 256 (the Java Hotspot.MAX_PARAMS).
+		MaxParamGroups int
+	}
+
+	// SuspendInterval is one stop-the-world pause of the suspension timeline.
+	SuspendInterval struct {
+		TimeMs     int64
+		DurationMs int64
 	}
 
 	// BigRef is one big-parameter reference found in a blob.
@@ -97,63 +135,178 @@ func (ev event) bigRef() BigRef {
 	return BigRef{Stream: stream, Seq: ev.bigSeq, Offset: ev.bigOffset}
 }
 
-// Build decodes the blob into the call tree. recordIndex is the PK component
-// locating the root ENTER within the blob's first chunk (01-write-contract.md
-// §4.5).
+// Build decodes the blob into the merged call tree (08-ui-backend-requirements.md
+// R5): sibling invocations of one method under a parent fold into one node,
+// so the node count is bounded by distinct call paths, not by invocations — a
+// million-iteration loop is one node, not a million. recordIndex is the PK
+// component locating the root ENTER within the blob's first chunk
+// (01-write-contract.md §4.5).
 func Build(blob []byte, recordIndex int, opts Options) (*Tree, error) {
+	maxGroups := opts.MaxParamGroups
+	if maxGroups <= 0 {
+		maxGroups = DefaultMaxParamGroups
+	}
 	b := &builder{
-		opts:      opts,
-		tree:      &Tree{Methods: []string{}, Params: []string{}},
-		methodIdx: map[string]int{},
-		paramIdx:  map[string]int{},
+		opts:       opts,
+		tree:       &Tree{Methods: []string{}, Params: []string{}},
+		methodIdx:  map[string]int{},
+		paramIdx:   map[string]int{},
+		childIdx:   map[*Node]map[int]*Node{},
+		containers: map[*Node]*container{},
+		maxGroups:  maxGroups,
+		pauses:     normalizeSuspend(opts.Suspend),
 	}
 	if err := walkCall(blob, recordIndex, b.visit); err != nil {
 		return nil, err
 	}
+	if b.tree.Root != nil {
+		totalExecutions(b.tree.Root)
+		b.materializeParams(b.tree.Root)
+	}
 	return b.tree, nil
 }
 
-// builder folds the call's events into the tree.
+// normalizeSuspend sorts the timeline and merges overlapping or touching
+// pauses, so overlapMs can binary-search and never double-counts. The input
+// is not mutated; agent pauses are already sorted and disjoint in practice,
+// making this a cheap copy.
+func normalizeSuspend(pauses []SuspendInterval) []SuspendInterval {
+	if len(pauses) == 0 {
+		return nil
+	}
+	sorted := append([]SuspendInterval(nil), pauses...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].TimeMs < sorted[j].TimeMs })
+	out := sorted[:1]
+	for _, p := range sorted[1:] {
+		last := &out[len(out)-1]
+		if p.TimeMs <= last.TimeMs+last.DurationMs {
+			if end := p.TimeMs + p.DurationMs; end > last.TimeMs+last.DurationMs {
+				last.DurationMs = end - last.TimeMs
+			}
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// overlapMs sums the intersection of [fromMs, toMs) with the normalized
+// timeline — the same arithmetic the seal pass applies to whole calls
+// (01 §5.1 step 4), here per invocation.
+func overlapMs(pauses []SuspendInterval, fromMs, toMs int64) int64 {
+	first := sort.Search(len(pauses), func(i int) bool {
+		return pauses[i].TimeMs+pauses[i].DurationMs > fromMs
+	})
+	total := int64(0)
+	for _, p := range pauses[first:] {
+		if p.TimeMs >= toMs {
+			break
+		}
+		lo, hi := fromMs, toMs
+		if p.TimeMs > lo {
+			lo = p.TimeMs
+		}
+		if end := p.TimeMs + p.DurationMs; end < hi {
+			hi = end
+		}
+		if hi > lo {
+			total += hi - lo
+		}
+	}
+	return total
+}
+
+// totalExecutions rolls invocation counts up the merged tree:
+// executions = selfExecutions + Σ children.executions (02 §2.5.3), the
+// old UI's M_EXECUTIONS + M_CHILD_EXECUTIONS displayed as "calls".
+func totalExecutions(n *Node) int64 {
+	n.Executions = n.SelfExecutions
+	for _, child := range n.Children {
+		n.Executions += totalExecutions(child)
+	}
+	return n.Executions
+}
+
+// builder folds the call's events into the merged tree. Each stack frame is
+// one live invocation: it keeps the absolute enter time — the wire carries no
+// durations, only the enter/exit pair (01 §4.2) — and the wall-clock this
+// invocation's children consumed, so the exit adds both the invocation's
+// total and its self time to the merged node in one pass. childIdx finds the
+// merged node for a method under a parent in O(1); it persists across sibling
+// invocations, which is what makes them fold into one node.
 type builder struct {
-	opts      Options
-	tree      *Tree
-	methodIdx map[string]int
-	paramIdx  map[string]int
-	stack     []*Node
-	rootEnter int64
+	opts       Options
+	tree       *Tree
+	methodIdx  map[string]int
+	paramIdx   map[string]int
+	childIdx   map[*Node]map[int]*Node
+	containers map[*Node]*container
+	maxGroups  int
+	pauses     []SuspendInterval
+	stack      []frame
+}
+
+type frame struct {
+	node           *Node
+	enterMs        int64
+	childrenMs     int64
+	childrenSuspMs int64
+	tags           []invocationTag
+}
+
+// invocationTag is one tag event of a live invocation, held until the exit
+// knows the invocation's duration to attribute (02 §2.5.3).
+type invocationTag struct {
+	paramIdx   int
+	value      string
+	unresolved bool
+	isSQL      bool
+	isBinds    bool
 }
 
 func (b *builder) visit(ev event, atMs int64) {
 	switch ev.kind {
 	case pipe.EventEnterRecord:
-		node := &Node{MethodIdx: b.internMethod(ev.tagId)}
+		methodIdx := b.internMethod(ev.tagId)
+		var node *Node
 		if b.tree.Root == nil {
+			node = &Node{MethodIdx: methodIdx}
 			b.tree.Root = node
-			b.rootEnter = atMs
 		} else {
-			parent := b.stack[len(b.stack)-1]
-			parent.Children = append(parent.Children, node)
-		}
-		node.EnterMsRel = atMs - b.rootEnter
-		b.stack = append(b.stack, node)
-	case pipe.EventExitRecord:
-		node := b.stack[len(b.stack)-1]
-		node.DurationMs = atMs - b.rootEnter - node.EnterMsRel
-		b.stack = b.stack[:len(b.stack)-1]
-	case pipe.EventTagRecord:
-		node := b.stack[len(b.stack)-1]
-		idx := b.internParam(ev.tagId)
-		var param *Param
-		for i := range node.Params {
-			if node.Params[i].ParamIdx == idx {
-				param = &node.Params[i]
-				break
+			parent := b.stack[len(b.stack)-1].node
+			byMethod := b.childIdx[parent]
+			if byMethod == nil {
+				byMethod = map[int]*Node{}
+				b.childIdx[parent] = byMethod
+			}
+			node = byMethod[methodIdx]
+			if node == nil {
+				node = &Node{MethodIdx: methodIdx}
+				byMethod[methodIdx] = node
+				parent.Children = append(parent.Children, node)
 			}
 		}
-		if param == nil {
-			node.Params = append(node.Params, Param{ParamIdx: idx})
-			param = &node.Params[len(node.Params)-1]
+		node.SelfExecutions++
+		b.stack = append(b.stack, frame{node: node, enterMs: atMs})
+	case pipe.EventExitRecord:
+		top := b.stack[len(b.stack)-1]
+		duration := atMs - top.enterMs
+		suspension := overlapMs(b.pauses, top.enterMs, atMs)
+		top.node.DurationMs += duration
+		top.node.SelfDurationMs += duration - top.childrenMs
+		top.node.SuspensionMs += suspension
+		top.node.SelfSuspensionMs += suspension - top.childrenSuspMs
+		b.foldTags(top.node, top.tags, duration)
+		b.stack = b.stack[:len(b.stack)-1]
+		if len(b.stack) > 0 {
+			parent := &b.stack[len(b.stack)-1]
+			parent.childrenMs += duration
+			parent.childrenSuspMs += suspension
 		}
+	case pipe.EventTagRecord:
+		top := &b.stack[len(b.stack)-1]
+		idx := b.internParam(ev.tagId)
+		tag := invocationTag{paramIdx: idx}
 		if isBigParam(ev.paramType) {
 			ref := ev.bigRef()
 			value, ok := "", false
@@ -161,15 +314,21 @@ func (b *builder) visit(ev event, atMs int64) {
 				value, ok = b.opts.BigValue(ref.Stream, ref.Seq, ref.Offset)
 			}
 			if !ok {
-				// Explicit, not silent: the value slot carries the reference
-				// text and Unresolved flags it (02 §2.5.3).
-				param.Unresolved = append(param.Unresolved, len(param.Values))
+				// Explicit, not silent: the group carries the reference text
+				// and its Unresolved flag (02 §2.5.3).
+				tag.unresolved = true
 				value = ref.String()
 			}
-			param.Values = append(param.Values, value)
+			tag.value = value
+			// The deduplicated big-value stream carries SQL by construction
+			// (01 §4.4): these groups key by the normalised signature, and
+			// binds of the same invocation nest under them.
+			tag.isSQL = int(ev.paramType) == pipe.ParamBigDedup
 		} else {
-			param.Values = append(param.Values, ev.value)
+			tag.value = ev.value
 		}
+		tag.isBinds = b.tree.Params[idx] == "binds"
+		top.tags = append(top.tags, tag)
 	}
 }
 

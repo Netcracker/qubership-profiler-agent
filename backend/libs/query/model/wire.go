@@ -25,7 +25,16 @@ type (
 		CpuTimeMs       int64               `json:"cpu_time_ms"`
 		WaitTimeMs      int64               `json:"wait_time_ms"`
 		MemoryUsed      int64               `json:"memory_used"`
+		QueueWaitMs     int32               `json:"queue_wait_ms"`
+		SuspendMs       int32               `json:"suspend_ms"`
 		ChildCalls      int32               `json:"child_calls"`
+		Transactions    int32               `json:"transactions"`
+		LogsGenerated   int64               `json:"logs_generated"`
+		LogsWritten     int64               `json:"logs_written"`
+		FileRead        int64               `json:"file_read"`
+		FileWritten     int64               `json:"file_written"`
+		NetRead         int64               `json:"net_read"`
+		NetWritten      int64               `json:"net_written"`
 		ErrorFlag       bool                `json:"error_flag"`
 		RetentionClass  string              `json:"retention_class"`
 		Params          map[string][]string `json:"params"`
@@ -54,7 +63,16 @@ func (r CallRow) JSON() CallJSON {
 		CpuTimeMs:      r.CpuTimeMs,
 		WaitTimeMs:     r.WaitTimeMs,
 		MemoryUsed:     r.MemoryUsed,
+		QueueWaitMs:    r.QueueWaitMs,
+		SuspendMs:      r.SuspendMs,
 		ChildCalls:     r.ChildCalls,
+		Transactions:   r.Transactions,
+		LogsGenerated:  r.LogsGenerated,
+		LogsWritten:    r.LogsWritten,
+		FileRead:       r.FileRead,
+		FileWritten:    r.FileWritten,
+		NetRead:        r.NetRead,
+		NetWritten:     r.NetWritten,
 		ErrorFlag:      r.ErrorFlag,
 		RetentionClass: r.RetentionClass,
 		Params:         r.Params,
@@ -82,7 +100,16 @@ func (c CallJSON) Row(tier Tier) CallRow {
 		CpuTimeMs:      c.CpuTimeMs,
 		WaitTimeMs:     c.WaitTimeMs,
 		MemoryUsed:     c.MemoryUsed,
+		QueueWaitMs:    c.QueueWaitMs,
+		SuspendMs:      c.SuspendMs,
 		ChildCalls:     c.ChildCalls,
+		Transactions:   c.Transactions,
+		LogsGenerated:  c.LogsGenerated,
+		LogsWritten:    c.LogsWritten,
+		FileRead:       c.FileRead,
+		FileWritten:    c.FileWritten,
+		NetRead:        c.NetRead,
+		NetWritten:     c.NetWritten,
 		ErrorFlag:      c.ErrorFlag,
 		RetentionClass: c.RetentionClass,
 		Params:         c.Params,

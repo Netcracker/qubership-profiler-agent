@@ -12,7 +12,7 @@ import (
 )
 
 func TestSuspendOverlapMs(t *testing.T) {
-	pauses := []suspendRecord{
+	pauses := []SuspendPause{
 		{TimeMs: 150, DurationMs: 30}, // [150, 180)
 		{TimeMs: 300, DurationMs: 20}, // [300, 320)
 	}

@@ -58,8 +58,8 @@ type (
 		Signature string `json:"signature,omitempty"`
 	}
 
-	// suspendRecord is one suspend.wal body: an absolute stop-the-world pause.
-	suspendRecord struct {
+	// SuspendPause is one suspend.wal body: an absolute stop-the-world pause.
+	SuspendPause struct {
 		TimeMs     int64 `json:"time_ms"`
 		DurationMs int   `json:"duration_ms"`
 	}
@@ -90,6 +90,11 @@ type (
 		timerStartMs int64
 		chunks       map[uint64][]ChunkRef
 		segments     map[*Segment]struct{}
+		// pauses mirrors suspend.wal in RAM so indexCall can attribute
+		// suspend_ms without a per-call WAL read. The index value is
+		// provisional — a pause that arrives after the call's insert is
+		// missed; the seal pass re-derives from suspend.wal (01 §5.1 step 4).
+		pauses []SuspendPause
 
 		dictWal    *Wal
 		paramsWal  *Wal
@@ -468,14 +473,30 @@ func (pr *PodRestart) AppendParam(p ParamRecord) error {
 	return err
 }
 
-// AppendSuspend persists one stop-the-world pause to suspend.wal.
+// AppendSuspend persists one stop-the-world pause to suspend.wal and mirrors
+// it in RAM for the index-time suspend_ms attribution.
 func (pr *PodRestart) AppendSuspend(timeMs int64, durationMs int) error {
-	body, err := json.Marshal(suspendRecord{TimeMs: timeMs, DurationMs: durationMs})
+	rec := SuspendPause{TimeMs: timeMs, DurationMs: durationMs}
+	body, err := json.Marshal(rec)
 	if err != nil {
 		return errors.Wrap(err, "encode suspend.wal record")
 	}
-	_, err = pr.suspendWal.Append(body)
-	return err
+	if _, err := pr.suspendWal.Append(body); err != nil {
+		return err
+	}
+	pr.mu.Lock()
+	pr.pauses = append(pr.pauses, rec)
+	pr.mu.Unlock()
+	return nil
+}
+
+// SuspendPauses snapshots the pod-restart's global suspension timeline as
+// seen so far: the R7 tree path intersects node work intervals with it, and
+// the call index attributes the provisional per-call suspend_ms from it.
+func (pr *PodRestart) SuspendPauses() []SuspendPause {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	return append([]SuspendPause(nil), pr.pauses...)
 }
 
 // AppendCall persists one decoded Call record (01 §4.3 step 1-2): the full
@@ -493,9 +514,15 @@ func (pr *PodRestart) AppendCall(tsMs int64, call data.Call) error {
 }
 
 // indexCall inserts the SQLite call-index row for a Call already in calls.wal.
+// suspend_ms is the provisional index-time intersection with the pauses seen
+// so far (the seal re-derives it, 01 §5.1 step 4); the wire carries no
+// per-call suspend field.
 func (pr *PodRestart) indexCall(tsMs int64, call data.Call, walOffset int64) error {
 	cfg := pr.store.cfg
 	errorFlag := pr.hasErrorMarker(call)
+	pr.mu.Lock()
+	suspendMs := suspendOverlapMs(pr.pauses, tsMs, int(call.Duration))
+	pr.mu.Unlock()
 	row := CallIndexRow{
 		PodRestart:     pr.Key.String(),
 		TraceFileIndex: call.TraceFileIndex,
@@ -510,7 +537,16 @@ func (pr *PodRestart) indexCall(tsMs int64, call data.Call, walOffset int64) err
 		CpuTimeMs:      int64(call.CpuTime),
 		WaitTimeMs:     int64(call.WaitTime),
 		MemoryUsed:     int64(call.MemoryUsed),
+		QueueWaitMs:    int(call.QueueWaitDuration),
+		SuspendMs:      suspendMs,
 		ChildCalls:     int(call.Calls),
+		Transactions:   int(call.Transactions),
+		LogsGenerated:  int64(call.LogsGenerated),
+		LogsWritten:    int64(call.LogsWritten),
+		FileRead:       int64(call.FileRead),
+		FileWritten:    int64(call.FileWritten),
+		NetRead:        int64(call.NetRead),
+		NetWritten:     int64(call.NetWritten),
 		ParamsJson:     pr.paramsJson(call.Params),
 		CallsWalOffset: walOffset,
 	}

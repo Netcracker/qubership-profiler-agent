@@ -438,7 +438,8 @@ func assertHotTree(t *testing.T, tree *calltree.Tree) {
 	assert.EqualValues(t, 10, child.DurationMs)
 	require.Len(t, tree.Root.Params, 1)
 	assert.Equal(t, "request.id", tree.Params[tree.Root.Params[0].ParamIdx])
-	assert.Equal(t, []string{"req-hot-1"}, tree.Root.Params[0].Values)
+	require.Len(t, tree.Root.Params[0].Groups, 1)
+	assert.Equal(t, "req-hot-1", tree.Root.Params[0].Groups[0].Value)
 }
 
 // assertMetricsContain scrapes a /metrics endpoint and requires the named

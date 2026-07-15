@@ -94,11 +94,19 @@ func TestTreeAndTraceAPI(t *testing.T) {
 	prC, ok := storeB.PodRestart(keyC)
 	require.True(t, ok)
 	sendStream(t, acC, model.StreamDictionary, 0, wire.DictionaryStream(treeDictWords))
+	// The R7 timeline against C2's windows (root [5, 24), q [8, 13),
+	// p [14, 17)): [6, 8) is root self time, [9, 11) falls inside q,
+	// [15, 16) inside p. The snapshot rides to S3 with the dictionary.
+	sendStream(t, acC, model.StreamSuspend, 0, wire.SuspendStream(timerStartMs, []wire.SuspendEvent{
+		{DeltaMs: 6, AmountMs: 2}, {DeltaMs: 3, AmountMs: 2}, {DeltaMs: 6, AmountMs: 1},
+	}))
 	sendStream(t, acC, model.StreamSql, 0, sqlColdData)
 	sendStream(t, acC, model.StreamXml, 0, xmlColdData)
 	sendStream(t, acC, model.StreamTrace, 0, fileC)
 	sendStream(t, acC, model.StreamCalls, 0, wire.CallsStreamRecords(baseMs, callsC))
 	waitForIndexedCalls(t, storeB, bucketOld, keyC, 2)
+	require.Eventually(t, func() bool { return len(prC.SuspendPauses()) == 3 },
+		5*time.Second, 10*time.Millisecond, "the pauses must reach suspend.wal before the close")
 	require.NoError(t, acC.CommandClose())
 	_ = acC.Close()
 	require.Eventually(t, prC.Finalized, 5*time.Second, 10*time.Millisecond)
@@ -133,11 +141,20 @@ func TestTreeAndTraceAPI(t *testing.T) {
 
 	acH := connectAgentAs(t, ctx, treePodHot)
 	keyH := waitForPodNamed(t, storeA, treePodHot, 1)
+	prH, ok := storeA.PodRestart(keyH)
+	require.True(t, ok)
 	sendStream(t, acH, model.StreamDictionary, 0, wire.DictionaryStream(treeDictWords))
+	// The R7 timeline against the hot windows (root [5, 20), q [8, 13)):
+	// [6, 8) is root self time, [9, 10) falls inside q.
+	sendStream(t, acH, model.StreamSuspend, 0, wire.SuspendStream(timerStartMs, []wire.SuspendEvent{
+		{DeltaMs: 6, AmountMs: 2}, {DeltaMs: 3, AmountMs: 1},
+	}))
 	sendStream(t, acH, model.StreamSql, 0, sqlHotData)
 	sendStream(t, acH, model.StreamTrace, 0, fileH)
 	sendStream(t, acH, model.StreamCalls, 0, wire.CallsStreamRecords(baseMs, callsH))
 	waitForIndexedCalls(t, storeA, bucketOld, keyH, 1)
+	require.Eventually(t, func() bool { return len(prH.SuspendPauses()) == 2 },
+		5*time.Second, 10*time.Millisecond, "the pauses must land before /tree is queried")
 
 	hotSrv := httptest.NewServer(hotread.New(storeA).Handler())
 	t.Cleanup(hotSrv.Close)
@@ -167,24 +184,30 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		assert.Equal(t, []string{"request.id", "xml", "sql"}, tree.Params)
 
 		root := tree.Root
-		assert.Equal(t, int64(0), root.EnterMsRel)
 		assert.Equal(t, int64(15), root.DurationMs)
+		assert.Equal(t, int64(10), root.SelfDurationMs, "15 total minus the child's 5")
+		assert.Equal(t, int64(2), root.Executions, "itself plus the one child invocation")
+		assert.Equal(t, int64(1), root.SelfExecutions)
+		assert.Equal(t, int64(3), root.SuspensionMs, "[6, 8) and [9, 10) fall inside [5, 20)")
+		assert.Equal(t, int64(2), root.SelfSuspensionMs, "[9, 10) belongs to the child")
 		require.Len(t, root.Params, 2)
-		assert.Equal(t, []string{"req-hot"}, root.Params[0].Values)
-		assert.Equal(t, []string{"xml:7:0"}, root.Params[1].Values,
+		assert.Equal(t, []calltree.ParamGroup{{Value: "req-hot", DurationMs: 15, Executions: 1}},
+			root.Params[0].Groups)
+		require.Len(t, root.Params[1].Groups, 1)
+		assert.Equal(t, "xml:7:0", root.Params[1].Groups[0].Value,
 			"an unresolvable reference is marked with its ref text, not dropped")
-		assert.Equal(t, []int{0}, root.Params[1].Unresolved)
+		assert.True(t, root.Params[1].Groups[0].Unresolved)
 
 		require.Len(t, root.Children, 1)
 		child := root.Children[0]
 		assert.Equal(t, "com.example.Db.query", tree.Methods[child.MethodIdx])
-		assert.Equal(t, int64(3), child.EnterMsRel)
 		assert.Equal(t, int64(5), child.DurationMs)
+		assert.Equal(t, int64(5), child.SelfDurationMs, "a leaf's self equals its total")
+		assert.Equal(t, int64(1), child.SuspensionMs, "the replica's live timeline attributes [9, 10)")
 		require.Len(t, child.Params, 1)
 		assert.Equal(t, "sql", tree.Params[child.Params[0].ParamIdx])
-		assert.Equal(t, []string{hotSqlValue}, child.Params[0].Values,
-			"hot big params resolve from the replica's value segments")
-		assert.Empty(t, child.Params[0].Unresolved)
+		assert.Equal(t, []calltree.ParamGroup{{Value: hotSqlValue, DurationMs: 5, Executions: 1}},
+			child.Params[0].Groups, "hot big params resolve from the replica's value segments")
 	})
 
 	t.Run("cold /tree: snapshot dictionary, sealed big params, record_index noise", func(t *testing.T) {
@@ -197,26 +220,29 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		assert.Equal(t, []string{"request.id", "sql", "xml"}, tree.Params)
 
 		root := tree.Root
-		assert.Equal(t, int64(0), root.EnterMsRel)
 		assert.Equal(t, int64(19), root.DurationMs, "tail noise before record_index only advances the clock (01 §4.5)")
+		assert.Equal(t, int64(11), root.SelfDurationMs, "19 total minus 5+3 in children")
+		assert.Equal(t, int64(5), root.SuspensionMs, "all three pauses fall inside [5, 24)")
+		assert.Equal(t, int64(2), root.SelfSuspensionMs, "[9, 11) and [15, 16) belong to the children")
 		require.Len(t, root.Params, 1)
-		assert.Equal(t, []string{"req-cold"}, root.Params[0].Values)
+		assert.Equal(t, []calltree.ParamGroup{{Value: "req-cold", DurationMs: 19, Executions: 1}},
+			root.Params[0].Groups)
 
 		require.Len(t, root.Children, 2)
 		q, p := root.Children[0], root.Children[1]
 		assert.Equal(t, "com.example.Db.query", tree.Methods[q.MethodIdx])
-		assert.Equal(t, int64(3), q.EnterMsRel)
 		assert.Equal(t, int64(5), q.DurationMs)
+		assert.Equal(t, int64(2), q.SuspensionMs, "the suspend/v1 snapshot attributes [9, 11)")
 		require.Len(t, q.Params, 1)
-		assert.Equal(t, []string{coldSqlValue}, q.Params[0].Values,
-			"cold big params inline from the sealed big_params_json column")
-		assert.Empty(t, q.Params[0].Unresolved)
+		assert.Equal(t, []calltree.ParamGroup{{Value: coldSqlValue, DurationMs: 5, Executions: 1}},
+			q.Params[0].Groups, "cold big params inline from the sealed big_params_json column")
 
 		assert.Equal(t, "com.example.Service.process", tree.Methods[p.MethodIdx])
-		assert.Equal(t, int64(9), p.EnterMsRel)
 		assert.Equal(t, int64(3), p.DurationMs)
+		assert.Equal(t, int64(1), p.SuspensionMs, "[15, 16) falls inside [14, 17)")
 		require.Len(t, p.Params, 1)
-		assert.Equal(t, []string{coldXmlValue}, p.Params[0].Values)
+		assert.Equal(t, []calltree.ParamGroup{{Value: coldXmlValue, DurationMs: 3, Executions: 1}},
+			p.Params[0].Groups)
 
 		// The dictionary snapshot was fetched at the deterministic key derived
 		// from restart_time_ms (pinned cross-midnight in the model unit test).
@@ -229,6 +255,7 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		assert.Equal(t, []string{"com.example.Db.query"}, tree.Methods)
 		assert.Equal(t, int64(1), tree.Root.DurationMs)
 		assert.Empty(t, tree.Root.Children, "C1 stops at its own depth-0 exit; C2 behind it is head noise")
+		assert.Equal(t, int64(0), tree.Root.SuspensionMs, "no pause overlaps C1's [0, 1)")
 	})
 
 	t.Run("tree envelope: Accept-Version and gzip", func(t *testing.T) {

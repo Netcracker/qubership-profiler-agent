@@ -368,9 +368,6 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	// The snapshot keys derive their day from restart_time_ms: unlike the close
 	// time, it survives a crash unchanged, keeping the key deterministic for
 	// the recovery re-upload (§6.6) and for readers resolving a pod-restart.
-	dayPath := utcDayPath(key.RestartTimeMs)
-	hash := PodRestartHash(key)
-
 	words := pr.DictionaryWords()
 	dictBody, err := json.Marshal(dictionarySnapshot{Version: len(words), Methods: words, Params: words})
 	if err != nil {
@@ -401,7 +398,8 @@ func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats
 	if err != nil {
 		return errors.Wrap(err, "encode suspend snapshot")
 	}
-	suspendKey := path.Join("suspend/v1", dayPath, hash+".json")
+	// The shared helper keeps the writer and the cold /tree reader on one key.
+	suspendKey := model.SuspendSnapshotKey(key.Tuple())
 	if err := u.putWithRetry(ctx, suspendKey, func() error { return u.s3.PutBytes(ctx, suspendKey, suspendBody) }, stats); err != nil {
 		if IsPermanentUploadError(err) {
 			return u.quarantineSnapshot(ctx, key, suspendKey, suspendBody, err, stats)

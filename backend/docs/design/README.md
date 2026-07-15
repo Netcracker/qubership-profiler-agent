@@ -14,6 +14,9 @@ The rationale and the high-level roadmap live in [profiler-plan.md](./profiler-p
 | 04 | [storage-layout.md](./04-storage-layout.md) | k8s manifests, StatefulSet + volumeClaimTemplates, Headless Service, Helm values, env vars |
 | 05 | [diagrams.md](./05-diagrams.md) | Mermaid diagrams: data flow, deployment, lifecycle state |
 | 06 | [wire-protocol-server.md](./06-wire-protocol-server.md) | Server side of the agent TCP protocol: command table, handshake reply (`PROTOCOL_VERSION_V2`), ack policy, `INIT_STREAM_V2` response, error/teardown |
+| 07 | [ui-design.md](./07-ui-design.md) | Stage 5 UI: UI↔query contract, information architecture, call-tree engine (five client computations), `go:embed` deployment, staged plan |
+| 08 | [ui-backend-requirements.md](./08-ui-backend-requirements.md) | UI-driven backend deltas: exposing dropped call columns, merged tree with self/suspension/execution counts, `order=duration_desc`, optional storage indexes; classified by effort |
+| 09 | [ui-screens.md](./09-ui-screens.md) | Stage 5 UI screens: app shell, Discovery + Calls, Call Tree, Pods Info, shared states, URL scheme |
 
 ## Decisions (summary)
 

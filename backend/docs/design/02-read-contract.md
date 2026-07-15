@@ -96,7 +96,16 @@ Response:
       "cpu_time_ms": 873,
       "wait_time_ms": 12,
       "memory_used": 1048576,
+      "queue_wait_ms": 15,
+      "suspend_ms": 20,
       "child_calls": 42,
+      "transactions": 2,
+      "logs_generated": 2048,
+      "logs_written": 512,
+      "file_read": 100,
+      "file_written": 200,
+      "net_read": 300,
+      "net_written": 400,
       "error_flag": false,
       "retention_class": "long_clean",
       "params": { "request.id": ["abc123"] },
@@ -109,6 +118,13 @@ Response:
   "partial_reasons": []
 }
 ```
+
+Every metric column of `CallV2` (`01-write-contract.md` §5.2) is projected into the row: `queue_wait_ms`,
+`suspend_ms`, `transactions`, `logs_generated`, `logs_written`, `file_read`, `file_written`, `net_read`, and
+`net_written` ride alongside the original six (`08-ui-backend-requirements.md` R1). On the hot tier
+`suspend_ms` is a provisional value — the call interval intersected with the pauses known at index time; the
+seal pass re-derives it from the full `suspend.wal` (`01-write-contract.md` §5.1 step 4), which is one more
+reason the §6.3 dedup prefers the cold copy.
 
 `trace_blob_size` reports the blob's byte length, and is `0` when `truncated_reason != null` (the blob was dropped under pressure; see §4.6 of `01-write-contract.md`). On the cold list path the exact length is not available — `CallV2` (`01-write-contract.md` §5.2) carries no size column and the list projection does not read the blob — so the field is `null` there, and blob presence is `truncated_reason == null`; a client that needs the exact size fetches the blob via `/tree` or `/trace`. Adding a `trace_blob_size INT32` column to `CallV2` is the option if the list must carry the exact size — an additive change, backward-readable by column name (`01-write-contract.md` §5.2): rows sealed before the column read back as `null`, which degrades to today's behaviour. Tracked in `stage1-progress.md`.
 
@@ -180,6 +196,13 @@ Two consumption paths:
 - **`/calls/{pk}/tree` — canonical path** for UI, MCP, CLI. Server pre-aggregates the per-call blob into a tree, encodes as MessagePack with stable int-keyed maps and a version envelope. Self-contained (the response carries its own per-tree dictionary inline). Hand-written decoders in any language are ~50–80 LOC.
 - **`/calls/{pk}/trace` + `/pods/{pod-restart}/dictionary` — advanced path** for consumers that want the raw wire format (third-party tooling re-using our Go decoder, full-fidelity offline analysis). Smaller payload, but more client code to maintain.
 
+Per-node suspension (§2.5.3 fields 3–4) is attributed at tree build: each invocation's `[enter, exit]`
+interval is intersected with the pod-restart's global stop-the-world timeline
+(`08-ui-backend-requirements.md` R7). On the hot tier the timeline comes from the replica's `suspend.wal`
+mirror via the internal suspend endpoint (§3); on the cold tier from the `suspend/v1` snapshot uploaded at
+pod-restart close (`01-write-contract.md` §3.6). A missing snapshot (unclean close, TTL) degrades to zero
+suspension rather than failing the tree.
+
 Big parameter values (`sql` / `xml`) are the one asymmetry between the two paths. The blob does not inline them — it holds `(rolling_seq, offset)` references into the value streams (§3, `01-write-contract.md` §4.4). `/tree` resolves each reference and inlines the value string in the returned tree, so its consumers need nothing else. On the hot tier the references resolve against the replica's value segments (via the internal values endpoint, §3); on the cold tier they resolve against the values the seal pass inlined into the row's `big_params_json` column (`01-write-contract.md` §4.4, §5.2) — the value segments themselves never reach S3. A reference that cannot be resolved (its segment was evicted before the seal, or the file predates the column) is marked explicitly in the tree (`unresolved`, §2.5.3) with the reference text in the value slot; a value is never dropped silently. The raw `/trace` blob keeps the references; the MVP does not expose the value streams over a separate external endpoint, so an advanced consumer resolves big params only against a full dump. Add an external `/calls/{pk}/values` endpoint if a raw-path consumer needs them.
 
 The decision in MVP: ship `/tree` as the canonical contract. `/trace` + `/dictionary` remain as the secondary, lower-traffic interface — useful, but not the default.
@@ -232,26 +255,75 @@ The `methods` and `params` arrays carry only strings that this specific tree ref
 | 2 | `params` | `[str]` | Per-tree param-key dictionary. |
 | 3 | `root` | `Node` | Root node of the call tree. |
 
-`Node`:
+`Node` — **merged**: one node aggregates all sibling invocations of the same method under a parent.
 
 | # | Field | Type | Required | Notes |
 |---|---|---|---|---|
 | 0 | `methodIdx` | int | yes | Index into top-level `methods`. |
-| 1 | `enterMsRel` | int | yes | Millis from root's enter. Root's value is `0`. |
-| 2 | `durationMs` | int | yes | Millis. |
-| 3 | `params` | `[Param]` | no | Omitted if the node has no params. |
-| 4 | `children` | `[Node]` | no | Omitted for leaf nodes. |
-| 5+ | reserved | — | — | Future additions (e.g. `cpuMs`, `memBytes`) use the next free numbers. |
+| 1 | `durationMs` | int | yes | Total wall-clock, self + children. |
+| 2 | `selfDurationMs` | int | yes | Time in this method only (`durationMs − Σ children.durationMs`). |
+| 3 | `suspensionMs` | int | yes | Total suspension (self + children), attributed from the suspend timeline (§3, `08-ui-backend-requirements.md` R7). |
+| 4 | `selfSuspensionMs` | int | yes | Suspension in this method only. |
+| 5 | `executions` | int | yes | Total invocations aggregated into and below this node. |
+| 6 | `selfExecutions` | int | yes | Invocations of this method directly under its parent. |
+| 7 | `params` | `[Param]` | no | Omitted if the node has no params. |
+| 8 | `children` | `[Node]` | no | Omitted for leaf nodes. |
+| 9+ | reserved | — | — | Future additions (e.g. `cpuMs`, `memBytes`) use the next free numbers. |
 
-`Param`:
+> **v1 redefined (Stage 5, 2026-07-05).** The original v1 modelled a *raw* per-invocation tree
+> (`enterMsRel` + a plain `durationMs`, no aggregation). No consumer shipped against it, so v1 is redefined
+> here as the merged tree the UI needs (`08-ui-backend-requirements.md` R5–R7) rather than bumped to `v: 2`.
+> `enterMsRel` and first/last-invocation offsets are dropped; raw per-invocation fidelity stays available via
+> `/calls/{pk}/trace`.
+
+`Param` — an aggregated mini-tree (`08-ui-backend-requirements.md` R11), not a flat value list: a node can
+hold thousands of SQL texts and binds, so values fold into groups server-side.
 
 | # | Field | Type | Required | Notes |
 |---|---|---|---|---|
 | 0 | `paramIdx` | int | yes | Index into top-level `params`. |
-| 1 | `values` | `[str]` | yes | Multi-value list (`01-write-contract.md` §5.2 carries `params` as `MAP<UTF8, LIST<UTF8>>`). |
-| 2 | `unresolved` | `[int]` | no | Indexes into `values` whose big-parameter reference did not resolve (§2.5); such a value slot carries the reference text `<stream>:<seq>:<offset>` instead of the payload. Omitted when every value resolved. |
+| 1 | reserved | — | — | The pre-R11 flat `values` list (see the registry below). |
+| 2 | reserved | — | — | The pre-R11 `unresolved` index list (see the registry below). |
+| 3 | `groups` | `[ParamGroup]` | yes | Value groups, ordered `durationMs` descending; the `::other` bucket, when present, is last. |
 
-**Reserved-number registry.** When a field is removed in a future version, its number is added below and never re-used. (Empty in v1.)
+`ParamGroup`:
+
+| # | Field | Type | Required | Notes |
+|---|---|---|---|---|
+| 0 | `value` | str | yes | The group's representative value: the first-seen full text; the literal `::other` for the overflow bucket; the reference text `<stream>:<seq>:<offset>` when unresolved. |
+| 1 | `durationMs` | int | yes | Σ total duration of the invocations that carried a value of this group. Values co-occurring on one invocation each carry its full duration — sum groups of one param and the total can exceed the node's `durationMs`. |
+| 2 | `executions` | int | yes | Number of invocations folded into this group. |
+| 3 | `params` | `[Param]` | no | Nested params — binds under their SQL. Omitted when empty. |
+| 4 | `unresolved` | bool | no | The value is an unresolved big-parameter reference (§2.5). Omitted when false. |
+
+**Aggregation semantics** (ported from the Java `parsers/` `Hotspot` / `TreeBuilderTrace`, deviations noted):
+
+- **Group key.** Values group per param by the normalised signature when the param is SQL-shaped —
+  it arrived as `PARAM_BIG_DEDUP` (the deduplicated big-value stream carries SQL by construction,
+  `01-write-contract.md` §4.4) or its key word is `binds` — and by the exact value otherwise. The
+  normalisation is the old UI's `signatures.sql` (`profiler-ui/src/profiler.mjs:3469`): drop commas, strip
+  single-quoted literals (`''` escapes included) and digits, abbreviate every word to its first character,
+  strip whitespace. *Deviation:* the Java aggregation keyed a group by an invocation's whole value-set; the
+  per-value key is what makes the signature axis work, and one invocation's duration is attributed to a
+  given group at most once either way.
+- **Attribution.** Each invocation adds its own total duration to every distinct group its values fall
+  into, and 1 to that group's `executions` — the Java `tag.totalTime += invocation total; count += 1`.
+- **Top-N and `::other`.** A container holds at most 256 groups (the Java `Hotspot.MAX_PARAMS` default; a
+  container is a node's top-level params jointly, or one group's nested params). Overflow evicts the
+  current smallest-`durationMs` group into its param's `::other` bucket, which sums the evicted durations
+  and executions, never evicts, and does not count against the cap. An evicted group's nested params are
+  folded away — `::other` keeps totals only. *Deviation:* eviction picks the true current minimum (the
+  Java priority queue could act on a stale ordering).
+- **Binds nesting.** Within one invocation, `binds` values nest under that invocation's most recent
+  `PARAM_BIG_DEDUP` group (the SQL they bind); a `binds` value with no preceding SQL in its invocation
+  stays a top-level param.
+
+**Reserved-number registry.** When a field is removed in a future version, its number is added below and never re-used.
+
+| Record | # | Was | Removed |
+|---|---|---|---|
+| `Param` | 1 | `values [str]` — the pre-R11 flat value list | 2026-07-05, replaced by `groups` (R11) |
+| `Param` | 2 | `unresolved [int]` — indexes into `values` | 2026-07-05, replaced by the per-group `unresolved` flag |
 
 #### 2.5.4 Versioning rules
 
@@ -300,6 +372,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 |---|---|---|
 | GET | `/internal/v1/pods` | Pods/restarts this replica holds data for. Used by `query` for targeted fan-out. |
 | GET | `/internal/v1/pods/{pod-restart}/dictionary` | Same shape as `/api/v1/pods/{pod-restart}/dictionary` (§2.6). For live pod-restarts hosted by this replica. |
+| GET | `/internal/v1/pods/{pod-restart}/suspend` | The pod-restart's stop-the-world timeline from the replica's `suspend.wal` mirror: `{ "events": [{ "start_ms": ..., "duration_ms": ... }] }` — the same shape as the `suspend/v1` cold snapshot (`01-write-contract.md` §3.6). `query` intersects it with node work intervals for the per-node suspension of `/tree` (§2.5.3, `08-ui-backend-requirements.md` R7). |
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
 | GET | `/internal/v1/calls` | Same params as `/api/v1/calls`; returns only rows this replica holds. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |

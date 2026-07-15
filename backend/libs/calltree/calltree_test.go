@@ -18,6 +18,7 @@ var testDict = map[int]string{
 	4: "request.id",
 	5: "sql",
 	6: "xml",
+	7: "binds",
 }
 
 func dictOpt() Options {
@@ -52,16 +53,17 @@ func TestBuildNestingAndTimes(t *testing.T) {
 	root := tree.Root
 	require.NotNil(t, root)
 	assert.Equal(t, "com.example.Service.handle", tree.Methods[root.MethodIdx])
-	assert.Equal(t, int64(0), root.EnterMsRel)
 	assert.Equal(t, int64(15), root.DurationMs, "exit at +20 minus enter at +5")
+	assert.Equal(t, int64(10), root.SelfDurationMs, "15 total minus 4+1 in children")
+	assert.Equal(t, int64(3), root.Executions, "itself plus one invocation of each child")
+	assert.Equal(t, int64(1), root.SelfExecutions)
 	require.Len(t, root.Children, 2)
 
 	q, r := root.Children[0], root.Children[1]
 	assert.Equal(t, "com.example.Service.query", tree.Methods[q.MethodIdx])
-	assert.Equal(t, int64(2), q.EnterMsRel)
 	assert.Equal(t, int64(4), q.DurationMs)
+	assert.Equal(t, int64(4), q.SelfDurationMs, "a leaf's self equals its total")
 	assert.Equal(t, "com.example.Service.render", tree.Methods[r.MethodIdx])
-	assert.Equal(t, int64(7), r.EnterMsRel)
 	assert.Equal(t, int64(1), r.DurationMs)
 	assert.Empty(t, tree.Params)
 }
@@ -112,8 +114,8 @@ func TestBuildMultiChunk(t *testing.T) {
 	tree, err := Build(blob, 0, dictOpt())
 	require.NoError(t, err)
 	assert.Equal(t, int64(45), tree.Root.DurationMs, "50 - 5")
+	assert.Equal(t, int64(21), tree.Root.SelfDurationMs, "45 minus the child's 24")
 	require.Len(t, tree.Root.Children, 1)
-	assert.Equal(t, int64(1), tree.Root.Children[0].EnterMsRel)
 	assert.Equal(t, int64(24), tree.Root.Children[0].DurationMs, "30 - 6")
 }
 
@@ -140,18 +142,245 @@ func TestBuildParams(t *testing.T) {
 
 	reqId := tree.Root.Params[0]
 	assert.Equal(t, "request.id", tree.Params[reqId.ParamIdx])
-	assert.Equal(t, []string{"req-1", "req-2"}, reqId.Values, "same param id merges, order kept")
-	assert.Empty(t, reqId.Unresolved)
+	require.Len(t, reqId.Groups, 2, "distinct exact values are distinct groups")
+	assert.Equal(t, ParamGroup{Value: "req-1", DurationMs: 1, Executions: 1}, reqId.Groups[0])
+	assert.Equal(t, ParamGroup{Value: "req-2", DurationMs: 1, Executions: 1}, reqId.Groups[1])
 
 	sql := tree.Root.Params[1]
 	assert.Equal(t, "sql", tree.Params[sql.ParamIdx])
-	assert.Equal(t, []string{"SELECT 1"}, sql.Values, "PARAM_BIG_DEDUP resolves from the sql stream")
+	require.Len(t, sql.Groups, 1)
+	assert.Equal(t, "SELECT 1", sql.Groups[0].Value, "PARAM_BIG_DEDUP resolves from the sql stream")
+	assert.False(t, sql.Groups[0].Unresolved)
 
 	xml := tree.Root.Params[2]
 	assert.Equal(t, "xml", tree.Params[xml.ParamIdx])
-	assert.Equal(t, []string{"xml:3:40"}, xml.Values,
+	require.Len(t, xml.Groups, 1)
+	assert.Equal(t, "xml:3:40", xml.Groups[0].Value,
 		"an unresolvable reference is marked, not silently dropped")
-	assert.Equal(t, []int{0}, xml.Unresolved)
+	assert.True(t, xml.Groups[0].Unresolved)
+}
+
+// TestBuildMergesSiblingInvocations pins the R5 merge semantics
+// (08-ui-backend-requirements.md): three invocations of query under handle —
+// two of them calling render — fold into one query node with one render
+// child, every metric summed across the folded invocations.
+func TestBuildMergesSiblingInvocations(t *testing.T) {
+	blob := blobOf(t, wire.TraceChunk{ThreadId: 7, StartMs: timerStartMs, Events: []wire.TraceEvent{
+		wire.Enter(0, 1),                       // handle at +0
+		wire.Enter(1, 2), wire.Tag(0, 4, "q1"), // query #1 at +1
+		wire.Enter(1, 3), wire.Exit(2), // its render, +2..+4
+		wire.Exit(1),                   // query #1 exits at +5: total 4, self 2
+		wire.Enter(2, 2),               // query #2 at +7
+		wire.Enter(1, 3), wire.Exit(1), // its render, +8..+9
+		wire.Exit(3),                           // query #2 exits at +12: total 5, self 4
+		wire.Enter(1, 2), wire.Tag(0, 4, "q3"), // query #3 at +13, no render
+		wire.Exit(4), // query #3 exits at +17: total 4, self 4
+		wire.Exit(3), // handle exits at +20
+	}})
+
+	tree, err := Build(blob, 0, dictOpt())
+	require.NoError(t, err)
+
+	root := tree.Root
+	assert.Equal(t, int64(20), root.DurationMs)
+	assert.Equal(t, int64(7), root.SelfDurationMs, "20 total minus 4+5+4 in query invocations")
+	assert.Equal(t, int64(1), root.SelfExecutions)
+	assert.Equal(t, int64(6), root.Executions, "1 handle + 3 query + 2 render")
+	require.Len(t, root.Children, 1, "three sibling query invocations fold into one node")
+
+	q := root.Children[0]
+	assert.Equal(t, "com.example.Service.query", tree.Methods[q.MethodIdx])
+	assert.Equal(t, int64(3), q.SelfExecutions)
+	assert.Equal(t, int64(5), q.Executions)
+	assert.Equal(t, int64(13), q.DurationMs, "4+5+4 across the folded invocations")
+	assert.Equal(t, int64(10), q.SelfDurationMs, "13 total minus 2+1 in render")
+	require.Len(t, q.Params, 1)
+	require.Len(t, q.Params[0].Groups, 2, "folded invocations aggregate their values per group")
+	assert.Equal(t, ParamGroup{Value: "q1", DurationMs: 4, Executions: 1}, q.Params[0].Groups[0],
+		"the group carries its own invocation's duration")
+	assert.Equal(t, ParamGroup{Value: "q3", DurationMs: 4, Executions: 1}, q.Params[0].Groups[1])
+
+	require.Len(t, q.Children, 1)
+	r := q.Children[0]
+	assert.Equal(t, "com.example.Service.render", tree.Methods[r.MethodIdx])
+	assert.Equal(t, int64(2), r.SelfExecutions)
+	assert.Equal(t, int64(2), r.Executions)
+	assert.Equal(t, int64(3), r.DurationMs)
+	assert.Equal(t, int64(3), r.SelfDurationMs)
+
+	assertMergeInvariants(t, root)
+}
+
+// TestBuildMergeKeepsDistinctSiblings pins what the merge must NOT do: only
+// same-method siblings fold; an a-b-a interleave keeps two nodes in
+// first-seen order, with the a invocations folded.
+func TestBuildMergeKeepsDistinctSiblings(t *testing.T) {
+	blob := blobOf(t, wire.TraceChunk{ThreadId: 7, StartMs: timerStartMs, Events: []wire.TraceEvent{
+		wire.Enter(0, 1),
+		wire.Enter(1, 2), wire.Exit(1), // a
+		wire.Enter(1, 3), wire.Exit(1), // b
+		wire.Enter(1, 2), wire.Exit(1), // a again
+		wire.Exit(1),
+	}})
+	tree, err := Build(blob, 0, dictOpt())
+	require.NoError(t, err)
+
+	require.Len(t, tree.Root.Children, 2)
+	a, b := tree.Root.Children[0], tree.Root.Children[1]
+	assert.Equal(t, "com.example.Service.query", tree.Methods[a.MethodIdx])
+	assert.Equal(t, int64(2), a.SelfExecutions)
+	assert.Equal(t, "com.example.Service.render", tree.Methods[b.MethodIdx])
+	assert.Equal(t, int64(1), b.SelfExecutions)
+	assertMergeInvariants(t, tree.Root)
+}
+
+// TestBuildMergeRecursion pins that recursion keeps its depth structure: a
+// self-recursive chain merges per level, never into its own ancestor.
+func TestBuildMergeRecursion(t *testing.T) {
+	blob := blobOf(t, wire.TraceChunk{ThreadId: 7, StartMs: timerStartMs, Events: []wire.TraceEvent{
+		wire.Enter(0, 1),
+		wire.Enter(1, 1), wire.Exit(1), // recurse #1
+		wire.Enter(1, 1),               // recurse #2 ...
+		wire.Enter(1, 1), wire.Exit(1), // ... goes one deeper
+		wire.Exit(1),
+		wire.Exit(1),
+	}})
+	tree, err := Build(blob, 0, dictOpt())
+	require.NoError(t, err)
+
+	root := tree.Root
+	assert.Equal(t, int64(1), root.SelfExecutions)
+	require.Len(t, root.Children, 1, "both recursive invocations fold at depth 1")
+	assert.Equal(t, int64(2), root.Children[0].SelfExecutions)
+	require.Len(t, root.Children[0].Children, 1)
+	assert.Equal(t, int64(1), root.Children[0].Children[0].SelfExecutions)
+	assert.Equal(t, int64(4), root.Executions)
+	assertMergeInvariants(t, root)
+}
+
+// TestBuildMergeHotspotRanking drives the merged tree through the flat
+// profile the UI's Hotspots tab computes — self time aggregated by method —
+// and pins the ranking a known synthetic trace must produce (07-ui-design.md
+// §5.3).
+func TestBuildMergeHotspotRanking(t *testing.T) {
+	// handle self 7, query self 10, render self 3 (the merge-test fixture).
+	blob := blobOf(t, wire.TraceChunk{ThreadId: 7, StartMs: timerStartMs, Events: []wire.TraceEvent{
+		wire.Enter(0, 1),
+		wire.Enter(1, 2), wire.Enter(1, 3), wire.Exit(2), wire.Exit(1),
+		wire.Enter(2, 2), wire.Enter(1, 3), wire.Exit(1), wire.Exit(3),
+		wire.Enter(1, 2), wire.Exit(4),
+		wire.Exit(3),
+	}})
+	tree, err := Build(blob, 0, dictOpt())
+	require.NoError(t, err)
+
+	selfByMethod := map[string]int64{}
+	var walk func(n *Node)
+	walk = func(n *Node) {
+		selfByMethod[tree.Methods[n.MethodIdx]] += n.SelfDurationMs
+		for _, child := range n.Children {
+			walk(child)
+		}
+	}
+	walk(tree.Root)
+
+	assert.Equal(t, map[string]int64{
+		"com.example.Service.query":  10,
+		"com.example.Service.handle": 7,
+		"com.example.Service.render": 3,
+	}, selfByMethod, "the hotspot profile ranks query > handle > render")
+}
+
+// TestBuildSuspensionAttribution pins the R7 semantics
+// (08-ui-backend-requirements.md): each node's suspension is its work
+// interval intersected with the global timeline, and a pause spanning a
+// child's exit splits between the child and the parent's self time. The
+// timeline is deliberately out of order — Build normalizes it.
+func TestBuildSuspensionAttribution(t *testing.T) {
+	// root [+0, +40) with one child [+10, +20).
+	blob := blobOf(t, wire.TraceChunk{ThreadId: 7, StartMs: timerStartMs, Events: []wire.TraceEvent{
+		wire.Enter(0, 1),
+		wire.Enter(10, 2), wire.Exit(10),
+		wire.Exit(20),
+	}})
+	opts := dictOpt()
+	opts.Suspend = []SuspendInterval{
+		{TimeMs: timerStartMs + 50, DurationMs: 5}, // past the root exit: ignored
+		{TimeMs: timerStartMs + 18, DurationMs: 4}, // [18, 22): 2 ms child, 2 ms root self
+		{TimeMs: timerStartMs + 5, DurationMs: 2},  // [5, 7): before the child, root self
+		{TimeMs: timerStartMs + 12, DurationMs: 3}, // [12, 15): inside the child
+	}
+
+	tree, err := Build(blob, 0, opts)
+	require.NoError(t, err)
+
+	root := tree.Root
+	assert.Equal(t, int64(9), root.SuspensionMs, "2 + 3 + 4 of the pauses land inside [0, 40)")
+	assert.Equal(t, int64(4), root.SelfSuspensionMs, "9 total minus the child's 5")
+	require.Len(t, root.Children, 1)
+	child := root.Children[0]
+	assert.Equal(t, int64(5), child.SuspensionMs, "[12, 15) whole, [18, 22) clipped to the exit at +20")
+	assert.Equal(t, int64(5), child.SelfSuspensionMs)
+	assertMergeInvariants(t, root)
+}
+
+// TestBuildSuspensionAcrossMergedInvocations pins that suspension, like
+// duration, sums per invocation before the R5 fold: one pause spanning the
+// gap between two folded invocations counts only their work intervals.
+func TestBuildSuspensionAcrossMergedInvocations(t *testing.T) {
+	// root [+0, +20); q #1 [+2, +6), q #2 [+10, +14); pause [4, 12).
+	blob := blobOf(t, wire.TraceChunk{ThreadId: 7, StartMs: timerStartMs, Events: []wire.TraceEvent{
+		wire.Enter(0, 1),
+		wire.Enter(2, 2), wire.Exit(4),
+		wire.Enter(4, 2), wire.Exit(4),
+		wire.Exit(6),
+	}})
+	opts := dictOpt()
+	opts.Suspend = []SuspendInterval{{TimeMs: timerStartMs + 4, DurationMs: 8}}
+
+	tree, err := Build(blob, 0, opts)
+	require.NoError(t, err)
+
+	root := tree.Root
+	assert.Equal(t, int64(8), root.SuspensionMs)
+	assert.Equal(t, int64(4), root.SelfSuspensionMs,
+		"the [6, 10) middle of the pause falls between the invocations: root self time")
+	require.Len(t, root.Children, 1)
+	q := root.Children[0]
+	assert.Equal(t, int64(4), q.SuspensionMs, "[4, 6) of #1 plus [10, 12) of #2")
+	assert.Equal(t, int64(4), q.SelfSuspensionMs)
+	assertMergeInvariants(t, root)
+}
+
+func TestNormalizeSuspend(t *testing.T) {
+	got := normalizeSuspend([]SuspendInterval{
+		{TimeMs: 30, DurationMs: 5},
+		{TimeMs: 0, DurationMs: 10},
+		{TimeMs: 5, DurationMs: 20}, // overlaps the previous: one [0, 25) pause
+	})
+	assert.Equal(t, []SuspendInterval{
+		{TimeMs: 0, DurationMs: 25},
+		{TimeMs: 30, DurationMs: 5},
+	}, got, "unsorted and overlapping pauses normalize; overlap is never double-counted")
+}
+
+// assertMergeInvariants checks the arithmetic every merged node must satisfy
+// (02 §2.5.3): executions = selfExecutions + Σ children.executions,
+// selfDurationMs = durationMs − Σ children.durationMs, and the same self
+// arithmetic for suspension, which can also never exceed the duration.
+func assertMergeInvariants(t *testing.T, n *Node) {
+	t.Helper()
+	childExecutions, childDuration, childSuspension := int64(0), int64(0), int64(0)
+	for _, child := range n.Children {
+		childExecutions += child.Executions
+		childDuration += child.DurationMs
+		childSuspension += child.SuspensionMs
+		assertMergeInvariants(t, child)
+	}
+	assert.Equal(t, n.SelfExecutions+childExecutions, n.Executions)
+	assert.Equal(t, n.DurationMs-childDuration, n.SelfDurationMs)
+	assert.Equal(t, n.SuspensionMs-childSuspension, n.SelfSuspensionMs)
+	assert.LessOrEqual(t, n.SuspensionMs, n.DurationMs)
 }
 
 func TestBuildDictMiss(t *testing.T) {
