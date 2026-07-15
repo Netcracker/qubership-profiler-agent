@@ -536,6 +536,79 @@ merge gates a usable tree. Status, decisions, and open issues per
   `testBucketStart` from `time.Now()` (2 hours back, truncated to the 5-minute
   bucket), comfortably past `MinAge` (30 min) and far inside every class's TTL
   (shortest is 2 days) regardless of when the suite runs.
+- **2026-07-10 — PR 708 QA review: guard-family and quick UI/chart fixes.**
+  Acted on the dogfood review at `stage5-backend-review-task.md`. Six findings
+  fixed in this commit; #4 (seal-loop LRU closing live SQLite handles) landed
+  next as its own change (entry below). Fixes:
+  - **#1 span-guard overflow.** `guardSpan` compared spans as
+    `time.Duration(to-from)*time.Millisecond`, which overflowed int64
+    nanoseconds for a far-future `to` and wrapped the span negative, waving a
+    wide query through until the query pod went unready. Now compares in
+    milliseconds (`windowSpanMs`), treats a wrapped-negative difference as
+    unbounded, and formats the message overflow-safe (`spanText`).
+  - **#2 forged-cursor guard bypass.** The wide-query guard ran on page 1
+    only, and the cursor is client-forgeable (HMAC deferred, §2.3.1), so a
+    hand-minted cursor smuggled a wide query straight into cold discovery.
+    `guardSpan`/`guardCost` now re-run on every page against the frozen query;
+    an honest cursor (identical window, cutoff-shrunk file set) re-passes.
+    Contract §2.3.2 "Evaluated on every page" updated to match.
+  - **#3 `/pods` unbounded fan-out.** `/pods` had no span guard and lists one
+    S3 prefix per UTC day, so a year-2100 window fanned out into ~47000 LISTs.
+    Added `guardPodsSpan` + `PROFILER_MAX_PODS_RANGE` (default 366 d): `/pods`
+    has no file-pruning filter, so it needs its own, more generous span cap
+    than `/calls`.
+  - **#6 Pods Info ignored `pod=`.** The row builder filtered only on
+    `search.services` (and omitted `search.pods` from the memo deps), so a lone
+    pod selection showed every pod. Now filters on both disjoint selections.
+  - **#10 unsafe `dumpsCollectorUrl`.** `/api/v1/config` echoed the value
+    verbatim and the UI turned it into an href, so `javascript:…` became
+    clickable. Backend `safeDumpsCollectorURL` drops anything but an absolute
+    http(s) URL; the UI keeps a `isHttpUrl` backstop before rendering the
+    Dumps column.
+  - **#13 invalid `maintain.mode` rendered nothing.** An unsupported value
+    silently dropped the retention/compaction workload. The chart now
+    `fail`s at render for any mode outside `deployment`/`cronjob`.
+- **2026-07-10 — PR 708 #4: ref-counted partition handles (High).** The
+  partition-handle LRU evicted and `Close()`d a `*sql.DB` that another worker
+  still held via the cached `partition()` reference, so its next query failed
+  with `sql: database is closed` and the seal/upload/ingest/janitor pass
+  silently lost work (pods stayed Ready). Replaced the bare
+  `map[int64]*gorm.DB` with `map[int64]*partHandle` carrying a borrow count and
+  an `evicted` flag, and routed every access through `withPartition(bucket,
+  fn)`: acquire ref-counts the handle, release closes it iff it was evicted
+  while borrowed, and eviction unlinks a borrowed victim but defers its `Close`
+  to the last release (preferring unborrowed victims to keep the descriptor
+  bound tight). `dropCachedPartition` (InsertCall's retry) uses the same
+  deferred close. Regression test `TestPartitionCacheKeepsBorrowedHandlesOpen`
+  churns 8 goroutines through a size-2 cache under `-race`; it fails with the
+  original `sql: database is closed` when the deferred close is removed.
+- **2026-07-10 — PR 708 #11 + #12: chart host fail-fast and the real-agent CI
+  directory bug.** #11: enabling `query.ingress` (or `query.httpRoute`) with no
+  explicit host and no `CLOUD_PUBLIC_HOST` rendered `…-query-.`, which the API
+  server rejects as an invalid RFC 1123 host. Both host helpers now derive the
+  namespace from `.Release.Namespace` when `NAMESPACE` is unset and `fail` with
+  a pointed message when `CLOUD_PUBLIC_HOST` is absent, so a misconfigured
+  Ingress errors at render instead of shipping a broken host. #12: the
+  real-agent smoke workflow set `working-directory: backend` and then ran
+  `make -C backend smoke-realagent`, so Make looked for `backend/backend` and
+  the job never ran the E2E (its `continue-on-error` hid the Make error).
+  Dropped the redundant `-C backend`. The `continue-on-error`/"non-blocking"
+  status is now stale — the decoder bugs the job pinned landed in `21af58ea`
+  and it is expected to pass — but flipping it to required is a CI-policy call
+  left to the maintainer (heavier, flakier job); the comments were corrected to
+  say so rather than flipping it here.
+- **2026-07-10 — PR 708 #5: aggregate the big-value loss warning.** When one
+  value segment is evicted or torn, it can starve thousands of calls, and
+  `resolveBigValues` logged one `lost … to eviction` Warning per affected call —
+  6.5k lines in a single seal pass in the review. It also blamed every loss on
+  eviction, though `readBigValues` already logs the real per-segment cause
+  (unreadable / torn tail / undecodable) once each. Replaced the per-call log
+  with pass-level counters (`lostCalls`, `lost` refs, distinct `lostSegs`) and a
+  single summary line reporting only the blast radius, no longer asserting a
+  cause. Truncation semantics are unchanged (still `disk_budget`); this is a
+  logging-volume fix. `TestResolveBigValuesAggregatesLoss` starves five calls
+  through one missing segment and asserts a single summary with no per-call
+  `to eviction` line.
 
 ## Open issues
 

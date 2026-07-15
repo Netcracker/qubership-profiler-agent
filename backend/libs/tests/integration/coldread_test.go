@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -579,6 +580,34 @@ func TestColdReadPath(t *testing.T) {
 		assert.Positive(t, *problem.EstimatedBytes)
 		assert.Contains(t, problem.ByClass, hotstore.RetentionShortClean)
 		assert.Empty(t, fake.openedKeys(), "the verdict lands before any parquet is opened (02 §2.3.2)")
+	})
+
+	t.Run("wide-query guard: a forged cursor cannot bypass either layer (PR 708 review #2)", func(t *testing.T) {
+		guardApi := newService(query.Config{WideRangeLimit: 30 * time.Minute})
+		fake.reset()
+
+		// Mint the cursor by hand — URL-safe base64 of the token JSON, exactly
+		// as an attacker would, since the contract defers HMAC signing. Its
+		// frozen query spans far past PROFILER_WIDE_RANGE_LIMIT, so page 1 would
+		// have rejected it; the guard must re-run on the cursor page too.
+		token := fmt.Sprintf(`{"v":1,"q":{"from":0,"to":%d},"pos":{"ts_ms":0,"pk":{}},"iat":%d}`,
+			int64(9999999999999), time.Now().UnixMilli())
+		forged := base64.RawURLEncoding.EncodeToString([]byte(token))
+
+		problem := getProblem(t, guardApi, "/api/v1/calls",
+			url.Values{"cursor": {forged}, "limit": {"1000"}}, http.StatusBadRequest)
+		assert.Equal(t, []string{"pod", "retention_class", "duration_min_ms", "error_only"}, problem.SuggestedFilters)
+		assert.Empty(t, fake.listedPrefixes(), "the forged wide query is rejected before any discovery LIST")
+		assert.Empty(t, fake.openedKeys(), "no parquet was opened")
+	})
+
+	t.Run("pods: an over-wide window is rejected before any LIST (PR 708 review #3)", func(t *testing.T) {
+		podsApi := newService(query.Config{PodsRangeLimit: 7 * 24 * time.Hour})
+		fake.reset()
+		problem := getProblem(t, podsApi, "/api/v1/pods",
+			url.Values{"from": {"0"}, "to": {fmt.Sprint(int64(4102444800000))}}, http.StatusBadRequest)
+		assert.Contains(t, problem.Detail, "PROFILER_MAX_PODS_RANGE")
+		assert.Empty(t, fake.listedPrefixes(), "no per-day S3 LIST fanned out")
 	})
 
 	t.Run("pods: identity from manifests, no parquet", func(t *testing.T) {

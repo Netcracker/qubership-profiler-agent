@@ -86,21 +86,28 @@ instead of the cluster's default external gateway.
 {{- end -}}
 {{- end -}}
 
-{{/* Default query Ingress host, unless query.ingress.host is set explicitly */}}
+{{/* Default query Ingress host, unless query.ingress.host is set explicitly.
+Fails fast rather than render an invalid "…-query-." host when the platform
+globals are absent (PR 708 review #11). */}}
 {{- define "profiler-backend.queryIngressHost" -}}
 {{- if .Values.query.ingress.host -}}
 {{ .Values.query.ingress.host }}
+{{- else if .Values.CLOUD_PUBLIC_HOST -}}
+{{- printf "%s-query-%s.%s" (include "profiler-backend.fullname" .) (.Values.NAMESPACE | default .Release.Namespace) .Values.CLOUD_PUBLIC_HOST -}}
 {{- else -}}
-{{- printf "%s-query-%s.%s" (include "profiler-backend.fullname" .) .Values.NAMESPACE .Values.CLOUD_PUBLIC_HOST -}}
+{{- fail "query.ingress is enabled but no host can be built: set query.ingress.host, or provide CLOUD_PUBLIC_HOST (the cluster public domain, injected on Qubership-managed clusters)" -}}
 {{- end -}}
 {{- end -}}
 
-{{/* Default query HTTPRoute hostname, unless query.httpRoute.host is set explicitly */}}
+{{/* Default query HTTPRoute hostname, unless query.httpRoute.host is set
+explicitly. Same fail-fast as the Ingress host above (PR 708 review #11). */}}
 {{- define "profiler-backend.queryHttpRouteHost" -}}
 {{- if .Values.query.httpRoute.host -}}
 {{ .Values.query.httpRoute.host }}
+{{- else if .Values.CLOUD_PUBLIC_HOST -}}
+{{- printf "%s-query-%s.eg.%s" (include "profiler-backend.fullname" .) (.Values.NAMESPACE | default .Release.Namespace) .Values.CLOUD_PUBLIC_HOST -}}
 {{- else -}}
-{{- printf "%s-query-%s.eg.%s" (include "profiler-backend.fullname" .) .Values.NAMESPACE .Values.CLOUD_PUBLIC_HOST -}}
+{{- fail "query.httpRoute is enabled but no host can be built: set query.httpRoute.host, or provide CLOUD_PUBLIC_HOST (the cluster public domain, injected on Qubership-managed clusters)" -}}
 {{- end -}}
 {{- end -}}
 

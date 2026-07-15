@@ -200,17 +200,28 @@ type (
 		S3Key            string
 	}
 
+	// partHandle is one cached partition DB plus the LRU bookkeeping: a recency
+	// tick to pick the eviction victim, a live-borrow count, and an evicted
+	// flag. A handle evicted while still borrowed is unlinked from the cache but
+	// its Close is deferred to the last release, so a seal/upload/ingest worker
+	// mid-query never races into "sql: database is closed" (PR 708 review #4).
+	partHandle struct {
+		db      *gorm.DB
+		useTick int64
+		refs    int
+		evicted bool
+	}
+
 	// metaDb wraps metadata.sqlite plus the per-bucket partition handles.
 	// parts is an LRU of at most cfg.PartitionCacheSize open handles (№24);
-	// partsUse carries the recency tick that picks the eviction victim.
+	// each handle carries the recency tick that picks the eviction victim.
 	metaDb struct {
 		cfg  Config
 		meta *gorm.DB
 
-		mu       sync.Mutex
-		parts    map[int64]*gorm.DB
-		partsUse map[int64]int64
-		useTick  int64
+		mu      sync.Mutex
+		parts   map[int64]*partHandle
+		useTick int64
 	}
 )
 
@@ -263,8 +274,7 @@ func openMetaDb(cfg Config) (*metaDb, error) {
 			return nil, errors.Wrapf(err, "migrate: %s", alter)
 		}
 	}
-	return &metaDb{cfg: cfg, meta: db,
-		parts: map[int64]*gorm.DB{}, partsUse: map[int64]int64{}}, nil
+	return &metaDb{cfg: cfg, meta: db, parts: map[int64]*partHandle{}}, nil
 }
 
 func (m *metaDb) Close() error {
@@ -278,11 +288,10 @@ func (m *metaDb) Close() error {
 			}
 		}
 	}
-	for _, p := range m.parts {
-		closeGorm(p)
+	for _, h := range m.parts {
+		closeGorm(h.db)
 	}
-	m.parts = map[int64]*gorm.DB{}
-	m.partsUse = map[int64]int64{}
+	m.parts = map[int64]*partHandle{}
 	closeGorm(m.meta)
 	return firstErr
 }
@@ -605,13 +614,11 @@ func (m *metaDb) HasUnsealedCalls(podRestart string) (bool, error) {
 		return false, err
 	}
 	for _, bucket := range buckets {
-		db, err := m.partition(bucket)
-		if err != nil {
-			return false, err
-		}
 		var maxOffset *int64
-		if err := db.Raw(`SELECT MAX(calls_wal_offset) FROM call_index WHERE pod_restart = ?`,
-			podRestart).Scan(&maxOffset).Error; err != nil {
+		if err := m.withPartition(bucket, func(db *gorm.DB) error {
+			return db.Raw(`SELECT MAX(calls_wal_offset) FROM call_index WHERE pod_restart = ?`,
+				podRestart).Scan(&maxOffset).Error
+		}); err != nil {
 			return false, err
 		}
 		if maxOffset == nil {
@@ -641,16 +648,19 @@ func (m *metaDb) PurgeCallsPastWalEnd(podRestart string, walEnd int64) (int64, e
 	}
 	var purged int64
 	for _, bucket := range buckets {
-		db, err := m.partition(bucket)
-		if err != nil {
+		var affected int64
+		if err := m.withPartition(bucket, func(db *gorm.DB) error {
+			res := db.Exec(`DELETE FROM call_index WHERE pod_restart = ? AND calls_wal_offset >= ?`,
+				podRestart, walEnd)
+			if res.Error != nil {
+				return errors.Wrapf(res.Error, "purge poisoned index rows of bucket %d", bucket)
+			}
+			affected = res.RowsAffected
+			return nil
+		}); err != nil {
 			return purged, err
 		}
-		res := db.Exec(`DELETE FROM call_index WHERE pod_restart = ? AND calls_wal_offset >= ?`,
-			podRestart, walEnd)
-		if res.Error != nil {
-			return purged, errors.Wrapf(res.Error, "purge poisoned index rows of bucket %d", bucket)
-		}
-		purged += res.RowsAffected
+		purged += affected
 	}
 	return purged, nil
 }
@@ -734,39 +744,37 @@ func (m *metaDb) ParquetLocalPaths() ([]string, error) {
 // MaxWalOffsets reports, per pod-restart, the highest calls.wal offset indexed
 // in the bucket's partition; the seal loop compares it with the watermark.
 func (m *metaDb) MaxWalOffsets(bucket int64) (map[string]int64, error) {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return nil, err
-	}
-	var rows []struct {
-		PodRestart string
-		MaxOffset  int64
-	}
-	if err := db.Raw(`SELECT pod_restart, MAX(calls_wal_offset) AS max_offset
-		FROM call_index GROUP BY pod_restart`).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	out := make(map[string]int64, len(rows))
-	for _, r := range rows {
-		out[r.PodRestart] = r.MaxOffset
-	}
-	return out, nil
+	var out map[string]int64
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		var rows []struct {
+			PodRestart string
+			MaxOffset  int64
+		}
+		if err := db.Raw(`SELECT pod_restart, MAX(calls_wal_offset) AS max_offset
+			FROM call_index GROUP BY pod_restart`).Scan(&rows).Error; err != nil {
+			return err
+		}
+		out = make(map[string]int64, len(rows))
+		for _, r := range rows {
+			out[r.PodRestart] = r.MaxOffset
+		}
+		return nil
+	})
+	return out, err
 }
 
 // CallsForSeal reads the bucket's unsealed rows of one pod-restart in the
 // §5.2 row order: (ts_ms DESC, pk ASC).
 func (m *metaDb) CallsForSeal(bucket int64, podRestart string, watermark int64) ([]CallIndexRow, error) {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return nil, err
-	}
 	var rows []CallIndexRow
-	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
-		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-		cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
-		FROM call_index WHERE pod_restart = ? AND calls_wal_offset >= ?
-		ORDER BY ts_ms DESC, trace_file_index ASC, buffer_offset ASC, record_index ASC`,
-		podRestart, watermark).Scan(&rows).Error
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		return db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
+			ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+			cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
+			FROM call_index WHERE pod_restart = ? AND calls_wal_offset >= ?
+			ORDER BY ts_ms DESC, trace_file_index ASC, buffer_offset ASC, record_index ASC`,
+			podRestart, watermark).Scan(&rows).Error
+	})
 	return rows, err
 }
 
@@ -776,36 +784,101 @@ func (m *metaDb) partitionPath(bucket int64) string {
 	return filepath.Join(m.cfg.DataDir, fmt.Sprintf("calls-%s.sqlite", stamp))
 }
 
-// partition opens (creating on first use) the call-index partition of bucket.
-// Re-opening a dropped bucket resurrects it (dropped_at cleared): the only
-// path that reaches a dropped bucket is InsertCall with a very late Call, and
-// its row must re-enter the seal loop rather than land in an invisible file.
-// The handle cache is a bounded LRU (№24): past PartitionCacheSize the
-// least-recently-used handle closes — in-flight queries on it finish on their
-// borrowed connection; the next use reopens the file.
-func (m *metaDb) partition(bucket int64) (*gorm.DB, error) {
+// withPartition borrows the bucket's partition handle for the duration of fn.
+// The handle is ref-counted while borrowed, so a concurrent LRU eviction (or a
+// dropCachedPartition on another worker's error) defers its Close until the
+// last borrower returns — a worker mid-query never races into "sql: database is
+// closed" (PR 708 review #4). fn runs without m.mu held, so it may itself
+// borrow other partitions (SealWatermark does) without deadlocking.
+func (m *metaDb) withPartition(bucket int64, fn func(*gorm.DB) error) error {
+	h, err := m.acquirePartition(bucket)
+	if err != nil {
+		return err
+	}
+	defer m.releasePartition(h)
+	return fn(h.db)
+}
+
+// acquirePartition opens (creating on first use) the call-index partition of
+// bucket and returns a borrowed handle the caller must releasePartition.
+// Re-opening a dropped bucket resurrects it (dropped_at cleared): the only path
+// that reaches a dropped bucket is InsertCall with a very late Call, and its
+// row must re-enter the seal loop rather than land in an invisible file.
+func (m *metaDb) acquirePartition(bucket int64) (*partHandle, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.useTick++
-	if db, ok := m.parts[bucket]; ok {
-		m.partsUse[bucket] = m.useTick
-		return db, nil
+	if h, ok := m.parts[bucket]; ok {
+		h.useTick = m.useTick
+		h.refs++
+		return h, nil
 	}
+	m.evictLocked()
+	db, err := m.openPartition(bucket)
+	if err != nil {
+		return nil, err
+	}
+	h := &partHandle{db: db, useTick: m.useTick, refs: 1}
+	m.parts[bucket] = h
+	return h, nil
+}
+
+// releasePartition drops one borrow; a handle evicted while borrowed closes
+// here, when its last borrower leaves.
+func (m *metaDb) releasePartition(h *partHandle) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	h.refs--
+	if h.refs == 0 && h.evicted {
+		closeHandle(h)
+	}
+}
+
+// evictLocked closes least-recently-used handles until the cache is back under
+// PartitionCacheSize (№24). A borrowed victim is unlinked and flagged rather
+// than closed; its Close waits for the last releasePartition. Unborrowed
+// handles are preferred as victims so the common path frees a descriptor at
+// once instead of leaving an evicted-but-open handle behind. Callers hold m.mu.
+func (m *metaDb) evictLocked() {
 	for len(m.parts) >= m.cfg.PartitionCacheSize {
-		victim, oldest := int64(0), int64(0)
-		for b, tick := range m.partsUse {
-			if oldest == 0 || tick < oldest {
-				victim, oldest = b, tick
+		var victimKey int64
+		var victim *partHandle
+		for b, h := range m.parts {
+			if victim == nil || betterVictim(h, victim) {
+				victimKey, victim = b, h
 			}
 		}
-		if db, ok := m.parts[victim]; ok {
-			if sqlDb, err := db.DB(); err == nil {
-				_ = sqlDb.Close()
-			}
+		if victim == nil {
+			return
 		}
-		delete(m.parts, victim)
-		delete(m.partsUse, victim)
+		delete(m.parts, victimKey)
+		if victim.refs == 0 {
+			closeHandle(victim)
+		} else {
+			victim.evicted = true
+		}
 	}
+}
+
+// betterVictim reports whether a is a better eviction victim than b: an
+// unborrowed handle beats a borrowed one, and among equals the
+// least-recently-used wins.
+func betterVictim(a, b *partHandle) bool {
+	if (a.refs == 0) != (b.refs == 0) {
+		return a.refs == 0
+	}
+	return a.useTick < b.useTick
+}
+
+func closeHandle(h *partHandle) {
+	if sqlDb, err := h.db.DB(); err == nil {
+		_ = sqlDb.Close()
+	}
+}
+
+// openPartition opens, connection-caps, and migrates the bucket's partition
+// file, then records it in the catalog. Callers hold m.mu.
+func (m *metaDb) openPartition(bucket int64) (*gorm.DB, error) {
 	path := m.partitionPath(bucket)
 	db, err := openSqlite(path)
 	if err != nil {
@@ -842,21 +915,22 @@ func (m *metaDb) partition(bucket int64) (*gorm.DB, error) {
 		WHERE bucket = ? AND dropped_at IS NOT NULL`, bucket).Error; err != nil {
 		return nil, errors.Wrap(err, "resurrect partition")
 	}
-	m.parts[bucket] = db
-	m.partsUse[bucket] = m.useTick
 	return db, nil
 }
 
-// dropCachedPartition closes and forgets the cached handle of one bucket.
+// dropCachedPartition forgets one bucket's cached handle after an operation on
+// it errored (InsertCall's retry path). A borrowed handle is flagged and closes
+// on its last release, exactly like an LRU eviction.
 func (m *metaDb) dropCachedPartition(bucket int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if db, ok := m.parts[bucket]; ok {
-		if sqlDb, err := db.DB(); err == nil {
-			_ = sqlDb.Close()
-		}
+	if h, ok := m.parts[bucket]; ok {
 		delete(m.parts, bucket)
-		delete(m.partsUse, bucket)
+		if h.refs == 0 {
+			closeHandle(h)
+		} else {
+			h.evicted = true
+		}
 	}
 }
 
@@ -867,22 +941,20 @@ func (m *metaDb) dropCachedPartition(bucket int64) {
 // reopen resurrects the partition, so the late row stays visible.
 func (m *metaDb) InsertCall(bucket int64, row CallIndexRow) error {
 	insert := func() error {
-		db, err := m.partition(bucket)
-		if err != nil {
-			return err
-		}
-		return db.Exec(`INSERT OR IGNORE INTO call_index
-			(pod_restart, trace_file_index, buffer_offset, record_index,
-			 ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-			 cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
-			 transactions, logs_generated, logs_written, file_read, file_written,
-			 net_read, net_written, params_json, calls_wal_offset)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			row.PodRestart, row.TraceFileIndex, row.BufferOffset, row.RecordIndex,
-			row.TsMs, row.DurationMs, row.MethodId, row.ThreadName, row.RetentionClass, row.ErrorFlag,
-			row.CpuTimeMs, row.WaitTimeMs, row.MemoryUsed, row.QueueWaitMs, row.SuspendMs, row.ChildCalls,
-			row.Transactions, row.LogsGenerated, row.LogsWritten, row.FileRead, row.FileWritten,
-			row.NetRead, row.NetWritten, row.ParamsJson, row.CallsWalOffset).Error
+		return m.withPartition(bucket, func(db *gorm.DB) error {
+			return db.Exec(`INSERT OR IGNORE INTO call_index
+				(pod_restart, trace_file_index, buffer_offset, record_index,
+				 ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+				 cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
+				 transactions, logs_generated, logs_written, file_read, file_written,
+				 net_read, net_written, params_json, calls_wal_offset)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				row.PodRestart, row.TraceFileIndex, row.BufferOffset, row.RecordIndex,
+				row.TsMs, row.DurationMs, row.MethodId, row.ThreadName, row.RetentionClass, row.ErrorFlag,
+				row.CpuTimeMs, row.WaitTimeMs, row.MemoryUsed, row.QueueWaitMs, row.SuspendMs, row.ChildCalls,
+				row.Transactions, row.LogsGenerated, row.LogsWritten, row.FileRead, row.FileWritten,
+				row.NetRead, row.NetWritten, row.ParamsJson, row.CallsWalOffset).Error
+		})
 	}
 	if err := insert(); err != nil {
 		m.dropCachedPartition(bucket)
@@ -893,12 +965,10 @@ func (m *metaDb) InsertCall(bucket int64, row CallIndexRow) error {
 
 // MinTsMs reports one partition's earliest ts_ms, or nil when it is empty.
 func (m *metaDb) MinTsMs(bucket int64) (*int64, error) {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return nil, err
-	}
 	var min *int64
-	err = db.Raw(`SELECT MIN(ts_ms) FROM call_index`).Scan(&min).Error
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		return db.Raw(`SELECT MIN(ts_ms) FROM call_index`).Scan(&min).Error
+	})
 	return min, err
 }
 
@@ -952,10 +1022,6 @@ func escapeLikePrefix(s string) string {
 // comparator and page further down with toMs = the last row's ts_ms. Fewer
 // than `limit` rows back means the window is exhausted.
 func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, limit int) ([]CallIndexRow, error) {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return nil, err
-	}
 	where, args := callsQueryWhere(q, fromMs, toMs)
 	// The subquery finds the ts of the limit-th newest matching row; the outer
 	// SELECT takes everything at or above it, so a tie group is never split
@@ -974,25 +1040,25 @@ func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64,
 	allArgs = append(allArgs, args...)
 	allArgs = append(allArgs, limit, fromMs)
 	var rows []CallIndexRow
-	err = db.Raw(sql, allArgs...).Scan(&rows).Error
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		return db.Raw(sql, allArgs...).Scan(&rows).Error
+	})
 	return rows, err
 }
 
 // FindCall probes one partition for a PK; the point SELECT rides the
 // partition's primary key.
 func (m *metaDb) FindCall(bucket int64, podRestart string, traceFileIndex, bufferOffset, recordIndex int) (CallIndexRow, bool, error) {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return CallIndexRow{}, false, err
-	}
 	var rows []CallIndexRow
-	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
-		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
-		transactions, logs_generated, logs_written, file_read, file_written,
-		net_read, net_written, params_json, calls_wal_offset
-		FROM call_index WHERE pod_restart = ? AND trace_file_index = ? AND buffer_offset = ? AND record_index = ?`,
-		podRestart, traceFileIndex, bufferOffset, recordIndex).Scan(&rows).Error
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		return db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
+			ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+			cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
+			transactions, logs_generated, logs_written, file_read, file_written,
+			net_read, net_written, params_json, calls_wal_offset
+			FROM call_index WHERE pod_restart = ? AND trace_file_index = ? AND buffer_offset = ? AND record_index = ?`,
+			podRestart, traceFileIndex, bufferOffset, recordIndex).Scan(&rows).Error
+	})
 	if err != nil || len(rows) == 0 {
 		return CallIndexRow{}, false, err
 	}
@@ -1001,24 +1067,24 @@ func (m *metaDb) FindCall(bucket int64, podRestart string, traceFileIndex, buffe
 
 // PodWindows reports one partition's per-pod-restart [min, max] ts_ms bounds.
 func (m *metaDb) PodWindows(bucket int64) (map[string][2]int64, error) {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return nil, err
-	}
-	var rows []struct {
-		PodRestart string
-		TsMin      int64
-		TsMax      int64
-	}
-	if err := db.Raw(`SELECT pod_restart, MIN(ts_ms) AS ts_min, MAX(ts_ms) AS ts_max
-		FROM call_index GROUP BY pod_restart`).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	out := make(map[string][2]int64, len(rows))
-	for _, r := range rows {
-		out[r.PodRestart] = [2]int64{r.TsMin, r.TsMax}
-	}
-	return out, nil
+	var out map[string][2]int64
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		var rows []struct {
+			PodRestart string
+			TsMin      int64
+			TsMax      int64
+		}
+		if err := db.Raw(`SELECT pod_restart, MIN(ts_ms) AS ts_min, MAX(ts_ms) AS ts_max
+			FROM call_index GROUP BY pod_restart`).Scan(&rows).Error; err != nil {
+			return err
+		}
+		out = make(map[string][2]int64, len(rows))
+		for _, r := range rows {
+			out[r.PodRestart] = [2]int64{r.TsMin, r.TsMax}
+		}
+		return nil
+	})
+	return out, err
 }
 
 // Buckets lists the known call-index partitions.
@@ -1030,15 +1096,13 @@ func (m *metaDb) Buckets() ([]int64, error) {
 
 // Calls reads a bucket's call_index rows ordered by the primary time axis.
 func (m *metaDb) Calls(bucket int64) ([]CallIndexRow, error) {
-	db, err := m.partition(bucket)
-	if err != nil {
-		return nil, err
-	}
 	var rows []CallIndexRow
-	err = db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
-		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-		cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
-		FROM call_index ORDER BY ts_ms, pod_restart`).Scan(&rows).Error
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		return db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
+			ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+			cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
+			FROM call_index ORDER BY ts_ms, pod_restart`).Scan(&rows).Error
+	})
 	return rows, err
 }
 
@@ -1193,13 +1257,11 @@ func (m *metaDb) MaxCallsWalOffset(podRestart string) (offset int64, ok bool, er
 		return 0, false, err
 	}
 	for _, bucket := range buckets {
-		db, err := m.partition(bucket)
-		if err != nil {
-			return 0, false, err
-		}
 		var max *int64
-		if err := db.Raw(`SELECT MAX(calls_wal_offset) FROM call_index WHERE pod_restart = ?`,
-			podRestart).Scan(&max).Error; err != nil {
+		if err := m.withPartition(bucket, func(db *gorm.DB) error {
+			return db.Raw(`SELECT MAX(calls_wal_offset) FROM call_index WHERE pod_restart = ?`,
+				podRestart).Scan(&max).Error
+		}); err != nil {
 			return 0, false, err
 		}
 		if max != nil && (!ok || *max > offset) {

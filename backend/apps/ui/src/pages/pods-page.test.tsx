@@ -79,4 +79,39 @@ describe('PodsPage', () => {
     expect(screen.queryByText('Dumps')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Thread dumps' })).not.toBeInTheDocument();
   });
+
+  // PR 708 review #10: a non-http(s) dumps-collector value must never reach a
+  // clickable href, even if it slips past the backend's own guard.
+  it('omits the Dumps column when the dumps-collector URL is not http(s)', async () => {
+    server.use(http.get('/api/v1/config', () => HttpResponse.json({ dumps_collector_url: 'javascript:alert(1)' })));
+    const to = Date.now();
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+
+    expect(screen.queryByText('Dumps')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Thread dumps' })).not.toBeInTheDocument();
+  });
+
+  // PR 708 review #6: an individual pod= selection must filter the table, not
+  // just service selections.
+  it('filters the table to an individually selected pod', async () => {
+    const tupleOf = (row: HTMLElement): string =>
+      within(row).getByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c)).textContent ?? '';
+
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+
+    // First load with no pod filter to read a real pod tuple from the data.
+    const { unmount } = renderPodsPage(`/pods?from=${from}&to=${to}&duration_min_ms=0`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    const unfiltered = screen.getAllByRole('row').slice(1).map(tupleOf);
+    const selected = unfiltered[0]!;
+    expect(new Set(unfiltered).size).toBeGreaterThan(1); // the view really holds other pods
+    unmount();
+
+    renderPodsPage(`/pods?from=${from}&to=${to}&pod=${encodeURIComponent(selected)}&duration_min_ms=0`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    const filtered = screen.getAllByRole('row').slice(1).map(tupleOf);
+    expect(new Set(filtered)).toEqual(new Set([selected]));
+  });
 });

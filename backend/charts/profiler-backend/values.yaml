@@ -118,15 +118,16 @@ query:
   ingress:
     enabled: false
     className: ""
-    # Falls back to "<fullname>-query-<NAMESPACE>.<CLOUD_PUBLIC_HOST>" — set
-    # this explicitly outside a Qubership-managed cluster, where those two
-    # globals are never populated.
+    # Falls back to "<fullname>-query-<namespace>.<CLOUD_PUBLIC_HOST>". Outside
+    # a Qubership-managed cluster CLOUD_PUBLIC_HOST is never populated, so set
+    # this host explicitly — enabling the Ingress without either errors at
+    # render rather than emitting an invalid "…-query-." host.
     host: ""
     annotations: {}
     tls: []
   httpRoute:
-    # Falls back to "<fullname>-query-<NAMESPACE>.eg.<CLOUD_PUBLIC_HOST>" —
-    # same caveat as query.ingress.host above.
+    # Falls back to "<fullname>-query-<namespace>.eg.<CLOUD_PUBLIC_HOST>" —
+    # same caveat and same fail-fast as query.ingress.host above.
     host: ""
   # Base URL of a dumps-collector deployment (netcracker/qubership-profiler
   # dumps-collector chart), so the Pods Info screen can link out to its

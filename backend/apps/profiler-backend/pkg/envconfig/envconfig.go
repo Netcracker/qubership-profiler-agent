@@ -104,6 +104,7 @@ type (
 		ListConcurrency  int           `envconfig:"PROFILER_S3_LIST_CONCURRENCY" default:"16"`
 		CursorTTL        time.Duration `envconfig:"PROFILER_CURSOR_TTL" default:"15m"`
 		WideRangeLimit   time.Duration `envconfig:"PROFILER_WIDE_RANGE_LIMIT" default:"6h"`
+		PodsRangeLimit   time.Duration `envconfig:"PROFILER_MAX_PODS_RANGE" default:"8784h"`
 		MaxScanFiles     int           `envconfig:"PROFILER_MAX_SCAN_FILES" default:"10000"`
 		MaxScanBytes     ByteSize      `envconfig:"PROFILER_MAX_SCAN_BYTES" default:"2GB"`
 		// DurationThresholds must mirror the collector's value: the cold

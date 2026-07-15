@@ -174,7 +174,7 @@ The exemption check runs the same class derivation discovery uses, so a filter t
 
 The rejection body (§8) carries the estimate and a per-class byte breakdown, so the caller sees which axis dominates — usually `short_clean` — and which filter would cut it.
 
-**Evaluated once.** The guard runs on the first page only, against the frozen query (§2.3.1), and its verdict rides in the cursor. Pages 2..N are not re-checked, so deep pagination does not re-pay the estimate.
+**Evaluated on every page.** The guard runs on page 1 against the parsed query and on pages 2..N against the query frozen in the cursor (§2.3.1). Until the cursor is HMAC-signed it is client-forgeable, so re-checking is the only thing that stops a hand-minted cursor from smuggling a wide query straight into cold discovery. Re-checking does not penalise honest pagination: a cursor `query` minted for a query that already cleared page 1 carries the same window, so the span layer re-passes, and a later page's cold window is bounded by the dynamic cutoff (§4.3) — its discovered file set is a subset of page 1's, so the cost estimate cannot grow past the page-1 verdict.
 
 ### 2.4 Trace blob — lazy endpoint
 
@@ -546,6 +546,7 @@ RFC 7807 Problem Details for actual errors (parameter validation, internal, down
 | 400 | Query parameter validation failed. |
 | 400 | Wide query over `PROFILER_WIDE_RANGE_LIMIT` with no narrowing filter (§2.3.2, span layer). |
 | 400 | Estimated scan over `PROFILER_MAX_SCAN_FILES` or `PROFILER_MAX_SCAN_BYTES` (§2.3.2, cost layer). |
+| 400 | `/pods` window over `PROFILER_MAX_PODS_RANGE` (§2.7). |
 | 404 | PK not found, or `trace_blob = NULL` (blob endpoint). |
 | 503 | `query` itself is not Ready (e.g., DNS discovery uninitialized). |
 | 504 | All replicas AND S3 LIST timed out — no data available at all. |
@@ -579,6 +580,7 @@ The span-layer rejection omits the estimate members — it fires before the LIST
 | `PROFILER_S3_LIST_CONCURRENCY` | `16` | Parallel S3 LIST cap (§5.2). |
 | `PROFILER_CURSOR_TTL` | `15m` | Validity of a `/calls` pagination cursor (§2.3.1). |
 | `PROFILER_WIDE_RANGE_LIMIT` | `6h` | Span above which `/calls` requires a narrowing filter (§2.3.2). |
+| `PROFILER_MAX_PODS_RANGE` | `8784h` (366 d) | Span above which `/pods` is rejected with `400`; `/pods` lists one S3 prefix per UTC day and has no narrowing filter (§2.7). |
 | `PROFILER_MAX_SCAN_FILES` | `10000` | Candidate-object ceiling for a `/calls` scan; over it, `400` (§2.3.2). |
 | `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling for a `/calls` scan; over it, `400` (§2.3.2). |
 | `PROFILER_EXTERNAL_API_PORT` | `8080` | Bind for `/api/v1/*`. |

@@ -5,7 +5,10 @@
 // fans out to the collector replicas discovered through the headless Service.
 package query
 
-import "time"
+import (
+	"net/url"
+	"time"
+)
 
 // Config carries the query-service knobs of 02-read-contract.md §9. Zero
 // values fall back to the contract defaults via Normalize; env parsing
@@ -17,6 +20,10 @@ type Config struct {
 	CursorTTL time.Duration
 	// WideRangeLimit is the §2.3.2 span layer (PROFILER_WIDE_RANGE_LIMIT).
 	WideRangeLimit time.Duration
+	// PodsRangeLimit bounds the /pods window (PROFILER_MAX_PODS_RANGE): /pods
+	// has no file-pruning filter and lists one S3 prefix per UTC day, so it
+	// needs its own, more generous span guard than /calls (PR 708 review #3).
+	PodsRangeLimit time.Duration
 	// MaxScanFiles / MaxScanBytes are the §2.3.2 cost layer
 	// (PROFILER_MAX_SCAN_FILES / PROFILER_MAX_SCAN_BYTES).
 	MaxScanFiles int
@@ -63,6 +70,9 @@ func (c Config) Normalize() Config {
 	if c.WideRangeLimit <= 0 {
 		c.WideRangeLimit = 6 * time.Hour
 	}
+	if c.PodsRangeLimit <= 0 {
+		c.PodsRangeLimit = 366 * 24 * time.Hour
+	}
 	if c.MaxScanFiles <= 0 {
 		c.MaxScanFiles = 10_000
 	}
@@ -87,5 +97,21 @@ func (c Config) Normalize() Config {
 	if c.OverlapMargin <= 0 {
 		c.OverlapMargin = 5 * time.Minute
 	}
+	c.DumpsCollectorURL = safeDumpsCollectorURL(c.DumpsCollectorURL)
 	return c
+}
+
+// safeDumpsCollectorURL keeps the dumps-collector base only when it is an
+// absolute http(s) URL. Anything else — a javascript: scheme, a relative
+// value, junk — disables the Pods Info link-out rather than letting /config
+// echo a value the UI would turn into a clickable href (PR 708 review #10).
+func safeDumpsCollectorURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	return raw
 }

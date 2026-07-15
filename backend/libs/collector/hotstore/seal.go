@@ -612,6 +612,8 @@ func (s *Store) resolveBigValues(ctx context.Context, pr *PodRestart, rows []sea
 	}
 	values := pr.readBigValues(ctx, refs)
 	var lost int64
+	lostCalls := 0
+	lostSegs := map[segKey]struct{}{}
 	for i := range rows {
 		row := &rows[i]
 		if row.truncated != "" || len(row.bigRefs) == 0 {
@@ -624,12 +626,12 @@ func (s *Store) resolveBigValues(ctx context.Context, pr *PodRestart, rows []sea
 				resolved[ref.String()] = v
 			} else {
 				missing++
+				lostSegs[segKey{ref.Stream, ref.Seq}] = struct{}{}
 			}
 		}
 		if missing > 0 {
 			lost += int64(missing)
-			log.Warning(ctx, "seal: call %v/%d/%d/%d lost %d big-parameter values to eviction; sealing it truncated",
-				pr.Key, row.idx.TraceFileIndex, row.idx.BufferOffset, row.idx.RecordIndex, missing)
+			lostCalls++
 			row.truncate(TruncDiskBudget)
 			continue
 		}
@@ -639,6 +641,14 @@ func (s *Store) resolveBigValues(ctx context.Context, pr *PodRestart, rows []sea
 	}
 	if lost > 0 {
 		s.countLostBigValues(lost)
+		// One summary per seal pass, not one Warning per affected call: a single
+		// evicted or torn value segment can starve thousands of calls, which
+		// used to emit thousands of identical lines (PR 708 review #5). The
+		// per-segment cause — unreadable, torn tail, or undecodable — is logged
+		// once each by readBigValues above; this line reports only the blast
+		// radius, and no longer blames every loss on eviction.
+		log.Warning(ctx, "seal: %v sealed %d call(s) truncated: %d unresolved big-parameter value(s) across %d segment(s); their big_params_json is dropped",
+			pr.Key, lostCalls, lost, len(lostSegs))
 	}
 }
 

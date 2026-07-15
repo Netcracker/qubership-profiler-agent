@@ -18,6 +18,19 @@ import type { CallsSearchState } from '../url/search-params';
 // route — heap dumps need a listing/handle-discovery step that dumps-
 // collector does not expose, so they stay out of this link-out (PR 708
 // review #18).
+// isHttpUrl gates the dump link-out on an absolute http(s) base. The backend
+// already drops anything else from /api/v1/config (PR 708 review #10); this is
+// the client-side backstop so a tampered config can never turn into a
+// clickable javascript: href.
+function isHttpUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function dumpDownloadUrl(dumpsCollectorUrl: string, type: 'td' | 'top', row: PodRow): string {
   const sp = new URLSearchParams({
     dateFrom: String(row.timeMinMs),
@@ -72,6 +85,7 @@ export function PodsPage() {
   const { state } = usePods(search.fromMs, search.toMs);
   const configState = useConfig();
   const dumpsCollectorUrl = configState.kind === 'ready' ? configState.config.dumps_collector_url : '';
+  const dumpsEnabled = isHttpUrl(dumpsCollectorUrl);
 
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
   const apply = (): void =>
@@ -85,11 +99,18 @@ export function PodsPage() {
 
   const rows = useMemo<PodRow[]>(() => {
     if (state.kind !== 'ready') return [];
+    // A selection filters the table; with none, every pod-restart shows. The
+    // service and pod selections are disjoint by construction (the rail routes
+    // a pod under a fully selected service into `services`, a lone pod into
+    // `pods`), so a row survives when its service is selected or the pod tuple
+    // itself is selected (PR 708 review #6).
+    const filterActive = search.services.length > 0 || search.pods.length > 0;
     const out: PodRow[] = [];
     for (const ns of state.namespaces) {
       for (const svc of ns.services) {
-        if (search.services.length > 0 && !search.services.includes(svc.key)) continue;
+        const svcSelected = search.services.includes(svc.key);
         for (const pod of svc.pods) {
+          if (filterActive && !svcSelected && !search.pods.includes(pod.tuple)) continue;
           for (const restart of pod.restarts) {
             out.push({
               key: `${pod.tuple}@${restart.restart_time_ms}`,
@@ -106,7 +127,7 @@ export function PodsPage() {
       }
     }
     return out;
-  }, [state, search.services]);
+  }, [state, search.services, search.pods]);
 
   return (
     <Layout style={{ flex: 1, minHeight: 0 }}>
@@ -176,7 +197,7 @@ export function PodsPage() {
                 // Only rendered when dumps-collector is configured for this
                 // deployment (values.yaml query.dumpsCollectorUrl); otherwise
                 // the link-out has nowhere to point (PR 708 review #18).
-                ...(dumpsCollectorUrl
+                ...(dumpsEnabled
                   ? [
                       {
                         title: 'Dumps',
