@@ -99,3 +99,58 @@ func TestAppendDataRefusedUnderBackpressure(t *testing.T) {
 	require.Error(t, err, "the gate refuses before writing")
 	assert.Zero(t, l.IngestStatsSnapshot().BytesRead, "nothing was persisted for the refused payload")
 }
+
+// TestGcStreamIsAcceptedAndDiscarded pins the pre-v3.1.4 compatibility fix:
+// registering the legacy "gc" stream must not error (the agent opens it
+// unconditionally, regardless of GC-log harvesting), and its payload is
+// counted as read but never persisted anywhere.
+func TestGcStreamIsAcceptedAndDiscarded(t *testing.T) {
+	ctx := context.Background()
+	store, err := hotstore.Open(hotstore.Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	l := NewListener(store)
+	pod := testPod(t)
+	require.NoError(t, l.RegisterPod(pod))
+
+	handle, err := common.RandomUuidChecked()
+	require.NoError(t, err)
+	require.NoError(t, l.RegisterStream(ctx, pod, handle, model.StreamGc, 0, 0, 0, 0, 0),
+		"the collector must register the gc stream instead of refusing it")
+
+	n, err := l.AppendData(ctx, pod, handle, "gc log bytes nobody wants")
+	require.NoError(t, err, "gc payload must be discarded, not rejected")
+	assert.Equal(t, len("gc log bytes nobody wants"), n)
+	assert.EqualValues(t, len("gc log bytes nobody wants"), l.IngestStatsSnapshot().BytesRead,
+		"the bytes are counted as read even though nothing is stored")
+}
+
+// TestGcStreamDoesNotBreakSiblingStreams reproduces the real-world failure:
+// a pre-v3.1.4 agent opens gc alongside its real data streams on the same
+// connection. Before the fix, registering an unknown stream tore down the
+// whole pod-restart, so the sibling stream never got a chance either.
+func TestGcStreamDoesNotBreakSiblingStreams(t *testing.T) {
+	ctx := context.Background()
+	store, err := hotstore.Open(hotstore.Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	l := NewListener(store)
+	pod := testPod(t)
+	require.NoError(t, l.RegisterPod(pod))
+
+	gcHandle, err := common.RandomUuidChecked()
+	require.NoError(t, err)
+	require.NoError(t, l.RegisterStream(ctx, pod, gcHandle, model.StreamGc, 0, 0, 0, 0, 0))
+
+	callsHandle, err := common.RandomUuidChecked()
+	require.NoError(t, err)
+	require.NoError(t, l.RegisterStream(ctx, pod, callsHandle, model.StreamCalls, 0, 0, 0, 0, 0))
+
+	payload := string(wire.CallsStream(1_700_000_000_000, []int64{0}))
+	_, err = l.AppendData(ctx, pod, callsHandle, payload)
+	require.NoError(t, err, "a sibling stream must keep working once gc is registered")
+
+	// Finalize synchronously (mirrors a real disconnect) so the calls
+	// decoder goroutine has drained before TempDir's cleanup runs.
+	l.PodDisconnected(ctx, pod)
+}

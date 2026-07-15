@@ -5,10 +5,15 @@
 // side of backend/docs/design/01-write-contract.md §3-§4, the recovery sequence
 // of 03-lifecycle.md §3, the seal pass of 01 §5-§6 that materializes the CallV2
 // parquet files locally, and the Uploader that makes them durable in S3 along
-// with the per-pod-restart snapshot objects (01 §3.6, §6.2).
+// with the per-day pods/v1 identity manifests (01 §3.6, §6.2).
 package hotstore
 
-import "time"
+import (
+	"time"
+
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
+	"github.com/pkg/errors"
+)
 
 // Config carries the write-path knobs from 01-write-contract.md §9. Zero
 // values fall back to the contract defaults via Normalize.
@@ -22,8 +27,10 @@ type Config struct {
 	DictFsyncRecords  int
 	DictFsyncInterval time.Duration
 	// DurationThresholds split clean calls into retention classes
-	// (PROFILER_DURATION_THRESHOLDS, default 100ms,1s; see §6.4).
-	DurationThresholds [2]time.Duration
+	// (PROFILER_DURATION_THRESHOLDS, default 100ms,1s,10s; §6.4). One value
+	// per finite clean-tier bound of the model.RetentionTiers table; nil
+	// falls back to the table defaults.
+	DurationThresholds []time.Duration
 	// TimeBucketGrace is the wait past a bucket's end before it seals
 	// (PROFILER_TIME_BUCKET_GRACE, default 30s; §6.1).
 	TimeBucketGrace time.Duration
@@ -108,11 +115,8 @@ func (c Config) Normalize() Config {
 	if c.DictFsyncInterval <= 0 {
 		c.DictFsyncInterval = 100 * time.Millisecond
 	}
-	if c.DurationThresholds[0] <= 0 {
-		c.DurationThresholds[0] = 100 * time.Millisecond
-	}
-	if c.DurationThresholds[1] <= 0 {
-		c.DurationThresholds[1] = time.Second
+	if len(c.DurationThresholds) == 0 {
+		c.DurationThresholds = model.DefaultDurationThresholds()
 	}
 	if c.TimeBucketGrace <= 0 {
 		c.TimeBucketGrace = 30 * time.Second
@@ -166,27 +170,47 @@ func (c Config) Normalize() Config {
 }
 
 // Retention classes derived at write time from (duration, error_flag)
-// (01-write-contract.md §6.4). The corrupted class is reserved and never
-// populated in the MVP (§5.6).
+// (01-write-contract.md §6.4). Aliases of the shared model constants so the
+// write side, the read pruning, and maintenance all key off the one tier
+// table (№10). The corrupted class is reserved and never populated in the
+// MVP (§5.6).
 const (
-	RetentionShortClean  = "short_clean"
-	RetentionNormalClean = "normal_clean"
-	RetentionLongClean   = "long_clean"
-	RetentionAnyError    = "any_error"
+	RetentionShortClean  = model.RetentionShortClean
+	RetentionNormalClean = model.RetentionNormalClean
+	RetentionLongClean   = model.RetentionLongClean
+	RetentionHugeClean   = model.RetentionHugeClean
+	RetentionAnyError    = model.RetentionAnyError
 )
 
-// RetentionClass classifies one call for parquet sharding and TTL.
+// RetentionClass classifies one call for parquet sharding and TTL, walking
+// the shared tier table with this deployment's thresholds.
 func (c Config) RetentionClass(duration time.Duration, errorFlag bool) string {
-	switch {
-	case errorFlag:
-		return RetentionAnyError
-	case duration < c.DurationThresholds[0]:
-		return RetentionShortClean
-	case duration < c.DurationThresholds[1]:
-		return RetentionNormalClean
-	default:
-		return RetentionLongClean
+	return model.ClassifyDuration(duration, errorFlag, c.DurationThresholds)
+}
+
+// Validate rejects a configuration the storage layout cannot serve. The time
+// bucket must divide the hour: rows are filed under the hour prefix of their
+// bucket start, and cold discovery walks whole hours (02 §5.1) on the
+// premise that a bucket never spans an hour boundary — a 7-minute bucket
+// would seal files that no hour walk ever lists (№28).
+func (c Config) Validate() error {
+	bucket := c.TimeBucket
+	if bucket <= 0 {
+		return nil // Normalize supplies the default
 	}
+	if bucket > time.Hour || time.Hour%bucket != 0 {
+		return errors.Errorf("PROFILER_TIME_BUCKET %s must divide the hour (e.g. 1m, 5m, 15m, 1h)", bucket)
+	}
+	if want := len(model.CleanTiers()) - 1; len(c.DurationThresholds) != 0 && len(c.DurationThresholds) != want {
+		return errors.Errorf("PROFILER_DURATION_THRESHOLDS needs exactly %d ascending values, got %d",
+			want, len(c.DurationThresholds))
+	}
+	for i := 1; i < len(c.DurationThresholds); i++ {
+		if c.DurationThresholds[i] <= c.DurationThresholds[i-1] {
+			return errors.Errorf("PROFILER_DURATION_THRESHOLDS must ascend: %v", c.DurationThresholds)
+		}
+	}
+	return nil
 }
 
 // Bucket maps a call start time to its partition index,

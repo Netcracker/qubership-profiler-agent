@@ -7,3 +7,4 @@ metadata:
 data:
   s3-endpoint: {{ include "profiler-backend.s3Endpoint" . | quote }}
   s3-bucket: {{ .Values.s3.bucket | quote }}
+  s3-path-prefix: {{ .Values.s3.pathPrefix | quote }}

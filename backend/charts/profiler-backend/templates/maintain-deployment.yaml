@@ -18,6 +18,8 @@ spec:
       labels:
         {{- include "profiler-backend.labels" (dict "root" . "component" "maintain") | nindent 8 }}
     spec:
+      securityContext:
+        {{- include "profiler-backend.podSecurityContext" (dict "root" . "component" "maintain") | nindent 8 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -27,6 +29,8 @@ spec:
           image: {{ include "profiler-backend.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["maintain"]
+          securityContext:
+            {{- include "profiler-backend.containerSecurityContext" (dict "root" . "component" "maintain") | nindent 12 }}
           ports:
             - name: metrics
               containerPort: {{ .Values.maintain.metricsPort }}
@@ -45,8 +49,10 @@ spec:
             periodSeconds: 30
           volumeMounts:
             {{- include "profiler-backend.s3CredentialMount" . | nindent 12 }}
+            {{- include "profiler-backend.s3TlsMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.maintain.resources | nindent 12 }}
       volumes:
         {{- include "profiler-backend.s3CredentialVolume" . | nindent 8 }}
+        {{- include "profiler-backend.s3TlsVolume" . | nindent 8 }}
 {{- end }}

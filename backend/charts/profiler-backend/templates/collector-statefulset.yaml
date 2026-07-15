@@ -21,6 +21,8 @@ spec:
       # Covers the 03-lifecycle.md §5.4 shutdown budget: drain grace +
       # per-connection close + pending-upload bound (~95 s).
       terminationGracePeriodSeconds: {{ .Values.collector.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "profiler-backend.podSecurityContext" (dict "root" . "component" "collector") | nindent 8 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -30,6 +32,8 @@ spec:
           image: {{ include "profiler-backend.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["collect"]
+          securityContext:
+            {{- include "profiler-backend.containerSecurityContext" (dict "root" . "component" "collector") | nindent 12 }}
           ports:
             - name: agent
               containerPort: {{ .Values.collector.agentPort }}
@@ -54,17 +58,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: S3_ENDPOINT
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "profiler-backend.fullname" . }}-config
-                  key: s3-endpoint
-            - name: S3_BUCKET
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "profiler-backend.fullname" . }}-config
-                  key: s3-bucket
+            {{- include "profiler-backend.s3ConfigEnv" . | nindent 12 }}
             {{- include "profiler-backend.s3CredentialEnv" . | nindent 12 }}
+            {{- include "profiler-backend.s3TlsEnv" . | nindent 12 }}
             {{- include "profiler-backend.extraEnv" .Values.collector.env | nindent 12 }}
           # Readiness follows the 03 §2 state machine: 503 through
           # LOADING/RECOVERY/DRAINING, 200 only at READY. Agent traffic and
@@ -91,10 +87,12 @@ spec:
             - name: data
               mountPath: /data
             {{- include "profiler-backend.s3CredentialMount" . | nindent 12 }}
+            {{- include "profiler-backend.s3TlsMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.collector.resources | nindent 12 }}
       volumes:
         {{- include "profiler-backend.s3CredentialVolume" . | nindent 8 }}
+        {{- include "profiler-backend.s3TlsVolume" . | nindent 8 }}
   volumeClaimTemplates:
     - metadata:
         name: data

@@ -36,12 +36,12 @@
 //
 //	make -C backend smoke-realagent
 //
-// The harness that builds and runs the Java agent lives at
-// scripts/e2e-realagent/run-agent.sh; this test shells out to it.
+// Everything here is plain Go (os/exec driving gradlew/gradlew.bat, then
+// java) — no shell script — so it runs the same way on Windows as on
+// Linux/macOS, needing only a JDK 17+ and the repo's Gradle wrapper.
 package smoke_realagent
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,6 +50,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,13 +60,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
 
 var (
 	queryURL    = envOr("REALAGENT_QUERY_URL", "http://localhost:8080")
@@ -82,8 +77,8 @@ var (
 // test-app/src/main/java/com/netcracker/profilerTest/testapp/AdversarialMain.java.
 
 const (
-	cjk    = "語"     // 語  — one UTF-16 code unit >= 0x8000
-	hangul = "한"     // 한  — one UTF-16 code unit >= 0x8000
+	cjk    = "語"          // 語  — one UTF-16 code unit >= 0x8000
+	hangul = "한"          // 한  — one UTF-16 code unit >= 0x8000
 	emoji  = "\U0001F525" // 🔥  — non-BMP, surrogate pair (both halves >= 0x8000)
 	glyphs = cjk + hangul + emoji
 
@@ -104,56 +99,93 @@ const (
 	minAdversarialDurationMs = 1000
 )
 
-// --- /api/v1/calls wire shape (subset) --------------------------------------
-
-type callRow struct {
-	PK         querymodel.PK       `json:"pk"`
-	TsMs       int64               `json:"ts_ms"`
-	DurationMs int32               `json:"duration_ms"`
-	Method     string              `json:"method"`
-	ThreadName string              `json:"thread_name"`
-	Params     map[string][]string `json:"params"`
-}
-
-type callsPage struct {
-	Calls          []callRow `json:"calls"`
-	Partial        bool      `json:"partial"`
-	PartialReasons []string  `json:"partial_reasons"`
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	if dir := os.Getenv("REALAGENT_REPO_ROOT"); dir != "" {
-		return dir
+// gradlewCommand builds the OS-appropriate invocation of the repo's Gradle
+// wrapper. Windows can't exec a .bat file directly via CreateProcess the way
+// Unix execs a script with a shebang, so route it through cmd.exe /C the same
+// way a Windows shell would.
+func gradlewCommand(root string, args ...string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		cmdArgs := append([]string{"/C", filepath.Join(root, "gradlew.bat")}, args...)
+		return exec.Command("cmd", cmdArgs...) //nolint:gosec // args are fixed Gradle task names, not user input
 	}
-	_, self, _, ok := runtime.Caller(0)
-	require.True(t, ok, "cannot locate the test source to derive the repo root")
-	// libs/tests/smoke_realagent → backend → repo root
-	return filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(self)))))
+	return exec.Command(filepath.Join(root, "gradlew"), args...) //nolint:gosec // args are fixed Gradle task names, not user input
+}
+
+// resolveTestAppJar finds the newest qubership-profiler-test-app-*.jar under
+// dir, skipping the -sources/-javadoc side jars. The jar carries a build
+// version in its name, so it must be resolved by glob rather than a pinned
+// path.
+func resolveTestAppJar(dir string) (string, error) {
+	matches, err := filepath.Glob(filepath.Join(dir, "qubership-profiler-test-app-*.jar"))
+	if err != nil {
+		return "", err
+	}
+	var candidates []string
+	for _, m := range matches {
+		if strings.HasSuffix(m, "-sources.jar") || strings.HasSuffix(m, "-javadoc.jar") {
+			continue
+		}
+		candidates = append(candidates, m)
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no test-app jar found under %s", dir)
+	}
+	sort.Strings(candidates)
+	return candidates[len(candidates)-1], nil
+}
+
+// buildHeadAgent builds the real agent + the adversarial test-app from
+// whatever is checked out at HEAD (unless SKIP_BUILD=1 reuses an
+// already-built profiler-home + jar) and returns the paths runJavaAgent needs.
+func buildHeadAgent(t *testing.T) (agentJar, profilerHome, testAppJar string) {
+	t.Helper()
+	root := repoRoot(t)
+	profilerHome = filepath.Join(root, "installer-zip-test", "build", "profiler-home")
+	agentJar = filepath.Join(profilerHome, "lib", "qubership-profiler-agent.jar")
+
+	if os.Getenv("SKIP_BUILD") != "1" {
+		t.Logf("building the agent (installer zip) and the test-app jar...")
+		// extractInstaller unpacks the installer zip into
+		// installer-zip-test/build/profiler-home, which is exactly the
+		// lib/ + config/ layout a deployed agent uses.
+		cmd := gradlewCommand(root, "--quiet", ":installer-zip-test:extractInstaller", ":test-app:jar")
+		cmd.Dir = root
+		cmd.Stdout = testWriter{t}
+		cmd.Stderr = testWriter{t}
+		require.NoError(t, cmd.Run(), "gradlew must build the agent and the test-app")
+	}
+
+	require.FileExists(t, agentJar, "run without SKIP_BUILD=1, or build it first")
+
+	jar, err := resolveTestAppJar(filepath.Join(root, "test-app", "build", "libs"))
+	require.NoError(t, err, "test-app jar must exist under test-app/build/libs")
+	testAppJar = jar
+	return
 }
 
 // runAgent builds the real agent + the adversarial test-app and runs it under
 // -javaagent so it streams to the collector at agentAddr.
 func runAgent(t *testing.T) {
 	t.Helper()
-	root := repoRoot(t)
-	script := filepath.Join(root, "scripts", "e2e-realagent", "run-agent.sh")
-	require.FileExists(t, script, "harness script must exist")
+	agentJar, profilerHome, testAppJar := buildHeadAgent(t)
 
 	host, port, err := splitHostPort(agentAddr)
 	require.NoError(t, err)
 
-	cmd := exec.Command("bash", script)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(),
-		"COLLECTOR_HOST="+host,
-		"COLLECTOR_PORT="+port,
-		"CLOUD_NAMESPACE="+namespace,
-		"MICROSERVICE_NAME="+service,
-	)
-	cmd.Stdout = testWriter{t}
-	cmd.Stderr = testWriter{t}
-	require.NoError(t, cmd.Run(), "run-agent.sh must build and run the adversarial workload")
+	root := repoRoot(t)
+	config := filepath.Join(root, "scripts", "e2e-realagent", "config", "_config.xml")
+
+	runJavaAgent(t, javaAgentRun{
+		AgentJar:     agentJar,
+		ProfilerHome: profilerHome,
+		Config:       config,
+		Host:         host,
+		Port:         port,
+		Namespace:    namespace,
+		Service:      service,
+		Classpath:    testAppJar,
+		MainClass:    "com.netcracker.profilerTest.testapp.AdversarialMain",
+	})
 }
 
 func TestRealAgentAdversarialRoundTrip(t *testing.T) {
@@ -170,7 +202,7 @@ func TestRealAgentAdversarialRoundTrip(t *testing.T) {
 
 	// The agent flushes on graceful shutdown; give the collector a moment to
 	// index, then poll until our namespace shows the two adversarial calls.
-	rows := pollNamespaceCalls(t, fromMs, toMs, 2, 2*time.Minute)
+	rows := pollNamespaceCalls(t, queryURL, namespace, service, fromMs, toMs, 2, 2*time.Minute)
 
 	// --- Locate the two adversarial calls. The /calls list rows do not carry
 	// params (those live in /tree), and bug B corrupts Call B's *method name*,
@@ -278,44 +310,6 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
-// pollNamespaceCalls queries /api/v1/calls for the window and keeps only the
-// rows produced by our agent (matched by pod namespace), until at least `want`
-// appear.
-func pollNamespaceCalls(t *testing.T, fromMs, toMs int64, want int, timeout time.Duration) []callRow {
-	t.Helper()
-	var mine []callRow
-	require.Eventually(t, func() bool {
-		q := url.Values{}
-		q.Set("from", fmt.Sprint(fromMs))
-		q.Set("to", fmt.Sprint(toMs))
-		q.Set("limit", "1000")
-		resp, err := http.Get(queryURL + "/api/v1/calls?" + q.Encode())
-		if err != nil {
-			t.Logf("/calls: %s", err)
-			return false
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			t.Logf("/calls: %d %s", resp.StatusCode, body)
-			return false
-		}
-		var page callsPage
-		if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
-			t.Logf("/calls decode: %s", err)
-			return false
-		}
-		mine = mine[:0]
-		for _, r := range page.Calls {
-			if r.PK.PodNamespace == namespace && r.PK.PodService == service {
-				mine = append(mine, r)
-			}
-		}
-		return len(mine) >= want
-	}, timeout, 2*time.Second, "namespace %q must show >= %d calls in [%d, %d]", namespace, want, fromMs, toMs)
-	return mine
-}
-
 func fetchTree(t *testing.T, pk querymodel.PK) *calltree.Tree {
 	t.Helper()
 	u := queryURL + "/api/v1/calls/" + url.PathEscape(pk.PathString()) + "/tree"
@@ -329,33 +323,4 @@ func fetchTree(t *testing.T, pk querymodel.PK) *calltree.Tree {
 	tree, _, err := calltree.Decode(body)
 	require.NoError(t, err)
 	return tree
-}
-
-func waitReady(t *testing.T, u string, timeout time.Duration) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(u)
-		if err != nil {
-			return false
-		}
-		defer func() { _ = resp.Body.Close() }()
-		return resp.StatusCode == http.StatusOK
-	}, timeout, 500*time.Millisecond, "service at %s must report READY", u)
-}
-
-func splitHostPort(addr string) (string, string, error) {
-	for i := len(addr) - 1; i >= 0; i-- {
-		if addr[i] == ':' {
-			return addr[:i], addr[i+1:], nil
-		}
-	}
-	return "", "", fmt.Errorf("addr %q is not host:port", addr)
-}
-
-// testWriter pipes the harness output into the test log.
-type testWriter struct{ t *testing.T }
-
-func (w testWriter) Write(p []byte) (int, error) {
-	w.t.Logf("[run-agent] %s", string(p))
-	return len(p), nil
 }

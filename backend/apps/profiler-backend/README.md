@@ -43,6 +43,7 @@ Everything comes from the environment. The authoritative catalogues are
 | `PROFILER_LOG_LEVEL` | `info` | Log level. |
 | `S3_ENDPOINT` | — (required) | S3/MinIO endpoint URL; an `https://` scheme enables TLS. |
 | `S3_BUCKET` | — (required) | Target bucket, created if missing. |
+| `S3_PATH_PREFIX` | (empty) | Per-deployment key prefix applied to every object the backend writes and reads (01 §7), so several deployments can share one bucket. Set the same value on all subcommands. |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials from the environment (dev, compose). |
 | `S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE` | — | Path to a file holding the credential (k8s mounts the Secret as a volume); trailing whitespace is trimmed. Set exactly one source per credential. |
 | `PROFILER_SHUTDOWN_DRAIN_GRACE` | `30s` | DRAINING hold after SIGTERM (`03` §5.1, §7.3). |
@@ -58,18 +59,15 @@ Everything comes from the environment. The authoritative catalogues are
 | `PROFILER_TIME_BUCKET_GRACE` | `30s` | Wait after bucket end before sealing. |
 | `PROFILER_DICT_FSYNC_RECORDS` | `256` | Dictionary WAL fsync trigger by record count. |
 | `PROFILER_DICT_FSYNC_INTERVAL` | `100ms` | Dictionary WAL fsync trigger by time. |
-| `PROFILER_DURATION_THRESHOLDS` | `100ms,1s` | Retention-class boundaries. |
+| `PROFILER_DURATION_THRESHOLDS` | `100ms,1s,10s` | Clean-tier boundaries of the retention tier table (01 §6.4). Unset keeps the table defaults; set the same value on `query`. |
 | `PROFILER_SEGMENT_ROTATION_SIZE` | `4MB` | Segment size requested from the agent. |
 | `PROFILER_SEAL_CHECK_INTERVAL` | `15s` | Seal-loop poll cadence (implementation knob). |
 | `PROFILER_UPLOAD_CHECK_INTERVAL` | `30s` | Upload-loop poll cadence (implementation knob). |
 | `STATEFULSET_ORDINAL` | `$HOSTNAME` | Replica name in sealed-file names and S3 keys. |
 
 Not wired yet (their features belong to later Stage 1 tasks):
-`PROFILER_PARQUET_MAX_SIZE`, `PROFILER_SEAL_CONCURRENCY`,
-`PROFILER_MEM_BUDGET`, `PROFILER_CHUNKS_STAGING_MAX_BYTES`,
-`PROFILER_IDLE_ACCUMULATOR_TIMEOUT`, `PROFILER_HOT_RETENTION`,
-`PROFILER_STARTUP_LOCK_WAIT`, the retention TTLs, and `S3_PATH_PREFIX`
-(the seal pass bakes `parquet/v1` into every key).
+`PROFILER_PARQUET_MAX_SIZE`, `PROFILER_IDLE_ACCUMULATOR_TIMEOUT`, and
+`PROFILER_STARTUP_LOCK_WAIT`.
 
 ### `query`
 
@@ -85,6 +83,7 @@ Not wired yet (their features belong to later Stage 1 tasks):
 | `PROFILER_WIDE_RANGE_LIMIT` | `6h` | Span above which `/calls` requires a narrowing filter. |
 | `PROFILER_MAX_SCAN_FILES` | `10000` | Candidate-object ceiling per `/calls` scan. |
 | `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling per `/calls` scan. |
+| `PROFILER_DURATION_THRESHOLDS` | `100ms,1s,10s` | Must mirror the collector's value: the cold class pruning derives from the same tier table (01 §6.4). |
 
 ## Lifecycle
 

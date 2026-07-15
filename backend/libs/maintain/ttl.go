@@ -8,11 +8,11 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 )
 
-// snapshotRoots are the per-pod-restart snapshot families next to the
-// parquet data (01-write-contract.md §3.6): all three expire on
-// SnapshotTTL, which must exceed the longest parquet class TTL so a
-// readable row never outlives its dictionary.
-var snapshotRoots = []string{"dictionaries/v1", "pods/v1", "suspend/v1"}
+// podsManifestRoot is the pods/v1 identity-manifest family next to the
+// parquet data (01-write-contract.md §3.6) — the only snapshot family left:
+// the dictionary and suspend snapshots are gone since the parquet rows
+// became self-contained (№3, №23).
+const podsManifestRoot = "pods/v1"
 
 // expireParquet deletes the class's objects whose newest possible row is
 // older than the class TTL, judged by the key's timeMax stamp alone — no
@@ -44,43 +44,41 @@ func (j *Job) expireParquet(ctx context.Context, class string, files []parquetOb
 	return kept
 }
 
-// expireSnapshots deletes dictionary, pods-manifest, and suspend objects
-// whose UTC day — the only time the key carries (01 §3.6) — ended more than
-// SnapshotTTL ago. Aging from the day's end keeps every object through its
-// full TTL regardless of when within the day it was written.
-func (j *Job) expireSnapshots(ctx context.Context, now time.Time, stats *Stats) {
-	for _, root := range snapshotRoots {
-		objects, err := j.store.List(ctx, root+"/")
-		if err != nil {
-			stats.Errors++
-			log.Error(ctx, err, "maintain: cannot list %s", root)
+// expirePodsManifests deletes pods/v1 manifests whose UTC day — the only
+// time the key carries (01 §3.6) — ended more than PodsManifestTTL ago.
+// Aging from the day's end keeps every object through its full TTL
+// regardless of when within the day it was written.
+func (j *Job) expirePodsManifests(ctx context.Context, now time.Time, stats *Stats) {
+	objects, err := j.store.List(ctx, podsManifestRoot+"/")
+	if err != nil {
+		stats.Errors++
+		log.Error(ctx, err, "maintain: cannot list %s", podsManifestRoot)
+		return
+	}
+	for _, obj := range objects {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		dayEnd, ok := manifestDayEnd(podsManifestRoot, obj.Key)
+		if !ok {
+			continue // foreign object under the prefix
+		}
+		if now.Sub(dayEnd) <= j.cfg.PodsManifestTTL {
 			continue
 		}
-		for _, obj := range objects {
-			if err := ctx.Err(); err != nil {
-				return
-			}
-			dayEnd, ok := snapshotDayEnd(root, obj.Key)
-			if !ok {
-				continue // foreign object under the prefix
-			}
-			if now.Sub(dayEnd) <= j.cfg.SnapshotTTL {
-				continue
-			}
-			if err := j.store.Delete(ctx, obj.Key); err != nil {
-				stats.Errors++
-				log.Error(ctx, err, "maintain: cannot delete expired snapshot %s", obj.Key)
-				continue
-			}
-			stats.TTLSnapshotsDeleted++
-			log.Info(ctx, "maintain: deleted expired snapshot %s", obj.Key)
+		if err := j.store.Delete(ctx, obj.Key); err != nil {
+			stats.Errors++
+			log.Error(ctx, err, "maintain: cannot delete expired manifest %s", obj.Key)
+			continue
 		}
+		stats.TTLManifestsDeleted++
+		log.Info(ctx, "maintain: deleted expired manifest %s", obj.Key)
 	}
 }
 
-// snapshotDayEnd parses `<root>/<yyyy>/<mm>/<dd>/<name>.json` and returns the
+// manifestDayEnd parses `<root>/<yyyy>/<mm>/<dd>/<name>.json` and returns the
 // end of the key's UTC day.
-func snapshotDayEnd(root, key string) (time.Time, bool) {
+func manifestDayEnd(root, key string) (time.Time, bool) {
 	rest, ok := strings.CutPrefix(key, root+"/")
 	if !ok {
 		return time.Time{}, false

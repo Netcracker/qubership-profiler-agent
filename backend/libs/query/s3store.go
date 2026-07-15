@@ -14,32 +14,41 @@ import (
 // surface: prefix LISTs for discovery (02 §5.1), ranged random access for
 // projected parquet scans, and whole-object GETs for the pods/v1 manifests
 // (§2.7). A key deleted between the LIST and the read maps to
-// cold.ErrNotFound so discovery treats it as empty (§5.1).
+// cold.ErrNotFound so discovery treats it as empty (§5.1). The deployment's
+// S3_PATH_PREFIX is applied here, at the store boundary: LISTed keys come
+// back bucket-root-relative, so ParseKey and the rest of the read path never
+// see the prefix.
 type S3ObjectReader struct {
-	mc *s3.MinioClient
+	mc     *s3.MinioClient
+	prefix s3.KeyPrefix
 }
 
-// NewS3ObjectReader wraps a connected MinIO client.
-func NewS3ObjectReader(mc *s3.MinioClient) *S3ObjectReader {
-	return &S3ObjectReader{mc: mc}
+// NewS3ObjectReader wraps a connected MinIO client. pathPrefix is the raw
+// S3_PATH_PREFIX value; empty keeps the keys at the bucket root.
+func NewS3ObjectReader(mc *s3.MinioClient, pathPrefix string) *S3ObjectReader {
+	return &S3ObjectReader{mc: mc, prefix: s3.NewKeyPrefix(pathPrefix)}
 }
 
 var _ cold.ObjectStore = (*S3ObjectReader)(nil)
 
 func (r *S3ObjectReader) List(ctx context.Context, prefix string) ([]cold.ObjectInfo, error) {
-	objects, err := r.mc.ListObjectsWithPrefix(ctx, prefix)
+	objects, err := r.mc.ListObjectsWithPrefix(ctx, r.prefix.Apply(prefix))
 	if err != nil {
 		return nil, err
 	}
 	out := make([]cold.ObjectInfo, 0, len(objects))
 	for _, obj := range objects {
-		out = append(out, cold.ObjectInfo{Key: obj.Key, Size: obj.Size})
+		key, ok := r.prefix.Strip(obj.Key)
+		if !ok {
+			continue // cannot happen under an applied prefix; skip defensively
+		}
+		out = append(out, cold.ObjectInfo{Key: key, Size: obj.Size})
 	}
 	return out, nil
 }
 
 func (r *S3ObjectReader) Open(ctx context.Context, key string) (cold.Object, error) {
-	obj, err := r.mc.Client.GetObject(ctx, r.mc.Bucket(), key, minio.GetObjectOptions{})
+	obj, err := r.mc.Client.GetObject(ctx, r.mc.Bucket(), r.prefix.Apply(key), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, mapNotFound(err)
 	}
@@ -54,7 +63,7 @@ func (r *S3ObjectReader) Open(ctx context.Context, key string) (cold.Object, err
 }
 
 func (r *S3ObjectReader) Get(ctx context.Context, key string) ([]byte, error) {
-	obj, err := r.mc.Client.GetObject(ctx, r.mc.Bucket(), key, minio.GetObjectOptions{})
+	obj, err := r.mc.Client.GetObject(ctx, r.mc.Bucket(), r.prefix.Apply(key), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, mapNotFound(err)
 	}

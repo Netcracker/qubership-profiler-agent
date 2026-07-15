@@ -140,6 +140,18 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 			return nil
 		}), nil
 
+	case model.StreamGc:
+		// Pre-v3.1.4 agents open this stream unconditionally when streaming
+		// remotely (Dumper.java's gcOs), regardless of GC-log harvesting
+		// being enabled. GCDumper was removed in v3.1.4 (commit ac804ee3);
+		// GC-log collection now lives in diagtools, so there is nowhere to
+		// route these bytes in the new architecture. Register the stream so
+		// INIT_STREAM_V2 succeeds instead of tearing down the whole
+		// connection, but open neither a segment nor a decoder — write and
+		// finalize already no-op when both are nil, so the payload is
+		// silently discarded.
+		return &fileIngest{stream: streamType}, nil
+
 	default:
 		// The server validates stream names before registering (06 §4), so this
 		// is a programming error, not an agent one.

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
-	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
 )
 
@@ -32,9 +31,11 @@ type (
 	// refcounts stay pinned (01-write-contract.md §8).
 	PermanentUploadError struct{ Err error }
 
-	// Uploader drains parquet_local to S3 and writes the per-pod-restart
-	// snapshot objects (01-write-contract.md §3.6, §6.2; 03-lifecycle.md
-	// §3.8-§3.9). One instance per collector process; Pass is single-threaded.
+	// Uploader drains parquet_local to S3 and upserts the per-day pods/v1
+	// identity manifests (01-write-contract.md §3.6, §6.2; 03-lifecycle.md
+	// §3.8-§3.9). The dictionary and suspend snapshots are gone: sealed rows
+	// are self-contained (№3, №23). One instance per collector process; Pass
+	// is single-threaded.
 	Uploader struct {
 		store *Store
 		s3    ObjectStore
@@ -60,39 +61,10 @@ type (
 		QuarantinedFiles   int64
 		QuarantinedObjects int64
 		ManifestPuts       int64
-		SnapshotUploads    int64
 		SegmentsDeleted    int64
-		// RequeuedFiles / RequeuedSnapshots count the №2 quarantine re-tests:
-		// permanently-rejected uploads put back into their queues after the
-		// retest interval.
-		RequeuedFiles     int64
-		RequeuedSnapshots int64
-	}
-
-	// dictionarySnapshot is the S3 dictionary object (01 §3.6, 02 §2.6). The
-	// wire dictionary is one id space shared by method and param references,
-	// so both arrays carry the full word list: methods[method_id] and
-	// params[param_id] resolve correctly under either reading of the contract.
-	dictionarySnapshot struct {
-		Version int      `json:"version"`
-		Methods []string `json:"methods"`
-		Params  []string `json:"params"`
-	}
-
-	suspendSnapshotEvent struct {
-		// EndMs is the wall-clock instant the agent timestamped the pause after
-		// detecting the delay (TimerCache dates[pos]=now); the pause spans
-		// [EndMs − DurationMs, EndMs]. Readers build the interval that way
-		// (calltree treats SuspendInterval.TimeMs as the end) (№4).
-		EndMs      int64 `json:"end_ms"`
-		DurationMs int   `json:"duration_ms"`
-	}
-
-	// suspendSnapshot is the per-pod-restart stop-the-world timeline (01 §3.6).
-	suspendSnapshot struct {
-		RestartTimeMs int64                  `json:"restart_time_ms"`
-		TimerStartMs  int64                  `json:"timer_start_ms"`
-		Events        []suspendSnapshotEvent `json:"events"`
+		// RequeuedFiles counts the №2 quarantine re-tests: permanently-rejected
+		// uploads put back into the queue after the retest interval.
+		RequeuedFiles int64
 	}
 
 	// podsManifest recovers the readable pod-restart identity behind the
@@ -145,10 +117,8 @@ func (s *UploadStats) add(o UploadStats) {
 	s.QuarantinedFiles += o.QuarantinedFiles
 	s.QuarantinedObjects += o.QuarantinedObjects
 	s.ManifestPuts += o.ManifestPuts
-	s.SnapshotUploads += o.SnapshotUploads
 	s.SegmentsDeleted += o.SegmentsDeleted
 	s.RequeuedFiles += o.RequeuedFiles
-	s.RequeuedSnapshots += o.RequeuedSnapshots
 }
 
 func (u *Uploader) accumulate(stats UploadStats) {
@@ -158,9 +128,8 @@ func (u *Uploader) accumulate(stats UploadStats) {
 }
 
 // Pass runs one upload round: the quarantine re-test, pending parquet files,
-// then the snapshot objects of closed pod-restarts, then the refcount-0
-// segment sweep. Per-file failures are logged and left for the next pass;
-// only a context or SQLite failure aborts the pass.
+// then the refcount-0 segment sweep. Per-file failures are logged and left
+// for the next pass; only a context or SQLite failure aborts the pass.
 func (u *Uploader) Pass(ctx context.Context) (UploadStats, error) {
 	var stats UploadStats
 	defer func() { u.accumulate(stats) }()
@@ -171,9 +140,6 @@ func (u *Uploader) Pass(ctx context.Context) (UploadStats, error) {
 	if err := u.uploadPending(ctx, &stats); err != nil {
 		return stats, err
 	}
-	if err := u.uploadSnapshots(ctx, &stats); err != nil {
-		return stats, err
-	}
 	if err := u.sweepSegments(ctx, &stats); err != nil {
 		return stats, err
 	}
@@ -182,24 +148,19 @@ func (u *Uploader) Pass(ctx context.Context) (UploadStats, error) {
 	return stats, u.store.refreshBackpressure(ctx)
 }
 
-// requeueQuarantined implements the №2 slow re-test: quarantined parquet and
-// snapshot uploads whose last rejection is older than the retest interval
-// re-enter their queues. A rejection that persists re-quarantines with a
-// fresh timestamp, so the re-test costs one PUT per interval, not a hot loop.
+// requeueQuarantined implements the №2 slow re-test: quarantined parquet
+// uploads whose last rejection is older than the retest interval re-enter
+// the queue. A rejection that persists re-quarantines with a fresh
+// timestamp, so the re-test costs one PUT per interval, not a hot loop.
 func (u *Uploader) requeueQuarantined(ctx context.Context, stats *UploadStats) error {
 	cutoffMs := time.Now().UnixMilli() - u.store.cfg.QuarantineRetestInterval.Milliseconds()
 	files, err := u.store.db.RequeueQuarantinedParquet(cutoffMs)
 	if err != nil {
 		return err
 	}
-	snapshots, err := u.store.db.RequeueQuarantinedSnapshots(cutoffMs)
-	if err != nil {
-		return err
-	}
 	stats.RequeuedFiles += files
-	stats.RequeuedSnapshots += snapshots
-	if files+snapshots > 0 {
-		log.Info(ctx, "upload: re-testing %d quarantined files and %d quarantined snapshot uploads", files, snapshots)
+	if files > 0 {
+		log.Info(ctx, "upload: re-testing %d quarantined files", files)
 	}
 	return nil
 }
@@ -442,110 +403,6 @@ func (u *Uploader) objectQuarantined(s3Key string) bool {
 	return err == nil
 }
 
-// uploadSnapshots writes the dictionary and suspend-timeline objects of every
-// closed pod-restart still gated by dict_uploaded_at (01 §3.6, 03 §3.9). Both
-// PUTs share the gate: a crash between them re-uploads both, idempotently.
-func (u *Uploader) uploadSnapshots(ctx context.Context, stats *UploadStats) error {
-	pending, err := u.store.db.DictPendingPodRestarts()
-	if err != nil {
-		return err
-	}
-	for _, podRestart := range pending {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		key, err := ParsePodRestartKey(podRestart)
-		if err != nil {
-			log.Error(ctx, err, "upload: skip snapshots of unparseable pod_restart %q", podRestart)
-			continue
-		}
-		pr, ok := u.store.PodRestart(key)
-		if !ok {
-			log.Warning(ctx, "upload: pod-restart %s has no in-memory state; snapshots stay pending", podRestart)
-			continue
-		}
-		if err := u.uploadPodSnapshots(ctx, pr, stats); err != nil {
-			if ctx.Err() != nil {
-				return err
-			}
-			log.Error(ctx, err, "upload: snapshots of %s failed; will retry next pass", podRestart)
-		}
-	}
-	return nil
-}
-
-func (u *Uploader) uploadPodSnapshots(ctx context.Context, pr *PodRestart, stats *UploadStats) error {
-	key := pr.Key
-	// The snapshot keys derive their day from restart_time_ms: unlike the close
-	// time, it survives a crash unchanged, keeping the key deterministic for
-	// the recovery re-upload (§6.6) and for readers resolving a pod-restart.
-	words := pr.DictionaryWords()
-	dictBody, err := json.Marshal(dictionarySnapshot{Version: len(words), Methods: words, Params: words})
-	if err != nil {
-		return errors.Wrap(err, "encode dictionary snapshot")
-	}
-	// The shared helper keeps the writer and the cold reader on one key.
-	dictKey := model.DictionarySnapshotKey(key.Tuple())
-	if err := u.putWithRetry(ctx, dictKey, func() error { return u.s3.PutBytes(ctx, dictKey, dictBody) }, stats); err != nil {
-		if IsPermanentUploadError(err) {
-			return u.quarantineSnapshot(ctx, key, dictKey, dictBody, err, stats)
-		}
-		return err
-	}
-
-	pauses, err := readSuspendWal(pr)
-	if err != nil {
-		return err
-	}
-	events := make([]suspendSnapshotEvent, 0, len(pauses))
-	for _, p := range pauses {
-		events = append(events, suspendSnapshotEvent{EndMs: p.TimeMs, DurationMs: p.DurationMs})
-	}
-	suspendBody, err := json.Marshal(suspendSnapshot{
-		RestartTimeMs: key.RestartTimeMs,
-		TimerStartMs:  pr.TimerStartMs(),
-		Events:        events,
-	})
-	if err != nil {
-		return errors.Wrap(err, "encode suspend snapshot")
-	}
-	// The shared helper keeps the writer and the cold /tree reader on one key.
-	suspendKey := model.SuspendSnapshotKey(key.Tuple())
-	if err := u.putWithRetry(ctx, suspendKey, func() error { return u.s3.PutBytes(ctx, suspendKey, suspendBody) }, stats); err != nil {
-		if IsPermanentUploadError(err) {
-			return u.quarantineSnapshot(ctx, key, suspendKey, suspendBody, err, stats)
-		}
-		return err
-	}
-
-	if err := u.store.db.SetDictUploaded(key.String(), time.Now().UnixMilli()); err != nil {
-		return err
-	}
-	stats.SnapshotUploads++
-	log.Info(ctx, "uploaded dictionary and suspend snapshots of %s (%d words, %d pauses)",
-		key, len(words), len(events))
-	// The snapshot reloaded a closed pod-restart's dictionary; drop the lazy
-	// handle back to the WAL (№1).
-	pr.unloadDictionary()
-	return nil
-}
-
-// quarantineSnapshot handles a permanent S3 rejection of a dictionary or
-// suspend object: the body moves to upload-failed/ and dict_upload_failed_at
-// takes the pod-restart out of the snapshot queue while dict_uploaded_at stays
-// NULL — so the WAL purge never runs and the WALs wait on the PV with the
-// quarantined body. Nothing else changes: snapshots pin no refcounts.
-func (u *Uploader) quarantineSnapshot(ctx context.Context, key PodRestartKey, s3Key string, body []byte, cause error, stats *UploadStats) error {
-	if err := u.quarantineObject(ctx, s3Key, body, cause); err != nil {
-		return err
-	}
-	if err := u.store.db.SetDictUploadFailed(key.String(), time.Now().UnixMilli()); err != nil {
-		return err
-	}
-	stats.QuarantinedObjects++
-	return nil
-}
-
 // sweepSegments unlinks segments that are done: refcount 0 (every sealed row
 // they source is uploaded) in a closed pod-restart with no un-sealed calls
 // left (01 §4.4, 03 §3.7 step 14). A bare refcount 0 is NOT enough — a live
@@ -587,8 +444,8 @@ func (u *Uploader) sweepSegments(ctx context.Context, stats *UploadStats) error 
 	return nil
 }
 
-// timerStartMs resolves the pod-restart's trace epoch for the manifest and
-// suspend snapshots; 0 when the pod-restart never sent a trace stream.
+// timerStartMs resolves the pod-restart's trace epoch for the pods manifest;
+// 0 when the pod-restart never sent a trace stream.
 func (u *Uploader) timerStartMs(ctx context.Context, key PodRestartKey) int64 {
 	pr, ok := u.store.PodRestart(key)
 	if !ok {

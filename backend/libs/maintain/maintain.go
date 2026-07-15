@@ -48,9 +48,11 @@ type (
 		// ClassTTL maps a retention class to its TTL (01 §6.4). A class
 		// absent from the map never expires.
 		ClassTTL map[string]time.Duration
-		// SnapshotTTL expires the dictionaries/pods/suspend snapshot objects
-		// (PROFILER_RETENTION_DICTIONARY_TTL, 01 §3.6).
-		SnapshotTTL time.Duration
+		// PodsManifestTTL expires the pods/v1 manifest objects
+		// (PROFILER_RETENTION_PODS_TTL, 01 §3.6). It must exceed the longest
+		// parquet class TTL so a readable row never outlives the manifest
+		// naming its pod-restart.
+		PodsManifestTTL time.Duration
 	}
 
 	// Stats reports what one Pass did; the counters back the future
@@ -64,9 +66,9 @@ type (
 		DeletedInputFiles   int // inputs removed after the grace
 		SkippedSmallGroups  int // groups below MinFiles with no residue
 		SkippedUnsettled    int // groups younger than bucket end + MinAge
-		SkippedOversized    int // groups over MaxGroupBytes
+		SkippedOversized    int // single objects too big to join any sub-budget subgroup (№11)
 		TTLParquetDeleted   int // parquet objects past their class TTL
-		TTLSnapshotsDeleted int // dictionary/pods/suspend objects past SnapshotTTL
+		TTLManifestsDeleted int // pods/v1 manifests past PodsManifestTTL
 		Errors              int // logged failures the pass skipped over
 	}
 
@@ -82,15 +84,17 @@ type (
 	}
 )
 
-// DefaultClassTTL returns the 01 §6.4 default per-class TTL mapping.
+// DefaultClassTTL returns the 01 §6.4 default per-class TTL mapping, derived
+// from the shared tier table (№10) — never a local copy.
 func DefaultClassTTL() map[string]time.Duration {
-	return map[string]time.Duration{
-		model.RetentionShortClean:  24 * time.Hour,
-		model.RetentionNormalClean: 7 * 24 * time.Hour,
-		model.RetentionLongClean:   30 * 24 * time.Hour,
-		model.RetentionAnyError:    30 * 24 * time.Hour,
-		model.RetentionCorrupted:   7 * 24 * time.Hour,
-	}
+	return model.DefaultClassTTL()
+}
+
+// DefaultPodsManifestTTL derives the pods/v1 manifest retention from the
+// tier table: the longest parquet class TTL plus a safety margin, so a
+// readable row never outlives the manifest naming its pod-restart (01 §3.6).
+func DefaultPodsManifestTTL() time.Duration {
+	return model.MaxClassTTL() + 5*24*time.Hour
 }
 
 // Normalize fills unset fields with the contract defaults (01 §9).
@@ -113,8 +117,8 @@ func (c Config) Normalize() Config {
 	if c.ClassTTL == nil {
 		c.ClassTTL = DefaultClassTTL()
 	}
-	if c.SnapshotTTL <= 0 {
-		c.SnapshotTTL = 35 * 24 * time.Hour
+	if c.PodsManifestTTL <= 0 {
+		c.PodsManifestTTL = DefaultPodsManifestTTL()
 	}
 	return c
 }
@@ -126,7 +130,7 @@ func NewJob(store ObjectStore, cfg Config) *Job {
 
 // Pass runs one maintenance round at the given wall-clock instant: per
 // retention class, expire objects past their TTL (01 §6.4), then compact the
-// settled bucket groups (01 §6.6); finally expire the snapshot families
+// settled bucket groups (01 §6.6); finally expire the pods/v1 manifests
 // (01 §3.6). Failures on individual prefixes, groups, or objects are logged
 // and counted in Stats.Errors so one bad object cannot stall the rest; the
 // returned error is non-nil only when the context ends.
@@ -157,7 +161,7 @@ func (j *Job) Pass(ctx context.Context, now time.Time) (Stats, error) {
 			j.compactGroup(ctx, class, group, now, &stats)
 		}
 	}
-	j.expireSnapshots(ctx, now, &stats)
+	j.expirePodsManifests(ctx, now, &stats)
 	return stats, ctx.Err()
 }
 

@@ -14,8 +14,6 @@ tests:
     input_series:
       - series: 'profiler_hotstore_quarantine_objects{kind="parquet"}'
         values: "0x5 2x40"
-      - series: 'profiler_hotstore_quarantine_objects{kind="snapshot"}'
-        values: "0x45"
     alert_rule_test:
       - eval_time: 10m
         alertname: ProfilerStuckQuarantine
@@ -35,8 +33,6 @@ tests:
     input_series:
       - series: 'profiler_hotstore_quarantine_objects{kind="parquet"}'
         values: "0x60"
-      - series: 'profiler_hotstore_quarantine_objects{kind="snapshot"}'
-        values: "0x60"
     alert_rule_test:
       - eval_time: 30m
         alertname: ProfilerStuckQuarantine
@@ -48,7 +44,7 @@ tests:
   # Age escalation: the oldest quarantined object crosses one hour.
   - interval: 1m
     input_series:
-      - series: 'profiler_hotstore_quarantine_oldest_age_seconds{kind="snapshot"}'
+      - series: 'profiler_hotstore_quarantine_oldest_age_seconds{kind="parquet"}'
         values: "0+60x80" # ages one minute per minute from t=0
     alert_rule_test:
       - eval_time: 55m
@@ -58,11 +54,11 @@ tests:
         alertname: ProfilerQuarantineAgeHigh
         exp_alerts:
           - exp_labels:
-              kind: snapshot
+              kind: parquet
               severity: critical
             exp_annotations:
               summary: "Upload quarantine unresolved for over an hour"
-              description: "The oldest quarantined snapshot object has waited over an hour; the collector PV keeps accumulating state it cannot release."
+              description: "The oldest quarantined parquet object has waited over an hour; the collector PV keeps accumulating state it cannot release."
 
   # Disk budget: 9.5 GB used against a 10 GB budget crosses the 90% line.
   - interval: 1m
@@ -138,3 +134,24 @@ tests:
             exp_annotations:
               summary: "Sealed parquet is not reaching S3"
               description: "The oldest pending upload has waited over 30 minutes; upload_backlog is not draining and the collector PV keeps growing."
+
+  # A single over-budget object (№11): maintain re-skips it every pass, so
+  # the counter climbs and must page; a compacting-but-busy maintainer whose
+  # oversized counter stays flat must not.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_maintain_skipped_groups_total{reason="oversized"}'
+        values: "0x10 1+1x50"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ProfilerCompactionOversizedObject
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ProfilerCompactionOversizedObject
+        exp_alerts:
+          - exp_labels:
+              reason: oversized
+              severity: warning
+            exp_annotations:
+              summary: "A parquet object exceeds the compaction budget"
+              description: "maintain skipped an object bigger than PROFILER_COMPACTION_MAX_BYTES; its (bucket, class) group cannot converge until the budget is raised."

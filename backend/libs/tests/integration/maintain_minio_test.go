@@ -159,15 +159,15 @@ func listKeys(t *testing.T, ctx context.Context, mc interface {
 //  2. /api/v1/calls answers the same rows through every phase of
 //     write → grace → delete, with a reader running concurrently;
 //  3. repeated passes over the converged bucket are no-ops;
-//  4. per-class TTL removes only objects past their TTL, and snapshots past
-//     the dictionary TTL.
+//  4. per-class TTL removes only objects past their TTL, and pods manifests
+//     past the pods-manifest TTL.
 func TestMaintainMinio(t *testing.T) {
 	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
 	defer cancel()
 	mc := helpers.CreateMinioContainer(ctx)
 	defer func() { _ = mc.Terminate(ctx) }()
 
-	store := maintain.NewS3ObjectStore(mc.Client)
+	store := maintain.NewS3ObjectStore(mc.Client, "")
 	now := time.Now()
 	bucketStart := now.Add(-2 * time.Hour).UTC().Truncate(5 * time.Minute)
 	base := bucketStart.UnixMilli()
@@ -204,7 +204,7 @@ func TestMaintainMinio(t *testing.T) {
 	require.Len(t, listKeys(t, ctx, store, classPrefix), 4)
 
 	api := httptest.NewServer(query.New(query.Options{
-		ColdStore: query.NewS3ObjectReader(mc.Client),
+		ColdStore: query.NewS3ObjectReader(mc.Client, ""),
 	}).Handler())
 	defer api.Close()
 	window := url.Values{
@@ -303,7 +303,7 @@ func TestMaintainMinio(t *testing.T) {
 	// is not pod-a's pod-restart hash; FetchCall must treat the reserved
 	// `maintain` replica as a candidate for every PK (01 §6.6, §7) or the
 	// point endpoints 404 a call the compaction absorbed.
-	coldStore := query.NewS3ObjectReader(mc.Client)
+	coldStore := query.NewS3ObjectReader(mc.Client, "")
 	coldSource := &cold.Source{Store: coldStore}
 	target := maintainRow("pod-a", 1000, base+90_000, 300, class) // only in the compacted object now
 	targetPK := maintainRowPK(&target)
@@ -365,10 +365,11 @@ func TestMaintainMinio(t *testing.T) {
 		assert.Len(t, row.Params["request.id"], 1)
 	}
 
-	t.Run("per-class TTL and snapshot TTL", func(t *testing.T) {
+	t.Run("per-class TTL and pods-manifest TTL", func(t *testing.T) {
 		ttlNow := time.Now()
-		// short_clean has a 1 d TTL: an object 3 days old expires, one 1 hour
-		// old stays. The compacted normal_clean object (7 d TTL) must stay.
+		// short_clean has a 2 d TTL (the tier table, №10): an object 3 days
+		// old expires, one 1 hour old stays. The compacted normal_clean
+		// object (7 d TTL) must stay.
 		expiredTs := ttlNow.Add(-3 * 24 * time.Hour).UnixMilli()
 		expiredBucket := time.UnixMilli(expiredTs).UTC().Truncate(5 * time.Minute)
 		expiredKey := seedMaintainObject(t, ctx, store, model.RetentionShortClean, expiredBucket,
@@ -380,32 +381,24 @@ func TestMaintainMinio(t *testing.T) {
 			"collector-0", "bbbb2222", 0,
 			[]storageparquet.CallV2{maintainRow("pod-t", 1000, youngTs, 2, model.RetentionShortClean)})
 
-		oldDay := ttlNow.AddDate(0, 0, -40).UTC().Format("2006/01/02")
+		// The pods/v1 manifests are the only snapshot family left (№3/№23).
+		oldDay := ttlNow.AddDate(0, 0, -200).UTC().Format("2006/01/02")
 		youngDay := ttlNow.AddDate(0, 0, -1).UTC().Format("2006/01/02")
-		var expiredSnapshots, youngSnapshots []string
-		for _, root := range []string{"dictionaries/v1", "pods/v1", "suspend/v1"} {
-			expired := root + "/" + oldDay + "/aaaa1111.json"
-			young := root + "/" + youngDay + "/bbbb2222.json"
-			require.NoError(t, store.Put(ctx, expired, []byte("{}")))
-			require.NoError(t, store.Put(ctx, young, []byte("{}")))
-			expiredSnapshots = append(expiredSnapshots, expired)
-			youngSnapshots = append(youngSnapshots, young)
-		}
+		expiredManifest := "pods/v1/" + oldDay + "/aaaa1111.json"
+		youngManifest := "pods/v1/" + youngDay + "/bbbb2222.json"
+		require.NoError(t, store.Put(ctx, expiredManifest, []byte("{}")))
+		require.NoError(t, store.Put(ctx, youngManifest, []byte("{}")))
 
 		stats, err := job.Pass(ctx, ttlNow)
 		require.NoError(t, err)
 		assert.Equal(t, 1, stats.TTLParquetDeleted)
-		assert.Equal(t, 3, stats.TTLSnapshotsDeleted)
+		assert.Equal(t, 1, stats.TTLManifestsDeleted)
 
 		shortKeys := listKeys(t, ctx, store, "parquet/v1/"+model.RetentionShortClean+"/")
 		assert.NotContains(t, shortKeys, expiredKey)
 		assert.Contains(t, shortKeys, youngKey, "an object inside its TTL is never deleted")
 		assert.Contains(t, listKeys(t, ctx, store, classPrefix), outKey)
-		for _, key := range expiredSnapshots {
-			assert.Empty(t, listKeys(t, ctx, store, key), "expired snapshot %s", key)
-		}
-		for _, key := range youngSnapshots {
-			assert.Len(t, listKeys(t, ctx, store, key), 1, "young snapshot %s", key)
-		}
+		assert.Empty(t, listKeys(t, ctx, store, expiredManifest), "expired manifest %s", expiredManifest)
+		assert.Len(t, listKeys(t, ctx, store, youngManifest), 1, "young manifest %s", youngManifest)
 	})
 }

@@ -384,7 +384,7 @@ func decodeBlobTree(t *testing.T, blob []byte, wantTimerStartMs int64, recordInd
 	started, finished := false, false
 	chunkNo := 0
 	for pos := 8; pos < len(blob) && !finished; chunkNo++ {
-		_, consumed, err := hotstore.ParseChunk(blob[pos:], func(index int, ev hotstore.TraceEvent) bool {
+		_, consumed, err := hotstore.ParseChunk(blob[pos:], func(index int, ev hotstore.TraceEvent, _ int64) bool {
 			if !started {
 				if chunkNo > 0 || index < recordIndex {
 					require.Zero(t, chunkNo, "the root ENTER must sit in the first chunk")

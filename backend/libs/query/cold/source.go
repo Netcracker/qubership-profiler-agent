@@ -3,6 +3,7 @@ package cold
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
@@ -17,6 +18,10 @@ type Source struct {
 	// ListConcurrency caps parallel LISTs (PROFILER_S3_LIST_CONCURRENCY,
 	// 02 §5.2). Zero falls back to the contract default of 16.
 	ListConcurrency int
+	// DurationThresholds mirror the collector's PROFILER_DURATION_THRESHOLDS
+	// so the class pruning derives its bounds from the same tier table the
+	// seal pass classified with (№10). Nil selects the table defaults.
+	DurationThresholds []time.Duration
 }
 
 func (s *Source) listConcurrency() int {

@@ -10,24 +10,31 @@ import (
 )
 
 // TestProjectedSchemaTracksCallV2 pins the projection twin: CallV2Projected
-// must be exactly CallV2 minus the two blob-sized columns. A field added to
-// one struct but not the other would silently widen (or narrow) the list-path
-// projection; the name match between the two structs IS the projection.
+// must be exactly CallV2 minus the blob-sized columns (the trace blob, the
+// big-param values, and the inline dictionary/suspend of the self-contained
+// row). A field added to one struct but not the other would silently widen
+// (or narrow) the list-path projection; the name match between the two
+// structs IS the projection.
 func TestProjectedSchemaTracksCallV2(t *testing.T) {
 	full := leafColumnsOf(t, parquet.SchemaOf(new(CallV2)))
 	projected := leafColumnsOf(t, parquet.SchemaOf(new(CallV2Projected)))
 
+	blobSized := map[string]bool{
+		"trace_blob": true, "big_params_json": true,
+		"dict_words_json": true, "suspend_json": true,
+	}
 	want := map[string]string{}
 	for path, typ := range full {
-		if path == "trace_blob" || path == "big_params_json" {
+		if blobSized[path] {
 			continue
 		}
 		want[path] = typ
 	}
 	assert.Equal(t, want, projected)
 
-	require.Contains(t, full, "trace_blob")
-	require.Contains(t, full, "big_params_json")
+	for path := range blobSized {
+		require.Contains(t, full, path)
+	}
 }
 
 // leafColumnsOf renders a schema as leaf-path → type+repetition, the shape

@@ -65,6 +65,24 @@ type CallV2 struct {
 	// single scalar column (not a MAP) so the list-path projection can drop
 	// it the same way it drops trace_blob.
 	BigParamsJson *string `parquet:"big_params_json,optional"`
+
+	// dict_words_json inlines the dictionary subset trace_blob references —
+	// the method and param-key names, keyed by wire dictionary id: a JSON
+	// object {"<id>": "<word>"}. The cold /tree path resolves the tree from
+	// this column alone, so a sealed row is self-contained: there is no
+	// separate dictionary snapshot whose TTL could dangle (01 §3.6, №3, №23).
+	// NULL when the blob is NULL.
+	DictWordsJson *string `parquet:"dict_words_json,optional"`
+
+	// suspend_json inlines the stop-the-world pauses overlapping this call's
+	// blob event-time span (the trace timer axis the tree renders node
+	// windows on): a JSON array [{"end_ms": ..., "duration_ms": ...}] on the
+	// shape of the internal suspend endpoint (each pause spans
+	// [end_ms − duration_ms, end_ms]). The cold /tree path derives the
+	// per-node suspension from it, so the row needs no suspend snapshot
+	// either (01 §3.6, №3). NULL when the blob is NULL or no pause overlaps
+	// the call.
+	SuspendJson *string `parquet:"suspend_json,optional"`
 }
 
 // CallV2Projected is the list-path read shape (02-read-contract.md §5.4,
@@ -113,7 +131,15 @@ type CallV2Projected struct {
 // NOT bump the version — the reader null-fills by column name. Bump it only
 // on a non-additive change (type change, rename, semantic change), so a
 // future reader can branch on the stamp before touching the rows.
+//
+// Version 3: self-contained rows (dict_words_json + suspend_json inline,
+// №3/№23). The columns are additive, but the READ contract changed with
+// them — a version-3 reader resolves trees from the row alone and never
+// consults the dictionaries/v1 or suspend/v1 snapshots, which version-2
+// writers required and version-3 deployments no longer write. Per the
+// rollout decision (remediation 00-plan.md, decision 1) version-2 data is
+// wiped, not migrated.
 const (
 	SchemaVersionKey = "profiler.schema_version"
-	SchemaVersion    = "2"
+	SchemaVersion    = "3"
 )

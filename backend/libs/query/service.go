@@ -57,8 +57,9 @@ func New(opts Options) *Service {
 		coldStore = countingColdStore{inner: coldStore, metrics: opts.Metrics}
 	}
 	s := &Service{
-		cfg:     cfg,
-		cold:    &cold.Source{Store: coldStore, ListConcurrency: cfg.ListConcurrency},
+		cfg: cfg,
+		cold: &cold.Source{Store: coldStore, ListConcurrency: cfg.ListConcurrency,
+			DurationThresholds: cfg.DurationThresholds},
 		dicts:   newDictCache(),
 		metrics: opts.Metrics,
 	}

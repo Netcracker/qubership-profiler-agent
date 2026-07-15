@@ -86,8 +86,8 @@ func TestEvictedChunkRefsGauge(t *testing.T) {
 		"both threads' refs into the evicted segment count; the live segment's ref does not")
 }
 
-// TestQuarantineStats pins the stuck-quarantine gauges: counts and oldest
-// failure times across both quarantine kinds, empty when nothing is stuck.
+// TestQuarantineStats pins the stuck-quarantine gauges: the count and the
+// oldest failure time of quarantined parquet, empty when nothing is stuck.
 func TestQuarantineStats(t *testing.T) {
 	store, err := Open(Config{DataDir: t.TempDir()})
 	require.NoError(t, err)
@@ -97,8 +97,6 @@ func TestQuarantineStats(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, empty.ParquetCount)
 	assert.Nil(t, empty.ParquetOldestMs)
-	assert.Zero(t, empty.SnapshotCount)
-	assert.Nil(t, empty.SnapshotOldestMs)
 
 	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-q", RestartTimeMs: janitorCallTs}
 	require.NoError(t, store.db.UpsertPodRestart(key, janitorCallTs))
@@ -107,16 +105,12 @@ func TestQuarantineStats(t *testing.T) {
 	newer := seedSealedFile(t, store, key, bucket, 1)
 	require.NoError(t, store.db.MarkUploadFailed(older, older+".failed", janitorCallTs+minute))
 	require.NoError(t, store.db.MarkUploadFailed(newer, newer+".failed", janitorCallTs+2*minute))
-	require.NoError(t, store.db.SetDictUploadFailed(key.String(), janitorCallTs+3*minute))
 
 	stats, err := store.QuarantineStats()
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, stats.ParquetCount)
 	require.NotNil(t, stats.ParquetOldestMs)
 	assert.Equal(t, janitorCallTs+minute, *stats.ParquetOldestMs, "oldest failure wins")
-	assert.EqualValues(t, 1, stats.SnapshotCount)
-	require.NotNil(t, stats.SnapshotOldestMs)
-	assert.Equal(t, janitorCallTs+3*minute, *stats.SnapshotOldestMs)
 }
 
 // TestPutWithRetryCountsFailures pins the FailedPuts semantics: every failed

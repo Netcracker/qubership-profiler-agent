@@ -61,9 +61,7 @@ func TestRegisterCollectSeries(t *testing.T) {
 		"profiler_backpressure_seal_paused",
 		"profiler_backpressure_ingest_paused",
 		"profiler_upload_requeued_files_total",
-		"profiler_upload_requeued_snapshots_total",
 		"profiler_janitor_quarantine_dropped_total",
-		"profiler_janitor_snapshots_abandoned_total",
 		"profiler_janitor_dicts_unloaded_total",
 		"profiler_janitor_chunk_indexes_released_total",
 		// Focus C additions (№7, №8, §6.1 trigger 3): lost big values, skipped

@@ -16,6 +16,8 @@ spec:
     spec:
       # 03-lifecycle.md §7.3: drain grace + 15 s in-flight bound.
       terminationGracePeriodSeconds: {{ .Values.query.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "profiler-backend.podSecurityContext" (dict "root" . "component" "query") | nindent 8 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -25,6 +27,8 @@ spec:
           image: {{ include "profiler-backend.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["query"]
+          securityContext:
+            {{- include "profiler-backend.containerSecurityContext" (dict "root" . "component" "query") | nindent 12 }}
           ports:
             - name: external
               containerPort: {{ .Values.query.port }}
@@ -36,17 +40,9 @@ spec:
               value: {{ include "profiler-backend.collectorHeadless" . | quote }}
             - name: PROFILER_INTERNAL_API_PORT
               value: {{ .Values.collector.internalPort | quote }}
-            - name: S3_ENDPOINT
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "profiler-backend.fullname" . }}-config
-                  key: s3-endpoint
-            - name: S3_BUCKET
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "profiler-backend.fullname" . }}-config
-                  key: s3-bucket
+            {{- include "profiler-backend.s3ConfigEnv" . | nindent 12 }}
             {{- include "profiler-backend.s3CredentialEnv" . | nindent 12 }}
+            {{- include "profiler-backend.s3TlsEnv" . | nindent 12 }}
             {{- include "profiler-backend.extraEnv" .Values.query.env | nindent 12 }}
           readinessProbe:
             httpGet:
@@ -62,7 +58,9 @@ spec:
             periodSeconds: 30
           volumeMounts:
             {{- include "profiler-backend.s3CredentialMount" . | nindent 12 }}
+            {{- include "profiler-backend.s3TlsMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.query.resources | nindent 12 }}
       volumes:
         {{- include "profiler-backend.s3CredentialVolume" . | nindent 8 }}
+        {{- include "profiler-backend.s3TlsVolume" . | nindent 8 }}

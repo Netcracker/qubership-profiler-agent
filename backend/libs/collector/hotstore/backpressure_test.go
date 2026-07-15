@@ -255,8 +255,7 @@ func TestQuarantineRetestRecovers(t *testing.T) {
 
 // TestJanitorQuarantineCap pins the №2 age/size cap: quarantined parquet
 // past the age cap (or the oldest of it over the size cap) is dropped with
-// its row — releasing what it pinned — and an aged snapshot quarantine is
-// abandoned so the WAL purge unblocks.
+// its row, releasing what it pinned.
 func TestJanitorQuarantineCap(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(Config{
@@ -283,7 +282,6 @@ func TestJanitorQuarantineCap(t *testing.T) {
 	pathA := quarantined(0, now-2*hour, 100)
 	pathB := quarantined(1, now-2*time.Minute.Milliseconds(), 200)
 	pathC := quarantined(2, now-time.Minute.Milliseconds(), 100)
-	require.NoError(t, store.db.SetDictUploadFailed(key.String(), now-2*hour))
 
 	stats, err := store.JanitorPass(ctx, now)
 	require.NoError(t, err)
@@ -291,16 +289,10 @@ func TestJanitorQuarantineCap(t *testing.T) {
 	assert.NoFileExists(t, pathA, "aged out")
 	assert.NoFileExists(t, pathB, "the oldest fresh file goes to fit the size cap")
 	assert.FileExists(t, pathC, "the rest fits the cap")
-	assert.EqualValues(t, 1, stats.SnapshotsAbandoned)
 
 	q, err := store.QuarantineStats()
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, q.ParquetCount)
-	assert.Zero(t, q.SnapshotCount, "an abandoned snapshot is resolved-by-loss, not waiting")
-
-	candidates, err := store.db.WalPurgeCandidates()
-	require.NoError(t, err)
-	require.Len(t, candidates, 1, "the abandoned snapshot unblocks the WAL purge queue")
 }
 
 // TestUploaderPoolBoundedConcurrency pins №25: pending files upload over a

@@ -55,6 +55,9 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `s3.auth.existingSecret` | `""` | Secret with keys `access-key` / `secret-key`; wins over the inline pair. Production should use this. |
 | `s3.auth.accessKey` / `secretKey` | `""` | Renders a chart-managed Secret — dev/smoke only. |
 | `s3.auth.mountPath` | `/etc/profiler/s3` | Where every workload mounts the Secret. |
+| `s3.tls.caCert` | `""` | PEM CA bundle for a private/internal CA on the S3 endpoint. Renders a chart-managed Secret — dev/smoke only. |
+| `s3.tls.existingSecret` | `""` | Secret with the CA bundle under key `ca.crt`; wins over the inline `caCert`. Production should use this. |
+| `s3.tls.insecureSkipVerify` | `false` | Skips TLS certificate verification for the S3 endpoint entirely. Dev/smoke only — never set in production. |
 | `collector.replicas` | `2` | Scale to the expected agent fan-in (04 §3.5). |
 | `collector.storage.size` | `20Gi` | **Must exceed `chunksStagingMaxBytes`** — the budget bounds only segment files; WALs, SQLite partitions, seal scratch, and hot-retention parquet share the PV outside it (04 §3.5). |
 | `collector.storage.storageClassName` | `""` | Empty = the cluster's default class (kind: local-path; OrbStack: its own). The field is omitted, not set to `""`. |
@@ -86,8 +89,7 @@ Series names are stable — dashboards and the shipped alerts reference them; re
 | `profiler_upload_put_failures_total` | counter | Failed S3 PUT attempts (feeds the upload-failure alert). |
 | `profiler_upload_retried_puts_total` | counter | PUT attempts a retry followed. |
 | `profiler_upload_quarantined_files_total` | counter | Parquet files moved to `upload-failed/`. |
-| `profiler_upload_quarantined_objects_total` | counter | Snapshot/manifest bodies parked under `upload-failed/`. |
-| `profiler_upload_snapshot_uploads_total` | counter | Dictionary + suspend snapshot pairs uploaded. |
+| `profiler_upload_quarantined_objects_total` | counter | Manifest bodies parked under `upload-failed/`. |
 | `profiler_upload_manifest_puts_total` | counter | `pods/v1` manifest upserts. |
 | `profiler_upload_swept_segments_total` | counter | Refcount-0 segments unlinked after upload. |
 | `profiler_janitor_parquet_deleted_total` | counter | Aged local parquet deleted past hot retention. |

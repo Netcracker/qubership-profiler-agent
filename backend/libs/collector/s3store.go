@@ -16,14 +16,18 @@ import (
 // S3ObjectStore adapts libs/s3's MinIO client to the hot store's upload
 // interface with the 01-write-contract.md §6.2 PUT semantics: Content-MD5 on
 // every object and 4xx rejections wrapped in PermanentUploadError so the
-// uploader quarantines them instead of retrying (§8).
+// uploader quarantines them instead of retrying (§8). Every key is rooted
+// under the deployment's S3_PATH_PREFIX here, at the store boundary, so the
+// seal pass and the uploader keep working with bucket-root-relative keys.
 type S3ObjectStore struct {
-	mc *s3.MinioClient
+	mc     *s3.MinioClient
+	prefix s3.KeyPrefix
 }
 
-// NewS3ObjectStore wraps a connected MinIO client.
-func NewS3ObjectStore(mc *s3.MinioClient) *S3ObjectStore {
-	return &S3ObjectStore{mc: mc}
+// NewS3ObjectStore wraps a connected MinIO client. pathPrefix is the raw
+// S3_PATH_PREFIX value; empty keeps the keys at the bucket root.
+func NewS3ObjectStore(mc *s3.MinioClient, pathPrefix string) *S3ObjectStore {
+	return &S3ObjectStore{mc: mc, prefix: s3.NewKeyPrefix(pathPrefix)}
 }
 
 func (o *S3ObjectStore) PutFile(ctx context.Context, key, localPath string) error {
@@ -45,7 +49,7 @@ func (o *S3ObjectStore) PutBytes(ctx context.Context, key string, body []byte) e
 
 func (o *S3ObjectStore) put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
 	startTime := time.Now()
-	_, err := o.mc.Client.PutObject(ctx, o.mc.Bucket(), key, body, size, minio.PutObjectOptions{
+	_, err := o.mc.Client.PutObject(ctx, o.mc.Bucket(), o.prefix.Apply(key), body, size, minio.PutObjectOptions{
 		ContentType:    contentType,
 		SendContentMd5: true, // §6.2 step 3
 	})

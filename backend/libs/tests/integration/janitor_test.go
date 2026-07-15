@@ -275,13 +275,13 @@ func TestJanitorDiskBudgetEviction(t *testing.T) {
 	assert.NotEmpty(t, y.TraceBlob)
 }
 
-// TestSnapshotAndManifestQuarantine drives the lifecycle-track acceptance 4,
-// mirroring the parquet quarantine of the S3 slice: a permanent 4xx on a
-// dictionary/suspend snapshot or a pods manifest moves the body to
-// upload-failed/ and stops the retry — and a quarantined snapshot keeps the
-// pod-restart's WALs on the PV forever (dict_uploaded_at stays NULL), so
-// nothing decodable is lost while a human investigates.
-func TestSnapshotAndManifestQuarantine(t *testing.T) {
+// TestManifestQuarantine drives the lifecycle-track acceptance 4, mirroring
+// the parquet quarantine of the S3 slice: a permanent 4xx on a pods manifest
+// moves the body to upload-failed/ and stops the retry, while the parquet
+// object — already durable — still commits. (The dictionary and suspend
+// snapshots are gone: sealed rows are self-contained, №3/№23, so the pods
+// manifest is the only snapshot object left to quarantine.)
+func TestManifestQuarantine(t *testing.T) {
 	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
 	defer cancel()
 	dataDir := t.TempDir()
@@ -290,96 +290,51 @@ func TestSnapshotAndManifestQuarantine(t *testing.T) {
 	store := svc.Store()
 	bucket := store.Config().Bucket(baseMs + 5)
 
-	ingest := func(pod string, wantPods int) hotstore.PodRestartKey {
-		file, off := wire.TraceStream(timerStartMs, []wire.TraceChunk{
-			{ThreadId: sealThread1, StartMs: baseMs, Events: []wire.TraceEvent{
-				wire.Enter(0, sealMethodHandle), wire.Exit(1),
-			}},
-		})
-		calls := []wire.CallRecord{
-			{DeltaMs: 5, Method: sealMethodHandle, DurationMs: 10, ThreadName: "exec-1",
-				TraceFileIndex: 1, BufferOffset: int(off[0]), RecordIndex: 0},
-		}
-		ac := connectAgentAs(t, ctx, pod)
-		key := waitForPodNamed(t, store, pod, wantPods)
-		pr, ok := store.PodRestart(key)
-		require.True(t, ok)
-		sendStream(t, ac, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
-		sendStream(t, ac, model.StreamTrace, 0, file)
-		sendStream(t, ac, model.StreamCalls, 0, wire.CallsStreamRecords(baseMs, calls))
-		waitForIndexedCalls(t, store, bucket, key, 1)
-		require.NoError(t, ac.CommandClose())
-		_ = ac.Close()
-		require.Eventually(t, pr.Finalized, 5*time.Second, 10*time.Millisecond)
-		_, err := store.Seal(ctx, key, bucket)
-		require.NoError(t, err)
-		return key
+	file, off := wire.TraceStream(timerStartMs, []wire.TraceChunk{
+		{ThreadId: sealThread1, StartMs: baseMs, Events: []wire.TraceEvent{
+			wire.Enter(0, sealMethodHandle), wire.Exit(1),
+		}},
+	})
+	calls := []wire.CallRecord{
+		{DeltaMs: 5, Method: sealMethodHandle, DurationMs: 10, ThreadName: "exec-1",
+			TraceFileIndex: 1, BufferOffset: int(off[0]), RecordIndex: 0},
 	}
-	keyDict := ingest("pod-q-dict", 1)
-	keyManifest := ingest("pod-q-manifest", 2)
+	ac := connectAgentAs(t, ctx, "pod-q-manifest")
+	key := waitForPodNamed(t, store, "pod-q-manifest", 1)
+	pr, ok := store.PodRestart(key)
+	require.True(t, ok)
+	sendStream(t, ac, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
+	sendStream(t, ac, model.StreamTrace, 0, file)
+	sendStream(t, ac, model.StreamCalls, 0, wire.CallsStreamRecords(baseMs, calls))
+	waitForIndexedCalls(t, store, bucket, key, 1)
+	require.NoError(t, ac.CommandClose())
+	_ = ac.Close()
+	require.Eventually(t, pr.Finalized, 5*time.Second, 10*time.Millisecond)
+	_, err := store.Seal(ctx, key, bucket)
+	require.NoError(t, err)
 
 	utcDay := func(ms int64) string { return time.UnixMilli(ms).UTC().Format("2006/01/02") }
-	dictKey := fmt.Sprintf("dictionaries/v1/%s/%s.json",
-		utcDay(keyDict.RestartTimeMs), hotstore.PodRestartHash(keyDict))
-	suspendKey := fmt.Sprintf("suspend/v1/%s/%s.json",
-		utcDay(keyDict.RestartTimeMs), hotstore.PodRestartHash(keyDict))
-	manifestKey := fmt.Sprintf("pods/v1/%s/%s.json", utcDay(baseMs), hotstore.PodRestartHash(keyManifest))
+	manifestKey := fmt.Sprintf("pods/v1/%s/%s.json", utcDay(baseMs), hotstore.PodRestartHash(key))
 
 	fake := newFakeObjectStore()
-	reject := func(key string) {
-		fake.reject[key] = &hotstore.PermanentUploadError{Err: fmt.Errorf("403 AccessDenied")}
-	}
-	reject(dictKey)
-	reject(manifestKey)
+	fake.reject[manifestKey] = &hotstore.PermanentUploadError{Err: fmt.Errorf("403 AccessDenied")}
 
 	uploader := hotstore.NewUploader(store, fake)
 	stats, err := uploader.Pass(ctx)
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, stats.QuarantinedObjects)
+	assert.EqualValues(t, 1, stats.QuarantinedObjects)
 
-	quarantinePath := func(key string) string {
-		return filepath.Join(dataDir, "upload-failed", filepath.FromSlash(key))
-	}
+	assert.False(t, fake.has(manifestKey))
+	assert.FileExists(t, filepath.Join(dataDir, "upload-failed", filepath.FromSlash(manifestKey)),
+		"the manifest body waits for a human under upload-failed/")
+	files, err := store.LocalParquet(key)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.NotNil(t, files[0].UploadedAtMs,
+		"the parquet object is durable; a rejected manifest must not re-PUT it forever")
 
-	t.Run("rejected pods manifest: parquet still commits, retry stopped", func(t *testing.T) {
-		assert.False(t, fake.has(manifestKey))
-		assert.FileExists(t, quarantinePath(manifestKey))
-		files, err := store.LocalParquet(keyManifest)
-		require.NoError(t, err)
-		require.Len(t, files, 1)
-		assert.NotNil(t, files[0].UploadedAtMs,
-			"the parquet object is durable; a rejected manifest must not re-PUT it forever")
-
-		puts := fake.putCount(manifestKey)
-		_, err = uploader.Pass(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, puts, fake.putCount(manifestKey), "the quarantine marker stops manifest PUTs")
-	})
-
-	// Runs after the manifest subtest: its JanitorPass ages the uploaded
-	// parquet rows out of parquet_local.
-	t.Run("rejected dictionary snapshot: body kept, retry stopped, WALs pinned", func(t *testing.T) {
-		assert.False(t, fake.has(dictKey))
-		assert.FileExists(t, quarantinePath(dictKey), "the snapshot body waits for a human")
-		assert.Equal(t, 1, fake.putCount(dictKey))
-		assert.Equal(t, 0, fake.putCount(suspendKey), "the pod-restart left the queue before the suspend PUT")
-
-		// The refcounts and the parquet upload are untouched by the snapshot
-		// quarantine: the pod's sealed file is in S3 and released.
-		files, err := store.LocalParquet(keyDict)
-		require.NoError(t, err)
-		require.Len(t, files, 1)
-		assert.NotNil(t, files[0].UploadedAtMs)
-
-		_, err = uploader.Pass(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, 1, fake.putCount(dictKey), "no retry after the quarantine")
-
-		// Even far past the purge grace the WALs stay: dict_uploaded_at is NULL.
-		_, err = store.JanitorPass(ctx, time.Now().UnixMilli()+3*60*60_000)
-		require.NoError(t, err)
-		dictWal := filepath.Join(dataDir, "pods", hotstoreNs, hotstoreSvc, "pod-q-dict",
-			fmt.Sprint(keyDict.RestartTimeMs), "dictionary.wal")
-		assert.FileExists(t, dictWal, "a quarantined snapshot pins the WALs on the PV")
-	})
+	puts := fake.putCount(manifestKey)
+	_, err = uploader.Pass(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, puts, fake.putCount(manifestKey), "the quarantine marker stops manifest PUTs")
 }

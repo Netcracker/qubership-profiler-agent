@@ -49,7 +49,7 @@ This is the heaviest section because chunk-level reassembly (`01-write-contract.
 
 3. Open `/data/metadata.sqlite` and run schema migrations. One central database per collector replica; it holds no bulk stream bytes (`01-write-contract.md` §2). Central tables:
 
-   - `pod_restarts (pod_restart PRIMARY KEY, namespace, service, pod_name, restart_time_ms, opened_at, closed_at NULL, dict_uploaded_at NULL)` — one row per TCP connection; parent of every table below. `closed_at NULL` marks a live connection.
+   - `pod_restarts (pod_restart PRIMARY KEY, namespace, service, pod_name, restart_time_ms, opened_at, closed_at NULL, wals_purged_at NULL)` — one row per TCP connection; parent of every table below. `closed_at NULL` marks a live connection.
    - `segments (pod_restart, stream, rolling_seq, path, logical_size, time_min_ms NULL, time_max_ms NULL, refcount, status, created_at, evicted_at NULL, PRIMARY KEY (pod_restart, stream, rolling_seq))` — hot-store segment catalog for the offset-addressable bulk streams `trace`, `sql`, `xml`. One row per agent stream file; `rolling_seq` is the agent's file index (`01-write-contract.md` §4.4), so a pointer resolves by opening `<stream>/<rolling_seq>.gz` and seeking. `refcount` counts the un-uploaded sealed rows whose blobs source from the segment; it reaches 0 when the segment is unlinkable. `time_min_ms` / `time_max_ms` apply to `trace` only.
    - `parquet_local (path PRIMARY KEY, pod_restart, time_bucket_ms, retention_class, seq, row_count, time_min_ms, time_max_ms, file_size, sealed_at, uploaded_at NULL, s3_key NULL)` — every locally held sealed parquet file. `uploaded_at NULL` means the upload is still pending.
    - `seal_state (pod_restart, bucket, retention_class, watermark, last_sealed_at, dirty, PRIMARY KEY (pod_restart, bucket, retention_class))` — which calls each seal covered, and whether the bucket needs re-sealing after late data (`01-write-contract.md` §6.6).
@@ -116,10 +116,10 @@ Cost trade-off: the trace bytes of an unclosed call are lost. This is acceptable
 
 This step runs asynchronously; `READY` does not wait for it.
 
-### 3.9 Upload dictionaries for closed pod-restarts
+### 3.9 Purge WALs of fully uploaded pod-restarts
 
-17. For each closed pod-restart whose `dict_uploaded_at IS NULL`, upload the dictionary snapshot to S3 per `01-write-contract.md` §3.6. Set `dict_uploaded_at = now()`.
-18. Once dictionary is uploaded AND all that pod-restart's parquet rows are uploaded (steps 3.7+3.8 complete) AND the upload-hold-back grace has elapsed (default 1 h), delete the local WAL files for that pod-restart.
+17. Sealed rows carry their own dictionary subset and suspend pauses (`01-write-contract.md` §3.6, schema version 3), so no snapshot upload step exists any more.
+18. Once all a closed pod-restart's parquet rows are uploaded (steps 3.7+3.8 complete) AND the upload-hold-back grace has elapsed (default 1 h), delete the local WAL files for that pod-restart.
 
 Steps 3.8 and 3.9 are background tasks; `READY` is reached after step 3.7 completes.
 
@@ -173,8 +173,7 @@ Triggered by SIGTERM (kubelet drain) or SIGINT (operator).
 
 7. For each pod-restart closed in 5.2:
    - Force-seal every dirty bucket (`01-write-contract.md` §6.5), regardless of the bucket-end trigger. Calls with no Call record are dropped, same as recovery step 3.7.
-   - Upload each sealed file to S3.
-   - Upload the dictionary snapshot to S3 (`01-write-contract.md` §3.6).
+   - Upload each sealed file to S3; the rows are self-contained (`01-write-contract.md` §3.6), so nothing else is owed.
 8. Wait for all pending uploads to complete, bounded by `PROFILER_SHUTDOWN_UPLOAD_TIMEOUT` (default 60 s). Uploads that don't complete: leave parquet on PV (next collector start will retry; `metadata.sqlite` carries the state).
 
 ### 5.4 Final cleanup

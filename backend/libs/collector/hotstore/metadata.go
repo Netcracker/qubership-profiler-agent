@@ -29,8 +29,6 @@ CREATE TABLE IF NOT EXISTS pod_restarts (
   restart_time_ms  INTEGER NOT NULL,
   opened_at        INTEGER NOT NULL,
   closed_at        INTEGER,
-  dict_uploaded_at INTEGER,
-  dict_upload_failed_at INTEGER,
   wals_purged_at   INTEGER
 );
 CREATE TABLE IF NOT EXISTS segments (
@@ -258,7 +256,6 @@ func openMetaDb(cfg Config) (*metaDb, error) {
 	// TABLE above, so the duplicate-column error is the common case).
 	for _, alter := range []string{
 		`ALTER TABLE parquet_local ADD COLUMN upload_failed_at INTEGER`,
-		`ALTER TABLE pod_restarts ADD COLUMN dict_upload_failed_at INTEGER`,
 		`ALTER TABLE pod_restarts ADD COLUMN wals_purged_at INTEGER`,
 	} {
 		if err := db.Exec(alter).Error; err != nil &&
@@ -525,27 +522,6 @@ func (m *metaDb) RequeueQuarantinedParquet(cutoffMs int64) (int64, error) {
 	return res.RowsAffected, errors.Wrap(res.Error, "requeue quarantined parquet")
 }
 
-// RequeueQuarantinedSnapshots is the snapshot half of the №2 slow re-test:
-// clearing dict_upload_failed_at puts the pod-restart back into
-// DictPendingPodRestarts; a repeat rejection re-quarantines it.
-func (m *metaDb) RequeueQuarantinedSnapshots(cutoffMs int64) (int64, error) {
-	res := m.meta.Exec(`UPDATE pod_restarts SET dict_upload_failed_at = NULL
-		WHERE dict_upload_failed_at IS NOT NULL AND dict_upload_failed_at <= ?
-		  AND dict_uploaded_at IS NULL`, cutoffMs)
-	return res.RowsAffected, errors.Wrap(res.Error, "requeue quarantined snapshots")
-}
-
-// AbandonQuarantinedSnapshots gives up on snapshot uploads whose rejection is
-// older than cutoffMs (the №2 quarantine age cap): dict_uploaded_at is
-// stamped so the WAL purge unblocks. dict_upload_failed_at stays as the
-// record of the loss; the rejected body waits under upload-failed/.
-func (m *metaDb) AbandonQuarantinedSnapshots(cutoffMs, nowMs int64) (int64, error) {
-	res := m.meta.Exec(`UPDATE pod_restarts SET dict_uploaded_at = ?
-		WHERE dict_uploaded_at IS NULL AND dict_upload_failed_at IS NOT NULL
-		  AND dict_upload_failed_at <= ?`, nowMs, cutoffMs)
-	return res.RowsAffected, errors.Wrap(res.Error, "abandon quarantined snapshots")
-}
-
 // UploadBacklog reports the pending-upload gauges in ONE query: how many
 // sealed files are still owed to S3 (not uploaded, not quarantined) and the
 // sealed_at of the oldest of them. oldestSealedMs is nil when the queue is
@@ -604,36 +580,6 @@ func (m *metaDb) ManifestBounds(podRestart string, dayStartMs, dayEndMs int64) (
 		return 0, 0, false, err
 	}
 	return *row.TimeMinMs, *row.TimeMaxMs, true, nil
-}
-
-// DictPendingPodRestarts lists closed pod-restarts whose dictionary/suspend
-// snapshots are still owed to S3 (03-lifecycle.md §3.9). A quarantined
-// pod-restart (dict_upload_failed_at set) has left the queue: its snapshot
-// waits in upload-failed/ for a human, not for the next pass.
-func (m *metaDb) DictPendingPodRestarts() ([]string, error) {
-	var rows []string
-	err := m.meta.Raw(`SELECT pod_restart FROM pod_restarts
-		WHERE closed_at IS NOT NULL AND dict_uploaded_at IS NULL AND dict_upload_failed_at IS NULL
-		ORDER BY pod_restart`).Scan(&rows).Error
-	return rows, err
-}
-
-// SetDictUploadFailed quarantines a pod-restart's snapshot uploads after a
-// permanent S3 rejection: it leaves the upload queue but keeps
-// dict_uploaded_at NULL, so the WAL purge never runs for it — the WALs stay on
-// the PV until a human resolves the rejection.
-func (m *metaDb) SetDictUploadFailed(podRestart string, failedAtMs int64) error {
-	return errors.Wrap(m.meta.Exec(`UPDATE pod_restarts SET dict_upload_failed_at = ?
-		WHERE pod_restart = ? AND dict_upload_failed_at IS NULL`, failedAtMs, podRestart).Error,
-		"set dict_upload_failed_at")
-}
-
-// SetDictUploaded gates the snapshot upload (01-write-contract.md §3.6): set
-// only after both the dictionary and suspend objects are in S3.
-func (m *metaDb) SetDictUploaded(podRestart string, uploadedAtMs int64) error {
-	return errors.Wrap(m.meta.Exec(`UPDATE pod_restarts SET dict_uploaded_at = ?
-		WHERE pod_restart = ? AND dict_uploaded_at IS NULL`, uploadedAtMs, podRestart).Error,
-		"set dict_uploaded_at")
 }
 
 // DeletableSegmentCandidates lists segments with no un-uploaded sealed rows
@@ -1128,21 +1074,22 @@ func (m *metaDb) DropPartition(bucket, droppedAtMs int64) (string, error) {
 		WHERE bucket = ? AND dropped_at IS NULL`, droppedAtMs, bucket).Error, "mark partition dropped")
 }
 
-// WalPurgeCandidate is a closed pod-restart whose snapshots are in S3 and
-// whose WALs are still on the PV.
+// WalPurgeCandidate is a closed pod-restart whose WALs are still on the PV.
 type WalPurgeCandidate struct {
-	PodRestart       string
-	ClosedAtMs       int64
-	DictUploadedAtMs int64
+	PodRestart string
+	ClosedAtMs int64
 }
 
 // WalPurgeCandidates lists pod-restarts eligible for the 03 §3.9 step-18 WAL
-// purge check: closed, dictionary snapshot uploaded, not yet purged.
+// purge check: closed and not yet purged. There is no snapshot gate any
+// more — sealed rows are self-contained (№3) — so the caller's remaining
+// checks (every sealed file uploaded, nothing indexed in the hot tier, the
+// hold-back grace) are the whole condition.
 func (m *metaDb) WalPurgeCandidates() ([]WalPurgeCandidate, error) {
 	var rows []WalPurgeCandidate
-	err := m.meta.Raw(`SELECT pod_restart, closed_at AS closed_at_ms, dict_uploaded_at AS dict_uploaded_at_ms
+	err := m.meta.Raw(`SELECT pod_restart, closed_at AS closed_at_ms
 		FROM pod_restarts
-		WHERE closed_at IS NOT NULL AND dict_uploaded_at IS NOT NULL AND wals_purged_at IS NULL
+		WHERE closed_at IS NOT NULL AND wals_purged_at IS NULL
 		ORDER BY pod_restart`).Scan(&rows).Error
 	return rows, err
 }
@@ -1165,20 +1112,17 @@ func (m *metaDb) SetWalsPurged(podRestart string, purgedAtMs int64) error {
 }
 
 // QuarantineStats aggregates the stuck-quarantine state for the metrics
-// endpoint: rejected parquet files (parquet_local.upload_failed_at, 01 §8) and
-// rejected dictionary/suspend snapshots (pod_restarts.dict_upload_failed_at).
+// endpoint: rejected parquet files (parquet_local.upload_failed_at, 01 §8).
 // Oldest is the earliest failure timestamp, nil when nothing is quarantined.
 type QuarantineStats struct {
-	ParquetCount     int64
-	ParquetOldestMs  *int64
-	SnapshotCount    int64
-	SnapshotOldestMs *int64
+	ParquetCount    int64
+	ParquetOldestMs *int64
 }
 
 // QuarantineStats reports how much quarantined state waits for resolution.
-// The populations shrink on manual intervention, on a successful №2 re-test,
-// or on the №2 cap (dropped parquet, abandoned snapshots) — a sustained
-// non-zero count is still the alerting signal.
+// The population shrinks on manual intervention, on a successful №2 re-test,
+// or on the №2 cap (dropped parquet) — a sustained non-zero count is still
+// the alerting signal.
 func (m *metaDb) QuarantineStats() (QuarantineStats, error) {
 	var out QuarantineStats
 	row := struct {
@@ -1190,15 +1134,6 @@ func (m *metaDb) QuarantineStats() (QuarantineStats, error) {
 		return out, errors.Wrap(err, "count quarantined parquet")
 	}
 	out.ParquetCount, out.ParquetOldestMs = row.N, row.Oldest
-	row.N, row.Oldest = 0, nil
-	// An abandoned snapshot (dict_uploaded_at stamped by the age cap) is
-	// resolved-by-loss, not waiting — it leaves the gauge.
-	if err := m.meta.Raw(`SELECT COUNT(*) AS n, MIN(dict_upload_failed_at) AS oldest
-		FROM pod_restarts WHERE dict_upload_failed_at IS NOT NULL AND dict_uploaded_at IS NULL`).
-		Scan(&row).Error; err != nil {
-		return out, errors.Wrap(err, "count quarantined snapshots")
-	}
-	out.SnapshotCount, out.SnapshotOldestMs = row.N, row.Oldest
 	return out, nil
 }
 

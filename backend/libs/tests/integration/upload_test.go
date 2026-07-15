@@ -104,6 +104,12 @@ func (f *fakeObjectStore) keysLocked() []string {
 	return keys
 }
 
+func (f *fakeObjectStore) allKeys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.keysLocked()
+}
+
 // TestUploadPass drives the Stage 1 S3 slice acceptance over one pod-restart
 // whose calls span two UTC days (base is 2023-11-14T22:13Z; the third call
 // lands past midnight):
@@ -114,9 +120,9 @@ func (f *fakeObjectStore) keysLocked() []string {
 //  2. C1 — one object is pre-seeded as if a crash hit between the PUT and the
 //     metadata commit: the pass re-PUTs the same key (no duplicate) and
 //     releases exactly once; a second pass changes nothing;
-//  3. snapshots — dictionary and suspend objects on pod-restart close, gated
-//     by dict_uploaded_at; a pods manifest per sealed day with the day's
-//     time_min/time_max (01-write-contract.md §3.6);
+//  3. manifests — a pods manifest per sealed day with the day's
+//     time_min/time_max, and NO dictionary or suspend snapshot: sealed rows
+//     are self-contained (01-write-contract.md §3.6, №3/№23);
 //  4. 4xx — a rejected file moves to upload-failed/ and keeps its segment
 //     refcounts pinned (§8); a retryable failure is retried with backoff.
 func TestUploadPass(t *testing.T) {
@@ -212,9 +218,6 @@ func TestUploadPass(t *testing.T) {
 	require.NoError(t, err)
 
 	hash := hotstore.PodRestartHash(key)
-	dayPath := func(ms int64) string { return time.UnixMilli(ms).UTC().Format("2006/01/02") }
-	dictKey := fmt.Sprintf("dictionaries/v1/%s/%s.json", dayPath(key.RestartTimeMs), hash)
-	suspendKey := fmt.Sprintf("suspend/v1/%s/%s.json", dayPath(key.RestartTimeMs), hash)
 	manifestDay1Key := fmt.Sprintf("pods/v1/2023/11/14/%s.json", hash)
 	manifestDay2Key := fmt.Sprintf("pods/v1/2023/11/15/%s.json", hash)
 
@@ -281,18 +284,7 @@ func TestUploadPass(t *testing.T) {
 		assert.EqualValues(t, 1, stats.QuarantinedFiles)
 	})
 
-	t.Run("snapshots: dictionary, suspend, and per-day pods manifests", func(t *testing.T) {
-		words := `["com.example.Service.handle","com.example.Service.process","com.example.Db.query","call.red","request.id"]`
-		assert.JSONEq(t, fmt.Sprintf(`{"version":5,"methods":%s,"params":%s}`, words, words),
-			string(fake.object(t, dictKey)),
-			"the wire dictionary is one id space, so both arrays carry the full word list")
-
-		assert.JSONEq(t, fmt.Sprintf(
-			`{"restart_time_ms":%d,"timer_start_ms":%d,"events":[{"end_ms":%d,"duration_ms":30},{"end_ms":%d,"duration_ms":20}]}`,
-			key.RestartTimeMs, timerStartMs, baseMs+50, baseMs+105),
-			string(fake.object(t, suspendKey)),
-			"suspend pauses carry the absolute pause-end times accumulated from the stream deltas (№4)")
-
+	t.Run("per-day pods manifests, and no snapshot objects", func(t *testing.T) {
 		manifest := func(timeMinMs, timeMaxMs int64) string {
 			return fmt.Sprintf(
 				`{"namespace":%q,"service":%q,"pod":%q,"restart_time_ms":%d,"timer_start_ms":%d,"replica":"collector-0","time_min_ms":%d,"time_max_ms":%d}`,
@@ -302,19 +294,25 @@ func TestUploadPass(t *testing.T) {
 			"day-1 bounds span A and B — the quarantined file still names sealed data")
 		assert.JSONEq(t, manifest(day2Ms, day2Ms), string(fake.object(t, manifestDay2Key)))
 		assert.EqualValues(t, 2, stats.ManifestPuts)
-		assert.EqualValues(t, 1, stats.SnapshotUploads)
+
+		// №3/№23: sealed rows are self-contained, so the uploader writes no
+		// dictionary or suspend snapshot at all.
+		for _, k := range fake.allKeys() {
+			assert.False(t, strings.HasPrefix(k, "dictionaries/") || strings.HasPrefix(k, "suspend/"),
+				"no snapshot object may be uploaded: %s", k)
+		}
 	})
 
 	t.Run("a second pass is a full no-op", func(t *testing.T) {
 		before := map[string]int{}
-		for _, k := range []string{fileA.S3Key, fileB.S3Key, fileC.S3Key, dictKey, suspendKey,
+		for _, k := range []string{fileA.S3Key, fileB.S3Key, fileC.S3Key,
 			manifestDay1Key, manifestDay2Key} {
 			before[k] = fake.putCount(k)
 		}
 		again, err := uploader.Pass(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, hotstore.UploadStats{}, again,
-			"nothing is pending: no re-upload, no quarantine retry (dict_uploaded_at and upload_failed_at gate)")
+			"nothing is pending: no re-upload, no quarantine retry (the upload_failed_at gate)")
 		for k, n := range before {
 			assert.Equal(t, n, fake.putCount(k), "no further PUT of %s", k)
 		}
@@ -326,8 +324,8 @@ func TestUploadPass(t *testing.T) {
 // §3.8-§3.9 and invariant C1): a collector that crashed after sealing — with
 // the parquet PUT already confirmed but the metadata commit lost — recovers,
 // re-uploads the pending file idempotently, releases the refcounts exactly
-// once, and still emits the closed pod-restart's snapshots with the trace
-// epoch re-read from the segment.
+// once, and refreshes the pods manifest with the trace epoch re-read from
+// the segment.
 func TestUploadRecovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
 	defer cancel()
@@ -382,7 +380,6 @@ func TestUploadRecovery(t *testing.T) {
 	stats, err := hotstore.NewUploader(store2, fake).Pass(context.Background())
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, stats.UploadedFiles)
-	assert.EqualValues(t, 1, stats.SnapshotUploads)
 	assert.EqualValues(t, 1, stats.ManifestPuts)
 	assert.EqualValues(t, 1, stats.SegmentsDeleted)
 
@@ -398,11 +395,12 @@ func TestUploadRecovery(t *testing.T) {
 	assert.NotNil(t, files[0].UploadedAtMs)
 
 	hash := hotstore.PodRestartHash(key)
-	day := time.UnixMilli(key.RestartTimeMs).UTC().Format("2006/01/02")
-	assert.True(t, fake.has(fmt.Sprintf("dictionaries/v1/%s/%s.json", day, hash)))
-	suspendKey := fmt.Sprintf("suspend/v1/%s/%s.json", day, hash)
-	assert.JSONEq(t, fmt.Sprintf(`{"restart_time_ms":%d,"timer_start_ms":%d,"events":[]}`,
-		key.RestartTimeMs, timerStartMs), string(fake.object(t, suspendKey)),
+	day := time.UnixMilli(baseMs).UTC().Format("2006/01/02")
+	manifestKey := fmt.Sprintf("pods/v1/%s/%s.json", day, hash)
+	assert.JSONEq(t, fmt.Sprintf(
+		`{"namespace":%q,"service":%q,"pod":%q,"restart_time_ms":%d,"timer_start_ms":%d,"replica":"collector-0","time_min_ms":%d,"time_max_ms":%d}`,
+		hotstoreNs, hotstoreSvc, hotstorePod, key.RestartTimeMs, timerStartMs, baseMs+5, baseMs+5),
+		string(fake.object(t, manifestKey)),
 		"timer_start_ms must be re-read from the trace segment after the restart")
 }
 

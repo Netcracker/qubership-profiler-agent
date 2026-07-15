@@ -155,18 +155,18 @@ The query is frozen at the first page so the window does not drift as wall-clock
 
 ### 2.3.2 Wide-query guard
 
-A `/calls` query over a wide window with no file-pruning filter is the one shape that cannot meet the read SLO. Sorted `ts_ms DESC`, its first page fills from the densest recent buckets — a 200-pod cluster lists ~3,000 objects per hour-class (§5.5), most of them `short_clean` — and paging deeper only widens the scan. For `short_clean` the query is also mostly empty: that class has a 1-day TTL (`01-write-contract.md` §6.4), so a week-wide short-call scan reads at most the last day and returns nothing earlier.
+A `/calls` query over a wide window with no file-pruning filter is the one shape that cannot meet the read SLO. Sorted `ts_ms DESC`, its first page fills from the densest recent buckets — a 200-pod cluster lists ~3,000 objects per hour-class (§5.5), most of them `short_clean` — and paging deeper only widens the scan. For `short_clean` the query is also mostly empty: that class has a 2-day TTL (`01-write-contract.md` §6.4), so a week-wide short-call scan reads at most the last two days and returns nothing earlier.
 
 `query` rejects such a query with `400` at validation rather than narrowing it silently. The result set then always matches what was asked, and the caller — not the server — chooses which axis to narrow on. The guard has two layers, both evaluated before any parquet file is opened.
 
-**Narrowing filters.** A filter exempts a query from the guard only if it prunes the *set of files discovered*, not the rows read within them:
+**Narrowing filters.** A filter exempts a query from the guard only if it actually prunes the *set of files discovered*, not the rows read within them:
 
 - `pod` — resolves to a pod-restart's file set;
-- `retention_class` — selects a key prefix (§5.1);
-- `duration_min_ms` — prunes to the classes that can hold a call that long: `≥ 1000` lists only `long_clean` plus the error classes, which carry calls of any duration (`01-write-contract.md` §6.4);
+- `retention_class` — selects key prefixes (§5.1), unless it names every class, which prunes nothing;
+- `duration_min_ms` — prunes to the classes that can hold a call that long, by the tier table of `01-write-contract.md` §6.4: `≥ 1000` lists `long_clean`, `huge_clean`, and the error classes, which carry calls of any duration. A value below the first tier bound (for example `duration_min_ms=1`) prunes no class and does **not** exempt;
 - `error_only` — prunes to `any_error` and `corrupted`.
 
-`method` and `params` do **not** exempt: they filter rows inside already-listed files (§5.4), so they cut the result, not the scan.
+The exemption check runs the same class derivation discovery uses, so a filter that would leave the LIST plan untouched never buys an exemption. `method` and `params` do **not** exempt: they filter rows inside already-listed files (§5.4), so they cut the result, not the scan.
 
 **Layer 1 — span.** If `to - from > PROFILER_WIDE_RANGE_LIMIT` (default `6h`) and none of the narrowing filters above is present, reject with `400`. This layer needs no I/O, so it stops the pathological wide-open query before the discovery LIST that layer 2 depends on — a multi-day range is itself thousands of serial LIST round-trips (§5.5).
 
@@ -197,11 +197,11 @@ Two consumption paths:
 - **`/calls/{pk}/trace` + `/pods/{pod-restart}/dictionary` — advanced path** for consumers that want the raw wire format (third-party tooling re-using our Go decoder, full-fidelity offline analysis). Smaller payload, but more client code to maintain.
 
 Per-node suspension (§2.5.3 fields 3–4) is attributed at tree build: each invocation's `[enter, exit]`
-interval is intersected with the pod-restart's global stop-the-world timeline
+interval is intersected with the pod-restart's stop-the-world timeline
 (`08-ui-backend-requirements.md` R7). On the hot tier the timeline comes from the replica's `suspend.wal`
-mirror via the internal suspend endpoint (§3); on the cold tier from the `suspend/v1` snapshot uploaded at
-pod-restart close (`01-write-contract.md` §3.6). A missing snapshot (unclean close, TTL) degrades to zero
-suspension rather than failing the tree.
+mirror via the internal suspend endpoint (§3); on the cold tier from the row's own `suspend_json` column —
+the pauses overlapping the call's blob span, inlined at seal (`01-write-contract.md` §3.6, §5.2). A NULL
+column means zero suspension.
 
 Big parameter values (`sql` / `xml`) are the one asymmetry between the two paths. The blob does not inline them — it holds `(rolling_seq, offset)` references into the value streams (§3, `01-write-contract.md` §4.4). `/tree` resolves each reference and inlines the value string in the returned tree, so its consumers need nothing else. On the hot tier the references resolve against the replica's value segments (via the internal values endpoint, §3); on the cold tier they resolve against the values the seal pass inlined into the row's `big_params_json` column (`01-write-contract.md` §4.4, §5.2) — the value segments themselves never reach S3. A reference that cannot be resolved (its segment was evicted before the seal, or the file predates the column) is marked explicitly in the tree (`unresolved`, §2.5.3) with the reference text in the value slot; a value is never dropped silently. The raw `/trace` blob keeps the references; the MVP does not expose the value streams over a separate external endpoint, so an advanced consumer resolves big params only against a full dump. Add an external `/calls/{pk}/values` endpoint if a raw-path consumer needs them.
 
@@ -354,9 +354,9 @@ Response:
 - `methods[i]` and `params[i]` resolve `method_id = i` and `param_id = i` references inside the blob.
 - `version` is a monotonic counter, incremented each time the dictionary grows during a live pod-restart. ETag is `(pod-restart, version)`.
 
-> **TODO (dictionary shape):** this endpoint models `methods` and `params` as two independent id spaces (`method_id = i` into `methods`, `param_id = i` into `params`), but the agent wire uses a single shared id space. The collector currently writes the full word list into both arrays, so a reader resolves correctly against either (`01-write-contract.md` §3.6). A future revision should collapse this to one `words` array indexed by id, with `method_id` / `param_id` indexing it. Tracked in `stage1-progress.md`.
-- For a **live** pod-restart (TCP connection still open), the dictionary may grow. `query` forwards the request to the collector replica hosting that pod-restart (via internal endpoint, §3) where it lives on local PV + RAM. Clients revalidate with `If-None-Match`; on a no-change response 304 is returned. On growth, a new full snapshot is returned (small enough that delta encoding is not worth the complexity).
-- For a **closed** pod-restart (TCP connection terminated, `restart_time_ms` in the past), `query` reads a final snapshot from S3 (`s3://<bucket>/dictionaries/v1/...`, see `01-write-contract.md` §3.6). Response includes `Cache-Control: public, max-age=31536000, immutable`.
+> **TODO (dictionary shape):** this endpoint models `methods` and `params` as two independent id spaces (`method_id = i` into `methods`, `param_id = i` into `params`), but the agent wire uses a single shared id space. The collector writes the full word list into both arrays, so a reader resolves correctly against either. A future revision should collapse this to one `words` array indexed by id, with `method_id` / `param_id` indexing it. Tracked in `stage1-progress.md`.
+- The endpoint serves **live** pod-restarts only (TCP connection still open): `query` forwards the request to the collector replica hosting the pod-restart (via internal endpoint, §3), where the dictionary lives on local PV + RAM and may still grow. Clients revalidate with `If-None-Match`; on a no-change response 304 is returned. On growth, the full word list is returned (small enough that delta encoding is not worth the complexity).
+- A **closed** pod-restart has no dictionary object: every sealed row carries the subset its own blob references in `dict_words_json` (`01-write-contract.md` §3.6, §5.2), and the cold `/tree` path resolves from the row alone. An advanced consumer of the raw `/trace` path (§2.5) resolves a cold blob against the same column.
 
 ### 2.7 Pods and stats
 
@@ -372,7 +372,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 |---|---|---|
 | GET | `/internal/v1/pods` | Pods/restarts this replica holds data for. Used by `query` for targeted fan-out. |
 | GET | `/internal/v1/pods/{pod-restart}/dictionary` | Same shape as `/api/v1/pods/{pod-restart}/dictionary` (§2.6). For live pod-restarts hosted by this replica. |
-| GET | `/internal/v1/pods/{pod-restart}/suspend` | The pod-restart's stop-the-world timeline from the replica's `suspend.wal` mirror: `{ "events": [{ "start_ms": ..., "duration_ms": ... }] }` — the same shape as the `suspend/v1` cold snapshot (`01-write-contract.md` §3.6). `query` intersects it with node work intervals for the per-node suspension of `/tree` (§2.5.3, `08-ui-backend-requirements.md` R7). |
+| GET | `/internal/v1/pods/{pod-restart}/suspend` | The pod-restart's stop-the-world timeline from the replica's `suspend.wal` mirror: `{ "events": [{ "end_ms": ..., "duration_ms": ... }] }` — the same event shape the sealed rows inline as `suspend_json` (`01-write-contract.md` §3.6, §5.2), so a consumer parses one format on either tier. `query` intersects it with node work intervals for the per-node suspension of `/tree` (§2.5.3, `08-ui-backend-requirements.md` R7). |
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
 | GET | `/internal/v1/calls` | Same params as `/api/v1/calls`; returns only rows this replica holds. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |

@@ -1,0 +1,41 @@
+# External API entry point (/api/v1), classic Ingress leg. Renders only under
+# the legacy-ingress gateway mode; see query-httproute.yaml for the Gateway
+# API leg and 04 §12 for the platform convention (PR #798). Both can render
+# together during a cluster's migration off Ingress-NGINX.
+{{- $gwType := .Values.GATEWAY_SYSTEM_TYPE | default "legacy-ingress" }}
+{{- if and .Values.query.ingress.enabled (contains "legacy-ingress" $gwType) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-query
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "query") | nindent 4 }}
+  {{- if or .Values.query.ingress.annotations (contains "gateway-api-default" $gwType) }}
+  annotations:
+    {{- with .Values.query.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if contains "gateway-api-default" $gwType }}
+    gateway-api-converter.netcracker.com/ignore: "true"
+    {{- end }}
+  {{- end }}
+spec:
+  {{- if .Values.query.ingress.className }}
+  ingressClassName: {{ .Values.query.ingress.className }}
+  {{- end }}
+  rules:
+    - host: {{ include "profiler-backend.queryIngressHost" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "profiler-backend.fullname" . }}-query
+                port:
+                  name: external
+  {{- with .Values.query.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

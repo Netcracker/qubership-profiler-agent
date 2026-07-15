@@ -4,9 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
-	"github.com/pkg/errors"
 )
 
 // dictCacheCap bounds each per-pod-restart dictionary cache. Eviction is
@@ -15,15 +13,14 @@ import (
 const dictCacheCap = 512
 
 type (
-	// dictCache keeps the per-pod-restart dictionaries the /tree path resolves
-	// against (02 §2.6): live dictionaries revalidate against the hosting
-	// replica with their ETag (a dictionary only grows, so a 304 is the common
-	// case), closed ones come from the immutable S3 snapshot and never
-	// revalidate.
+	// dictCache keeps the per-pod-restart dictionaries the hot /tree path
+	// resolves against (02 §2.6): live dictionaries revalidate against the
+	// hosting replica with their ETag (a dictionary only grows, so a 304 is
+	// the common case). Closed pod-restarts need no cache — a sealed row
+	// carries its own dictionary subset (dict_words_json, №3, №23).
 	dictCache struct {
-		mu   sync.Mutex
-		hot  map[model.PodTuple]hotDictEntry
-		cold map[model.PodTuple][]string
+		mu  sync.Mutex
+		hot map[model.PodTuple]hotDictEntry
 	}
 
 	hotDictEntry struct {
@@ -33,7 +30,7 @@ type (
 )
 
 func newDictCache() *dictCache {
-	return &dictCache{hot: map[model.PodTuple]hotDictEntry{}, cold: map[model.PodTuple][]string{}}
+	return &dictCache{hot: map[model.PodTuple]hotDictEntry{}}
 }
 
 // hotDictionary resolves a live pod-restart's dictionary through the replica
@@ -74,34 +71,4 @@ func (s *Service) hotDictionary(ctx context.Context, baseURL string, tuple model
 	s.dicts.hot[tuple] = hotDictEntry{etag: dict.ETag, words: dict.Words}
 	s.dicts.mu.Unlock()
 	return dict.Words, nil
-}
-
-// coldDictionary resolves a closed pod-restart's dictionary from its S3
-// snapshot at the day of restart_time_ms (01 §3.6). Snapshots are immutable,
-// so a cached copy is final. A missing snapshot renders placeholders — the
-// tree structure is still worth serving.
-func (s *Service) coldDictionary(ctx context.Context, tuple model.PodTuple) ([]string, error) {
-	s.dicts.mu.Lock()
-	words, ok := s.dicts.cold[tuple]
-	s.dicts.mu.Unlock()
-	if ok {
-		return words, nil
-	}
-	words, found, err := cold.Dictionary(ctx, s.cold.Store, tuple)
-	if err != nil {
-		return nil, errors.Wrap(err, "cold dictionary")
-	}
-	if !found {
-		return nil, nil // no snapshot: placeholders, not a failure
-	}
-	s.dicts.mu.Lock()
-	if len(s.dicts.cold) >= dictCacheCap {
-		for k := range s.dicts.cold {
-			delete(s.dicts.cold, k)
-			break
-		}
-	}
-	s.dicts.cold[tuple] = words
-	s.dicts.mu.Unlock()
-	return words, nil
 }

@@ -397,6 +397,101 @@ merge gates a usable tree. Status, decisions, and open issues per
   the new tabs are client-state only — URL persistence belongs to the 10b
   design below.
 
+- **2026-07-08 — the collector now accepts and discards the legacy `gc`
+  stream, so agents built before v3.1.4 write data at all.** Real-agent
+  testing found that an old agent produced no data whatsoever against the
+  new backend. Root cause: `Dumper.java` (v3.1.3) creates a `gc` output
+  stream unconditionally whenever it streams directly to a collector
+  (`gcOs`), independent of whether GC-log harvesting is even enabled, and
+  rotates/registers it at startup alongside every real data stream. v3.1.4
+  (commit `ac804ee3`) deleted `GCDumper` and relocated GC-log collection to
+  `diagtools`, so `01-write-contract.md` §1 lists only seven streams and
+  `model.IsKnownStream` rejected `gc`. `CommandInitStream`
+  (`backend/libs/server/server_connection.go`) answers an unknown stream
+  with a null UUID **and an error**, which propagates up through
+  `HandleCommand` into the connection's read loop and tears the whole
+  TCP connection down (`listener.PodDisconnected`) — not just the `gc`
+  stream. Since a real agent opens `gc` alongside `dictionary`/`calls`/
+  `trace` on the same connection, this killed every stream for that
+  pod-restart, matching the reported "doesn't write data" symptom exactly.
+  Fix: `gc` joins `knownStreams` (`backend/libs/protocol/streams.go`), and
+  `podIngest.openFile` (`backend/libs/collector/ingest/streams.go`) opens
+  neither a segment nor a decoder for it — `fileIngest.write`/`finalize`
+  already no-op when both are nil, so its bytes are read and silently
+  discarded instead of tearing down the connection. Both design docs (01
+  §1, 06 §4/§8/§9) now document `gc` as an eighth, discard-only stream.
+  Covered by `TestGcStreamIsAcceptedAndDiscarded` and
+  `TestGcStreamDoesNotBreakSiblingStreams` (`libs/collector/ingest`), an
+  emulator subtest (`libs/tests/integration/emulator_test.go`), and a new
+  real-agent-v3.1.3 e2e harness
+  (`libs/tests/smoke_realagent/realagent_v313_test.go`, build tag
+  `smoke_realagent_v313`) that runs the actual v3.1.3 agent and asserts its
+  calls land in `/api/v1/calls`. The harness went through two revisions
+  before landing on plain Go with no shell script: (1) built the agent from
+  its git tag via a worktree — verified end-to-end against the
+  docker-compose stack, `TestRealAgentV313WritesData` passed in ~218s; (2)
+  switched to downloading the pre-built release from Maven Central instead
+  (`org.qubership.profiler:qubership-profiler-installer:3.1.3` zip +
+  `qubership-profiler-test-app:3.1.3` jar, SHA-1-verified) — no JDK or
+  Gradle build needed, confirmed to be the real functional distribution (the
+  `runtime` module's own plain Maven Central jar is a near-empty aggregator,
+  no sources of its own, just `com.gradleup.shadow` merging `dumper` +
+  `instrumenter`; the `qubership-profiler-installer` zip carries the actual
+  shaded 14 MB+ jar with `Dumper`/`GCDumper` inside) — same test passed in
+  ~10s; (3) the download/extract/launch logic moved from a
+  `run-agent-v313.sh` bash script (shelled out to, like `run-agent.sh`) into
+  the Go test itself (`net/http` + `archive/zip` + `crypto/sha1` +
+  `os/exec`), since nothing about it needs a shell any more.
+
+- **2026-07-08 — `run-agent.sh` retired too; both real-agent harnesses are
+  now pure Go, sharing one file.** Prompted by the same Windows-portability
+  concern that drove the v3.1.3 harness off bash: `scripts/e2e-realagent/
+  run-agent.sh` (the byte-exactness suite's HEAD build) was the last shell
+  script in either harness. New `libs/tests/smoke_realagent/harness.go`
+  carries `//go:build smoke_realagent || smoke_realagent_v313` — it compiles
+  under either tag — and holds everything both variants do identically:
+  `runJavaAgent` (the `-javaagent` invocation), `pollNamespaceCalls`,
+  `waitReady`, `repoRoot`, `envOr`, `testWriter`. Each test file keeps only
+  how it obtains the two jars: `realagent_test.go` gained `buildHeadAgent` +
+  `gradlewCommand` (routes through `cmd /C gradlew.bat` on Windows, since
+  `CreateProcess` can't exec a `.bat` directly the way Unix execs a
+  shebang) + `resolveTestAppJar` (a `filepath.Glob`, replacing the bash
+  `find | sort | tail -1`); `realagent_v313_test.go` keeps its Maven Central
+  fetch. Side effect: before this split, both files independently declared
+  `envOr`/`splitHostPort`/`waitReady`/`testWriter` under the same names —
+  latent because the Makefile only ever passes one build tag at a time, but
+  `go vet -tags "smoke_realagent smoke_realagent_v313"` would have failed
+  with duplicate-symbol errors; the shared file removes that trap along the
+  way. Both variants re-verified end-to-end after the split: v3.1.3 still
+  `PASS`es (~25s), and the HEAD build via the new `gradlewCommand` also
+  built, ran, and connected correctly. That HEAD run surfaced something
+  unrelated to this task and worth flagging on its own: `TestRealAgentAdversarialRoundTrip`
+  now **passes** — the two decoder bugs it was written to pin (`readChar`
+  signedness, the empty dictionary word) were already fixed by
+  `21af58ea fix(profiler): correct agent wire decoding and harden ingest`,
+  but the test's doc comment, `scripts/e2e-realagent/README.md`, and the
+  `smoke-realagent` Makefile comment still say "currently FAILS" / "do not
+  change decoder code to make it pass" — that wording is now stale and
+  should be revisited (surfaced to the user; not changed here since it
+  reflects the test's documented *intent*, a separate call from the harness
+  mechanics this session touched).
+
+- **2026-07-08 — profiler-backend gained the S3 CA-bundle and insecure-TLS
+  knobs `libs/s3` already supported.** Backend testing found that an
+  https:// S3 endpoint with a private CA, or a self-signed one, could not be
+  reached from `collect`/`query`/`maintain`. `libs/s3.Params` has carried
+  `CAFile`/`InsecureSSL` since Stage 1, wired into the transport's
+  `TLSClientConfig` (`libs/s3/minio.go`), but only the separate
+  `maintenance` app parsed the matching CLI flags — `envconfig.go`'s `S3`
+  struct never read an equivalent env var, so `S3.Params()` always built a
+  zero-value `CAFile`/`InsecureSSL` pair for the three profiler-backend
+  subcommands. Fixed by adding `S3_CA_FILE` and `S3_INSECURE_SKIP_VERIFY`
+  next to the existing credential envs, plus the matching chart plumbing:
+  `s3.tls.{caCert,existingSecret,mountPath,insecureSkipVerify}` values, a
+  `secret-s3-ca.yaml` Secret template mirroring `secret-s3.yaml`, and a
+  `s3-ca` volume mounted alongside the existing `s3-credentials` one on the
+  collector, query, and both maintain workloads.
+
 ## Open issues
 
 - **10b — downloadable self-contained HTML that restores state: design

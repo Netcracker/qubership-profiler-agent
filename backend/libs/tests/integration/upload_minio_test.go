@@ -13,6 +13,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
@@ -22,9 +23,10 @@ import (
 )
 
 // TestUploadPassMinio proves the S3ObjectStore wiring against a real MinIO:
-// the sealed parquet lands byte-identical at its recorded key, the snapshot
-// objects appear, and a 4xx (missing bucket) classifies as permanent. The
-// fault-injection scenarios live in TestUploadPass on the in-test fake.
+// the sealed parquet lands byte-identical at its recorded key under the
+// deployment's S3_PATH_PREFIX, the cold reader with the same prefix reads it
+// back transparently, and a 4xx (missing bucket) classifies as permanent.
+// The fault-injection scenarios live in TestUploadPass on the in-test fake.
 func TestUploadPassMinio(t *testing.T) {
 	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
 	defer cancel()
@@ -64,33 +66,46 @@ func TestUploadPassMinio(t *testing.T) {
 	localData, err := os.ReadFile(sealed.Path)
 	require.NoError(t, err)
 
-	uploader := hotstore.NewUploader(store, collector.NewS3ObjectStore(mc.Client))
+	// The deployment shares the bucket with others through S3_PATH_PREFIX
+	// (01 §7): every key below is rooted under it, invisibly to the caller.
+	const pathPrefix = "team-a"
+	uploader := hotstore.NewUploader(store, collector.NewS3ObjectStore(mc.Client, pathPrefix))
 	stats, err := uploader.Pass(ctx)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, stats.UploadedFiles)
-	assert.EqualValues(t, 1, stats.SnapshotUploads)
 	assert.EqualValues(t, 1, stats.ManifestPuts)
 
-	assert.Equal(t, localData, getObjectBytes(t, ctx, mc.Client, sealed.S3Key),
-		"the parquet must round-trip byte-identical through MinIO")
+	assert.Equal(t, localData, getObjectBytes(t, ctx, mc.Client, pathPrefix+"/"+sealed.S3Key),
+		"the parquet must round-trip byte-identical through MinIO under the prefix")
 
 	hash := hotstore.PodRestartHash(key)
-	day := time.UnixMilli(key.RestartTimeMs).UTC().Format("2006/01/02")
-	for _, prefix := range []string{"dictionaries/v1/" + day + "/" + hash, "suspend/v1/" + day + "/" + hash} {
-		objects, err := mc.Client.ListObjectsWithPrefix(ctx, prefix)
-		require.NoError(t, err)
-		assert.Len(t, objects, 1, "snapshot object at %s", prefix)
-	}
+	day := time.UnixMilli(baseMs).UTC().Format("2006/01/02")
+	objects, err := mc.Client.ListObjectsWithPrefix(ctx, pathPrefix+"/pods/v1/"+day+"/"+hash)
+	require.NoError(t, err)
+	assert.Len(t, objects, 1, "the pods manifest lands under the prefix too")
 
 	files, err := store.LocalParquet(key)
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	assert.NotNil(t, files[0].UploadedAtMs)
 
+	t.Run("the cold reader with the same prefix reads it back", func(t *testing.T) {
+		reader := query.NewS3ObjectReader(mc.Client, pathPrefix)
+		listed, err := reader.List(ctx, "parquet/v1/")
+		require.NoError(t, err)
+		require.Len(t, listed, 1)
+		assert.Equal(t, sealed.S3Key, listed[0].Key,
+			"LISTed keys come back bucket-root-relative, prefix stripped")
+		obj, err := reader.Open(ctx, sealed.S3Key)
+		require.NoError(t, err)
+		defer func() { _ = obj.Close() }()
+		assert.EqualValues(t, len(localData), obj.Size())
+	})
+
 	t.Run("a real 4xx classifies as permanent", func(t *testing.T) {
 		broken := *mc.Client
 		broken.Params.BucketName = "no-such-bucket"
-		err := collector.NewS3ObjectStore(&broken).PutBytes(ctx, "x.json", []byte("{}"))
+		err := collector.NewS3ObjectStore(&broken, "").PutBytes(ctx, "x.json", []byte("{}"))
 		require.Error(t, err)
 		assert.True(t, hotstore.IsPermanentUploadError(err),
 			"NoSuchBucket is a 404 the retry loop cannot fix")

@@ -100,7 +100,6 @@ func TestJanitorLifecycle(t *testing.T) {
 	})
 
 	require.NoError(t, store.db.MarkUploaded(sealedPath, now))
-	require.NoError(t, store.db.SetDictUploaded(key.String(), now))
 
 	t.Run("inside hot retention both tiers hold the rows", func(t *testing.T) {
 		stats, err := store.JanitorPass(ctx, now+5*minute)

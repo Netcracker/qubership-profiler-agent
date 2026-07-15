@@ -12,32 +12,40 @@ import (
 // S3ObjectStore adapts libs/s3's MinIO client to the job's read-write
 // surface: prefix LISTs with LastModified for the delete-grace clock, ranged
 // reads for the parquet merge, Content-MD5 PUTs (01-write-contract.md §6.2),
-// and idempotent deletes.
+// and idempotent deletes. The deployment's S3_PATH_PREFIX is applied here,
+// at the store boundary: LISTed keys come back bucket-root-relative, so
+// parseParquetKey and the compaction plan never see the prefix.
 type S3ObjectStore struct {
-	mc *s3.MinioClient
+	mc     *s3.MinioClient
+	prefix s3.KeyPrefix
 }
 
-// NewS3ObjectStore wraps a connected MinIO client.
-func NewS3ObjectStore(mc *s3.MinioClient) *S3ObjectStore {
-	return &S3ObjectStore{mc: mc}
+// NewS3ObjectStore wraps a connected MinIO client. pathPrefix is the raw
+// S3_PATH_PREFIX value; empty keeps the keys at the bucket root.
+func NewS3ObjectStore(mc *s3.MinioClient, pathPrefix string) *S3ObjectStore {
+	return &S3ObjectStore{mc: mc, prefix: s3.NewKeyPrefix(pathPrefix)}
 }
 
 var _ ObjectStore = (*S3ObjectStore)(nil)
 
 func (o *S3ObjectStore) List(ctx context.Context, prefix string) ([]ObjectInfo, error) {
-	objects, err := o.mc.ListObjectsWithPrefix(ctx, prefix)
+	objects, err := o.mc.ListObjectsWithPrefix(ctx, o.prefix.Apply(prefix))
 	if err != nil {
 		return nil, err
 	}
 	out := make([]ObjectInfo, 0, len(objects))
 	for _, obj := range objects {
-		out = append(out, ObjectInfo{Key: obj.Key, Size: obj.Size, LastModified: obj.LastModified})
+		key, ok := o.prefix.Strip(obj.Key)
+		if !ok {
+			continue // cannot happen under an applied prefix; skip defensively
+		}
+		out = append(out, ObjectInfo{Key: key, Size: obj.Size, LastModified: obj.LastModified})
 	}
 	return out, nil
 }
 
 func (o *S3ObjectStore) Open(ctx context.Context, key string) (Object, error) {
-	obj, err := o.mc.Client.GetObject(ctx, o.mc.Bucket(), key, minio.GetObjectOptions{})
+	obj, err := o.mc.Client.GetObject(ctx, o.mc.Bucket(), o.prefix.Apply(key), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, mapNotFound(err)
 	}
@@ -52,7 +60,7 @@ func (o *S3ObjectStore) Open(ctx context.Context, key string) (Object, error) {
 }
 
 func (o *S3ObjectStore) Put(ctx context.Context, key string, body []byte) error {
-	_, err := o.mc.Client.PutObject(ctx, o.mc.Bucket(), key,
+	_, err := o.mc.Client.PutObject(ctx, o.mc.Bucket(), o.prefix.Apply(key),
 		bytes.NewReader(body), int64(len(body)), minio.PutObjectOptions{
 			ContentType:    "application/octet-stream",
 			SendContentMd5: true, // 01 §6.2 step 3
@@ -63,7 +71,7 @@ func (o *S3ObjectStore) Put(ctx context.Context, key string, body []byte) error 
 func (o *S3ObjectStore) Delete(ctx context.Context, key string) error {
 	// S3 DeleteObject succeeds on a missing key, which is exactly the
 	// idempotent-delete contract of ObjectStore.
-	return o.mc.Client.RemoveObject(ctx, o.mc.Bucket(), key, minio.RemoveObjectOptions{})
+	return o.mc.Client.RemoveObject(ctx, o.mc.Bucket(), o.prefix.Apply(key), minio.RemoveObjectOptions{})
 }
 
 func mapNotFound(err error) error {

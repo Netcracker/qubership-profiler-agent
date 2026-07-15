@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Profiler config for the v3.1.3 real-agent regression harness
+  (scripts/e2e-realagent/run-agent-v313.sh).
+
+  Unlike config/_config.xml (which excludes the test-app package because
+  AdversarialMain drives the agent through the programmatic Profiler API),
+  the v3.1.3 test-app's Main class (test-app/.../Main.java at tag v3.1.3)
+  has no such API calls — it only calls a plain Main.test(String) method in
+  a loop, relying on ordinary bytecode instrumentation. A class is only
+  instrumented once a <rule> in this ruleset matches it (no rule matches ->
+  no instrumentation, verified against
+  instrumenter/.../configuration/ConfigurationImpl.java's getRulesForClass),
+  so this rule turns profiling ON for the test-app package. A bare
+  <rule><class>...</class></rule> with no <do-not-profile/> instruments
+  every method of every matching class, which covers Main.test(String).
+-->
+<profiler-configuration>
+    <log-retention max-age="8 days" max-size="2 Gb"/>
+    <ruleset>
+        <rule>
+            <class>com.netcracker.profilerTest.testapp.**</class>
+        </rule>
+    </ruleset>
+</profiler-configuration>

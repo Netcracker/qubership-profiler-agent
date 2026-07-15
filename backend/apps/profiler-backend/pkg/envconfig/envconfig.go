@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/pkg/errors"
@@ -22,14 +23,18 @@ type (
 	Collect struct {
 		LogLevel string `envconfig:"PROFILER_LOG_LEVEL" default:"info"`
 
-		DataDir             string             `envconfig:"PROFILER_DATA_DIR" default:"/data"`
-		AgentPort           int                `envconfig:"PROFILER_AGENT_PORT" default:"1715"`
-		InternalAPIPort     int                `envconfig:"PROFILER_INTERNAL_API_PORT" default:"8081"`
-		TimeBucket          time.Duration      `envconfig:"PROFILER_TIME_BUCKET" default:"5m"`
-		TimeBucketGrace     time.Duration      `envconfig:"PROFILER_TIME_BUCKET_GRACE" default:"30s"`
-		DictFsyncRecords    int                `envconfig:"PROFILER_DICT_FSYNC_RECORDS" default:"256"`
-		DictFsyncInterval   time.Duration      `envconfig:"PROFILER_DICT_FSYNC_INTERVAL" default:"100ms"`
-		DurationThresholds  DurationThresholds `envconfig:"PROFILER_DURATION_THRESHOLDS" default:"100ms,1s"`
+		DataDir           string        `envconfig:"PROFILER_DATA_DIR" default:"/data"`
+		AgentPort         int           `envconfig:"PROFILER_AGENT_PORT" default:"1715"`
+		InternalAPIPort   int           `envconfig:"PROFILER_INTERNAL_API_PORT" default:"8081"`
+		TimeBucket        time.Duration `envconfig:"PROFILER_TIME_BUCKET" default:"5m"`
+		TimeBucketGrace   time.Duration `envconfig:"PROFILER_TIME_BUCKET_GRACE" default:"30s"`
+		DictFsyncRecords  int           `envconfig:"PROFILER_DICT_FSYNC_RECORDS" default:"256"`
+		DictFsyncInterval time.Duration `envconfig:"PROFILER_DICT_FSYNC_INTERVAL" default:"100ms"`
+		// DurationThresholds override the clean-tier bounds of the shared
+		// retention tier table (01 §6.4). Unset keeps the table defaults
+		// (100ms,1s,10s) — the default deliberately lives in ONE place, the
+		// model.RetentionTiers table, not in a tag here (№10).
+		DurationThresholds  DurationThresholds `envconfig:"PROFILER_DURATION_THRESHOLDS"`
 		SegmentRotationSize ByteSize           `envconfig:"PROFILER_SEGMENT_ROTATION_SIZE" default:"4MB"`
 
 		// Replica names this instance in sealed-file names and S3 keys
@@ -99,6 +104,11 @@ type (
 		WideRangeLimit   time.Duration `envconfig:"PROFILER_WIDE_RANGE_LIMIT" default:"6h"`
 		MaxScanFiles     int           `envconfig:"PROFILER_MAX_SCAN_FILES" default:"10000"`
 		MaxScanBytes     ByteSize      `envconfig:"PROFILER_MAX_SCAN_BYTES" default:"2GB"`
+		// DurationThresholds must mirror the collector's value: the cold
+		// class pruning and the guard exemption derive their bounds from the
+		// same tier table the seal pass classified with (№10). Unset keeps
+		// the model.RetentionTiers defaults.
+		DurationThresholds DurationThresholds `envconfig:"PROFILER_DURATION_THRESHOLDS"`
 
 		ShutdownDrainGrace time.Duration `envconfig:"PROFILER_SHUTDOWN_DRAIN_GRACE" default:"30s"`
 
@@ -127,28 +137,43 @@ type (
 		CompactionDeleteGrace time.Duration `envconfig:"PROFILER_COMPACTION_DELETE_GRACE" default:"5m"`
 		CompactionMaxBytes    ByteSize      `envconfig:"PROFILER_COMPACTION_MAX_BYTES" default:"256MB"`
 
-		RetentionShortCleanTTL  TTL `envconfig:"PROFILER_RETENTION_SHORT_CLEAN_TTL" default:"1d"`
-		RetentionNormalCleanTTL TTL `envconfig:"PROFILER_RETENTION_NORMAL_CLEAN_TTL" default:"7d"`
-		RetentionLongCleanTTL   TTL `envconfig:"PROFILER_RETENTION_LONG_CLEAN_TTL" default:"30d"`
-		RetentionAnyErrorTTL    TTL `envconfig:"PROFILER_RETENTION_ANY_ERROR_TTL" default:"30d"`
-		RetentionCorruptedTTL   TTL `envconfig:"PROFILER_RETENTION_CORRUPTED_TTL" default:"7d"`
-		RetentionDictionaryTTL  TTL `envconfig:"PROFILER_RETENTION_DICTIONARY_TTL" default:"35d"`
+		// Per-class retention TTLs (01 §6.4). Unset values keep the defaults
+		// of the model.RetentionTiers table — the defaults deliberately live
+		// in ONE place, not in tags here (№10). RetentionPodsTTL expires the
+		// pods/v1 manifests (01 §3.6); its default derives from the longest
+		// class TTL plus a margin.
+		RetentionShortCleanTTL  TTL `envconfig:"PROFILER_RETENTION_SHORT_CLEAN_TTL"`
+		RetentionNormalCleanTTL TTL `envconfig:"PROFILER_RETENTION_NORMAL_CLEAN_TTL"`
+		RetentionLongCleanTTL   TTL `envconfig:"PROFILER_RETENTION_LONG_CLEAN_TTL"`
+		RetentionHugeCleanTTL   TTL `envconfig:"PROFILER_RETENTION_HUGE_CLEAN_TTL"`
+		RetentionAnyErrorTTL    TTL `envconfig:"PROFILER_RETENTION_ANY_ERROR_TTL"`
+		RetentionCorruptedTTL   TTL `envconfig:"PROFILER_RETENTION_CORRUPTED_TTL"`
+		RetentionPodsTTL        TTL `envconfig:"PROFILER_RETENTION_PODS_TTL"`
 
 		S3 S3
 	}
 
 	// S3 carries the object-store connection shared by the subcommands
-	// (01 §9). The scheme of S3_ENDPOINT selects TLS; the path prefix is not
-	// configurable — the seal pass bakes `parquet/v1` into every key (01 §7).
-	// Each credential comes from exactly one source: the env value (dev,
-	// compose) or a file path (k8s mounts the Secret as a volume, 04 §6).
+	// (01 §9). The scheme of S3_ENDPOINT selects TLS. S3_PATH_PREFIX roots
+	// EVERY object key (parquet and the pods manifests) below the bucket, so
+	// several deployments can share one bucket with per-deployment prefixes
+	// (01 §7, 04 §6); empty keeps the keys at the bucket root. Each
+	// credential comes from exactly one source: the env value (dev, compose)
+	// or a file path (k8s mounts the Secret as a volume, 04 §6). CAFile and
+	// InsecureSSL only apply over https:// endpoints; libs/s3.Params.IsValid
+	// rejects them otherwise. CAFile trusts a private CA in addition to the
+	// system store. InsecureSSL is a dev/smoke escape hatch that skips
+	// verification entirely — never set it in production.
 	S3 struct {
 		Endpoint      string `envconfig:"S3_ENDPOINT" required:"true"`
 		Bucket        string `envconfig:"S3_BUCKET" required:"true"`
+		PathPrefix    string `envconfig:"S3_PATH_PREFIX"`
 		AccessKey     string `envconfig:"S3_ACCESS_KEY"`
 		SecretKey     string `envconfig:"S3_SECRET_KEY"`
 		AccessKeyFile string `envconfig:"S3_ACCESS_KEY_FILE"`
 		SecretKeyFile string `envconfig:"S3_SECRET_KEY_FILE"`
+		CAFile        string `envconfig:"S3_CA_FILE"`
+		InsecureSSL   bool   `envconfig:"S3_INSECURE_SKIP_VERIFY"`
 	}
 )
 
@@ -170,6 +195,8 @@ func (s S3) Params() (s3.Params, error) {
 		SecretAccessKey: secret,
 		UseSSL:          strings.HasPrefix(s.Endpoint, "https://"),
 		BucketName:      s.Bucket,
+		CAFile:          s.CAFile,
+		InsecureSSL:     s.InsecureSSL,
 	}
 	p.Prepare() // strips the scheme the UseSSL check just consumed
 	return p, nil
@@ -202,8 +229,10 @@ func credential(name, value, file string) (string, error) {
 // ParseCollect reads the `collect` configuration from the environment.
 func ParseCollect() (Collect, error) {
 	var c Collect
-	err := envconfig.Process("", &c)
-	return c, errors.Wrap(err, "parse collect env")
+	if err := envconfig.Process("", &c); err != nil {
+		return c, errors.Wrap(err, "parse collect env")
+	}
+	return c, validateTimeBucket(c.TimeBucket)
 }
 
 // ParseQuery reads the `query` configuration from the environment.
@@ -216,8 +245,41 @@ func ParseQuery() (Query, error) {
 // ParseMaintain reads the `maintain` configuration from the environment.
 func ParseMaintain() (Maintain, error) {
 	var m Maintain
-	err := envconfig.Process("", &m)
-	return m, errors.Wrap(err, "parse maintain env")
+	if err := envconfig.Process("", &m); err != nil {
+		return m, errors.Wrap(err, "parse maintain env")
+	}
+	return m, validateTimeBucket(m.TimeBucket)
+}
+
+// validateTimeBucket rejects a PROFILER_TIME_BUCKET that does not divide the
+// hour (№28): rows are filed under the hour prefix of their bucket start and
+// cold discovery walks whole hours (02 §5.1) on the premise that a bucket
+// never spans an hour boundary — a 7-minute bucket would seal files no hour
+// walk ever lists, making them invisible to cold reads.
+func validateTimeBucket(bucket time.Duration) error {
+	if bucket <= 0 || bucket > time.Hour || time.Hour%bucket != 0 {
+		return errors.Errorf("PROFILER_TIME_BUCKET %s must divide the hour (e.g. 1m, 5m, 15m, 1h)", bucket)
+	}
+	return nil
+}
+
+// ClassTTLs resolves the per-class retention TTLs: explicit env values win,
+// unset classes keep the tier-table defaults (№10).
+func (m Maintain) ClassTTLs() map[string]time.Duration {
+	out := model.DefaultClassTTL()
+	for class, ttl := range map[string]TTL{
+		model.RetentionShortClean:  m.RetentionShortCleanTTL,
+		model.RetentionNormalClean: m.RetentionNormalCleanTTL,
+		model.RetentionLongClean:   m.RetentionLongCleanTTL,
+		model.RetentionHugeClean:   m.RetentionHugeCleanTTL,
+		model.RetentionAnyError:    m.RetentionAnyErrorTTL,
+		model.RetentionCorrupted:   m.RetentionCorruptedTTL,
+	} {
+		if ttl > 0 {
+			out[class] = time.Duration(ttl)
+		}
+	}
+	return out
 }
 
 // ByteSize decodes the contract's size literals ("64MB", "2GB", plain
@@ -281,25 +343,30 @@ func (t *TTL) Decode(value string) error {
 	return nil
 }
 
-// DurationThresholds decodes PROFILER_DURATION_THRESHOLDS: two ascending
-// duration-class boundaries, "100ms,1s" (01 §6.4).
-type DurationThresholds [2]time.Duration
+// DurationThresholds decodes PROFILER_DURATION_THRESHOLDS: the ascending
+// clean-tier boundaries, one per finite bound of the model.RetentionTiers
+// table — "100ms,1s,10s" with the default table (01 §6.4). Nil (the env
+// unset) keeps the table defaults downstream.
+type DurationThresholds []time.Duration
 
 // Decode implements envconfig.Decoder.
 func (d *DurationThresholds) Decode(value string) error {
 	parts := strings.Split(value, ",")
-	if len(parts) != 2 {
-		return errors.Errorf("duration thresholds %q: want two comma-separated durations", value)
+	want := len(model.CleanTiers()) - 1
+	if len(parts) != want {
+		return errors.Errorf("duration thresholds %q: want %d comma-separated durations, one per finite tier bound", value, want)
 	}
+	out := make([]time.Duration, len(parts))
 	for i, part := range parts {
 		v, err := time.ParseDuration(strings.TrimSpace(part))
 		if err != nil {
 			return errors.Wrapf(err, "duration thresholds %q", value)
 		}
-		d[i] = v
+		if v <= 0 || (i > 0 && v <= out[i-1]) {
+			return errors.Errorf("duration thresholds %q: want ascending positive durations", value)
+		}
+		out[i] = v
 	}
-	if d[0] <= 0 || d[1] <= d[0] {
-		return errors.Errorf("duration thresholds %q: want 0 < first < second", value)
-	}
+	*d = out
 	return nil
 }

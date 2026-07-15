@@ -65,6 +65,25 @@ func TestEmulator(t *testing.T) {
 		assert.Error(t, err, "unknown stream must not yield a valid handle")
 	})
 
+	// Pre-v3.1.4 agents register a "gc" stream unconditionally when streaming
+	// remotely; refusing it used to tear down the whole connection, so no
+	// other stream's data ever landed either. The collector now accepts and
+	// discards it instead of refusing it.
+	t.Run("gc stream is accepted and discarded", func(t *testing.T) {
+		ac, err := prepareAgent(t, ctx)
+		require.NoError(t, err)
+		err = ac.InitializeConnection(model.PROTOCOL_VERSION_V3, ns, svc, "pod-gc")
+		require.NoError(t, err)
+
+		handle, err := ac.CommandInitStream(model.StreamGc, 0, false)
+		require.NoError(t, err, "gc must not be refused like an unknown stream")
+		assert.NotEqual(t, [16]byte{}, handle.ToBin(), "collector must return a non-nil stream handle")
+
+		require.NoError(t, ac.CommandRcvData(model.StreamGc, handle, []byte("gc log bytes")))
+		require.NoError(t, ac.Flush())
+		require.NoError(t, ac.WaitForAcks(), "the gc stream must not desync the ack cycle")
+	})
+
 	// №5: a data command before the handshake used to deref a nil sc.pod and
 	// crash the whole collector. The server must reject it (ACK_ERROR_MAGIC +
 	// close) and stay up for every other agent.
