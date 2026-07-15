@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,10 @@ type JanitorStats struct {
 	// (01 §6.1 trigger 3): closed-state eviction alone did not fit the budget,
 	// so the oldest unsealed bucket was flushed to unpin its chunk indexes.
 	MemPressureSeals int64
+	// OrphanParquetRemoved counts sealed files with no catalog row — a crash
+	// between the seal rename and its commit — removed by the janitor sweep
+	// (re-review finding 7); their rows re-seal from the watermark.
+	OrphanParquetRemoved int64
 }
 
 // JanitorCountersSnapshot returns the process-lifetime janitor counters.
@@ -60,6 +65,7 @@ func (s *Store) countJanitor(stats JanitorStats) {
 	s.janitorCounters.DictionariesUnloaded += stats.DictionariesUnloaded
 	s.janitorCounters.ChunkIndexesReleased += stats.ChunkIndexesReleased
 	s.janitorCounters.MemPressureSeals += stats.MemPressureSeals
+	s.janitorCounters.OrphanParquetRemoved += stats.OrphanParquetRemoved
 }
 
 // SegmentsDiskUsage reports the on-disk bytes of the hot-store segments, as
@@ -117,6 +123,9 @@ func (s *Store) JanitorPass(ctx context.Context, nowMs int64) (JanitorStats, err
 	if err := s.capQuarantine(ctx, nowMs, &stats); err != nil {
 		return stats, err
 	}
+	if err := s.sweepOrphanParquet(ctx, nowMs, &stats); err != nil {
+		return stats, err
+	}
 	if err := s.enforceMemBudget(ctx, &stats); err != nil {
 		return stats, err
 	}
@@ -128,14 +137,18 @@ func (s *Store) JanitorPass(ctx context.Context, nowMs int64) (JanitorStats, err
 	return stats, s.refreshBackpressure(ctx)
 }
 
-// refreshBackpressure recomputes the №2 pending-upload backlog — sealed
-// parquet still owed to S3 plus the live call-index partitions on disk — and
-// flips the two gates: the seal loop pauses once the pending parquet alone
-// reaches half the budget (the data stays in WALs and segments, producing no
-// new pending parquet), and ingest refuses RCV_DATA once the whole backlog
-// reaches the full budget (the server answers ACK_ERROR before writing, so
-// the agent buffers and retries). Called by recovery, the janitor pass, the
-// seal loop, and the upload pass, so the gates lift promptly once S3 drains.
+// refreshBackpressure recomputes the №2 pending backlog — sealed parquet
+// still owed to S3, the live call-index partitions on disk, and the tracked
+// pod-restarts' WAL files (re-review finding 4) — and flips the two gates:
+// the seal loop pauses once the pending parquet alone reaches half the budget
+// (the data stays in WALs and segments, producing no new pending parquet),
+// and ingest refuses RCV_DATA with ACK_ERROR before writing once the whole
+// backlog reaches the full budget. That refusal is data loss, stated honestly
+// (finding 1): the agent treats ACK_ERROR as fatal, drops the unacknowledged
+// window, and reconnects as a fresh pod-restart (06 §6) — a bounded, counted
+// loss (ingest_refused_bytes_total) instead of the PV running to ENOSPC.
+// Called by recovery, the janitor pass, the seal loop, and the upload pass,
+// so the gates lift promptly once S3 drains.
 func (s *Store) refreshBackpressure(ctx context.Context) error {
 	pending, err := s.db.PendingParquetBytes()
 	if err != nil {
@@ -153,17 +166,21 @@ func (s *Store) refreshBackpressure(ctx context.Context) error {
 			}
 		}
 	}
+	walBytes := s.walBytesOnDisk()
 	s.pendingParquetBytes.Store(pending)
 	s.partitionsDiskBytes.Store(partitions)
+	s.walDiskBytes.Store(walBytes)
 	budget := s.cfg.PendingUploadMaxBytes
 	// The seal gate reads ONLY the pending parquet share: sealing is what
 	// grows it, and the upload loop drains it independently of sealing. Were
 	// the partitions counted here too, a paused seal would pin its unsealed
 	// partitions, which would keep the gate tripped — a deadlock. The ingest
-	// gate reads the whole backlog, because agent data grows the partitions
-	// whether or not sealing runs.
+	// gate reads the whole backlog — WAL files included, because agent data
+	// grows the partitions and the WALs whether or not sealing runs, and the
+	// WALs purge only after upload + retention + grace.
+	backlog := pending + partitions + walBytes
 	s.setGate(ctx, &s.sealPaused, pending >= budget/2, "seal", pending, budget/2)
-	s.setGate(ctx, &s.ingestPaused, pending+partitions >= budget, "ingest", pending+partitions, budget)
+	s.setGate(ctx, &s.ingestPaused, backlog >= budget, "ingest", backlog, budget)
 	return nil
 }
 
@@ -496,16 +513,20 @@ func (s *Store) forgetPodRestart(key PodRestartKey) {
 // enforceDiskBudget implements the 01-write-contract.md §4.6 eviction: when
 // the hot-store segment files exceed ChunksStagingMaxBytes on disk, delete
 // segment files in a deterministic tier order — refcount-0 segments of
-// fully-sealed pod-restarts first, then the referenced ones, and the segments
-// of pod-restarts with unsealed calls strictly LAST (№7, the HasUnsealedCalls
-// check mirroring the deletion sweep): a seal that has not run yet will read
-// those segments — the trace chains AND the sql/xml values, whose refcount
-// rises only when the seal commits, so plain refcount ordering used to evict
-// them FIRST and lose the values silently. A segment still open for writes is
-// never evicted. The catalog row of an evicted segment stays with status
-// 'evicted', so a call whose chunks lived there seals with trace_blob = NULL
-// and truncated_reason = disk_budget — the janitor only creates the
-// condition, the seal pass records it.
+// fully-sealed CLOSED pod-restarts first, then the referenced ones, and the
+// segments a future read still needs strictly LAST: pod-restarts with
+// unsealed calls (№7, the HasUnsealedCalls check mirroring the deletion
+// sweep — a seal that has not run yet will read those segments, the trace
+// chains AND the sql/xml values, whose refcount rises only when the seal
+// commits) and pod-restarts whose connection is still LIVE (re-review
+// finding 5 — the agent deduplicates sql/xml values per connection, so a
+// PARAM_BIG_DEDUP tag can reference a value sent hours ago, and a long
+// call's trace chunks sit in long-rotated segments before its Call record
+// exists; both look refcount-0 until the referencing call seals). A segment
+// still open for writes is never evicted. The catalog row of an evicted
+// segment stays with status 'evicted', so a call whose chunks lived there
+// seals with trace_blob = NULL and truncated_reason = disk_budget — the
+// janitor only creates the condition, the seal pass records it.
 func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *JanitorStats) error {
 	budget := s.cfg.ChunksStagingMaxBytes
 	rows, err := s.db.SegmentsForBudget()
@@ -513,6 +534,10 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		return err
 	}
 	unsealed, err := s.db.UnsealedPodRestarts()
+	if err != nil {
+		return err
+	}
+	live, err := s.db.LivePodRestarts()
 	if err != nil {
 		return err
 	}
@@ -532,7 +557,7 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		switch {
 		case row.Status == "open":
 			// never evict under a live gzip writer
-		case unsealed[row.PodRestart]:
+		case unsealed[row.PodRestart] || live[row.PodRestart]:
 			owedSeal = append(owedSeal, candidate{row, size})
 		case row.Refcount == 0:
 			zeroRef = append(zeroRef, candidate{row, size})
@@ -571,15 +596,80 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 		total -= c.size
 		stats.SegmentsEvicted++
 		stats.EvictedBytes += c.size
-		if unsealed[c.row.PodRestart] {
+		switch {
+		case unsealed[c.row.PodRestart]:
 			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes) that an OWED SEAL still needed — its calls will seal truncated (disk_budget)",
 				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size)
-		} else {
+		case live[c.row.PodRestart]:
+			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes) of a LIVE pod-restart — a later dedup reference or long call loses it (disk_budget)",
+				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size)
+		default:
 			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes, refcount %d) under the disk budget",
 				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size, c.row.Refcount)
 		}
 	}
 	s.segmentsDiskBytes.Store(total)
+	return nil
+}
+
+// orphanSealedMinAge guards the orphan sweep against an in-flight seal pass:
+// writeClassFile renames each class file to its sealed name BEFORE the pass
+// commits (seal.go), so a catalog-less file may simply be mid-commit. The
+// rename-to-commit window spans at most the remaining class writes of one
+// pass — seconds — so files younger than this are left alone.
+const orphanSealedMinAge = 10 * time.Minute
+
+// sweepOrphanParquet removes sealed parquet files with no parquet_local row —
+// a crash between the №6 rename and CommitSealPass (re-review finding 7).
+// Such a file is invisible to the pending backlog and to every janitor step
+// keyed off the catalog, so before this sweep it consumed PV until the next
+// restart's recovery. The rows re-seal from the watermark, normally under the
+// same deterministic name; a dictionary grown between the passes can shift a
+// row's class, which is why the orphan cannot simply be adopted. Recovery
+// runs the same walk without the age guard (recovery.go), because no seal is
+// in flight at startup.
+func (s *Store) sweepOrphanParquet(ctx context.Context, nowMs int64, stats *JanitorStats) error {
+	s.sealPairMu.Lock()
+	sealing := len(s.sealingPairs)
+	s.sealPairMu.Unlock()
+	if sealing > 0 {
+		return nil // an in-flight pass may have renamed files it has not committed yet
+	}
+	paths, err := s.db.ParquetLocalPaths()
+	if err != nil {
+		return err
+	}
+	catalogued := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		catalogued[p] = struct{}{}
+	}
+	minAgeMs := orphanSealedMinAge.Milliseconds()
+	root := filepath.Join(s.cfg.DataDir, "parquet")
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".parquet") {
+			return nil //nolint:nilerr // a missing root means nothing sealed yet
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if _, ok := catalogued[path]; ok {
+			return nil
+		}
+		info, statErr := d.Info()
+		if statErr != nil || nowMs-info.ModTime().UnixMilli() < minAgeMs {
+			return nil // young enough to be a pass racing this walk
+		}
+		if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Error(ctx, rmErr, "janitor: cannot remove orphan sealed parquet %s", path)
+			return nil
+		}
+		stats.OrphanParquetRemoved++
+		log.Warning(ctx, "janitor: removed orphan sealed parquet %s (no catalog row — a crash between the seal rename and its commit); its rows re-seal from the watermark", path)
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return errors.Wrap(err, "sweep orphan sealed parquet")
+	}
 	return nil
 }
 

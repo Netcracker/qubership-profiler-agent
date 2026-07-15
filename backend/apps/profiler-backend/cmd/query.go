@@ -14,6 +14,7 @@ import (
 	ui "github.com/Netcracker/qubership-profiler-backend/apps/ui"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/oklog/run"
 	pkgerrors "github.com/pkg/errors"
@@ -101,8 +102,15 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	}
 	// Stateless service: READY as soon as the port is bound (§7.1 step 4).
 	gate.Set(health.StateReady, "")
-	log.Info(ctx, "query ready: external API :%d, collector service %q",
-		cfg.ExternalAPIPort, cfg.CollectorService)
+	// The thresholds must mirror the collector's, or the cold class pruning
+	// silently drops rows (01 §6.4); logging the resolved value makes a drift
+	// diagnosable from the two startup lines.
+	thresholds := []time.Duration(cfg.DurationThresholds)
+	if len(thresholds) == 0 {
+		thresholds = model.DefaultDurationThresholds()
+	}
+	log.Info(ctx, "query ready: external API :%d, collector service %q, duration thresholds %v",
+		cfg.ExternalAPIPort, cfg.CollectorService, thresholds)
 
 	// query has no internal port, so /metrics rides the external one (04 §12);
 	// the ingress publishes /api/v1 only.

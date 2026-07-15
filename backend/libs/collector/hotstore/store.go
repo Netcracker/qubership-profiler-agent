@@ -153,6 +153,7 @@ type (
 		// ingestPaused before writing anything.
 		pendingParquetBytes atomic.Int64
 		partitionsDiskBytes atomic.Int64
+		walDiskBytes        atomic.Int64
 		sealPaused          atomic.Bool
 		ingestPaused        atomic.Bool
 		sealQueueDepth      atomic.Int64
@@ -267,11 +268,28 @@ func (s *Store) Close() error {
 func (s *Store) Config() Config { return s.cfg }
 
 // OpenPodRestart creates the on-PV layout and WALs for a new agent connection.
+//
+// RestartTimeMs is stamped at TCP accept with millisecond precision, so two
+// accepts of one pod within the same millisecond collide on the key. Reopening
+// over the first session's state would corrupt it: the fresh Wal writers start
+// at size 0 and crc 0, so the second session's records overwrite nothing but
+// collide on offsets, and replay stops at the first session's footer — the
+// second session silently lost. Instead the restart time is bumped until the
+// key is unused, in RAM and on the PV, so every accept gets its own
+// pod-restart; the returned key may therefore differ from the argument.
 func (s *Store) OpenPodRestart(key PodRestartKey) (*PodRestart, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if pr, ok := s.pods[key.String()]; ok && !pr.closed {
-		return pr, nil
+	for {
+		if _, ok := s.pods[key.String()]; ok {
+			key.RestartTimeMs++
+			continue
+		}
+		if _, err := os.Stat(key.dir(s.cfg.DataDir)); err == nil {
+			key.RestartTimeMs++
+			continue
+		}
+		break
 	}
 
 	dir := key.dir(s.cfg.DataDir)
@@ -356,6 +374,40 @@ func (s *Store) MemUsage() (bytes, budget int64) {
 // call-partition bytes, next to the budget they share.
 func (s *Store) PendingUploadUsage() (parquetBytes, partitionBytes, budget int64) {
 	return s.pendingParquetBytes.Load(), s.partitionsDiskBytes.Load(), s.cfg.PendingUploadMaxBytes
+}
+
+// WalBytes reports the tracked pod-restarts' WAL bytes on the PV as last
+// measured by refreshBackpressure — the third component of the ingest gate
+// (re-review finding 4).
+func (s *Store) WalBytes() int64 { return s.walDiskBytes.Load() }
+
+// walBytesOnDisk sums the WAL sizes of every tracked pod-restart, live or
+// closed (a closed pod-restart's WALs stay on the PV until the janitor purge).
+// Pod-restarts rebuilt by recovery carry no Wal writers and count zero; their
+// files are bounded by what the gate admitted before the crash.
+func (s *Store) walBytesOnDisk() int64 {
+	s.mu.Lock()
+	pods := make([]*PodRestart, 0, len(s.pods))
+	for _, pr := range s.pods {
+		pods = append(pods, pr)
+	}
+	s.mu.Unlock()
+	var total int64
+	for _, pr := range pods {
+		total += pr.walBytes()
+	}
+	return total
+}
+
+// walBytes sums the pod-restart's four WAL files' appended bytes.
+func (pr *PodRestart) walBytes() int64 {
+	var total int64
+	for _, w := range []*Wal{pr.dictWal, pr.paramsWal, pr.suspendWal, pr.callsWal} {
+		if w != nil {
+			total += w.Size()
+		}
+	}
+	return total
 }
 
 // SealPaused and IngestPaused report the №2 backpressure gates: sealing

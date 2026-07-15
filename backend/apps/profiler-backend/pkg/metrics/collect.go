@@ -108,6 +108,9 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 	janitor("mem_pressure_seals_total",
 		"Pod-restart buckets early-sealed by the mem budget (01 §6.1 trigger 3) to unpin their chunk indexes.",
 		func(s hotstore.JanitorStats) int64 { return s.MemPressureSeals })
+	janitor("orphan_parquet_removed_total",
+		"Sealed parquet files with no catalog row (a crash between the seal rename and its commit) removed by the janitor sweep; their rows re-seal from the watermark.",
+		func(s hotstore.JanitorStats) int64 { return s.OrphanParquetRemoved })
 	counter("janitor", "loop_errors_total",
 		"Failed janitor passes (the loop logged and retried on the next tick). A sustained rate means retention/eviction is wedged.",
 		func() int64 { return store.JanitorLoopErrors() }, nil)
@@ -143,14 +146,17 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 	gauge("hotstore", "partitions_disk_bytes",
 		"On-disk bytes of the live call-index partitions, as of the last backpressure refresh (№2).",
 		func() float64 { _, partitions, _ := store.PendingUploadUsage(); return float64(partitions) }, nil)
+	gauge("hotstore", "wal_disk_bytes",
+		"WAL bytes of the tracked pod-restarts, as of the last backpressure refresh — the third component of the ingest gate (finding 4).",
+		func() float64 { return float64(store.WalBytes()) }, nil)
 	gauge("hotstore", "pending_budget_bytes",
-		"Configured pending-upload budget (PROFILER_PENDING_UPLOAD_MAX_BYTES): sealing pauses once pending parquet reaches half of it, ingest once the whole backlog reaches it.",
+		"Configured pending-upload budget (PROFILER_PENDING_UPLOAD_MAX_BYTES): sealing pauses once pending parquet reaches half of it, ingest once the whole backlog (parquet + partitions + WALs) reaches it.",
 		func() float64 { _, _, budget := store.PendingUploadUsage(); return float64(budget) }, nil)
 	gauge("backpressure", "seal_paused",
 		"1 while the seal loop is paused by the pending-upload budget (№2).",
 		func() float64 { return boolGauge(store.SealPaused()) }, nil)
 	gauge("backpressure", "ingest_paused",
-		"1 while ingest refuses agent data under the pending-upload budget (№2); the agent buffers and retries.",
+		"1 while ingest refuses agent data with ACK_ERROR under the pending-upload budget (№2). The agent drops the refused window and reconnects — see ingest_refused_bytes_total.",
 		func() float64 { return boolGauge(store.IngestPaused()) }, nil)
 
 	gauge("store", "pods_size",
@@ -192,6 +198,12 @@ func RegisterIngest(reg prometheus.Registerer, listener *ingest.Listener) {
 		func(s ingest.IngestStats) int64 { return int64(s.BytesRead) })
 	counter("decoder_errors_total", "Streams a decoder rejected as malformed or gzip-wrapped; the agent resends from scratch (06 §6).",
 		func(s ingest.IngestStats) int64 { return int64(s.DecoderErrors) })
+	counter("refused_bytes_total",
+		"RCV_DATA payload bytes refused with ACK_ERROR by the backpressure gate before writing (№2, finding 1). The agent drops the refused window and reconnects, so a non-zero rate is data loss happening now — the ProfilerIngestRefused alert reads this.",
+		func(s ingest.IngestStats) int64 { return int64(s.RefusedBytes) })
+	counter("dict_append_errors_total",
+		"Dictionary words whose WAL append failed (finding 3); each failure also fails its stream so the agent re-sends the dictionary with resetRequired.",
+		func(s ingest.IngestStats) int64 { return int64(s.DictAppendErrors) })
 }
 
 // backlogCollector emits the upload-backlog gauges from ONE UploadBacklog read

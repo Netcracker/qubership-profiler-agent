@@ -241,6 +241,20 @@ Container securityContext shared by all three workloads; pass a dict with
 {{- end -}}
 
 {{/*
+The clean-tier duration thresholds shared by the collector's write-time
+classification and the query's read pruning (01 §6.4). ONE values key renders
+into BOTH workloads, so they can never drift — a collect/query mismatch
+silently drops rows from /calls. Empty keeps the built-in tier-table defaults
+(100ms,1s,10s) in both binaries, which are consistent by construction.
+*/}}
+{{- define "profiler-backend.durationThresholdsEnv" -}}
+{{- with .Values.retention.durationThresholds }}
+- name: PROFILER_DURATION_THRESHOLDS
+  value: {{ . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Env shared by both maintain modes: S3 + per-class retention TTLs (01 §9).
 The TTL values mirror the tier table of 01 §6.4 (№10): thresholds classify at
 the collector, these expire at the maintainer — override them together.

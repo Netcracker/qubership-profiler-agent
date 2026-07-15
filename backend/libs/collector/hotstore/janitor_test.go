@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -212,6 +213,9 @@ func TestJanitorEvictionOrder(t *testing.T) {
 	}
 	store := openStore(250)
 	require.NoError(t, store.db.UpsertPodRestart(key, janitorCallTs))
+	// A LIVE pod-restart's segments sit in the evicted-last tier (finding 5);
+	// this test models the sealed ballast of a closed one.
+	require.NoError(t, store.db.ClosePodRestart(key, janitorCallTs))
 
 	seed := func(seq int, createdAtMs int64, refcount int, finalize bool) string {
 		path := filepath.Join(dataDir, fmt.Sprintf("seg-%06d.gz", seq))
@@ -275,6 +279,99 @@ func TestJanitorEvictionOrder(t *testing.T) {
 			assert.Equal(t, 5, r.Refcount, "eviction must not touch the refcount (the upload releases it)")
 		}
 	}
+}
+
+// TestDiskBudgetSparesLivePodValueSegments pins the finding-5 fix: the agent
+// deduplicates sql/xml values per CONNECTION, so a PARAM_BIG_DEDUP tag can
+// reference a value sent hours ago; while the connection is live, its rotated
+// value segments look refcount-0 (the refcount rises only when a referencing
+// call seals) and used to fall into the first-evicted tier. A live
+// pod-restart's segments must outlive the sealed ballast of closed ones, and
+// a later dedup reference must still resolve.
+func TestDiskBudgetSparesLivePodValueSegments(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir(), ChunksStagingMaxBytes: 1000})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	// The live pod-restart writes one value into a rotated sql segment.
+	liveKey := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-live", RestartTimeMs: janitorCallTs}
+	pr, err := store.OpenPodRestart(liveKey)
+	require.NoError(t, err)
+	valueBytes, offsets := wire.ValueStream([]string{"SELECT * FROM dedup"})
+	seg, err := pr.OpenSegment(StreamSql, 1)
+	require.NoError(t, err)
+	_, err = seg.Write(valueBytes)
+	require.NoError(t, err)
+	require.NoError(t, pr.FinalizeSegment(seg)) // rotated: closed for writes, still refcount-0
+	sqlPath := filepath.Join(pr.dir, StreamSql, SegmentFileName(1))
+	require.FileExists(t, sqlPath)
+
+	// Closed-pod ballast, refcount 0 and created strictly LATER than the live
+	// segment. Pre-fix, both fell into zeroRef and were evicted oldest first,
+	// so the LIVE segment went before the ballast — exactly the regression
+	// this ordering makes the test catch.
+	closedKey := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-closed", RestartTimeMs: janitorCallTs}
+	require.NoError(t, store.db.UpsertPodRestart(closedKey, janitorCallTs))
+	require.NoError(t, store.db.ClosePodRestart(closedKey, janitorCallTs))
+	ballast := filepath.Join(store.cfg.DataDir, "ballast.gz")
+	require.NoError(t, os.WriteFile(ballast, bytes.Repeat([]byte{0xAB}, 10_000), 0o644))
+	require.NoError(t, store.db.UpsertSegment(closedKey.String(), StreamTrace, 1, ballast, time.Now().UnixMilli()+minute))
+	require.NoError(t, store.db.FinalizeSegment(closedKey.String(), StreamTrace, 1, 10_000, nil, nil))
+
+	stats, err := store.JanitorPass(ctx, time.Now().UnixMilli())
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stats.SegmentsEvicted, "the ballast alone satisfies the budget")
+	assert.NoFileExists(t, ballast, "the closed pod's refcount-0 ballast goes first")
+	assert.FileExists(t, sqlPath, "a live pod's value segment must not be evicted ahead of sealed ballast")
+
+	// The dedup reference from a call arriving AFTER the pass still resolves.
+	values, err := store.BigValues(ctx, liveKey, []ValueRef{{Stream: StreamSql, Seq: 1, Offset: offsets[0]}})
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT * FROM dedup",
+		values[ValueRef{Stream: StreamSql, Seq: 1, Offset: offsets[0]}],
+		"a later dedup reference must resolve against the protected segment")
+}
+
+// TestJanitorSweepsOrphanSealedParquet pins the finding-7 fix: a crash between
+// the seal rename and CommitSealPass leaves a sealed file with no catalog row —
+// invisible to the pending backlog and to every catalog-keyed janitor step.
+// The janitor sweep must remove it without waiting for a restart, while
+// sparing catalogued files and files young enough to be a pass mid-commit.
+func TestJanitorSweepsOrphanSealedParquet(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-o", RestartTimeMs: janitorCallTs}
+	require.NoError(t, store.db.UpsertPodRestart(key, janitorCallTs))
+
+	dir := filepath.Join(store.cfg.DataDir, "parquet", "v1", "short_clean", "2026", "01", "01", "00")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	now := time.Now()
+	aged := now.Add(-time.Hour)
+	write := func(name string, mtime time.Time) string {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte("parquet"), 0o644))
+		require.NoError(t, os.Chtimes(path, mtime, mtime))
+		return path
+	}
+	orphanOld := write("orphan-old.parquet", aged)
+	orphanFresh := write("orphan-fresh.parquet", now)
+	catalogued := write("catalogued.parquet", aged)
+	require.NoError(t, store.db.RecordSealedFile(parquetLocalRow{
+		Path: catalogued, PodRestart: key.String(), TimeBucketMs: 0,
+		RetentionClass: RetentionShortClean, Seq: 0, RowCount: 1,
+		TimeMinMs: 1, TimeMaxMs: 2, FileSize: 7, SealedAtMs: janitorCallTs,
+		S3Key: "parquet/v1/short_clean/2026/01/01/00/catalogued.parquet",
+	}, nil))
+
+	stats, err := store.JanitorPass(ctx, now.UnixMilli())
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stats.OrphanParquetRemoved)
+	assert.NoFileExists(t, orphanOld, "an aged catalog-less file is a crash leftover and goes now, not at restart")
+	assert.FileExists(t, orphanFresh, "a fresh catalog-less file may be a seal pass mid-commit")
+	assert.FileExists(t, catalogued, "a catalogued file is never an orphan")
 }
 
 // TestPartitionResurrectOnLateInsert pins the dropped-bucket escape hatch: a

@@ -46,6 +46,19 @@ groups:
         annotations:
           summary: "Hot window is not draining"
           description: "The oldest row in the hot index is over 30 minutes old — twice the default hot retention. The hot→cold handoff (seal, upload, or janitor drop) is stuck."
+      # The ingest gate refuses agent data with ACK_ERROR once the pending
+      # backlog (parquet + partitions + WALs) fills the budget (01 §4.6). The
+      # agent does not buffer and retry: it drops the refused window and
+      # reconnects, so any refused bytes are data lost right now — usually
+      # because S3 stopped draining the backlog.
+      - alert: ProfilerIngestRefused
+        expr: increase(profiler_ingest_refused_bytes_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Collector is refusing agent data — the agent drops it"
+          description: "The backpressure gate answered ACK_ERROR to agent RCV_DATA; the agent drops the refused window and reconnects, so this data is lost. Check S3 upload health and PROFILER_PENDING_UPLOAD_MAX_BYTES."
       - alert: ProfilerUploadFailures
         expr: increase(profiler_upload_put_failures_total[10m]) > 0
         for: 5m

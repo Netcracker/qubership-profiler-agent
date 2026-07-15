@@ -82,6 +82,15 @@ func (w *Wal) Append(body []byte) (offset int64, err error) {
 	return offset, nil
 }
 
+// Size reports the bytes appended so far. The value survives Close, so a
+// closed pod-restart's WAL files keep counting toward the ingest gate until
+// the janitor purges them (re-review finding 4).
+func (w *Wal) Size() int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.size
+}
+
 // Sync forces an fsync regardless of the periodic policy.
 func (w *Wal) Sync() error {
 	w.mu.Lock()

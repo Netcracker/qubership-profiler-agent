@@ -80,11 +80,15 @@ type Config struct {
 	// both reload or degrade explicitly (№1).
 	MemBudgetBytes int64
 	// PendingUploadMaxBytes bounds the un-uploaded backlog on the PV — sealed
-	// parquet still owed to S3 plus the live call-index partitions — when S3
-	// falls behind (№2). Once the pending parquet alone reaches half the
-	// budget the seal loop pauses (the data stays in WALs and segments); once
-	// the whole backlog reaches the full budget ingest refuses RCV_DATA with
-	// ACK_ERROR before writing, so the agent buffers and retries.
+	// parquet still owed to S3, the live call-index partitions, and the
+	// tracked pod-restarts' WAL files — when S3 falls behind (№2, re-review
+	// finding 4). Once the pending parquet alone reaches half the budget the
+	// seal loop pauses (the data stays in WALs and segments); once the whole
+	// backlog reaches the full budget ingest refuses RCV_DATA with ACK_ERROR
+	// before writing. The agent does NOT buffer and retry on ACK_ERROR: it
+	// treats it as fatal, drops the unacknowledged window, and reconnects as
+	// a fresh pod-restart (06 §6) — a bounded, counted loss
+	// (ingest_refused_bytes_total) instead of the PV running to ENOSPC.
 	PendingUploadMaxBytes int64
 	// QuarantineRetestInterval is how often a permanently-rejected upload is
 	// re-tested (№2): "permanent" rejections are often operational (expired

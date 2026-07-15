@@ -85,6 +85,8 @@ For each closed pod-restart with WAL files on PV:
 
 If a WAL is missing (e.g. crash between TCP accept and first dictionary entry), the pod-restart is recorded with an empty dictionary — any blobs from its chunks will be uninterpretable, but the Call rows themselves still have resolved method names (resolution happens at write time; `01-write-contract.md` §5.1).
 
+**Torn tail vs. mid-file corruption.** Every WAL record carries its own trailing CRC32, not just the length prefix, so replay can tell the two ways truncation happens apart. A torn tail (the process crashed mid-write) fails the length or bounds check on an incomplete record. Mid-file corruption (a bit flip on disk) fails the CRC check on a record whose length looks valid. Replay treats both the same way: it truncates the file at the first invalid record and keeps only the records before it (`libs/collector/hotstore/wal.go` `ReplayWal`). For `calls.wal` this truncation is enforced end to end: `PurgeCallsPastWalEnd` deletes every `call_index` row whose `calls_wal_offset` lands past the truncated end, even where the underlying WAL bytes happen to be intact (the "inverse skew" case in step 7 above). Recovery deliberately drops the entire valid tail after the corruption point, not just the corrupted record, because it does not scan past a broken record to find where corruption ends. This keeps the WAL and the SQLite index consistent with each other, but it is not maximally data-preserving — a single flipped bit can discard records that were otherwise intact.
+
 ### 3.5 Rebuild the segment catalog and chunk index
 
 For each closed pod-restart:
@@ -283,7 +285,7 @@ The `all` mode is documented as **dev-only**; production uses three separate k8s
 - **k8s manifests** (StatefulSet, Headless Service, PVC templates, probe wiring) → `04-storage-layout.md`.
 - **Agent reconnection behaviour** (timing, jitter, backoff) — set by the agent, not the collector. Out of scope here.
 - **maintenance job specifics** (compaction algorithms, retention enforcement loop) — covered briefly in `profiler-plan.md`, detailed when Stage 4 begins.
-- **Backpressure to the agent** when collector is overloaded — currently the protocol has no backpressure signal; covered as a future C-track item in `profiler-plan.md` (C2 runtime config).
+- **Backpressure to the agent** when the collector is overloaded — the protocol has no graceful backpressure signal. The collector's only lever is refusing `RCV_DATA` with `ACK_ERROR` under the pending-upload budget (`01-write-contract.md` §4.6), which the agent answers by dropping the refused window and reconnecting; the refused bytes are counted and alerted on. A protocol-level signal remains a future C-track item in `profiler-plan.md` (C2 runtime config).
 
 ## 12. Review checklist
 

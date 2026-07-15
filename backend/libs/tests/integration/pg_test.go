@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -23,12 +24,20 @@ type PGTestSuite struct {
 }
 
 func (suite *PGTestSuite) SetupSuite() {
+	genCfg := generator.SimpleConfig(1, 1, 1)
+	// GenerateCalls replays a captured pod dump (ui5min.bin) that the
+	// project never commits (WORKFLOW.md §6); loadPodData would otherwise
+	// log.Fatal on the missing file, so skip instead.
+	if _, err := os.Stat(genCfg.PathToPodFile); os.IsNotExist(err) {
+		suite.T().Skip("missing captured fixture " + genCfg.PathToPodFile +
+			" (real pod dumps are never committed; see WORKFLOW.md §6)")
+	}
+
 	suite.ctx = log.SetLevel(log.Context("itest"), log.DEBUG)
 	suite.timestamp = time.Date(2024, 4, 3, 0, 0, 0, 0, time.UTC)
 
 	suite.pg = helpers.CreatePgContainer(suite.ctx, suite.timestamp)
 
-	genCfg := generator.SimpleConfig(1, 1, 1)
 	suite.gen = generator.NewGenerator(genCfg, suite.timestamp)
 	suite.gen.GenerateCalls(suite.ctx)
 	suite.gen.GenerateDumps(suite.ctx)
