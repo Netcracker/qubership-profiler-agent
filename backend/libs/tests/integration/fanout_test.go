@@ -20,7 +20,6 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xitongsys/parquet-go/reader"
 )
 
 const (
@@ -351,12 +350,8 @@ func sealedTraceBlob(t *testing.T, fake *coldFakeStore, key string) []byte {
 	obj, err := fake.Open(context.Background(), key)
 	require.NoError(t, err)
 	defer func() { _ = obj.Close() }()
-	pr, err := reader.NewParquetReader(&testParquetFile{obj: obj, size: obj.Size()}, new(storageparquet.CallV2), 1)
-	require.NoError(t, err)
-	defer pr.ReadStop()
-	rows := make([]storageparquet.CallV2, pr.GetNumRows())
-	require.NoError(t, pr.Read(&rows))
+	rows := readParquetRows[storageparquet.CallV2](t, obj)
 	require.Len(t, rows, 1)
 	require.NotNil(t, rows[0].TraceBlob)
-	return []byte(*rows[0].TraceBlob)
+	return rows[0].TraceBlob
 }

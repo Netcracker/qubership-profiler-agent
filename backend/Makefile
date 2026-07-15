@@ -26,7 +26,7 @@ export SKIP_FRONTEND
 APPS := dumps-collector maintenance
 
 # Tool names (development/support tools)
-TOOLS := data-generator load-generator migration
+TOOLS := load-generator migration
 
 # Default target
 help:
@@ -158,10 +158,6 @@ collector-build:
 	@echo "==> Building collector..."
 	$(MAKE) -C $(APPS_DIR)/collector build
 
-data-generator-build:
-	@echo "==> Building data-generator..."
-	$(MAKE) -C $(TOOLS_DIR)/data-generator build
-
 dumps-collector-build:
 	@echo "==> Building dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector build
@@ -185,10 +181,6 @@ query-build:
 collector-clean:
 	@echo "==> Cleaning collector..."
 	$(MAKE) -C $(APPS_DIR)/collector clean
-
-data-generator-clean:
-	@echo "==> Cleaning data-generator..."
-	$(MAKE) -C $(TOOLS_DIR)/data-generator clean
 
 dumps-collector-clean:
 	@echo "==> Cleaning dumps-collector..."
@@ -214,10 +206,6 @@ collector-test:
 	@echo "==> Testing collector..."
 	$(MAKE) -C $(APPS_DIR)/collector test
 
-data-generator-test:
-	@echo "==> Testing data-generator..."
-	$(MAKE) -C $(TOOLS_DIR)/data-generator test
-
 dumps-collector-test:
 	@echo "==> Testing dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector test
@@ -242,10 +230,6 @@ collector-docker:
 	@echo "==> Building Docker image for collector..."
 	$(MAKE) -C $(APPS_DIR)/collector docker-build
 
-data-generator-docker:
-	@echo "==> Building Docker image for data-generator..."
-	$(MAKE) -C $(TOOLS_DIR)/data-generator docker-build
-
 dumps-collector-docker:
 	@echo "==> Building Docker image for dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector docker-build
@@ -269,10 +253,6 @@ query-docker:
 collector-archive:
 	@echo "==> Creating archive for collector..."
 	$(MAKE) -C $(APPS_DIR)/collector archive
-
-data-generator-archive:
-	@echo "==> Creating archive for data-generator..."
-	$(MAKE) -C $(TOOLS_DIR)/data-generator archive
 
 dumps-collector-archive:
 	@echo "==> Creating archive for dumps-collector..."
@@ -383,10 +363,6 @@ help-tools:
 help-collector:
 	@echo "Help for collector application:"
 	$(MAKE) -C $(APPS_DIR)/collector help
-
-help-data-generator:
-	@echo "Help for data-generator tool:"
-	$(MAKE) -C $(TOOLS_DIR)/data-generator help
 
 help-dumps-collector:
 	@echo "Help for dumps-collector application:"

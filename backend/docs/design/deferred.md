@@ -28,6 +28,14 @@ Design-level ideas that surfaced during Stage 0 (contracts) but are intentionall
 
 **Trigger to revisit.** Query profiling at target scale shows accepted queries whose actual scan overruns the estimate, or a projection-heavy workload where file-size estimates are systematically too conservative.
 
+## Versioned CallV2 reader for non-additive schema changes
+
+**What.** A cold reader that branches on the `profiler.schema_version` key in the parquet footer metadata (`01-write-contract.md` §5.2) and reads each file with the shape its version names. Needed the first time a `CallV2` column is renamed, retyped, or semantically redefined after release, while old and new files coexist inside the 30-day retention window.
+
+**Why deferred.** The parquet reader matches columns by NAME, so additive changes and column removals are already backward-readable with the single current struct — a missing column null-fills. Every sealed file carries the version stamp from day one, so the branching reader can be added exactly when the first non-additive change lands, with no data migration.
+
+**Trigger to revisit.** The first post-release `CallV2` change that renames a column, changes a column's type, or reinterprets stored values.
+
 ## `confirm_wide` / async wide-query override
 
 **What.** An explicit escape hatch — a `confirm_wide=true` parameter, or an async job that returns a handle to poll — that runs a query the wide-query guard (`02-read-contract.md` §2.3.2) would reject, for a caller that deliberately wants the expensive scan.

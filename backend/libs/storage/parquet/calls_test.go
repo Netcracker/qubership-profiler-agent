@@ -22,7 +22,7 @@ func TestCallParquet(t *testing.T) {
 		PodName:     "pod",
 		RestartTime: ts.UnixMilli(),
 		Method:      "class.methodName()",
-		Params:      Parameters{},
+		Params:      LegacyParameters{},
 		TraceId:     "2_3409_0",
 		Trace:       "traceBlob",
 	}

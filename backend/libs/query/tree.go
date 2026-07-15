@@ -131,7 +131,7 @@ func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints)
 		return out
 	}
 	if row.TraceBlob != nil {
-		out.blob = []byte(*row.TraceBlob)
+		out.blob = row.TraceBlob
 	}
 	return out
 }
