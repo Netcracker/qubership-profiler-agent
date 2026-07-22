@@ -2,7 +2,6 @@ package emulator
 
 import (
 	"context"
-	"github.com/Netcracker/qubership-profiler-backend/libs/parser/streams"
 	"net"
 	"time"
 
@@ -14,7 +13,11 @@ import (
 )
 
 type (
-	// AgentConnection acts as a client (the profiler agent) and sends data to the CDT collector
+	// AgentConnection acts as a client (the profiler agent) and sends data to
+	// the CDT collector. Its ack semantics mirror DefaultCollectorClient.java:
+	// one pending ack per RCV_DATA and per REQUEST_ACK_FLUSH, an opportunistic
+	// drain before each write, a synchronous drain at flush and before every
+	// stream open (backend/docs/design/virtual-dumper.md §2.4).
 	AgentConnection struct {
 		podName       string
 		ctx           context.Context
@@ -25,8 +28,11 @@ type (
 		pendingAcks   int
 		serverVersion uint64
 		conn          net.Conn
-		Opts          ConnectionOpts
-		listener      AgentListener
+		// probing switches Read to an immediate deadline so DrainAcks(false)
+		// can poll readability without blocking (Java's in.available()).
+		probing  bool
+		Opts     ConnectionOpts
+		listener AgentListener
 	}
 )
 
@@ -56,7 +62,6 @@ func (ac *AgentConnection) Connect() (err error) {
 	log.Debug(ac.ctx, "Connecting to %v with timeout %v ", opts.ProtocolAddress, opts.Timeout.ConnectTimeout)
 	ac.conn, err = net.DialTimeout("tcp", opts.ProtocolAddress, opts.Timeout.ConnectTimeout)
 	if err != nil {
-		//if ac.check(err) != nil {
 		return
 	}
 
@@ -112,43 +117,45 @@ func (ac *AgentConnection) ServerVersion() uint64 {
 	return ac.serverVersion
 }
 
-// Flush flushes the buffered writer so the collector sees the pending commands.
-func (ac *AgentConnection) Flush() error {
-	return ac.socketWriter.Flush()
+// PendingAcks reports how many sent commands still await their ack byte.
+func (ac *AgentConnection) PendingAcks() int {
+	return ac.pendingAcks
 }
-func (ac *AgentConnection) CommandInitStream(streamType string, requestedSeqId int, resetRequired bool) (handleId common.Uuid, err error) {
+
+// InitStream opens (or rotates) a rolling stream. It first drains every
+// pending ack synchronously — the agent never lets stream opens interleave
+// with data acks (DefaultCollectorClient.attemptCreateRollingChunk) — then
+// sends INIT_STREAM_V2 and reads the reply. A null handle means the collector
+// refused the stream and is tearing the connection down (06 §4, §6).
+func (ac *AgentConnection) InitStream(streamType string, requestedSeqId int, resetRequired bool) (reply InitStreamReply, err error) {
+	if err = ac.DrainAcks(true); err != nil {
+		return
+	}
 	err = ac.sendOperation(model.COMMAND_INIT_STREAM_V2, true, func(ac *AgentConnection) error {
 		// req
-		err = ac.socketWriter.WriteFixedString(ac.ctx, streamType)
-		if err != nil {
+		if err := ac.socketWriter.WriteFixedString(ac.ctx, streamType); err != nil {
 			return err
 		}
-		err = ac.socketWriter.WriteFixedInt(ac.ctx, requestedSeqId)
-		if err != nil {
+		if err := ac.socketWriter.WriteFixedInt(ac.ctx, requestedSeqId); err != nil {
 			return err
 		}
 		req := 0
 		if resetRequired {
 			req = 1
 		}
-		err = ac.socketWriter.WriteFixedInt(ac.ctx, req)
-		if err != nil {
+		if err := ac.socketWriter.WriteFixedInt(ac.ctx, req); err != nil {
 			return err
 		}
-		// flush
-		err = ac.socketWriter.Flush()
-		if err != nil {
-			return err
-		}
-		// ack?
-		err = ac.waitForAcks()
-		if err != nil {
+		if err := ac.socketWriter.Flush(); err != nil {
 			return err
 		}
 		// resp
-		handleId, err = ac.socketReader.ReadUuid(ac.ctx)
+		handle, err := ac.socketReader.ReadUuid(ac.ctx)
 		if err != nil {
 			return err
+		}
+		if handle.ToBin() == (common.UUID{}) {
+			return errors.Errorf("collector refused stream %q: null handle", streamType)
 		}
 		rotationPeriod, err := ac.socketReader.ReadFixedLong(ac.ctx)
 		if err != nil {
@@ -162,55 +169,61 @@ func (ac *AgentConnection) CommandInitStream(streamType string, requestedSeqId i
 		if err != nil {
 			return err
 		}
-		log.Debug(ac.ctx, "%s: INIT_STREAM_V2 for %v: req  => seqId=%v, reset? %v ",
-			time.Now().Format(time.TimeOnly), streamType, requestedSeqId, resetRequired)
-		log.Debug(ac.ctx, "%s: INIT_STREAM_V2 for %v: resp => handleId=%v, rotation (period: %v, size: %v), seqId=%v ",
-			time.Now().Format(time.TimeOnly), streamType, handleId, rotationPeriod, requiredRotationSize, rollingSequenceId)
-		return err
+		reply = InitStreamReply{
+			Handle:               handle,
+			RotationPeriodMs:     rotationPeriod,
+			RequiredRotationSize: requiredRotationSize,
+			SeqId:                rollingSequenceId,
+		}
+		log.Debug(ac.ctx, "INIT_STREAM_V2 for %v: req  => seqId=%v, reset? %v ",
+			streamType, requestedSeqId, resetRequired)
+		log.Debug(ac.ctx, "INIT_STREAM_V2 for %v: resp => handleId=%v, rotation (period: %v, size: %v), seqId=%v ",
+			streamType, handle, rotationPeriod, requiredRotationSize, rollingSequenceId)
+		return nil
 	})
 	return
 }
+
+// CommandInitStream keeps the historical handle-only signature; new code uses
+// InitStream for the full reply.
+func (ac *AgentConnection) CommandInitStream(streamType string, requestedSeqId int, resetRequired bool) (handleId common.Uuid, err error) {
+	reply, err := ac.InitStream(streamType, requestedSeqId, resetRequired)
+	return reply.Handle, err
+}
+
 func (ac *AgentConnection) CommandRcvStringData(streamType string, handleId common.Uuid, chunk string) (err error) {
 	return ac.CommandRcvData(streamType, handleId, []byte(chunk))
 }
 
+// CommandRcvData sends one RCV_DATA payload (at most MaxBufSize bytes). It
+// counts one pending ack and does not flush — the dumper flushes on its 5 s
+// cadence. Acks that already arrived are consumed first so pendingAcks cannot
+// grow without bound between flush cycles (validateWriteDataAcks(false)).
 func (ac *AgentConnection) CommandRcvData(streamType string, handleId common.Uuid, chunk []byte) (err error) {
+	if err = ac.DrainAcks(false); err != nil {
+		return err
+	}
 	return ac.sendOperation(model.COMMAND_RCV_DATA, false, func(ac *AgentConnection) error {
-		//err = ac.waitForAcks()
-		//ac.check(err)
-		// req
-		err = ac.socketWriter.WriteUuid(ac.ctx, handleId)
-		if err != nil {
+		if err := ac.socketWriter.WriteUuid(ac.ctx, handleId); err != nil {
 			return err
 		}
-		err = ac.socketWriter.WriteFixedBuf(ac.ctx, chunk)
-		if err != nil {
+		if err := ac.socketWriter.WriteFixedBuf(ac.ctx, chunk); err != nil {
 			return err
 		}
-		// flush
-		ac.pendingAcks += 2
-		err = ac.socketWriter.WriteFixedByte(ac.ctx, byte(model.COMMAND_REQUEST_ACK_FLUSH))
-		if err != nil {
-			return err
-		}
-		//err = ac.socketWriter.Flush()
-		//ac.check(err)
+		ac.pendingAcks++
+		return nil
+	})
+}
 
-		//utils.LogDebug(ac.ctx, "%s: RCV_DATA for '%s' with %d bytes, [handle: %v] ", time.Now().Format(time.TimeOnly), streamType, len(chunk), handleId)
-		return err
+// RequestAckFlush queues one REQUEST_ACK_FLUSH command (buffered, not
+// flushed) and counts its pending ack, mirroring requestAckFlush(false).
+func (ac *AgentConnection) RequestAckFlush() (err error) {
+	return ac.sendOperation(model.COMMAND_REQUEST_ACK_FLUSH, false, func(ac *AgentConnection) error {
+		ac.pendingAcks++
+		return nil
 	})
 }
-func (ac *AgentConnection) CommandRequestFlush() (err error) {
-	return ac.sendOperation(model.COMMAND_REQUEST_ACK_FLUSH, true, func(ac *AgentConnection) error {
-		// flush
-		ac.pendingAcks += 1
-		err = ac.socketWriter.Flush()
-		if err != nil {
-			return err
-		}
-		return err
-	})
-}
+
 func (ac *AgentConnection) CommandClose() (err error) {
 	return ac.sendOperation(model.COMMAND_CLOSE, true, func(ac *AgentConnection) error {
 		// flush
@@ -222,23 +235,118 @@ func (ac *AgentConnection) CommandClose() (err error) {
 	})
 }
 
-func (ac *AgentConnection) WaitForAcks() (err error) {
-	return ac.waitForAcks() // for run.go
+// Flush runs the agent's flush cycle (DefaultCollectorClient.flush): queue one
+// REQUEST_ACK_FLUSH, push everything to the socket, then drain every pending
+// ack synchronously. The collector force-flushes its buffered acks when the
+// REQUEST_ACK_FLUSH arrives, so the drain returns promptly (06 §5).
+func (ac *AgentConnection) Flush() error {
+	if err := ac.RequestAckFlush(); err != nil {
+		return err
+	}
+	return ac.DrainAcks(true)
 }
 
-func (ac *AgentConnection) waitForAcks() (err error) {
+// WaitForAcks drains every pending ack synchronously, flushing first.
+func (ac *AgentConnection) WaitForAcks() (err error) {
+	return ac.DrainAcks(true)
+}
+
+// DrainAcks consumes acknowledgement bytes. sync=true mirrors
+// validateWriteDataAcks(true): flush the socket, then block (under the read
+// timeout) until every pending ack has arrived. sync=false mirrors the
+// opportunistic drain: consume only acks that are already readable, never
+// block.
+func (ac *AgentConnection) DrainAcks(sync bool) error {
+	if sync {
+		if err := ac.socketWriter.Flush(); err != nil {
+			return ac.check(err)
+		}
+	}
 	for ac.pendingAcks > 0 {
-		byt, err := ac.socketReader.ReadFixedByte(ac.ctx)
-		if ac.check(err) != nil {
-			return errors.Wrap(err, "could not get ack of RC data")
+		if !sync && !ac.ackReadable() {
+			return nil
 		}
-		if byt != 0x00 {
-			return errors.New("invalid acknowledgement for RCV data")
+		if err := ac.readOneAck(); err != nil {
+			return err
 		}
-		ac.pendingAcks--
 	}
 	return nil
 }
+
+// ackReadable reports whether at least one byte can be read without blocking —
+// the Go stand-in for Java's in.available() > 0. FIONREAD answers without
+// touching the read state; platforms without it get a 1 ms read poll (an
+// expired deadline is no use — Go fails such reads even when data is ready).
+func (ac *AgentConnection) ackReadable() bool {
+	if ac.socketReader.Buffered() > 0 {
+		return true
+	}
+	if n := readableBytes(ac.conn); n >= 0 {
+		return n > 0
+	}
+	ac.probing = true
+	defer func() { ac.probing = false }()
+	_, err := ac.socketReader.Peek(1)
+	return err == nil
+}
+
+// readOneAck consumes one acknowledgement byte (validateAckSync). A value in
+// 0..127 is the count of piggybacked diagnostic commands; ACK_ERROR_MAGIC
+// surfaces as ErrAckRefused so callers can tell backpressure from breakage.
+func (ac *AgentConnection) readOneAck() error {
+	b, err := ac.socketReader.ReadFixedByte(ac.ctx)
+	if err != nil {
+		return ac.check(errors.Wrap(err, "read ack"))
+	}
+	switch {
+	case b == model.ACK_ERROR_MAGIC:
+		return ac.check(ErrAckRefused)
+	case b > 0x7F:
+		return ac.check(errors.Errorf("invalid ack byte 0x%02X", b))
+	}
+	if b > 0 {
+		if err := ac.dispatchCommands(int(b)); err != nil {
+			return err
+		}
+	}
+	ac.pendingAcks--
+	return nil
+}
+
+// dispatchCommands mirrors DefaultCollectorClient.dispatchCommands: read the
+// piggybacked (id, command) pairs and report failure for each — the emulator
+// has no diagtools to execute.
+func (ac *AgentConnection) dispatchCommands(n int) error {
+	for i := 0; i < n; i++ {
+		id, err := ac.socketReader.ReadUuid(ac.ctx)
+		if err != nil {
+			return ac.check(errors.Wrap(err, "read piggybacked command id"))
+		}
+		if _, err := ac.socketReader.ReadFixedString(ac.ctx); err != nil {
+			return ac.check(errors.Wrap(err, "read piggybacked command"))
+		}
+		if err := ac.reportCommandResult(id, false); err != nil {
+			return err
+		}
+	}
+	return ac.socketWriter.Flush()
+}
+
+// reportCommandResult answers one piggybacked diagnostic command
+// (COMMAND_REPORT_COMMAND_RESULT; 'K' = success, 0xFF = failure).
+func (ac *AgentConnection) reportCommandResult(id common.Uuid, success bool) error {
+	result := byte(0xFF)
+	if success {
+		result = 'K'
+	}
+	return ac.sendOperation(model.COMMAND_REPORT_COMMAND_RESULT, false, func(ac *AgentConnection) error {
+		if err := ac.socketWriter.WriteUuid(ac.ctx, id); err != nil {
+			return err
+		}
+		return ac.socketWriter.WriteFixedByte(ac.ctx, result)
+	})
+}
+
 func (ac *AgentConnection) sendOperation(c model.Command, flush bool, worker func(ac *AgentConnection) error) (err error) {
 	startTime := time.Now()
 	if alive, err := ac.isAlive(); !alive {
@@ -261,84 +369,22 @@ func (ac *AgentConnection) sendOperation(c model.Command, flush bool, worker fun
 	// flush
 	if flush {
 		err = ac.socketWriter.Flush()
-		//ac.check(err)
 	}
 	return err
 }
 
-func (ac *AgentConnection) SendCallsAsNow(requestedSeqId int, c *model.Chunk, period string) (err error) {
-	t, err := time.ParseDuration(period)
-	if err != nil {
-		t = 0
-	}
-	return ac.SendCalls(requestedSeqId, c, time.Now().UnixMilli(), t)
-}
-
-func (ac *AgentConnection) SendCalls(requestedSeqId int, c *model.Chunk, emulatedTs int64, period time.Duration) (err error) {
-	err = c.ReplaceLong(ac.ctx, 8, uint64(emulatedTs))
-	operations := len(c.Bytes()) / MaxBufSize
-	wait := int(period) / (operations + 1)
-	return ac.sendChunkBytes(requestedSeqId, c.StreamType, c.Bytes(), len(c.Bytes()), time.Duration(wait))
-}
-
-func (ac *AgentConnection) SendTraces(requestedSeqId int, c *model.Chunk, periodStr string) (err error) {
-	period, err := time.ParseDuration(periodStr)
-	if err != nil {
-		period = 0
-	}
-	operations := len(c.Bytes()) / MaxBufSize
-	wait := int(period) / (operations + 1)
-	return ac.sendChunkBytes(requestedSeqId, c.StreamType, c.Bytes(), len(c.Bytes()), time.Duration(wait))
-}
-
-func (ac *AgentConnection) SendDictionary(requestedSeqId int, c *model.Chunk, limitPhrases int, limitWords int) (err error) {
-	var pos int
-	_, pos, err = streams.ReadDictionaryUntil(ac.ctx, c, limitPhrases, limitWords)
-	return ac.sendChunkBytes(requestedSeqId, c.StreamType, c.Bytes(), pos, 10*time.Microsecond)
-}
-
-func (ac *AgentConnection) SendChunk(requestedSeqId int, c *model.Chunk) (err error) {
-	log.Trace(ac.ctx, "sending for pod '%s' chunk#%s[%d] with %d bytes",
-		ac.podName, c.StreamType, requestedSeqId, len(c.Bytes()))
-	return ac.sendChunkBytes(requestedSeqId, c.StreamType, c.Bytes(), len(c.Bytes()), 0)
-}
-
-func (ac *AgentConnection) sendChunkBytes(requestedSeqId int, streamType string, buf []byte, n int, waitTime time.Duration) (err error) {
-	handleId, err := ac.CommandInitStream(streamType, requestedSeqId, false)
-	if err != nil {
-		return err
-	}
-	log.Debug(ac.ctx, "[%s] received id for chunk#%s[%s]", ac.podName, streamType, handleId.String())
-
-	for i := 0; i < n; i += MaxBufSize {
-		var arr []byte
-		if i+MaxBufSize < n {
-			arr = buf[i : i+MaxBufSize]
-		} else {
-			arr = buf[i:n]
-		}
-		if len(arr) > 0 {
-			err = ac.CommandRcvData(streamType, handleId, arr)
-			if err != nil {
-				return err
-			}
-			if waitTime > 0 {
-				time.Sleep(waitTime)
-			}
-		}
-	}
-
-	// flush
-	err = ac.socketWriter.Flush()
-	log.Debug(ac.ctx, "[%s] flushed chunk#%s[%s]", ac.podName, streamType, handleId.String())
-	return ac.check(err)
-}
-
 func (ac *AgentConnection) Read(buf []byte) (n int, err error) {
 	startTime := time.Now()
-	err = ac.conn.SetReadDeadline(startTime.Add(ac.Opts.Timeout.ReadTimeout))
+	deadline := startTime.Add(ac.Opts.Timeout.ReadTimeout)
+	if ac.probing {
+		deadline = startTime.Add(time.Millisecond) // short readability poll
+	}
+	err = ac.conn.SetReadDeadline(deadline)
 	n, err = ac.conn.Read(buf)
 	if err != nil {
+		if ac.probing {
+			return // a failed poll is the expected idle case, not an error
+		}
 		log.Debug(ac.ctx, "READ-ERR: %+v", err.Error())
 	}
 	if ac.listener != nil {

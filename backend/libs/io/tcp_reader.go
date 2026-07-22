@@ -16,7 +16,7 @@ import (
 
 type (
 	TcpReader struct {
-		reader io.Reader
+		reader *bufio.Reader
 		err    error
 		eof    bool
 		pos    uint64
@@ -40,6 +40,22 @@ func (tr *TcpReader) Done() {
 
 func (tr *TcpReader) SetDebug(debug bool) {
 	tr.debug = debug
+}
+
+// Buffered reports how many bytes are readable without touching the underlying
+// reader. Together with Peek it backs the agent client's opportunistic ack
+// drain (DefaultCollectorClient.validateWriteDataAcks(false), which polls
+// in.available() before every RCV_DATA).
+func (tr *TcpReader) Buffered() int {
+	return tr.reader.Buffered()
+}
+
+// Peek returns the next n bytes without consuming them, filling from the
+// underlying reader when the buffer holds fewer than n. With an immediate read
+// deadline on the underlying connection this is a non-blocking readability
+// probe: a timeout error means nothing is readable right now.
+func (tr *TcpReader) Peek(n int) ([]byte, error) {
+	return tr.reader.Peek(n)
 }
 
 func PrepareTcpReader(reader io.Reader) *TcpReader {
