@@ -60,7 +60,7 @@ services:
       - "9100:9100"
 
   grafana:
-    image: grafana/grafana:latest@sha256:2d1f9ae67c1778d33e291d4c3c759cd8b650e67491f02533499eb950e075eeb5
+    image: grafana/grafana:latest@sha256:1c1bd67c54c5fcf6e759897852b5a584191bd6796e8d328a5ace457799801261
     container_name: grafana
     ports:
       - "3000:3000"
