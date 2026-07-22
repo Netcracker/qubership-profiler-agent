@@ -1,0 +1,146 @@
+# Load-testing stand (load-testing-plan.md §5.3): the static releases of the
+# harness — monitoring CRDs + qubership-monitoring-operator, MinIO as the S3
+# target, the profiler backend under test, our monitoring CRs (dashboards),
+# and the k6 runner. Run orchestration (scenario parameters, ramp steps, fault
+# injection, artifact collection) is a separate script layer, not helmfile.
+#
+# Usage: helmfile -e local apply   (or -e cluster; `local` is also `default`)
+# See README.md next to this file for the image-build prerequisites.
+
+environments:
+  local: &local
+    values:
+      - environments/local.yaml
+  default: *local
+  # local + accelerated lifecycle timers for the §7.4 short soak
+  # (doc/soak-runs.md).
+  local-soak:
+    values:
+      - environments/local.yaml
+      - environments/local-soak.yaml
+  # local-soak + toxiproxy in the S3 and agent paths, for the T7 fault runs
+  # (doc/fault-runs.md). Kept separate so ordinary runs keep the direct
+  # topology.
+  local-faults:
+    values:
+      - environments/local.yaml
+      - environments/local-soak.yaml
+      - environments/local-faults.yaml
+  cluster:
+    values:
+      - environments/cluster.yaml
+
+---
+repositories:
+  - name: minio
+    url: https://charts.min.io/
+  - name: chaos-mesh
+    url: https://charts.chaos-mesh.org
+
+# The monitoring-operator charts are not published to any registry; helmfile's
+# built-in go-getter support (git::) serves them straight from the tagged git
+# tree — no helm plugin needed. Bump ref= to move versions.
+{{- $monitoringCharts := "git::https://github.com/Netcracker/qubership-monitoring-operator.git@charts" }}
+{{- $monitoringRef := "v0.88.0" }}
+
+helmDefaults:
+  wait: true
+  timeout: 900
+  createNamespace: true
+
+releases:
+  # All monitoring CRDs (monitoring.coreos.com, integreatly.org, VM operator,
+  # monitoring.netcracker.com) in one release, so `helm upgrade` keeps them
+  # current — CRDs embedded in the operator chart's crds/ are install-only.
+  - name: monitoring-crds
+    namespace: {{ .Values.monitoring.namespace }}
+    chart: {{ $monitoringCharts }}/qubership-monitoring-crds?ref={{ $monitoringRef }}
+
+  # The operator chart also renders the PlatformMonitoring CR from its values,
+  # so this one release brings up the whole stack: VictoriaMetrics (vmoperator,
+  # vmsingle, vmagent), Grafana + grafana-operator, node-exporter,
+  # kube-state-metrics, and the kubelet/cAdvisor ServiceMonitors.
+  - name: monitoring-operator
+    namespace: {{ .Values.monitoring.namespace }}
+    chart: {{ $monitoringCharts }}/qubership-monitoring-operator?ref={{ $monitoringRef }}
+    values:
+      - values/monitoring-operator.yaml.gotmpl
+    needs:
+      - {{ .Values.monitoring.namespace }}/monitoring-crds
+
+  # S3 target for both stands (§5.1–5.2): in-cluster MinIO on a PV.
+  - name: minio
+    namespace: {{ .Values.stand.namespace }}
+    chart: minio/minio
+    version: 5.4.0
+    values:
+      - values/minio.yaml.gotmpl
+    needs:
+      # The chart renders a ServiceMonitor; the CRD must exist first.
+      - {{ .Values.monitoring.namespace }}/monitoring-crds
+
+  # The system under test: the existing production chart, pointed at the
+  # in-cluster MinIO, with pprof and the ServiceMonitors switched on.
+  - name: profiler-backend
+    namespace: {{ .Values.stand.namespace }}
+    chart: ../../../charts/profiler-backend
+    values:
+      - values/profiler-backend.yaml.gotmpl
+    needs:
+      - {{ .Values.stand.namespace }}/minio
+      - {{ .Values.monitoring.namespace }}/monitoring-crds
+
+  # Our monitoring CRs (plan §5.3): the GrafanaDashboard objects rendered from
+  # ../dashboards/*.json. Separate from the operator release so a dashboard
+  # edit redeploys in seconds without touching the monitoring stack.
+  - name: monitoring-crs
+    namespace: {{ .Values.stand.namespace }}
+    chart: ./charts/monitoring-crs
+    values:
+      - values/monitoring-crs.yaml.gotmpl
+    needs:
+      - {{ .Values.monitoring.namespace }}/monitoring-operator
+
+  # The k6 runner (generator). `installed:` lets an environment park the
+  # release: the loader starts sending on pod start, so bring it up last,
+  # when the stand is ready to take load.
+  - name: k6
+    namespace: {{ .Values.stand.namespace }}
+    chart: ../charts/cdt-load-generator
+    installed: {{ .Values.k6.installed }}
+    values:
+      - values/k6.yaml.gotmpl
+    needs:
+      - {{ .Values.stand.namespace }}/profiler-backend
+
+  # T6 background query load (plan §7.6): the same image running
+  # query-scenario.js under its own resource names (global.name cdt-query)
+  # and its own TESTID. Off by default; soak runs switch it on
+  # (doc/soak-runs.md).
+  - name: k6-query
+    namespace: {{ .Values.stand.namespace }}
+    chart: ../charts/cdt-load-generator
+    installed: {{ .Values.k6query.installed }}
+    values:
+      - values/k6-query.yaml.gotmpl
+    needs:
+      - {{ .Values.stand.namespace }}/profiler-backend
+
+  # Deterministic TCP fault injection for T7 (plan §5.3, §7.7): the runner
+  # drives toxics over the REST API. Parked by default; the local-faults
+  # environment installs it and reroutes the S3 and agent paths through it.
+  - name: toxiproxy
+    namespace: {{ .Values.stand.namespace }}
+    chart: ./charts/toxiproxy
+    installed: {{ .Values.toxiproxy.installed }}
+    values:
+      - values/toxiproxy.yaml.gotmpl
+
+  # netem-grade network faults (packet loss) and IOChaos for the large
+  # cluster (plan §7.7); toxiproxy covers the local T7 runs. Parked — the
+  # privileged daemonset and the runtime-socket wiring are cluster concerns.
+  - name: chaos-mesh
+    namespace: chaos-testing
+    chart: chaos-mesh/chaos-mesh
+    version: 2.7.3
+    installed: {{ .Values.chaosMesh.installed }}

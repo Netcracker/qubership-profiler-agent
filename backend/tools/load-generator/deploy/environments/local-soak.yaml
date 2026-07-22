@@ -1,0 +1,76 @@
+# Accelerated-timer soak overlay (plan §7.4, runbook doc/soak-runs.md):
+# merged on top of local.yaml by the `local-soak` environment. Every
+# lifecycle timer shrinks to minutes so a 2–4 h run cycles data through
+# seal → upload → janitor eviction → maintain compaction → TTL deletion
+# several times under the §8 checker.
+#
+# Kept invariants:
+#   - PROFILER_TIME_BUCKET must divide the hour (1m does);
+#   - hot_retention ≥ time_bucket + grace + overlap_margin (3m ≥ 1m+10s+1m);
+#   - retention.podsTTL must exceed the longest class TTL (2h > 45m).
+
+profiler:
+  collector:
+    # The contract/soak topology (plan §2); OrbStack carries 3 small replicas.
+    replicas: 3
+    hotRetention: 3m
+    extraEnv:
+      PROFILER_TIME_BUCKET: 1m
+      PROFILER_TIME_BUCKET_GRACE: 10s
+      PROFILER_SEAL_CHECK_INTERVAL: 5s
+      PROFILER_UPLOAD_CHECK_INTERVAL: 10s
+      PROFILER_JANITOR_CHECK_INTERVAL: 10s
+      PROFILER_WAL_PURGE_GRACE: 2m
+  query:
+    extraEnv:
+      PROFILER_OVERLAP_MARGIN: 1m
+      # The default 2GB scan budget exceeds the pod memory limit: one
+      # guard-passing wide-range query OOMs the pod (T6 finding, see the
+      # report). Size the cost guard to the pod, not the other way around —
+      # but not below the volume of a small UI window: at the accelerated
+      # ingest density (~0.5 MB/s) 256MB rejected even the checker's
+      # freshness probe.
+      PROFILER_MAX_SCAN_BYTES: 1GB
+    # The chart-default 2Gi limit OOMs in ~30 min under the T6 read mix
+    # (incident bursts + cold paging; see the report's T6 section). 3Gi lets
+    # the lifecycle soak run to completion; the OOM itself is a recorded
+    # finding, not something this overlay hides.
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 3Gi
+  maintain:
+    checkInterval: 1m
+    extraEnv:
+      # Must mirror the collector's bucket: the settled check needs the
+      # bucket end and the object key carries only the start.
+      PROFILER_TIME_BUCKET: 1m
+      PROFILER_COMPACTION_MIN_AGE: 3m
+      PROFILER_COMPACTION_DELETE_GRACE: 1m
+  retention:
+    shortCleanTTL: 15m
+    normalCleanTTL: 25m
+    longCleanTTL: 35m
+    hugeCleanTTL: 45m
+    anyErrorTTL: 45m
+    # Set explicitly: the class is reserved and writer-less, but leaving it
+    # at the 7 d default would exempt it from the accelerated run.
+    corruptedTTL: 25m
+    podsTTL: 2h
+
+# The soak's declared write rate (specs/t4-soak-accelerated.yaml). Helmfile
+# deep-merges environment values, so only the differing knobs appear here.
+k6:
+  workload:
+    CALLS_PER_SEC: "3"
+
+# The soak's T6 companion: the UI profile only (incident bursts OOM the
+# single local query replica — a recorded finding, see doc/soak-runs.md),
+# with the UI window shrunk to match the accelerated data density.
+k6query:
+  workload:
+    INCIDENT_VUS: "0"
+    UI_RANGE_MINUTES: "10"

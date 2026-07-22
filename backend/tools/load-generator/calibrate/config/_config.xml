@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Profiler config for the calibration reference run (virtual-dumper.md §6).
+
+  LoadMain drives the agent through the programmatic Profiler API, so the
+  whole test-app package stays do-not-profile: the backend sees exactly the
+  synthetic calls LoadMain opens. request.id is declared indexed — the virtual
+  dumper models it as the indexed-param cardinality driver, and without the
+  declaration the agent would treat it as inline-only and its calls records
+  would carry no params at all.
+-->
+<profiler-configuration>
+    <log-retention max-age="8 days" max-size="2 Gb"/>
+    <parameters>
+        <parameter name="request.id" index="true" list="false" order="10"/>
+        <parameter name="call.red" index="true" list="false" order="500"/>
+    </parameters>
+    <ruleset>
+        <rule>
+            <class>com.netcracker.profiler.**</class>
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>com.netcracker.profilerTest.testapp.**</class>
+            <do-not-profile/>
+        </rule>
+    </ruleset>
+</profiler-configuration>

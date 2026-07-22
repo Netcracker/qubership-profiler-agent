@@ -1,63 +1,37 @@
-## CDT load generator
+# CDT load generator
 
-* K6 scripts and compiled k6-module to emulate load
-  for [Cloud Diagnostic Toolset](https://github.com/Netcracker/qubership-profiler-backend)
-* CLI tool to generate calls and dumps in specified time range as Parquet files and upload them to S3-compatible storage
+Load-testing harness for the Go profiler backend (`load-testing-plan.md`). Traffic comes from the virtual dumper
+(`backend/libs/emulator/vdumper`), a behavioral copy of the Java agent's remote-dump pipeline — fully synthetic, no
+captured dumps or other binary fixtures.
 
-### Content
+## Layout
 
-* `k6` javascript files to emulate profiler load from N java applications
-    * `scripts/scenario.js` - main file for emulation should
-        * `scripts/scenario.dumps.js`
-            * send `top`/`thread dump`/ ... dumps every minute for each emulated agent
-        * `scripts/scenario.tcp.js`
-            * emulate java agent communication (sending calls) by TCP connection
-        * `scripts/common.js` - settings for load
-            * can be overridden from env variables
-            * it was tested for N=`200-1000`, but should work even for higher values
-* `k6` module to make writing js scripts more convenient
-    * load pre-captured load data at begin
-    * share it between emulated "agents" and randomly assign load from available options
-    * thread-safe
-* `Lua` scripts for `WireShark` to make it easier to capture TCP/CDT communication between agents and the collector
+- `k6runner/` — custom k6 binary (plain `go build`, no xk6 CLI): k6 plus the `k6/x/cdt` module and the
+  `go-prometheus-exporter` module.
+- `pkg/cdt/` — the `k6/x/cdt` module: one VU drives a fleet of virtual dumpers and maps their stats to k6 metrics.
+- `go-metrics/` — the `go-prometheus-exporter` module: serves the runner's own Go runtime metrics on `:5656`.
+- `scripts/` — the k6 scenarios: `scenario.js` (write fleet, externally-controlled executor; the run orchestrator
+  scales VUs over the k6 REST API) and `query-scenario.js` (T6 read load on `k6/http`); `SCENARIO` picks one.
+- `runner/` — the run orchestrator: ramp steps, plateau/saturation detection, pprof capture, artifact collection.
+  Contract: `doc/run-orchestration.md`.
+- `feeder/` — standalone CLI that drives virtual dumpers without k6; handy for local debugging.
+- `calibrate/` — the decoding TCP tap used for the phase-2 calibration (`doc/calibration.md`).
+- `checker/` — the soak invariant checker, §8.1–§8.8 with latched violations. Contract: `doc/checker.md`.
+- `deploy/` — helmfile for the stand (backend, MinIO, monitoring, k6 runner, T6 `k6-query`); see `deploy/README.md`.
+- `dashboards/` — Grafana dashboards as code, shipped as `GrafanaDashboard` CRs by the `monitoring-crs` release.
+- `doc/` — runbooks: `calibration.md`, `run-orchestration.md`, `ceiling-runs.md`, `soak-runs.md`, `checker.md`.
 
-HWe:
+## Build
 
-* Current CPU load: `<1vCPU` for `800` emulated agents
-* Current memory footprint: `~1.5-2Mb` per emulated agent
+The deliverable is the Docker image; build it from the module root (`backend/`) so the k6 module can import `libs/`:
 
-### Usage
+```bash
+make image                          # docker buildx, PLATFORM=linux/arm64 (OrbStack) by default
+make image PLATFORM=linux/amd64    # match the target stand; use a multi-arch manifest for shared registries
+```
 
-#### Gathering data
+`make build` produces a local `bin/k6` for development; it is not a substitute for verifying the image.
 
-See `doc/gathering_data.md` for information about catching actual services communication with `tcpdump`
+## Run
 
-See `doc/preparing_data.md` for information about extracting load generator data from tcp dumps
-
-#### Usage
-
-See `doc/usage.md` for more information about scenarios
-
-See `doc/settings.md` for test run parameters
-
-#### Build
-
-See `doc/build.md` for more information
-
----
-
-> NOTE:  
-> When writing k6 tests, keep in mind that HTTP functions such as `http.put` require an `ArrayBuffer` in the `body` parameter when transferring files as a sequence of bytes. Since Td and Top dump data is stored as a byte array, you should first convert it into an `ArrayBuffer` (e.g., using `Uint8Array`) before sending it.  
->
-> Example:  
->
-> Instead of:  
-> ```go
-> const resp = http.put(url, pod.dumps.td.data, uploadDumpRequestParams);
-> ```
->
-> Write this:  
-> ```go
-> const arrayBuffer = new Uint8Array(pod.dumps.td.data);
-> const resp = http.put(url, arrayBuffer, uploadDumpRequestParams);
-> ```
+See `doc/ceiling-runs.md` for the T2/T3 ceiling runbooks and `deploy/README.md` for bringing up the stand.

@@ -1,0 +1,80 @@
+# The system under test: the production chart with the load-stand switches —
+# in-cluster MinIO as S3, pprof on (plan §6.1), ServiceMonitors on, maintain
+# as a deployment so its /metrics surface exists for the pipeline dashboards.
+
+image:
+  registry: {{ .Values.profiler.image.registry | quote }}
+  repository: {{ .Values.profiler.image.repository }}
+  tag: {{ .Values.profiler.image.tag }}
+
+minio:
+  enabled: false
+
+s3:
+  # The local-faults environment reroutes this through toxiproxy
+  # (doc/fault-runs.md); everything else talks to MinIO directly.
+  endpoint: {{ .Values.stand.s3Endpoint | default (printf "http://minio.%s.svc:9000" .Values.stand.namespace) }}
+  bucket: profiler-data
+  auth:
+    # Mirrors the minio release's root pair — dev/stand only.
+    accessKey: {{ .Values.minio.rootUser | quote }}
+    secretKey: {{ .Values.minio.rootPassword | quote }}
+
+collector:
+  replicas: {{ .Values.profiler.collector.replicas }}
+  storage:
+    size: {{ .Values.profiler.collector.storageSize }}
+    storageClassName: {{ .Values.profiler.collector.storageClassName | quote }}
+{{- if .Values.profiler.collector.hotRetention }}
+  # First-class chart value; keep it out of extraEnv or the pod spec carries
+  # a duplicate PROFILER_HOT_RETENTION.
+  hotRetention: {{ .Values.profiler.collector.hotRetention }}
+{{- end }}
+{{- if .Values.profiler.collector.chunksStagingMaxBytes }}
+  # Same first-class rule as hotRetention; the t7-small-pv run shrinks it
+  # (doc/fault-runs.md).
+  chunksStagingMaxBytes: {{ .Values.profiler.collector.chunksStagingMaxBytes | quote }}
+{{- end }}
+  env:
+    PROFILER_PPROF_ENABLED: "true"
+{{- range $key, $value := .Values.profiler.collector.extraEnv }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+
+query:
+  replicas: {{ .Values.profiler.query.replicas }}
+{{- if .Values.profiler.query.resources }}
+  resources:
+{{ toYaml .Values.profiler.query.resources | indent 4 }}
+{{- end }}
+  env:
+    PROFILER_PPROF_ENABLED: "true"
+{{- range $key, $value := .Values.profiler.query.extraEnv }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+
+maintain:
+  # Deployment mode is the only maintain mode with a scrape surface; the
+  # soak invariants (plan §8.5) watch its compaction counters.
+  mode: deployment
+{{- if .Values.profiler.maintain.checkInterval }}
+  checkInterval: {{ .Values.profiler.maintain.checkInterval }}
+{{- end }}
+  env:
+    PROFILER_PPROF_ENABLED: "true"
+{{- range $key, $value := .Values.profiler.maintain.extraEnv }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+
+{{- if .Values.profiler.retention }}
+
+# Per-class retention TTLs (chart keys mirror PROFILER_RETENTION_*); set by
+# the accelerated-soak overlay so several full lifecycle cycles fit into one
+# local run (doc/soak-runs.md).
+retention:
+{{ toYaml .Values.profiler.retention | indent 2 }}
+{{- end }}
+
+metrics:
+  serviceMonitor:
+    enabled: true

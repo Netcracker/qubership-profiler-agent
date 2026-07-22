@@ -1,0 +1,4 @@
+# Dashboard name -> Grafana dashboard JSON (a string). Populated by
+# deploy/values/monitoring-crs.yaml.gotmpl from ../dashboards/*.json; empty
+# here so a bare `helm template` of the chart renders nothing.
+dashboards: {}

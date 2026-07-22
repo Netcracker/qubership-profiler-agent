@@ -12,4 +12,9 @@ spec:
       protocol: TCP
       port: {{ .Values.global.metricsPort }}
       targetPort: {{ .Values.global.metricsPort }}
+    # The k6 REST API the run orchestrator scales VUs through.
+    - name: rest
+      protocol: TCP
+      port: {{ .Values.global.restPort }}
+      targetPort: {{ .Values.global.restPort }}
   type: ClusterIP

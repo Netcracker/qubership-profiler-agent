@@ -1,0 +1,126 @@
+# T5.3 collector crashloop (load-testing-plan.md §7.5.3, runbook
+# doc/fault-runs.md): the t5-restart shape with ten ready-gated kills of
+# collector-1 — the next delete fires only after the pod is observed READY
+# again plus 90 s, so every cycle measures a full recovery; a recovery that
+# misses readyTimeout turns the run invalid, and that failure IS the finding.
+#
+# What the run measures (report section T5): the readyAt − at series across
+# cycles (recovery time must not grow), orphan parquet/WAL after
+# stabilization (§8.5 + janitor counters + a final listing), and the startup
+# gate — while recovering, the agent port must be closed (k6 tcp_connect
+# errors), never accepted-then-stalled.
+run:
+  name: t5-crashloop
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # the accelerated-soak shape; complete freeze
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "3"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [20]
+  confirm:
+    timeout: 3m
+    ingest:
+      # From the phase-5 calibration smoke (runs/20260717T085030Z-t4-cal-3cps).
+      bytesPerVU: 19800
+      tolerance: 0.25
+  hold:
+    min: 1h10m                   # 15 m baseline + ~10 ready-gated cycles + drain
+    max: 1h10m
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+faults:
+  - name: kill-collector
+    at: 15m
+    action: pod-delete
+    target: {namespace: profiler-load, pod: profiler-backend-collector-1}
+    repeat: {every: 90s, count: 10, readyTimeout: 5m}
+    expects: [restarts, scrape-gap, freshness, markers, hot-window-lag,
+              compaction-lag, small-file-share, ack-errors, pending-parquet-growth]
+    # Measured in T5.2: a grace-0 kill produces the replacement plus one
+    # collector.lock-collision container restart.
+    restartBudget: 2
+    settle: 10m
+
+detectors:
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: pending-parquet-growth
+    kind: monotonic-growth
+    minGrowth: 0.10
+    grace: 5m
+    minValue: 8388608
+    query: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  - name: hot-window-lag
+    kind: nonzero
+    grace: 5m
+    query: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"}) > bool 420
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  reconnects: sum(rate(k6_vdumper_reconnects_total{testid="CHANGE-ME"}[1m]))
+  tcp-connect-p95: max(k6_vdumper_tcp_connect_time_p95{testid="CHANGE-ME"})
+  active-connections: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  hot-window-lag-value: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"})
+  pending-parquet: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  wal-bytes: sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
+  orphan-sweeps: sum(rate(profiler_janitor_orphan_parquet_removed_total{namespace="profiler-load"}[5m]))
+  wals-purged: sum(rate(profiler_janitor_wals_purged_total{namespace="profiler-load"}[5m]))
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]

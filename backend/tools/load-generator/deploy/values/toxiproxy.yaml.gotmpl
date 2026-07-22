@@ -1,0 +1,14 @@
+# Toxiproxy fronts the two paths T7 injects into (doc/fault-runs.md): the
+# collector's S3 endpoint and the agents' collector port. The local-faults
+# environment points S3_ENDPOINT and the k6 COLLECTOR_HOST at these
+# listeners; the proxies themselves stay static — the runner only adds and
+# removes toxics.
+proxies:
+  - name: s3
+    listen: 0.0.0.0:19000
+    upstream: minio.{{ .Values.stand.namespace }}.svc:9000
+    enabled: true
+  - name: agent
+    listen: 0.0.0.0:11715
+    upstream: profiler-backend-collector-agent.{{ .Values.stand.namespace }}.svc:1715
+    enabled: true

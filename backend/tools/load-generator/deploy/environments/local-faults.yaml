@@ -1,0 +1,15 @@
+# Fault-run overlay (T7, doc/fault-runs.md): local-soak plus toxiproxy in
+# the S3 and agent paths. Merged on top of local.yaml and local-soak.yaml by
+# the `local-faults` environment; ordinary runs keep the direct topology.
+
+toxiproxy:
+  installed: true
+
+stand:
+  # The collector reaches MinIO through the s3 proxy (values/toxiproxy).
+  s3Endpoint: http://toxiproxy.profiler-load.svc:19000
+
+k6:
+  # The write fleet reaches the collector through the agent proxy.
+  collectorHost: toxiproxy.profiler-load.svc
+  collectorPort: "11715"

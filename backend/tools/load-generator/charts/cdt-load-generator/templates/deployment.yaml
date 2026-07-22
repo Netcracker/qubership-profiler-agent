@@ -21,6 +21,7 @@ spec:
         image: {{ include "deployment.image" . }}
         ports:
         - containerPort: {{ .Values.global.metricsPort }}
+        - containerPort: {{ .Values.global.restPort }}
         
         env:
 {{- range $key, $value := .Values.deployment.env }}

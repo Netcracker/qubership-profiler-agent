@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: toxiproxy-config
+data:
+  proxies.json: |-
+{{ toPrettyJson .Values.proxies | indent 4 }}

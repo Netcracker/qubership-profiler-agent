@@ -1,0 +1,128 @@
+# T7.1b slow S3 (load-testing-plan.md §7.7, runbook doc/fault-runs.md): the
+# accelerated-soak shape on the `local-faults` stand, where the collector
+# reaches MinIO through the toxiproxy `s3` proxy. For 15 minutes the proxy
+# adds 1 s of latency and caps each connection at 32 KB/s — sized so the
+# drain rate falls below the measured parquet-production rate (≈ 95 KB/s
+# total across 3 replicas on the 2026-07-17 stand): the upload backlog grows
+# slowly, upload workers sit pinned on crawling PUTs (there is no per-PUT
+# timeout — a recorded observation), and compaction falls behind.
+#
+# The gates are NOT expected to engage: the 15 m deficit accumulates well
+# under the per-replica 2 GiB default budget (steady backlog ≈ 180 MB per
+# replica). An ingest-paused or refused-bytes firing here is a real finding,
+# so neither signal is declared.
+run:
+  name: t7-s3-slow
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+  toxiproxy: http://localhost:8474
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # the accelerated-soak shape; complete freeze
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "3"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [20]
+  confirm:
+    timeout: 3m
+    ingest:
+      # From the phase-5 calibration smoke (runs/20260717T085030Z-t4-cal-3cps).
+      bytesPerVU: 19800
+      tolerance: 0.25
+  hold:
+    min: 1h
+    max: 1h
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+faults:
+  - name: s3-slow
+    at: 15m
+    action: toxics
+    target: {proxy: s3}
+    toxics:
+      - {type: latency, attributes: {latency: 1000, jitter: 250}}
+      - {type: bandwidth, attributes: {rate: 32}}   # KB/s per connection
+    duration: 15m
+    expects: [pending-parquet-growth, hot-store-growth, compaction-lag, small-file-share]
+    settle: 15m                  # the backlog drains at full speed after the revert
+
+detectors:
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: pending-parquet-growth
+    kind: monotonic-growth
+    minGrowth: 0.10
+    grace: 5m
+    minValue: 8388608
+    query: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  - name: hot-window-lag
+    kind: nonzero
+    grace: 5m
+    query: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"}) > bool 420
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  pending-parquet: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  upload-backlog: sum(profiler_upload_backlog{namespace="profiler-load"})
+  upload-lag: max(profiler_upload_lag_seconds{namespace="profiler-load"})
+  retried-puts: sum(rate(profiler_upload_retried_puts_total{namespace="profiler-load"}[1m]))
+  put-failures: sum(rate(profiler_upload_put_failures_total{namespace="profiler-load"}[1m]))
+  s3-put-latency-p95: histogram_quantile(0.95, sum(rate(cdt_minio_operation_latency_seconds_bucket{namespace="profiler-load", operation_type="put"}[5m])) by (le))
+  wal-bytes: sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
+  seal-paused: max(profiler_backpressure_seal_paused{namespace="profiler-load"})
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]

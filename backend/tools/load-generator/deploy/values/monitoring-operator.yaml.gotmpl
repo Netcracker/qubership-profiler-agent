@@ -1,0 +1,33 @@
+# qubership-monitoring-operator values. Enabling victoriametrics.vmOperator
+# and grafana pulls in the subcharts, whose defaults install the full stack
+# (vmsingle, vmagent, vmalert, alertmanager, grafana + grafana-operator);
+# node-exporter, kube-state-metrics, and the kubelet/cAdvisor ServiceMonitors
+# are on by default. We only pin what the load stand cares about: metrics
+# retention and storage, and dashboard discovery across namespaces.
+
+victoriametrics:
+  vmOperator:
+    install: true
+  vmSingle:
+    retentionPeriod: {{ .Values.monitoring.vmSingle.retention | quote }}
+    storage:
+      {{- with .Values.monitoring.vmSingle.storageClassName }}
+      storageClassName: {{ . }}
+      {{- end }}
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.monitoring.vmSingle.storageSize }}
+
+grafana:
+  install: true
+  # Pick up every GrafanaDashboard CR in every namespace: the stand's
+  # dashboards live in the profiler namespace (monitoring-crs release), not in
+  # the monitoring namespace.
+  dashboardLabelSelector:
+    - {}
+  dashboardNamespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: Exists

@@ -1,0 +1,117 @@
+# T4 accelerated-timer soak (load-testing-plan.md §7.4, runbook
+# doc/soak-runs.md): a LOCAL run against the `local-soak` helmfile
+# environment, which shrinks every lifecycle timer to minutes. One fixed
+# 2.5 h hold (hold.min == hold.max) cycles the data through several full
+# seal → upload → janitor → compaction → TTL-deletion rounds.
+#
+# This spec validates lifecycle invariants, not numbers: run the §8 checker
+# alongside with every source enabled (-s3, -query-url, -kube-namespace,
+# -rss-limit-bytes, -expect-ttl-deletion; see doc/soak-runs.md for the
+# matching flag values). Slow leaks stay invisible at this timescale — the
+# real-timer soak (specs/t4-soak.yaml) remains mandatory on the cluster.
+run:
+  name: t4-soak-accelerated
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # complete freeze; must equal k6.workload of the stand
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "3"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [20]                   # one fixed level: a soak, not a ramp
+  confirm:
+    timeout: 3m
+    ingest:
+      # Pinned from the phase-5 calibration smoke
+      # (runs/20260717T085030Z-t4-cal-3cps): 395,956 B/s at 20 VUs. The
+      # mis-wired 5-calls/s rate (761 KB/s) deviates +92% and is refused.
+      bytesPerVU: 19800
+      tolerance: 0.25
+  hold:
+    min: 2h30m                   # hold.min == hold.max: fixed-duration hold
+    max: 2h30m
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+detectors:                       # §8-shaped: any hit means the soak failed
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01                  # §8.2: paused < 1% of the run
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero                # §8.3
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: pending-parquet-growth
+    kind: monotonic-growth
+    minGrowth: 0.10
+    grace: 5m                    # cold start fills the empty store; do not read the fill as saturation
+    minValue: 8388608            # 8 MB: below one upload cycle's worth nothing counts as backlog
+    query: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  - name: hot-window-lag
+    kind: nonzero                # §8.4: the gauge is the OLDEST hot-index row's age, healthy at hot retention (3m)
+    grace: 5m                    # + eviction cadence (~1-2m); budget 3m retention + 2m chain + 2m margin = 420s
+    query: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"}) > bool 420
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  upload-lag: max(profiler_upload_lag_seconds{namespace="profiler-load"})
+  upload-backlog: sum(profiler_upload_backlog{namespace="profiler-load"})
+  hot-window-lag-value: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"})
+  active-connections: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  collector-goroutines: sum(go_goroutines{namespace="profiler-load", pod=~".*collector.*"})
+  # Hot-store footprint on the PV: segments + live partitions + WAL, the three
+  # on-disk components the janitor and backpressure gauges report (collect.go).
+  hotstore-pv-bytes: sum(profiler_hotstore_segments_disk_bytes{namespace="profiler-load"}) + sum(profiler_hotstore_partitions_disk_bytes{namespace="profiler-load"}) + sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+  query-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*query.*", container!=""}[1m]))
+  s3-lists: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation_type="list"}[5m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]                  # profile the soak level itself; no 70% downshift
+  seconds: 30
+  profiles: [profile, heap, goroutine]

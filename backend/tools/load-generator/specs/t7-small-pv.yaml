@@ -1,0 +1,123 @@
+# T7.2 small PV / disk pressure (load-testing-plan.md §7.7, runbook
+# doc/fault-runs.md): a DEPLOY-TIME variant, not an injection — the collector
+# runs with the segment staging budget shrunk far below what the workload
+# accumulates, so the janitor's class-aware eviction engages under real
+# pressure:
+#
+#   helmfile -e local-soak apply \
+#     --state-values-set profiler.collector.chunksStagingMaxBytes=268435456
+# (a first-class chart value — an extraEnv override loses to the chart's own
+# PROFILER_CHUNKS_STAGING_MAX_BYTES default)
+#
+# What the run measures (report section T7): janitor_segments_evicted_total /
+# evicted_bytes rates, eviction tier order (refcount-0 closed segments first,
+# open segments never — from the collector logs), and
+# seal_truncated_rows_total{reason="disk_budget"} — the data cost of
+# eviction. The true ENOSPC path needs a filesystem that enforces the PV
+# size; OrbStack hostpath volumes do not, so ENOSPC behavior (write failure →
+# stream teardown → reconnect; no reactive handling exists) stays
+# cluster-pending and is recorded as such.
+#
+# No faults block and no checker allowances: eviction under a configured
+# budget is normal operation, and every §8 invariant must hold through it.
+run:
+  name: t7-small-pv
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # the accelerated-soak shape; complete freeze
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "3"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [20]
+  confirm:
+    timeout: 3m
+    ingest:
+      # From the phase-5 calibration smoke (runs/20260717T085030Z-t4-cal-3cps).
+      bytesPerVU: 19800
+      tolerance: 0.25
+  hold:
+    min: 1h
+    max: 1h
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        segments-bytes: sum(profiler_hotstore_segments_disk_bytes{namespace="profiler-load"})
+
+detectors:
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: segments-over-budget       # the janitor must hold the configured line
+    kind: monotonic-growth
+    minGrowth: 0.10
+    grace: 15m
+    minValue: 805306368              # 3 × 256 MB budget: past it the janitor is losing
+    query: sum(profiler_hotstore_segments_disk_bytes{namespace="profiler-load"})
+  - name: hot-window-lag
+    kind: nonzero
+    grace: 5m
+    query: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"}) > bool 420
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  segments-bytes: sum(profiler_hotstore_segments_disk_bytes{namespace="profiler-load"})
+  segments-budget: sum(profiler_hotstore_segments_disk_budget_bytes{namespace="profiler-load"})
+  segments-evicted: sum(rate(profiler_janitor_segments_evicted_total{namespace="profiler-load"}[5m]))
+  evicted-bytes: sum(rate(profiler_janitor_evicted_bytes_total{namespace="profiler-load"}[5m]))
+  truncated-rows: sum(rate(profiler_seal_truncated_rows_total{namespace="profiler-load"}[5m]))
+  evicted-chunk-refs: sum(profiler_hotstore_evicted_segment_chunk_refs{namespace="profiler-load"})
+  hotstore-pv-bytes: sum(profiler_hotstore_segments_disk_bytes{namespace="profiler-load"}) + sum(profiler_hotstore_partitions_disk_bytes{namespace="profiler-load"}) + sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]

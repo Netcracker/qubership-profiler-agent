@@ -1,0 +1,124 @@
+# T4 real-timer soak (load-testing-plan.md §7.4, runbook doc/soak-runs.md).
+# FINAL RESULTS PENDING THE LARGE CLUSTER (plan §5.2). The accelerated-timer
+# variant (specs/t4-soak-accelerated.yaml) runs locally; THIS spec is the
+# mandatory 24 h (extendable to 48 h) run on real timers — the only run that
+# can see slow leaks (plan §10).
+#
+# The T1 contract shape held for 24 h, with two mandatory companions started
+# BEFORE the runner:
+#   1. the §8 checker with every source enabled (doc/checker.md):
+#        go run ./checker -targets <collector metrics URLs>,<maintain> \
+#          -window 2h -max-hot-lag 15m -s3 -query-url <query URL> \
+#          -kube-namespace profiler-load -rss-limit-bytes <from values>
+#   2. the T6 background query load:
+#        helmfile -e cluster apply --state-values-set k6query.installed=true
+run:
+  name: t4-soak
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # the T1 contract shape (see t1-contract.yaml sizing note)
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "2"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [500]
+  confirm:
+    timeout: 10m
+    connectionsPerVU: 1
+    ingest:
+      # ~12.8 KB/s per pod at 8 × 2 calls/s; re-pin together with
+      # t1-contract.yaml from the first cluster calibration hold.
+      bytesPerVU: 12800
+      tolerance: 0.25
+  hold:
+    min: 24h                     # hold.min == hold.max: one fixed soak hold
+    max: 24h
+    sample: 30s                  # 24 h at 15 s would be noise; 30 s still catches §8 breaches
+    plateau:
+      window: 5m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+detectors:                       # §8-shaped: any hit fails the soak
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: pending-parquet-growth
+    kind: monotonic-growth
+    minGrowth: 0.10
+    grace: 10m                   # cold start fills the empty store; do not read the fill as saturation
+    minValue: 268435456          # 256 MB: the gauge oscillates to zero between upload cycles; small sawteeth are not backlog
+    query: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  - name: hot-window-lag
+    kind: nonzero                # §8.4: oldest hot-index row's age; budget 15m retention + 7m chain + 3m margin
+    grace: 10m
+    query: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"}) > bool 1500
+  # baseline-ratio detectors are silent on a single-level run (no prior ok
+  # step to take a baseline from); ack-flush p95 is context below.
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  ack-flush-p95: max(k6_vdumper_ack_flush_time_p95{testid="CHANGE-ME"})
+  upload-lag: max(profiler_upload_lag_seconds{namespace="profiler-load"})
+  upload-backlog: sum(profiler_upload_backlog{namespace="profiler-load"})
+  hot-window-lag-value: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"})
+  active-connections: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  collector-goroutines: sum(go_goroutines{namespace="profiler-load", pod=~".*collector.*"})
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+  query-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*query.*", container!=""}[1m]))
+  query-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*query.*", container!=""})
+  query-p95: histogram_quantile(0.95, sum(rate(profiler_query_http_request_seconds_bucket{namespace="profiler-load"}[5m])) by (le))
+  guard-rejections: sum(rate(profiler_query_guard_rejections_total{namespace="profiler-load"}[5m]))
+  s3-lists: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation_type="list"}[5m]))
+  s3-gets: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation_type="get"}[5m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 4.0
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]
