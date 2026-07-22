@@ -13,10 +13,10 @@ import (
 
 type (
 	MockServerListener struct {
-		mu                      sync.Mutex
-		pods                    map[string]*MockPod
-		inCommands, outCommands map[model.Command]int
-		inBytes, outBytes       uint64
+		mu                sync.Mutex
+		pods              map[string]*MockPod
+		inCommands        map[model.Command]int
+		inBytes, outBytes uint64
 	}
 
 	MockPod struct {
@@ -34,9 +34,8 @@ type (
 
 func CreateMockServerListener() *MockServerListener {
 	return &MockServerListener{
-		pods:        map[string]*MockPod{},
-		inCommands:  map[model.Command]int{},
-		outCommands: map[model.Command]int{},
+		pods:       map[string]*MockPod{},
+		inCommands: map[model.Command]int{},
 	}
 }
 
@@ -64,15 +63,6 @@ func (m *MockServerListener) RegisterStream(ctx context.Context, pod *server.Con
 func (m *MockServerListener) PodDisconnected(ctx context.Context, pod *server.ConnectedPod) {
 }
 
-func (m *MockServerListener) SentCommand(ctx context.Context, c model.Command) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, has := m.outCommands[c]; !has {
-		m.outCommands[c] = 0
-	}
-	m.outCommands[c]++
-}
-
 func (m *MockServerListener) ReceivedCommand(ctx context.Context, c model.Command, latency time.Duration, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -92,13 +82,6 @@ func (m *MockServerListener) Write(ctx context.Context, bytes int, latency time.
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.outBytes += uint64(bytes)
-}
-
-func (m *MockServerListener) IsAlive(ctx context.Context) (bool, error) {
-	return true, nil
-}
-
-func (m *MockServerListener) Error(err error) {
 }
 
 func (m *MockServerListener) PrintDebug(ctx context.Context) {
