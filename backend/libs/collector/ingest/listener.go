@@ -42,6 +42,16 @@ type (
 		// re-sends the dictionary with resetRequired instead of the word
 		// silently missing from dictionary.wal.
 		DictAppendErrors uint64
+		// Connection lifecycle (load-testing-plan.md §6.4). ConnectsTotal
+		// counts successful RegisterPod calls (handshake done, pod-restart
+		// open); DisconnectsTotal counts only registered connections that
+		// ended — a connection dropped before RegisterPod moves neither.
+		// ActiveConnections is the registered-connection gauge; all three are
+		// read under the same lock that guards the pod map, so the gauge and
+		// the counters cannot disagree (connects − disconnects = active).
+		ConnectsTotal     uint64
+		DisconnectsTotal  uint64
+		ActiveConnections int
 	}
 
 	// Listener implements server.Listener on top of a hotstore.Store.
@@ -59,6 +69,9 @@ type (
 
 		mu   sync.Mutex
 		pods map[common.Uuid]*podIngest // keyed by the connection's pod UUID
+		// Lifecycle counters (§6.4), guarded by mu together with pods.
+		connects    uint64
+		disconnects uint64
 	}
 
 	// podIngest is the per-connection routing state: which stream file each
@@ -105,6 +118,7 @@ func (l *Listener) RegisterPod(pod *server.ConnectedPod) error {
 		byHandle: map[common.Uuid]*fileIngest{},
 		active:   map[string]*fileIngest{},
 	}
+	l.connects++
 	return nil
 }
 
@@ -197,6 +211,12 @@ func (l *Listener) PodDisconnected(ctx context.Context, pod *server.ConnectedPod
 	l.mu.Lock()
 	pi, ok := l.pods[pod.Uuid]
 	delete(l.pods, pod.Uuid)
+	if ok {
+		// Only a registered connection moves the counter: PodDisconnected
+		// also fires for connections that never passed the handshake, and
+		// those never counted as connects (§6.4).
+		l.disconnects++
+	}
 	l.mu.Unlock()
 	if !ok {
 		return
@@ -222,6 +242,9 @@ func (l *Listener) Close(ctx context.Context) {
 	for _, pi := range l.pods {
 		pods = append(pods, pi)
 	}
+	// Shutdown closes registered connections without a per-connection
+	// PodDisconnected; count them so connects − disconnects returns to 0.
+	l.disconnects += uint64(len(l.pods))
 	l.pods = map[common.Uuid]*podIngest{}
 	l.mu.Unlock()
 	for _, pi := range pods {
@@ -241,13 +264,19 @@ func (l *Listener) Close(ctx context.Context) {
 
 // IngestStatsSnapshot returns the ingest counters for the /metrics scrape (№21).
 func (l *Listener) IngestStatsSnapshot() IngestStats {
+	l.mu.Lock()
+	connects, disconnects, active := l.connects, l.disconnects, len(l.pods)
+	l.mu.Unlock()
 	return IngestStats{
-		CommandsReceived: l.commandsReceived.Load(),
-		CommandErrors:    l.commandErrors.Load(),
-		BytesRead:        l.bytesRead.Load(),
-		DecoderErrors:    l.decoderErrors.Load(),
-		RefusedBytes:     l.refusedBytes.Load(),
-		DictAppendErrors: l.dictAppendErrors.Load(),
+		CommandsReceived:  l.commandsReceived.Load(),
+		CommandErrors:     l.commandErrors.Load(),
+		BytesRead:         l.bytesRead.Load(),
+		DecoderErrors:     l.decoderErrors.Load(),
+		RefusedBytes:      l.refusedBytes.Load(),
+		DictAppendErrors:  l.dictAppendErrors.Load(),
+		ConnectsTotal:     connects,
+		DisconnectsTotal:  disconnects,
+		ActiveConnections: active,
 	}
 }
 
@@ -261,7 +290,6 @@ func (l *Listener) noteDecoderError() { l.decoderErrors.Add(1) }
 func (l *Listener) noteDictAppendError() { l.dictAppendErrors.Add(1) }
 
 // Metric callbacks (№21): real counters registered by RegisterIngest.
-func (l *Listener) SentCommand(ctx context.Context, c model.Command) {}
 func (l *Listener) ReceivedCommand(ctx context.Context, c model.Command, latency time.Duration, err error) {
 	l.commandsReceived.Add(1)
 	if err != nil {
@@ -270,8 +298,6 @@ func (l *Listener) ReceivedCommand(ctx context.Context, c model.Command, latency
 }
 func (l *Listener) Read(ctx context.Context, bytes int, latency time.Duration, err error)  {}
 func (l *Listener) Write(ctx context.Context, bytes int, latency time.Duration, err error) {}
-func (l *Listener) IsAlive(ctx context.Context) (bool, error)                              { return true, nil }
-func (l *Listener) Error(err error)                                                        {}
 func (l *Listener) PrintDebug(ctx context.Context)                                         {}
 
 var _ server.Listener = (*Listener)(nil)
