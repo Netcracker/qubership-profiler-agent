@@ -4,3 +4,9 @@ apps/ui/node_modules
 apps/ui/dist
 apps/ui/coverage
 apps/ui/tsconfig.tsbuildinfo
+
+# Local Go build outputs (see .gitignore): keep host binaries out of the build context.
+/checker
+/feeder
+/runner
+/ui-seed
