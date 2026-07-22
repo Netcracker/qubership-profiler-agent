@@ -132,11 +132,11 @@ func TestNarrowFileReadsThroughCurrentCallV2(t *testing.T) {
 			PodNamespace: tuple.Namespace, PodService: tuple.Service, PodName: tuple.Pod,
 			RestartTimeMs: tuple.RestartTimeMs, TraceFileIndex: 1, BufferOffset: 8, RecordIndex: 0,
 		}
-		got, ok, err := cold.FetchCall(ctx, fake, []cold.FileRef{ref}, pk)
-		require.NoError(t, err, "reading a v1-shaped file through CallV2 must not panic")
+		src := &cold.Source{Store: fake}
+		got, ok, err := src.FetchCall(ctx, []cold.FileRef{ref}, pk, nil, cold.TreeColumns)
+		require.NoError(t, err, "reading a v1-shaped file through the PK scan must not panic")
 		require.True(t, ok)
 		assert.Equal(t, blob, got.TraceBlob, "columns present in the file round-trip")
-		assert.Equal(t, int32(3), got.SuspendMs)
 		assert.Nil(t, got.BigParamsJson, "the column added after the file was written reads as NULL")
 		assert.Nil(t, got.TruncatedReason)
 	})

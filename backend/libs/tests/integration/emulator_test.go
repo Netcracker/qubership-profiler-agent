@@ -53,6 +53,41 @@ func TestEmulator(t *testing.T) {
 		require.NoError(t, ac.WaitForAcks(), "every RCV_DATA / REQUEST_ACK_FLUSH must be acked")
 	})
 
+	// §5 "Flush timing": the collector must flush a buffered RCV_DATA ack on its
+	// own 500 ms cadence, without waiting for a REQUEST_ACK_FLUSH. The agent
+	// drains all pending acks before every stream rotation, so an ack that only
+	// flushes on the next command would stall the rotation until the 30 s
+	// ack-read timeout. This is the regression guard for the missing periodic
+	// flush.
+	t.Run("buffered ack flushes on the periodic cadence", func(t *testing.T) {
+		ac, err := prepareAgent(t, ctx)
+		require.NoError(t, err)
+		err = ac.InitializeConnection(model.PROTOCOL_VERSION_V3, ns, svc, "pod-periodic-flush")
+		require.NoError(t, err)
+
+		handle, err := ac.CommandInitStream(model.StreamDictionary, 0, false)
+		require.NoError(t, err)
+
+		// One RCV_DATA, counted as one pending ack. CommandRcvData does not flush,
+		// so DrainAcks(true) below only pushes the buffered RCV_DATA to the socket
+		// and then blocks reading the ack — it never sends REQUEST_ACK_FLUSH (only
+		// Flush() does). The only thing that can deliver the ack is therefore the
+		// collector's periodic flush.
+		require.NoError(t, ac.CommandRcvData(model.StreamDictionary, handle, []byte("word")))
+		require.Equal(t, 1, ac.PendingAcks(), "the ack is still outstanding right after RCV_DATA")
+
+		// FlushCheckInterval is 500 ms, so the ack must land well under the client
+		// read timeout (2 s). Without the periodic flush it would block until that
+		// timeout and DrainAcks would fail.
+		start := time.Now()
+		err = ac.DrainAcks(true)
+		elapsed := time.Since(start)
+		require.NoError(t, err, "the buffered ack must arrive without a REQUEST_ACK_FLUSH")
+		assert.Equal(t, 0, ac.PendingAcks(), "the periodic flush must have delivered the ack")
+		assert.Less(t, elapsed, 1*time.Second,
+			"the collector must flush the buffered ack on its ~500 ms cadence, not stall on the ack-read timeout")
+	})
+
 	// §6: an unknown stream gets a null handle and a teardown, so the agent
 	// cannot proceed with a bogus stream.
 	t.Run("unknown stream is refused", func(t *testing.T) {
