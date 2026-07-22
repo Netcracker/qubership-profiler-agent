@@ -28,6 +28,12 @@ type Config struct {
 	// (PROFILER_MAX_SCAN_FILES / PROFILER_MAX_SCAN_BYTES).
 	MaxScanFiles int
 	MaxScanBytes int64
+	// ReadMemoryBudget is the process-wide read memory budget every reader
+	// draws from (PROFILER_READ_MEMORY_BUDGET, §7.5).
+	ReadMemoryBudget int64
+	// ReadBudgetWait bounds the queue wait on a budget charge
+	// (PROFILER_READ_BUDGET_WAIT, §7.5); past it the request answers 503.
+	ReadBudgetWait time.Duration
 	// DurationThresholds mirror the collector's PROFILER_DURATION_THRESHOLDS:
 	// the class pruning and the guard exemption derive their bounds from the
 	// same tier table the seal pass classified with (№10). Nil selects the
@@ -78,6 +84,12 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxScanBytes <= 0 {
 		c.MaxScanBytes = 2 << 30 // 2 GB
+	}
+	if c.ReadMemoryBudget <= 0 {
+		c.ReadMemoryBudget = 512 << 20 // 512 MB, sized for the default 2 Gi pod (02 §7.5)
+	}
+	if c.ReadBudgetWait <= 0 {
+		c.ReadBudgetWait = 5 * time.Second
 	}
 	if c.ListConcurrency <= 0 {
 		c.ListConcurrency = 16

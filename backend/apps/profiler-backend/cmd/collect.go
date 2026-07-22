@@ -70,7 +70,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return pkgerrors.Wrap(err, "bind internal API")
 	}
-	internal := &http.Server{Handler: metrics.Mux(reg, gate)}
+	internal := &http.Server{Handler: metrics.Mux(reg, gate, cfg.PprofEnabled)}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- internal.Serve(ln) }()
 

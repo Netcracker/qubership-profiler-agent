@@ -88,6 +88,12 @@ type (
 
 		ShutdownDrainGrace time.Duration `envconfig:"PROFILER_SHUTDOWN_DRAIN_GRACE" default:"30s"`
 
+		// PprofEnabled mounts net/http/pprof on the internal API port for
+		// load tests and incident debugging (load-testing-plan.md §6).
+		// Default off: profiles cost CPU when taken and have no place in
+		// routine operation. The env name is an implementation choice.
+		PprofEnabled bool `envconfig:"PROFILER_PPROF_ENABLED"`
+
 		S3 S3
 	}
 
@@ -106,6 +112,10 @@ type (
 		PodsRangeLimit   time.Duration `envconfig:"PROFILER_MAX_PODS_RANGE" default:"8784h"`
 		MaxScanFiles     int           `envconfig:"PROFILER_MAX_SCAN_FILES" default:"10000"`
 		MaxScanBytes     ByteSize      `envconfig:"PROFILER_MAX_SCAN_BYTES" default:"2GB"`
+		// ReadMemoryBudget / ReadBudgetWait shape the process-wide read
+		// memory budget and its admission queue (02 §7.5).
+		ReadMemoryBudget ByteSize      `envconfig:"PROFILER_READ_MEMORY_BUDGET" default:"512MB"`
+		ReadBudgetWait   time.Duration `envconfig:"PROFILER_READ_BUDGET_WAIT" default:"5s"`
 		// DurationThresholds must mirror the collector's value: the cold
 		// class pruning and the guard exemption derive their bounds from the
 		// same tier table the seal pass classified with (№10). Unset keeps
@@ -113,6 +123,12 @@ type (
 		DurationThresholds DurationThresholds `envconfig:"PROFILER_DURATION_THRESHOLDS"`
 
 		ShutdownDrainGrace time.Duration `envconfig:"PROFILER_SHUTDOWN_DRAIN_GRACE" default:"30s"`
+
+		// PprofEnabled mounts net/http/pprof on the external API port —
+		// query has no internal port (04 §12), so the profiles ride the
+		// same listener as /api/v1. The ingress publishes /api/v1 only, so
+		// /debug/pprof stays cluster-internal; still, default off.
+		PprofEnabled bool `envconfig:"PROFILER_PPROF_ENABLED"`
 
 		// DumpsCollectorURL is the dumps-collector base URL, e.g.
 		// "https://dumps-collector-<namespace>.<cloud-public-host>" — a
@@ -139,6 +155,10 @@ type (
 		// TimeBucket must mirror the collector's value: the settled check
 		// needs the bucket end and the object key carries only the start.
 		TimeBucket time.Duration `envconfig:"PROFILER_TIME_BUCKET" default:"5m"`
+
+		// PprofEnabled mounts net/http/pprof on the metrics port in loop
+		// mode; the one-shot --run-now mode binds nothing. Default off.
+		PprofEnabled bool `envconfig:"PROFILER_PPROF_ENABLED"`
 
 		CompactionMinAge      time.Duration `envconfig:"PROFILER_COMPACTION_MIN_AGE" default:"30m"`
 		CompactionMinFiles    int           `envconfig:"PROFILER_COMPACTION_MIN_FILES" default:"4"`
@@ -246,8 +266,15 @@ func ParseCollect() (Collect, error) {
 // ParseQuery reads the `query` configuration from the environment.
 func ParseQuery() (Query, error) {
 	var q Query
-	err := envconfig.Process("", &q)
-	return q, errors.Wrap(err, "parse query env")
+	if err := envconfig.Process("", &q); err != nil {
+		return q, errors.Wrap(err, "parse query env")
+	}
+	// A negative wait would silently fall back to the library default inside
+	// query.Config.Normalize; a misconfiguration must fail loudly instead.
+	if q.ReadBudgetWait < 0 {
+		return q, errors.Errorf("PROFILER_READ_BUDGET_WAIT must not be negative, got %s", q.ReadBudgetWait)
+	}
+	return q, nil
 }
 
 // ParseMaintain reads the `maintain` configuration from the environment.

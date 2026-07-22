@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
@@ -61,8 +62,11 @@ type pointFetch struct {
 	blob []byte
 	// hot origin: the replica that served the blob (empty on a cold hit).
 	replicaURL string
-	// cold origin: the full parquet row (nil on a hot hit).
+	// cold origin: the surgically read row (nil on a hot hit).
 	row *storageparquet.CallV2
+	// budgetDenied carries a §7.5 read-budget denial: the handler answers an
+	// atomic 503, never a partial or a 404.
+	budgetDenied error
 	// bookkeeping for the §8 all-sources-failed verdict.
 	found     bool
 	failed    int
@@ -74,7 +78,10 @@ type pointFetch struct {
 // fetchPoint runs the tiered lookup: every replica is probed for the blob,
 // then the cold tier is consulted within the hint window. Cold needs ts_ms;
 // without it a call that already left the hot tier is not locatable (§2.2).
-func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints) pointFetch {
+// Everything the fetch retains — the hot blob or the cold row's surgical
+// values — is owned by point, the handler's lease (02 §7.5); columns names
+// the heavy columns the endpoint needs from a cold row.
+func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints, point *budget.Lease, columns []string) pointFetch {
 	var out pointFetch
 	if s.discovery != nil {
 		urls, err := s.discovery.Replicas(ctx)
@@ -83,14 +90,20 @@ func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints)
 			out.reasons = append(out.reasons, fmt.Sprintf("collector discovery: %v", err))
 		}
 		for _, baseURL := range urls {
-			blob, found, err := s.hot.Trace(ctx, baseURL, pk)
+			blob, lease, found, err := s.hot.Trace(ctx, baseURL, pk)
 			if err != nil {
+				if cold.IsBudgetDenial(err) {
+					out.budgetDenied = err
+					return out
+				}
 				out.failed++
 				out.reasons = append(out.reasons, fmt.Sprintf("collector %s trace: %v", baseURL, err))
 				continue
 			}
 			out.succeeded++
 			if found {
+				lease.TransferTo(point, lease.Held())
+				lease.Release()
 				out.blob, out.replicaURL, out.found = blob, baseURL, true
 				return out
 			}
@@ -108,9 +121,15 @@ func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints)
 	// and a bookmarked link would 404 forever (№16). Try the hinted class
 	// first for the cheaper LIST, then fall back to scanning every class
 	// before giving up.
-	row, ok := s.discoverAndFetch(ctx, pk, hints.tsMs, hints.classes, &out)
+	row, ok := s.discoverAndFetch(ctx, pk, hints.tsMs, hints.classes, &out, point, columns)
+	if out.budgetDenied != nil {
+		return out
+	}
 	if !ok && len(hints.classes) > 0 && out.failed == 0 {
-		row, ok = s.discoverAndFetch(ctx, pk, hints.tsMs, nil, &out)
+		row, ok = s.discoverAndFetch(ctx, pk, hints.tsMs, nil, &out, point, columns)
+		if out.budgetDenied != nil {
+			return out
+		}
 	}
 	if !ok {
 		return out
@@ -131,8 +150,9 @@ func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints)
 // classes (nil = every class) for the point at tsMs. It records discovery
 // failures and partial reasons on out, and reports the row plus whether the PK
 // was found. A false result with out.failed unchanged means an honest cold
-// miss — the caller may widen the class set and retry (№16).
-func (s *Service) discoverAndFetch(ctx context.Context, pk model.PK, tsMs int64, classes []string, out *pointFetch) (*storageparquet.CallV2, bool) {
+// miss — the caller may widen the class set and retry (№16). A budget denial
+// lands in out.budgetDenied and stops the lookup.
+func (s *Service) discoverAndFetch(ctx context.Context, pk model.PK, tsMs int64, classes []string, out *pointFetch, point *budget.Lease, columns []string) (*storageparquet.CallV2, bool) {
 	q := model.CallsQuery{
 		FromMs:           tsMs,
 		ToMs:             tsMs + 1,
@@ -149,8 +169,12 @@ func (s *Service) discoverAndFetch(ctx context.Context, pk model.PK, tsMs int64,
 		out.failed++
 		return nil, false
 	}
-	row, ok, err := cold.FetchCall(ctx, s.cold.Store, discovery.Files, pk)
+	row, ok, err := s.cold.FetchCall(ctx, discovery.Files, pk, point, columns)
 	if err != nil {
+		if cold.IsBudgetDenial(err) {
+			out.budgetDenied = err
+			return nil, false
+		}
 		out.failed++
 		out.reasons = append(out.reasons, fmt.Sprintf("s3 fetch: %v", err))
 		return nil, false
@@ -189,7 +213,13 @@ func (s *Service) handleCallTrace(c echo.Context) error {
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
-	fetch := s.fetchPoint(c.Request().Context(), pk, hints)
+	// The point lease owns the blob until the response is written (02 §7.5).
+	point := s.budget.NewLease()
+	defer point.Release()
+	fetch := s.fetchPoint(c.Request().Context(), pk, hints, point, cold.TraceColumns)
+	if fetch.budgetDenied != nil {
+		return s.sendBudgetRejection(c, budgetEndpointPoint, fetch.budgetDenied, nil, nil)
+	}
 	if !fetch.found || fetch.blob == nil {
 		return s.pointProblem(c, pk, hints, fetch)
 	}
@@ -224,7 +254,14 @@ func (s *Service) handleCallTree(c echo.Context) error {
 		return badRequest(c, fmt.Sprintf("unsupported Accept-Version %q: this server emits version %d (02 §2.5.4)", v, calltree.Version))
 	}
 
-	fetch := s.fetchPoint(ctx, pk, hints)
+	// The point lease owns the blob and the row's surgical columns until the
+	// tree is built and written (02 §7.5).
+	point := s.budget.NewLease()
+	defer point.Release()
+	fetch := s.fetchPoint(ctx, pk, hints, point, cold.TreeColumns)
+	if fetch.budgetDenied != nil {
+		return s.sendBudgetRejection(c, budgetEndpointPoint, fetch.budgetDenied, nil, nil)
+	}
 	if !fetch.found || fetch.blob == nil {
 		return s.pointProblem(c, pk, hints, fetch)
 	}

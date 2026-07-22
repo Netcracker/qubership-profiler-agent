@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 )
 
@@ -102,10 +104,14 @@ func (t hotTier) coldToMs(q model.CallsQuery, overlapMs int64) int64 {
 // hotCalls fans /internal/v1/calls out to every healthy replica in parallel:
 // each is asked for [max(from, its hot_window_oldest), to] past the cursor
 // position (02 §4.3, §2.3.1) and returns one already-sorted run for the
-// merge. succeeded/failed feed the §8 all-sources-failed verdict; a replica
-// whose hot window misses the query range entirely counts as neither.
+// merge. Each run's budget lease is folded into the request page lease under
+// the collection lock — a Lease is not safe for concurrent use (02 §7.5).
+// succeeded/failed feed the §8 all-sources-failed verdict; a replica whose
+// hot window misses the query range entirely counts as neither. A budget
+// denial comes back as budgetDenied and fails the whole request with 503
+// rather than degrading to a partial result.
 func (s *Service) hotCalls(ctx context.Context, tier hotTier, q model.CallsQuery,
-	after *model.Position, limit int) (runs [][]model.CallRow, succeeded, failed int, reasons []string) {
+	after *model.Position, limit int, page *budget.Lease) (runs [][]model.CallRow, succeeded, failed int, reasons []string, budgetDenied error) {
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -125,23 +131,29 @@ func (s *Service) hotCalls(ctx context.Context, tier hotTier, q model.CallsQuery
 		go func(baseURL string, rq model.CallsQuery) {
 			defer wg.Done()
 			start := time.Now()
-			rows, err := s.hot.Calls(ctx, baseURL, rq, after, limit)
+			rows, lease, err := s.hot.Calls(ctx, baseURL, rq, after, limit)
 			s.metrics.observeFanout(start, err)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
+				if cold.IsBudgetDenial(err) {
+					budgetDenied = err
+					return
+				}
 				failed++
 				reasons = append(reasons, fmt.Sprintf("collector %s calls: %v", baseURL, err))
 				return
 			}
 			succeeded++
+			lease.TransferTo(page, lease.Held())
+			lease.Release()
 			if len(rows) > 0 {
 				runs = append(runs, rows)
 			}
 		}(r.baseURL, rq)
 	}
 	wg.Wait()
-	return runs, succeeded, failed, reasons
+	return runs, succeeded, failed, reasons, budgetDenied
 }
 
 // hotPods fans /internal/v1/pods out to every discovered replica. /pods needs

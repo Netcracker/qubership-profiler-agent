@@ -204,6 +204,16 @@ func RegisterIngest(reg prometheus.Registerer, listener *ingest.Listener) {
 	counter("dict_append_errors_total",
 		"Dictionary words whose WAL append failed (finding 3); each failure also fails its stream so the agent re-sends the dictionary with resetRequired.",
 		func(s ingest.IngestStats) int64 { return int64(s.DictAppendErrors) })
+	counter("connects_total",
+		"Agent connections that completed the handshake and registered a pod-restart (load-testing plan §6.4).",
+		func(s ingest.IngestStats) int64 { return int64(s.ConnectsTotal) })
+	counter("disconnects_total",
+		"Registered agent connections that ended, shutdown included; connections dropped before the handshake move neither this nor connects_total.",
+		func(s ingest.IngestStats) int64 { return int64(s.DisconnectsTotal) })
+	reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Subsystem: "ingest", Name: "active_connections",
+		Help: "Registered agent connections currently held (connects_total − disconnects_total); the RAM-per-connection denominator of the T3 ceiling runs.",
+	}, func() float64 { return float64(listener.IngestStatsSnapshot().ActiveConnections) }))
 }
 
 // backlogCollector emits the upload-backlog gauges from ONE UploadBacklog read

@@ -114,16 +114,23 @@ func guardPodsSpan(fromMs, toMs int64, limit time.Duration) *guardRejection {
 	}
 }
 
-// guardCost is layer 2 (02 §2.3.2): the discovery LIST already carries every
-// candidate's size and key-encoded class, so the scan estimate costs no extra
-// request and no file is opened before the verdict.
-func guardCost(q model.CallsQuery, files []cold.FileRef, maxFiles int, maxBytes int64) *guardRejection {
-	var totalBytes int64
-	byClass := map[string]int64{}
+// scanEstimate sums the discovery LIST into the §2.3.2 cost estimate: the
+// candidate count, the compressed byte total, and its per-class split. Shared
+// by the cost guard and the §7.5 budget-rejection body.
+func scanEstimate(files []cold.FileRef) (count int, totalBytes int64, byClass map[string]int64) {
+	byClass = map[string]int64{}
 	for _, f := range files {
 		totalBytes += f.Size
 		byClass[f.Class] += f.Size
 	}
+	return len(files), totalBytes, byClass
+}
+
+// guardCost is layer 2 (02 §2.3.2): the discovery LIST already carries every
+// candidate's size and key-encoded class, so the scan estimate costs no extra
+// request and no file is opened before the verdict.
+func guardCost(q model.CallsQuery, files []cold.FileRef, maxFiles int, maxBytes int64) *guardRejection {
+	_, totalBytes, byClass := scanEstimate(files)
 	if len(files) <= maxFiles && totalBytes <= maxBytes {
 		return nil
 	}
