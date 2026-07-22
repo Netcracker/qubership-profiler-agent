@@ -1,0 +1,7 @@
+# Local Go build outputs. Ad-hoc `go build -o <name>` runs drop these at the
+# backend root; they are host binaries and must not be committed. The Makefile
+# targets build into their own module directories instead.
+/checker
+/feeder
+/runner
+/ui-seed
