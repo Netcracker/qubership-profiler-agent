@@ -61,7 +61,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	}
 	// query has no internal port, so /metrics rides the external one (04 §12);
 	// the ingress publishes /api/v1 only.
-	external := &http.Server{Handler: metrics.Mux(reg, gate)}
+	external := &http.Server{Handler: metrics.Mux(reg, metrics.InstrumentHTTP(reg, gate), cfg.PprofEnabled)}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- external.Serve(ln) }()
 
@@ -109,6 +109,8 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 			PodsRangeLimit:     cfg.PodsRangeLimit,
 			MaxScanFiles:       cfg.MaxScanFiles,
 			MaxScanBytes:       int64(cfg.MaxScanBytes),
+			ReadMemoryBudget:   int64(cfg.ReadMemoryBudget),
+			ReadBudgetWait:     cfg.ReadBudgetWait,
 			DurationThresholds: cfg.DurationThresholds,
 			ListConcurrency:    cfg.ListConcurrency,
 			CollectorService:   cfg.CollectorService,

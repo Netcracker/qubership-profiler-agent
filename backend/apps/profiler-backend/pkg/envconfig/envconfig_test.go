@@ -86,9 +86,26 @@ func TestQueryDefaults(t *testing.T) {
 	assert.Equal(t, "profiler-collector-headless", q.CollectorService)
 	assert.Equal(t, 8081, q.CollectorPort)
 	assert.Equal(t, ByteSize(2<<30), q.MaxScanBytes)
+	assert.Equal(t, ByteSize(512<<20), q.ReadMemoryBudget)
+	assert.Equal(t, 5*time.Second, q.ReadBudgetWait)
 	p, err := q.S3.Params()
 	require.NoError(t, err)
 	assert.True(t, p.UseSSL)
+}
+
+// TestQueryRejectsNegativeBudgetWait pins the fail-loudly rule: a negative
+// wait would otherwise be silently replaced by the library default inside
+// query.Config.Normalize.
+func TestQueryRejectsNegativeBudgetWait(t *testing.T) {
+	t.Setenv("S3_ENDPOINT", "https://s3.example.com")
+	t.Setenv("S3_BUCKET", "profiler-data")
+	t.Setenv("S3_ACCESS_KEY", "ak")
+	t.Setenv("S3_SECRET_KEY", "sk")
+	t.Setenv("PROFILER_READ_BUDGET_WAIT", "-1s")
+
+	_, err := ParseQuery()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PROFILER_READ_BUDGET_WAIT")
 }
 
 func TestTTLDecode(t *testing.T) {

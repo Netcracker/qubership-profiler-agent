@@ -75,6 +75,9 @@ func runMaintain(cmd *cobra.Command, _ []string) error {
 	// slow-starting S3 endpoint retries, not connection-refused.
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics.Handler(reg))
+	if cfg.PprofEnabled {
+		metrics.RegisterPprof(mux)
+	}
 	mux.HandleFunc("/health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

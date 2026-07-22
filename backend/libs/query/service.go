@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/hot"
 	"github.com/labstack/echo/v4"
@@ -44,6 +45,7 @@ type (
 		cfg       Config
 		cold      *cold.Source
 		hot       *hot.Client
+		budget    *budget.Budget
 		discovery hot.Discovery
 		dicts     *dictCache
 		echo      *echo.Echo
@@ -62,10 +64,17 @@ func New(opts Options) *Service {
 	if opts.Metrics != nil {
 		coldStore = countingColdStore{inner: coldStore, metrics: opts.Metrics}
 	}
+	// The one process-wide read memory budget (02 §7.5): the cold scans, the
+	// hot fan-out bodies, and the point fetches all draw from it.
+	b := budget.New(cfg.ReadMemoryBudget, cfg.ReadBudgetWait,
+		budget.Hooks{OnUsed: opts.Metrics.observeBudgetUsed})
+	opts.Metrics.setBudgetLimit(cfg.ReadMemoryBudget)
 	s := &Service{
-		cfg: cfg,
+		cfg:    cfg,
+		budget: b,
 		cold: &cold.Source{Store: coldStore, ListConcurrency: cfg.ListConcurrency,
-			DurationThresholds: cfg.DurationThresholds},
+			DurationThresholds: cfg.DurationThresholds,
+			Budget:             b, OverrunHook: opts.Metrics.countBudgetOverrun},
 		dicts:   newDictCache(),
 		metrics: opts.Metrics,
 	}
@@ -78,7 +87,7 @@ func New(opts Options) *Service {
 		s.discovery = hot.DNSDiscovery{Service: cfg.CollectorService, Port: cfg.CollectorPort}
 	}
 	if s.discovery != nil {
-		s.hot = hot.NewClient(cfg.FanoutTimeout)
+		s.hot = hot.NewClient(cfg.FanoutTimeout, b)
 	}
 	e := echo.New()
 	e.HideBanner = true

@@ -2,10 +2,14 @@ package query
 
 import (
 	"encoding/json"
+	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -149,9 +153,16 @@ func (s *Service) handleCalls(c echo.Context) error {
 		failed++
 	}
 
+	// The one lease that owns everything this request retains — the cold
+	// accumulator, the hot runs, and the final page — until the response is
+	// written (02 §7.5). Sources only transfer into it.
+	page := s.budget.NewLease()
+	defer page.Release()
+
 	// Cold tier, bounded by the dynamic cutoff (02 §4.3). A window that ends
 	// inside every replica's hot coverage skips the LIST entirely.
 	var runs [][]model.CallRow
+	var coldDiscovery *cold.Discovery
 	more := false
 	if coldTo := tier.coldToMs(q, s.cfg.OverlapMargin.Milliseconds()); coldTo > q.FromMs {
 		coldQ := q
@@ -160,6 +171,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 		if err != nil {
 			return err
 		}
+		coldDiscovery = &discovery
 		// Like the span guard, the cost guard runs on every page so a forged
 		// cursor cannot skip it (PR 708 review #2). A later page's cold window
 		// is bounded by the cutoff, so its file set is a subset of page 1's —
@@ -167,8 +179,11 @@ func (s *Service) handleCalls(c echo.Context) error {
 		if rej := guardCost(q, discovery.Files, s.cfg.MaxScanFiles, s.cfg.MaxScanBytes); rej != nil {
 			return s.sendGuardRejection(c, rej)
 		}
-		scan, err := s.cold.Calls(ctx, discovery, coldQ, after, limit)
+		scan, err := s.cold.Calls(ctx, discovery, coldQ, after, limit, page)
 		if err != nil {
+			if cold.IsBudgetDenial(err) {
+				return s.sendBudgetRejection(c, budgetEndpointCalls, err, &q, coldDiscovery)
+			}
 			return err
 		}
 		partial = append(partial, discovery.PartialReasons...)
@@ -187,7 +202,13 @@ func (s *Service) handleCalls(c echo.Context) error {
 	// Hot tier: one sorted run per healthy replica (02 §3, §7.2). A replica
 	// that filled its page may hold more rows past it, so it keeps next_cursor
 	// alive; the §2.3.1 termination tolerates the resulting empty last page.
-	hotRuns, hotOK, hotFail, hotReasons := s.hotCalls(ctx, tier, q, after, limit)
+	hotRuns, hotOK, hotFail, hotReasons, budgetDenied := s.hotCalls(ctx, tier, q, after, limit, page)
+	if budgetDenied != nil {
+		// A budget denial fails the whole page atomically (02 §7.5): serving
+		// the other sources' rows would advance the cursor past the rows the
+		// denied source never produced.
+		return s.sendBudgetRejection(c, budgetEndpointCalls, budgetDenied, &q, coldDiscovery)
+	}
 	succeeded += hotOK
 	failed += hotFail
 	partial = append(partial, hotReasons...)
@@ -265,6 +286,49 @@ func (s *Service) handlePods(c echo.Context) error {
 		resp.PartialReasons = []string{}
 	}
 	return c.JSON(http.StatusOK, resp)
+}
+
+// The endpoint label of the budget-denial counter (02 §7.5).
+const (
+	budgetEndpointCalls = "calls"
+	budgetEndpointPoint = "point"
+)
+
+// sendBudgetRejection answers a read-budget denial (02 §7.5): an atomic 503
+// with Retry-After, in the guard's problem dialect — the narrowing filters
+// that would shrink the request's appetite and, when discovery already ran,
+// the scan estimate. The detail separates transient contention from a
+// structural misfit.
+func (s *Service) sendBudgetRejection(c echo.Context, endpoint string, cause error, q *model.CallsQuery, disc *cold.Discovery) error {
+	reason := "exhausted"
+	detail := "the process-wide read memory budget is exhausted by concurrent requests; retry later or narrow the query"
+	if errors.Is(cause, budget.ErrNeverFits) {
+		reason = "never_fits"
+		detail = "a single read of this request exceeds the whole read memory budget (PROFILER_READ_MEMORY_BUDGET); the budget is undersized for this data"
+	}
+	s.metrics.countBudgetDenial(endpoint, reason)
+
+	retry := int(math.Ceil(s.cfg.ReadBudgetWait.Seconds()))
+	if retry < 1 {
+		retry = 1
+	}
+	c.Response().Header().Set("Retry-After", strconv.Itoa(retry))
+
+	p := problem{
+		Title:  "read memory budget exhausted",
+		Status: http.StatusServiceUnavailable,
+		Detail: detail,
+	}
+	if q != nil {
+		p.SuggestedFilters = suggestedFilters(*q)
+	}
+	if disc != nil {
+		files, totalBytes, byClass := scanEstimate(disc.Files)
+		p.EstimatedFiles = &files
+		p.EstimatedBytes = &totalBytes
+		p.ByClass = byClass
+	}
+	return sendProblem(c, p)
 }
 
 func (s *Service) sendGuardRejection(c echo.Context, rej *guardRejection) error {

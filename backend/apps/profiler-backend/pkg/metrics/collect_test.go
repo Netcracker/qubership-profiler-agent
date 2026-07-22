@@ -103,6 +103,9 @@ func TestRegisterIngestSeries(t *testing.T) {
 		"profiler_ingest_decoder_errors_total",
 		"profiler_ingest_refused_bytes_total",
 		"profiler_ingest_dict_append_errors_total",
+		"profiler_ingest_connects_total",
+		"profiler_ingest_disconnects_total",
+		"profiler_ingest_active_connections",
 	} {
 		assert.True(t, names[want], "missing series %s", want)
 	}
