@@ -63,6 +63,11 @@ type (
 		// pod-restart's WAL files are deleted; the env name is an
 		// implementation choice.
 		WalPurgeGrace time.Duration `envconfig:"PROFILER_WAL_PURGE_GRACE" default:"1h"`
+		// WalPurgeFastMaxBytes is the near-empty floor of the fast-path WAL
+		// purge (03 §3.9): a closed pod-restart at or under it purges after the
+		// grace without waiting for its call-index partition drop. 0 disables
+		// the fast path.
+		WalPurgeFastMaxBytes ByteSize `envconfig:"PROFILER_WAL_PURGE_FAST_MAX_BYTES" default:"16MiB"`
 		// MemBudget caps the hot store's in-RAM pod-restart state (01 §9,
 		// §4.6): over budget the janitor unloads closed pod-restarts'
 		// dictionaries and, once fully sealed, their chunk indexes.

@@ -65,6 +65,8 @@ func TestCollectDefaults(t *testing.T) {
 	assert.Equal(t, 15*time.Minute, c.HotRetention)
 	assert.Equal(t, ByteSize(10<<30), c.ChunksStagingMaxBytes)
 	assert.Equal(t, time.Hour, c.WalPurgeGrace)
+	assert.Equal(t, ByteSize(16<<20), c.WalPurgeFastMaxBytes,
+		"the near-empty fast path defaults ON (03 §3.9 step 18a); 0 disables it")
 
 	p, err := c.S3.Params()
 	require.NoError(t, err)

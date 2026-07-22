@@ -105,6 +105,85 @@ func TestPartitionCacheKeepsBorrowedHandlesOpen(t *testing.T) {
 	}
 }
 
+// legacyPartitionSchema is the call_index shape before the method_text column
+// shipped — what a partition file written by a pre-upgrade collector holds.
+const legacyPartitionSchema = `
+CREATE TABLE IF NOT EXISTS call_index (
+  pod_restart      TEXT NOT NULL,
+  trace_file_index INTEGER NOT NULL,
+  buffer_offset    INTEGER NOT NULL,
+  record_index     INTEGER NOT NULL,
+  ts_ms            INTEGER NOT NULL,
+  duration_ms      INTEGER NOT NULL,
+  method_id        INTEGER NOT NULL,
+  thread_name      TEXT NOT NULL,
+  retention_class  TEXT NOT NULL,
+  error_flag       INTEGER NOT NULL,
+  cpu_time_ms      INTEGER NOT NULL DEFAULT 0,
+  wait_time_ms     INTEGER NOT NULL DEFAULT 0,
+  memory_used      INTEGER NOT NULL DEFAULT 0,
+  queue_wait_ms    INTEGER NOT NULL DEFAULT 0,
+  suspend_ms       INTEGER NOT NULL DEFAULT 0,
+  child_calls      INTEGER NOT NULL DEFAULT 0,
+  transactions     INTEGER NOT NULL DEFAULT 0,
+  logs_generated   INTEGER NOT NULL DEFAULT 0,
+  logs_written     INTEGER NOT NULL DEFAULT 0,
+  file_read        INTEGER NOT NULL DEFAULT 0,
+  file_written     INTEGER NOT NULL DEFAULT 0,
+  net_read         INTEGER NOT NULL DEFAULT 0,
+  net_written      INTEGER NOT NULL DEFAULT 0,
+  params_json      TEXT,
+  calls_wal_offset INTEGER NOT NULL,
+  blob_size        INTEGER,
+  truncated_reason TEXT,
+  PRIMARY KEY (pod_restart, trace_file_index, buffer_offset, record_index)
+);
+`
+
+// TestPartitionMigratesMethodText pins the nullable-TEXT migration path: a
+// partition file written before the method_text column exists gets the column
+// via the dedicated ALTER (the shared loop only adds INTEGER NOT NULL DEFAULT
+// 0 columns), and every read path selects it afterwards.
+func TestPartitionMigratesMethodText(t *testing.T) {
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	bucket := store.cfg.Bucket(janitorCallTs)
+
+	legacy, err := openSqlite(store.db.partitionPath(bucket))
+	require.NoError(t, err)
+	require.NoError(t, legacy.Exec(legacyPartitionSchema).Error)
+	require.NoError(t, legacy.Exec(`INSERT INTO call_index
+		(pod_restart, trace_file_index, buffer_offset, record_index, ts_ms, duration_ms,
+		 method_id, thread_name, retention_class, error_flag, calls_wal_offset)
+		VALUES (?, 1, 0, 0, ?, 10, 3, 'main', ?, 0, 0)`,
+		"ns/svc/pod-m/1", janitorCallTs, RetentionShortClean).Error)
+	sqlDb, err := legacy.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDb.Close())
+
+	rows, err := store.Calls(bucket)
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "the pre-upgrade row survives the migration")
+	assert.Empty(t, rows[0].MethodText)
+
+	unresolved, err := store.db.BackfillMethodText("ns/svc/pod-m/1",
+		func(id int) (string, bool) { return fmt.Sprintf("word-%d", id), true })
+	require.NoError(t, err)
+	assert.Zero(t, unresolved)
+
+	row, ok, err := store.FindCall(PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-m", RestartTimeMs: 1}, 1, 0, 0)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "word-3", row.MethodText, "FindCall selects the migrated column")
+
+	page, err := store.CallsPage(bucket, model.CallsQuery{FromMs: janitorCallTs - 1, ToMs: janitorCallTs + 1},
+		janitorCallTs-1, janitorCallTs+1, 10)
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	assert.Equal(t, "word-3", page[0].MethodText, "CallsPage selects the migrated column")
+}
+
 // TestCallsPageFiltersAndLimit pins №15: the SQL page carries the pushable
 // filters, returns the newest `limit` ts values WITH complete tie groups,
 // and deeper pages resume below the boundary.

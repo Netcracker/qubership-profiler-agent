@@ -2,7 +2,9 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -337,4 +339,119 @@ func TestManifestQuarantine(t *testing.T) {
 	_, err = uploader.Pass(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, puts, fake.putCount(manifestKey), "the quarantine marker stops manifest PUTs")
+}
+
+// TestFastPurgeReadsAcrossTiers drives the 03 §3.9 step-18a fast path end to
+// end in the default-on shape: a short, tiny pod-restart purges at the grace
+// while its rows are still hot. /calls keeps rendering the method name from
+// the backfilled method_text on both the internal and the external surface,
+// the hot trace answers 404, and the external trace serves from the cold copy
+// with the §2.2 ts_ms hint — and stays a guided 404 without it.
+func TestFastPurgeReadsAcrossTiers(t *testing.T) {
+	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
+	defer cancel()
+	fake := newColdFakeStore()
+
+	svc := startCollectorCfg(t, ctx, t.TempDir(), func(cfg *hotstore.Config) {
+		// The grace is not under test (the unit gates pin it); shrinking it lets
+		// the fast path fire while hot retention still holds the partition.
+		cfg.WalPurgeGrace = time.Millisecond
+		cfg.WalPurgeFastMaxBytes = 1 << 20
+	})
+	store := svc.Store()
+	bucket := store.Config().Bucket(baseMs + 5)
+
+	file1, off1 := wire.TraceStream(timerStartMs, []wire.TraceChunk{
+		{ThreadId: sealThread1, StartMs: baseMs, Events: []wire.TraceEvent{
+			wire.Enter(0, sealMethodHandle), wire.Tag(1, sealDictRequestId, "req-fast"), wire.Exit(2),
+		}},
+	})
+	calls := []wire.CallRecord{
+		{DeltaMs: 5, Method: sealMethodHandle, DurationMs: 10, ThreadName: "exec-1",
+			TraceFileIndex: 1, BufferOffset: int(off1[0]), RecordIndex: 0},
+	}
+
+	ac := connectAgentAs(t, ctx, "pod-fastpurge")
+	key := waitForPodNamed(t, store, "pod-fastpurge", 1)
+	pr, ok := store.PodRestart(key)
+	require.True(t, ok)
+	sendStream(t, ac, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
+	sendStream(t, ac, model.StreamTrace, 0, file1)
+	sendStream(t, ac, model.StreamCalls, 0, wire.CallsStreamRecords(baseMs, calls))
+	waitForIndexedCalls(t, store, bucket, key, 1)
+	require.NoError(t, ac.CommandClose())
+	_ = ac.Close()
+	require.Eventually(t, pr.Finalized, 5*time.Second, 10*time.Millisecond)
+
+	_, err := store.Seal(ctx, key, bucket)
+	require.NoError(t, err)
+	_, err = hotstore.NewUploader(store, fake).Pass(ctx)
+	require.NoError(t, err)
+
+	hotSrv := httptest.NewServer(hotread.New(store).Handler())
+	t.Cleanup(hotSrv.Close)
+	disco := &scriptedDiscovery{}
+	disco.set(hotSrv.URL)
+	api := httptest.NewServer(query.New(query.Options{
+		Config:       query.Config{WideRangeLimit: 30 * 24 * time.Hour},
+		ColdStore:    fake,
+		HotDiscovery: disco,
+	}).Handler())
+	t.Cleanup(api.Close)
+
+	stats, err := store.JanitorPass(ctx, time.Now().UnixMilli()+janitorMinuteMs)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats.WalsFastPurged, "the near-empty pod-restart purges at the grace")
+	require.Zero(t, stats.PartitionsDropped, "hot retention still holds the partition — gate (b) was skipped, not satisfied")
+	_, tracked := store.PodRestart(key)
+	require.False(t, tracked)
+
+	window := url.Values{"from": {fmt.Sprint(baseMs - janitorMinuteMs)}, "to": {fmt.Sprint(baseMs + janitorMinuteMs)}}
+	pk := fmt.Sprintf("%s:%s:%s:%d:1:%d:0", hotstoreNs, hotstoreSvc, "pod-fastpurge", key.RestartTimeMs, off1[0])
+
+	t.Run("hot /calls renders the backfilled method_text", func(t *testing.T) {
+		resp, err := http.Get(hotSrv.URL + "/internal/v1/calls?" + window.Encode())
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var hot callsPage
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&hot))
+		require.Len(t, hot.Calls, 1)
+		assert.Equal(t, "com.example.Service.handle", hot.Calls[0].Method,
+			"the name must come from method_text — the dictionary WAL is gone")
+	})
+
+	t.Run("external /calls still lists the call", func(t *testing.T) {
+		page := getCalls(t, api, window)
+		require.Len(t, page.Calls, 1)
+		assert.Equal(t, "com.example.Service.handle", page.Calls[0].Method)
+	})
+
+	t.Run("hot /pods keeps listing the pod-restart from its index rows", func(t *testing.T) {
+		resp, err := http.Get(hotSrv.URL + "/internal/v1/pods?" + window.Encode())
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var pods struct {
+			Pods []struct {
+				Pod string `json:"pod"`
+			} `json:"pods"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&pods))
+		require.Len(t, pods.Pods, 1)
+		assert.Equal(t, "pod-fastpurge", pods.Pods[0].Pod)
+	})
+
+	t.Run("hot trace 404s; cold serves with the ts_ms hint; no hint stays 404", func(t *testing.T) {
+		resp, err := http.Get(hotSrv.URL + "/internal/v1/calls/" + url.PathEscape(pk) + "/trace")
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, "the replica no longer holds the pod-restart")
+
+		blob, _ := getTrace(t, api, pk, url.Values{"ts_ms": {fmt.Sprint(baseMs + 5)}})
+		assert.NotEmpty(t, blob, "the cold fallback serves the sealed blob")
+
+		problem := getProblem(t, api, "/api/v1/calls/"+pk+"/trace", url.Values{}, http.StatusNotFound)
+		assert.Contains(t, problem.Detail, "ts_ms", "a hint-less miss stays the guided §2.2 404")
+	})
 }

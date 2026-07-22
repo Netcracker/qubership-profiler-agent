@@ -148,6 +148,222 @@ func TestJanitorLifecycle(t *testing.T) {
 	})
 }
 
+// seedFastPurgeCandidate builds the 03 §3.9 step-18a shape: a closed, tiny
+// pod-restart with one dictionary word, one sealed-and-uploaded call still
+// indexed in a live partition (the recent upload keeps the partition inside
+// hot retention, so gate (b) holds). Returns the pod-restart and the pass
+// clock at which the grace has elapsed but the partition has not dropped.
+func seedFastPurgeCandidate(t *testing.T, store *Store, key PodRestartKey, word string) (pr *PodRestart, passNowMs int64) {
+	t.Helper()
+	pr, err := store.OpenPodRestart(key)
+	require.NoError(t, err)
+	wordId, err := pr.AppendDictionaryWord(word)
+	require.NoError(t, err)
+	require.NoError(t, pr.Close()) // closed_at = wall clock now; dictionary unloads
+
+	now := time.Now().UnixMilli()
+	passNowMs = now + 2*60*minute // past the 1 h purge grace
+	bucket := store.cfg.Bucket(janitorCallTs)
+	require.NoError(t, store.db.InsertCall(bucket, CallIndexRow{
+		PodRestart: pr.Key.String(), TraceFileIndex: 1, BufferOffset: 0, RecordIndex: 0,
+		TsMs: janitorCallTs, MethodId: wordId, RetentionClass: RetentionShortClean, CallsWalOffset: 0,
+	}))
+	require.NoError(t, store.db.UpsertSealState(pr.Key.String(), bucket, RetentionShortClean, 1, now))
+	sealedPath := seedSealedFile(t, store, pr.Key, bucket, 0)
+	// Uploaded 5 minutes before the pass clock: inside hot retention, so the
+	// partition (and gate (b)) stays put while the grace is long gone.
+	require.NoError(t, store.db.MarkUploaded(sealedPath, passNowMs-5*minute))
+	return pr, passNowMs
+}
+
+// TestFastPurgeNearEmptyPodRestart pins the 03 §3.9 step-18a fast path: a
+// near-empty, fully sealed and uploaded pod-restart purges after the grace
+// even though its rows are still indexed in a live partition. The rows keep
+// rendering: method_text is backfilled from the dictionary (lazy-reloaded
+// from dictionary.wal — Close unloaded the in-RAM maps) before the WAL goes.
+func TestFastPurgeNearEmptyPodRestart(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir(), WalPurgeFastMaxBytes: 1 << 20})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-f", RestartTimeMs: janitorCallTs}
+	pr, passNow := seedFastPurgeCandidate(t, store, key, "com.example.Foo.bar()")
+	bucket := store.cfg.Bucket(janitorCallTs)
+	walPath := filepath.Join(pr.dir, "dictionary.wal")
+
+	stats, err := store.JanitorPass(ctx, passNow)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stats.WalsPurged, "the fast path is a purge")
+	assert.EqualValues(t, 1, stats.WalsFastPurged)
+	assert.Zero(t, stats.PartitionsDropped, "hot retention still pins the partition")
+	assert.NoFileExists(t, walPath)
+	assert.NoDirExists(t, pr.dir)
+	_, tracked := store.PodRestart(pr.Key)
+	assert.False(t, tracked, "the pod-restart leaves the tracked set at the grace, not at the partition drop")
+
+	lifetime := store.JanitorCountersSnapshot()
+	assert.EqualValues(t, 1, lifetime.WalsFastPurged, "countJanitor must accumulate the new counter")
+
+	rows, err := store.Calls(bucket)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "com.example.Foo.bar()", rows[0].MethodText,
+		"method_text is materialized before the dictionary WAL goes")
+
+	candidates, err := store.db.WalPurgeCandidates()
+	require.NoError(t, err)
+	assert.Empty(t, candidates)
+
+	// The partition still drops on its own schedule once retention passes.
+	stats, err = store.JanitorPass(ctx, passNow+20*minute)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stats.PartitionsDropped)
+	stats, err = store.JanitorPass(ctx, passNow+30*minute)
+	require.NoError(t, err)
+	assert.Equal(t, JanitorStats{}, stats, "a repeated pass is a no-op")
+}
+
+// TestFastPurgeGates pins every blocker of the step-18a fast path: the
+// disabled knob, a directory over the floor, an unsealed call, a pending
+// (quarantined) upload, and the not-yet-elapsed grace all keep the WAL set.
+func TestFastPurgeGates(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("zero floor disables the fast path", func(t *testing.T) {
+		store, err := Open(Config{DataDir: t.TempDir()})
+		require.NoError(t, err)
+		defer func() { _ = store.Close() }()
+		key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-g0", RestartTimeMs: janitorCallTs}
+		pr, passNow := seedFastPurgeCandidate(t, store, key, "w")
+		stats, err := store.JanitorPass(ctx, passNow)
+		require.NoError(t, err)
+		assert.Zero(t, stats.WalsPurged)
+		assert.FileExists(t, filepath.Join(pr.dir, "dictionary.wal"))
+	})
+
+	t.Run("a directory over the floor keeps the regular path", func(t *testing.T) {
+		store, err := Open(Config{DataDir: t.TempDir(), WalPurgeFastMaxBytes: 1 << 20})
+		require.NoError(t, err)
+		defer func() { _ = store.Close() }()
+		key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-g1", RestartTimeMs: janitorCallTs}
+		pr, passNow := seedFastPurgeCandidate(t, store, key, "w")
+		require.NoError(t, os.WriteFile(filepath.Join(pr.dir, StreamTrace, SegmentFileName(1)),
+			bytes.Repeat([]byte{0xAB}, 2<<20), 0o644))
+		stats, err := store.JanitorPass(ctx, passNow)
+		require.NoError(t, err)
+		assert.Zero(t, stats.WalsPurged)
+		assert.FileExists(t, filepath.Join(pr.dir, "dictionary.wal"))
+	})
+
+	t.Run("an unsealed call blocks the fast path", func(t *testing.T) {
+		store, err := Open(Config{DataDir: t.TempDir(), WalPurgeFastMaxBytes: 1 << 20})
+		require.NoError(t, err)
+		defer func() { _ = store.Close() }()
+		key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-g2", RestartTimeMs: janitorCallTs}
+		pr, passNow := seedFastPurgeCandidate(t, store, key, "w")
+		require.NoError(t, store.db.InsertCall(store.cfg.Bucket(janitorCallTs), CallIndexRow{
+			PodRestart: pr.Key.String(), TraceFileIndex: 2, BufferOffset: 0, RecordIndex: 0,
+			TsMs: janitorCallTs + 1, RetentionClass: RetentionShortClean, CallsWalOffset: 7, // >= watermark 1
+		}))
+		stats, err := store.JanitorPass(ctx, passNow)
+		require.NoError(t, err)
+		assert.Zero(t, stats.WalsPurged)
+		assert.FileExists(t, filepath.Join(pr.dir, "dictionary.wal"))
+	})
+
+	t.Run("a quarantined upload blocks any purge", func(t *testing.T) {
+		store, err := Open(Config{DataDir: t.TempDir(), WalPurgeFastMaxBytes: 1 << 20})
+		require.NoError(t, err)
+		defer func() { _ = store.Close() }()
+		key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-g3", RestartTimeMs: janitorCallTs}
+		pr, passNow := seedFastPurgeCandidate(t, store, key, "w")
+		quarantined := seedSealedFile(t, store, pr.Key, store.cfg.Bucket(janitorCallTs), 1)
+		require.NoError(t, store.db.MarkUploadFailed(quarantined, quarantined+".failed", passNow))
+		stats, err := store.JanitorPass(ctx, passNow)
+		require.NoError(t, err)
+		assert.Zero(t, stats.WalsPurged)
+		assert.FileExists(t, filepath.Join(pr.dir, "dictionary.wal"))
+	})
+
+	t.Run("the grace is never skipped", func(t *testing.T) {
+		store, err := Open(Config{DataDir: t.TempDir(), WalPurgeFastMaxBytes: 1 << 20})
+		require.NoError(t, err)
+		defer func() { _ = store.Close() }()
+		key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-g4", RestartTimeMs: janitorCallTs}
+		pr, _ := seedFastPurgeCandidate(t, store, key, "w")
+		stats, err := store.JanitorPass(ctx, time.Now().UnixMilli()+minute)
+		require.NoError(t, err)
+		assert.Zero(t, stats.WalsPurged)
+		assert.FileExists(t, filepath.Join(pr.dir, "dictionary.wal"))
+	})
+}
+
+// TestFastPurgeCrashRetryConverges pins the step-18a idempotence: a purge that
+// crashed after the backfill and the WAL deletion but before SetWalsPurged
+// re-runs to completion — the size check reads a missing directory as zero,
+// the backfill is a no-op (no NULL rows are left), and the names survive.
+func TestFastPurgeCrashRetryConverges(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir(), WalPurgeFastMaxBytes: 1 << 20})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-c", RestartTimeMs: janitorCallTs}
+	pr, passNow := seedFastPurgeCandidate(t, store, key, "com.example.Crash.mid()")
+	bucket := store.cfg.Bucket(janitorCallTs)
+
+	// The first attempt got exactly as far as the durable steps: method_text
+	// committed, files gone — and crashed before SetWalsPurged.
+	unresolved, err := store.db.BackfillMethodText(pr.Key.String(), pr.DictWord)
+	require.NoError(t, err)
+	require.Zero(t, unresolved)
+	require.NoError(t, os.RemoveAll(pr.dir))
+
+	stats, err := store.JanitorPass(ctx, passNow)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stats.WalsPurged)
+	assert.EqualValues(t, 1, stats.WalsFastPurged)
+	rows, err := store.Calls(bucket)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "com.example.Crash.mid()", rows[0].MethodText, "the retry must not lose the backfilled names")
+	candidates, err := store.db.WalPurgeCandidates()
+	require.NoError(t, err)
+	assert.Empty(t, candidates, "the retry completes the purge")
+}
+
+// TestFastPurgeSurvivesRecovery pins the post-purge restart shape: the
+// pod-restart directory is gone, so recovery (which walks the PV, 03 §3.3)
+// must not resurrect the pod-restart, while its still-indexed rows keep their
+// backfilled names — they live in the partition, not in the purged state.
+func TestFastPurgeSurvivesRecovery(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	store, err := Open(Config{DataDir: dataDir, WalPurgeFastMaxBytes: 1 << 20})
+	require.NoError(t, err)
+
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-v", RestartTimeMs: janitorCallTs}
+	pr, passNow := seedFastPurgeCandidate(t, store, key, "com.example.Verify.run()")
+	bucket := store.cfg.Bucket(janitorCallTs)
+	stats, err := store.JanitorPass(ctx, passNow)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats.WalsFastPurged)
+	require.NoError(t, store.Close())
+
+	store, err = Open(Config{DataDir: dataDir, WalPurgeFastMaxBytes: 1 << 20})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	require.NoError(t, store.Recover(ctx))
+
+	_, tracked := store.PodRestart(pr.Key)
+	assert.False(t, tracked, "recovery must not resurrect a purged pod-restart")
+	rows, err := store.Calls(bucket)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "com.example.Verify.run()", rows[0].MethodText, "the names live in the partition")
+}
+
 // TestJanitorQuarantineBlocksPartitionDrops pins the contiguity barrier: a
 // bucket whose parquet is quarantined (not durable in S3) keeps ITS partition
 // and every newer partition in the hot tier, however aged, so the hot window

@@ -115,6 +115,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 			HotRetention:          cfg.HotRetention,
 			ChunksStagingMaxBytes: int64(cfg.ChunksStagingMaxBytes),
 			WalPurgeGrace:         cfg.WalPurgeGrace,
+			WalPurgeFastMaxBytes:  int64(cfg.WalPurgeFastMaxBytes),
 			MemBudgetBytes:        int64(cfg.MemBudget),
 			PendingUploadMaxBytes: int64(cfg.PendingUploadMaxBytes),
 

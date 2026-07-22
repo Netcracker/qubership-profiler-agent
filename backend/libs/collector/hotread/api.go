@@ -230,22 +230,26 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 	return out, nil
 }
 
-// toCallRow maps an index row to the merged row shape: the method resolves
-// with a targeted DictWord lookup against the pod-restart's dictionary (№15
-// — no full-map copy per request; a missing word keeps the "#<id>"
-// placeholder, as the write path does), params decode from the indexed JSON.
-// error_flag, retention_class, and suspend_ms are the provisional index
-// values — the seal re-derives them for the cold copy, which is why the §6.3
-// dedup prefers cold.
+// toCallRow maps an index row to the merged row shape: the method comes from
+// the row's own method_text when the fast-path WAL purge materialized it
+// (03 §3.9 — the pod-restart's dictionary is gone by then), otherwise from a
+// targeted DictWord lookup against the pod-restart's dictionary (№15 — no
+// full-map copy per request; a missing word keeps the "#<id>" placeholder, as
+// the write path does); params decode from the indexed JSON. error_flag,
+// retention_class, and suspend_ms are the provisional index values — the seal
+// re-derives them for the cold copy, which is why the §6.3 dedup prefers cold.
 func (a *API) toCallRow(idx hotstore.CallIndexRow) (model.CallRow, error) {
 	key, err := hotstore.ParsePodRestartKey(idx.PodRestart)
 	if err != nil {
 		return model.CallRow{}, err
 	}
-	method := fmt.Sprintf("#%d", idx.MethodId)
-	if pr, live := a.store.PodRestart(key); live {
-		if w, ok := pr.DictWord(idx.MethodId); ok {
-			method = w
+	method := idx.MethodText
+	if method == "" {
+		method = fmt.Sprintf("#%d", idx.MethodId)
+		if pr, live := a.store.PodRestart(key); live {
+			if w, ok := pr.DictWord(idx.MethodId); ok {
+				method = w
+			}
 		}
 	}
 	row := model.CallRow{

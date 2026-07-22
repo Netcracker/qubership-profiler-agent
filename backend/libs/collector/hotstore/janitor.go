@@ -27,8 +27,12 @@ type JanitorStats struct {
 	ParquetDeleted    int64
 	PartitionsDropped int64
 	WalsPurged        int64
-	SegmentsEvicted   int64
-	EvictedBytes      int64
+	// WalsFastPurged counts the WalsPurged subset that took the near-empty
+	// fast path (03 §3.9): purged after the grace without waiting for the
+	// call-index partition drop.
+	WalsFastPurged  int64
+	SegmentsEvicted int64
+	EvictedBytes    int64
 	// QuarantineDropped counts quarantined parquet files removed by the
 	// age/size cap (№2) — bounded, loudly-logged data loss.
 	QuarantineDropped int64
@@ -59,6 +63,7 @@ func (s *Store) countJanitor(stats JanitorStats) {
 	s.janitorCounters.ParquetDeleted += stats.ParquetDeleted
 	s.janitorCounters.PartitionsDropped += stats.PartitionsDropped
 	s.janitorCounters.WalsPurged += stats.WalsPurged
+	s.janitorCounters.WalsFastPurged += stats.WalsFastPurged
 	s.janitorCounters.SegmentsEvicted += stats.SegmentsEvicted
 	s.janitorCounters.EvictedBytes += stats.EvictedBytes
 	s.janitorCounters.QuarantineDropped += stats.QuarantineDropped
@@ -433,6 +438,18 @@ func (s *Store) bucketHasUnsealedCalls(bucket int64) (bool, error) {
 // any more, and the hold-back grace has elapsed. The pod-restart's directory
 // and in-RAM state go with the WALs: past this point every read of its data
 // is served by the cold tier.
+//
+// A near-empty pod-restart (directory at or under WalPurgeFastMaxBytes) takes
+// the 03 §3.9 fast path instead of waiting for its partition drop, which
+// bounds the tracked backlog under a reconnect storm at the restart rate times
+// the grace (load-testing-report.md §8). Its index rows stay in the live
+// partitions until the regular drop, so before the dictionary WAL goes the
+// purge materializes the rows' method names into method_text; trace reads of
+// those rows fall through to the cold tier exactly as after a mem-budget
+// chunk-index release. Deleting the segments under the still-indexed rows is
+// safe because the two gates above already ran: no pending parquet means every
+// sealed file is confirmed in S3 and MarkUploaded released its segment
+// refcounts, and no unsealed calls means no future seal will read them.
 func (s *Store) purgeWals(ctx context.Context, nowMs int64, stats *JanitorStats) error {
 	candidates, err := s.db.WalPurgeCandidates()
 	if err != nil {
@@ -453,18 +470,28 @@ func (s *Store) purgeWals(ctx context.Context, nowMs int64, stats *JanitorStats)
 			}
 			continue // an un-confirmed file may need a re-seal from calls.wal
 		}
-		if _, indexed, err := s.db.MaxCallsWalOffset(c.PodRestart); err != nil || indexed {
-			if err != nil {
-				return err
-			}
-			continue // hot partitions still serve these rows; wait for their drop
-		}
 		key, err := ParsePodRestartKey(c.PodRestart)
 		if err != nil {
 			log.Error(ctx, err, "janitor: skip WAL purge of unparseable pod_restart %q", c.PodRestart)
 			continue
 		}
 		dir := key.dir(s.cfg.DataDir)
+		fast := false
+		if _, indexed, err := s.db.MaxCallsWalOffset(c.PodRestart); err != nil || indexed {
+			if err != nil {
+				return err
+			}
+			// Hot partitions still serve these rows; the regular path waits for
+			// their drop, the fast path frees the WAL set under them.
+			ok, err := s.fastPurge(ctx, key, c.PodRestart, dir)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+			fast = true
+		}
 		for _, name := range walFileNames {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
 				return errors.Wrapf(err, "purge %s of %s", name, c.PodRestart)
@@ -483,10 +510,71 @@ func (s *Store) purgeWals(ctx context.Context, nowMs int64, stats *JanitorStats)
 		removeEmptyParents(filepath.Join(s.cfg.DataDir, "pods"), filepath.Dir(dir))
 		s.forgetPodRestart(key)
 		stats.WalsPurged++
-		log.Info(ctx, "janitor: purged WALs of %s (%s past full flush)",
-			c.PodRestart, time.Duration(nowMs-base)*time.Millisecond)
+		if fast {
+			stats.WalsFastPurged++
+			log.Info(ctx, "janitor: fast-purged WALs of near-empty %s (%s past full flush; its rows stay hot until the partition drop)",
+				c.PodRestart, time.Duration(nowMs-base)*time.Millisecond)
+		} else {
+			log.Info(ctx, "janitor: purged WALs of %s (%s past full flush)",
+				c.PodRestart, time.Duration(nowMs-base)*time.Millisecond)
+		}
 	}
 	return nil
+}
+
+// fastPurge decides the 03 §3.9 fast path for one still-indexed candidate and
+// prepares its rows: eligible when the fast path is enabled, the pod-restart's
+// directory is at or under the near-empty floor, and every indexed call is
+// sealed (an in-flight seal pass keeps its watermark uncommitted, so
+// HasUnsealedCalls also defers to the next janitor tick). On eligibility it
+// backfills method_text — committed to the partitions BEFORE the caller
+// deletes the dictionary WAL, so a crashed purge re-runs as a no-op.
+func (s *Store) fastPurge(ctx context.Context, key PodRestartKey, podRestart, dir string) (bool, error) {
+	if s.cfg.WalPurgeFastMaxBytes <= 0 {
+		return false, nil
+	}
+	size, err := dirSizeBytes(dir)
+	if err != nil {
+		return false, err
+	}
+	if size > s.cfg.WalPurgeFastMaxBytes {
+		return false, nil
+	}
+	if unsealed, err := s.db.HasUnsealedCalls(podRestart); err != nil || unsealed {
+		return false, err
+	}
+	resolve := func(int) (string, bool) { return "", false }
+	if pr, tracked := s.PodRestart(key); tracked {
+		resolve = pr.DictWord // lazy-reloads from dictionary.wal if unloaded
+	}
+	unresolved, err := s.db.BackfillMethodText(podRestart, resolve)
+	if err != nil {
+		return false, err
+	}
+	if unresolved > 0 {
+		log.Warning(ctx, "janitor: fast purge of %s leaves %d hot rows without a method name (dictionary incomplete); they render as #<id> until the partition drop",
+			podRestart, unresolved)
+	}
+	return true, nil
+}
+
+// dirSizeBytes sums the file sizes under dir; a missing dir is zero (a crashed
+// purge already removed it).
+func dirSizeBytes(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr // best-effort walk; a vanished entry is not a failure
+		}
+		if info, err := d.Info(); err == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return 0, errors.Wrapf(err, "measure %s", dir)
+	}
+	return total, nil
 }
 
 // removeEmptyParents best-effort removes now-empty pod/service/namespace dirs
