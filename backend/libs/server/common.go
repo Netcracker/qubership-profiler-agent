@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"github.com/Netcracker/qubership-profiler-backend/libs/io"
 	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 	"github.com/pkg/errors"
@@ -17,14 +19,20 @@ const (
 	// agent to rotate its stream files at, when ConnectionOpts leaves it unset
 	// (06-wire-protocol-server.md §4; PROFILER_SEGMENT_ROTATION_SIZE default).
 	DefaultRequiredRotationSize uint64 = 4 * 1024 * 1024
+
+	// FlushCheckInterval bounds how long a buffered RCV_DATA ack may wait before
+	// the collector flushes it on its own cadence, matching the agent's
+	// FLUSH_CHECK_INTERVAL_MILLIS = 500 (06-wire-protocol-server.md §5). The
+	// agent drains every pending ack synchronously before it rotates a stream
+	// (INIT_STREAM_V2), so a buffered ack that no command flushes would otherwise
+	// stall the rotation until the agent's 30 s ack-read timeout fires and it
+	// reconnects with a full dictionary resend.
+	FlushCheckInterval = 500 * time.Millisecond
 )
 
-var (
-	ErrNotConnected = errors.New("not connected")
-	// errAgentClosed is returned when the agent sends COMMAND_CLOSE, so the
-	// handler loop stops without logging it as a failure.
-	errAgentClosed = errors.New("agent requested close")
-)
+// errAgentClosed is returned when the agent sends COMMAND_CLOSE, so the
+// handler loop stops without logging it as a failure.
+var errAgentClosed = errors.New("agent requested close")
 
 type (
 	ConnectionOpts struct {

@@ -33,6 +33,19 @@ func SuspendPipeReader(ctx context.Context, b *PipeReader) <-chan SuspendItem {
 						break
 					}
 					cTime = sTime
+					// The 8-byte base-time header sits inside the first phrase's
+					// byte count, so charge it against lengthOfPhrase. Without
+					// this the reader over-runs the first phrase by 8 bytes and
+					// decodes the next phrase's length prefix as varint record
+					// data (the agent emits one suspend phrase per flush window
+					// that saw a pause, so any long run is multi-phrase — №4).
+					lengthOfPhrase -= 8
+				}
+				// A header-only phrase (the base time with no pauses in the
+				// window) leaves nothing to read; loop back for the next phrase
+				// prefix instead of parsing the header bytes as a record.
+				if lengthOfPhrase <= 0 {
+					continue
 				}
 			}
 
