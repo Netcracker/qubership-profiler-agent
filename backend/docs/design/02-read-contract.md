@@ -174,6 +174,17 @@ The exemption check runs the same class derivation discovery uses, so a filter t
 
 **Layer 2 — estimated scan.** For a query that clears layer 1, the discovery LIST (§5.1) already returns, per candidate object, its size and — from the key — its `retention_class`. Summing these gives `(file_count, total_bytes)` for the whole scan with no extra request and no file opened. If `file_count > PROFILER_MAX_SCAN_FILES` or `total_bytes > PROFILER_MAX_SCAN_BYTES`, reject with `400` before reading. The two limits map to the two cost axes of §5.5: object count bounds LIST and GET round-trips, byte total bounds decode-and-scan volume. Both are needed — many tiny files pass a byte limit but not a file limit, and a few large files the reverse.
 
+**What the byte limit actually bounds.** The sizes a LIST returns are on-object (ZSTD-compressed) bytes, so
+`PROFILER_MAX_SCAN_BYTES` bounds what is fetched, not what is held: decoding multiplies the footprint several-fold
+before rows are merged. The guard is also strictly per-request — N concurrent guard-passing queries can hold N
+budgets of decoded data at once. The load campaign OOM-killed a 3 GiB query pod in 34 seconds exactly this way
+(`load-testing-report.md` §7). What the guard cannot bound, the process-wide read memory budget does (§7.5): the
+guard stays the cheap per-request pre-flight that rejects intrinsically-too-wide queries with narrowing advice
+(`400`), while the budget bounds what the whole process materializes at runtime — concurrency and the decode
+expansion included — and sheds load with `503` when concurrent demand exceeds it. Size
+`PROFILER_MAX_SCAN_BYTES` for the widest single query the deployment wants to allow; size the pod from the budget
+(§7.5), not from this guard.
+
 The rejection body (§8) carries the estimate and a per-class byte breakdown, so the caller sees which axis dominates — usually `short_clean` — and which filter would cut it.
 
 **Evaluated on every page.** The guard runs on page 1 against the parsed query and on pages 2..N against the query frozen in the cursor (§2.3.1). Until the cursor is HMAC-signed it is client-forgeable, so re-checking is the only thing that stops a hand-minted cursor from smuggling a wide query straight into cold discovery. Re-checking does not penalize honest pagination: a cursor `query` minted for a query that already cleared page 1 carries the same window, so the span layer re-passes, and a later page's cold window is bounded by the dynamic cutoff (§4.3) — its discovered file set is a subset of page 1's, so the cost estimate cannot grow past the page-1 verdict.
@@ -537,7 +548,91 @@ If at least one replica or S3 LIST fails:
 
 A profiler is most useful when at least partial data is shown — failing the whole query because one replica is slow defeats the purpose.
 
-**Scan budget (deferred, Stage 2).** Layer 2 of the wide-query guard (§2.3.2) estimates scan cost before reading, but the estimate is by file size: it overshoots a projection-only read and cannot see a pathological row distribution. A per-request scan budget backstops it — if execution reads past a hard byte or deadline cap, `query` stops and returns what it has with `partial: true` and `partial_reasons: [budget_exceeded]`, a `200` rather than a `400`, matching the preference for bounded partial data over failure (§2.3.1). Deferred to Stage 2; the `budget_exceeded` reason is reserved now so the `partial_reasons` vocabulary stays stable.
+**Per-request scan budget (still deferred).** Layer 2 of the wide-query guard (§2.3.2) estimates scan cost before
+reading, but the estimate is by file size: it overshoots a projection-only read and cannot see a pathological row
+distribution. A per-request fail-soft backstop — stop mid-execution past a hard byte or deadline cap and return the
+rows gathered so far with `partial: true` and `partial_reasons: [budget_exceeded]` — remains deferred, and the
+`budget_exceeded` reason stays reserved for it. The load campaign fired this entry's revisit trigger with a harder
+finding: concurrent guard-passing queries OOM the pod, which no per-request cap can bound. That need is now met by
+the process-wide read memory budget (§7.5), which deliberately rejects with an atomic `503` instead of the partial
+form — see §7.5 for why a budget-truncated page cannot carry a cursor safely.
+
+### 7.5 Process-wide read memory budget and admission
+
+The read path shares one process-wide byte budget (`PROFILER_READ_MEMORY_BUDGET`) that every reader charges BEFORE
+materializing decoded data and releases when the data is handed off or dropped. It closes the two holes the §2.3.2
+guard cannot: the unbounded compressed→decoded expansion factor, and N concurrent guard-passing requests holding N
+per-request budgets at once — the OOM shape of `load-testing-report.md` §7. The guard and the budget divide the
+work: the guard is a cheap per-request pre-flight in compressed LIST units, fail-closed `400` with narrowing advice
+("this query is intrinsically too wide — narrow it"); the budget is runtime admission control in materialized
+units ("the process cannot afford this right now — wait or narrow").
+
+**Units of charge.** The budget counts bytes the readers are about to materialize, never `runtime.MemStats`:
+
+- **Cold list scan and the point fetch's PK scan** read in batches of a light projection. A batch of K rows is
+  charged from the footer before decoding: `perRow = max(Σ uncompressed size of the projected columns / rows,
+  sizeof(row struct) + container overhead)`, `K = clamp(target batch bytes / perRow, min, max)` (fat rows shrink
+  the batch instead of inflating its charge), times a safety factor. The struct floor matters: dictionary-encoded
+  short strings make the uncompressed size tiny while the reader still builds one Go struct per row. After the
+  read, the charge is reconciled to the actual per-row accounting footprint — up (a `Grow`, counted by
+  `profiler_query_read_budget_batch_overruns_total`) or down.
+- **The point fetch's surgical phase** (below) charges one parquet page per heavy column: priced from the offset
+  index and the chunk metadata before it is decoded, dictionary page included, reconciled to the decoded page's
+  size after. A page is indivisible — `SeekToRow` decodes the whole page holding the target row — so one page, not
+  one file, is what must fit the budget.
+- **Hot fan-out bodies** (`/internal/v1/calls` pages, trace blobs) are charged by `Content-Length` before the read;
+  a chunked body reserves fixed-size steps BEFORE each read, under hard caps that reject a runaway response
+  outright (a declared length past the cap is refused on the headers alone).
+
+Retained state is owned by one request-scoped **page lease** (or point lease for `/trace` and `/tree`): survivors
+of each batch are deep-copied, their exact footprint moves into the request lease, and the temporary batch or page
+charge is released. The retained accumulator is capped by the incremental merge at the page limit, so a request
+holds one batch or page in flight plus its capped page — never a whole file, never a whole scan.
+
+**Two-phase point fetch.** `/trace` and `/tree` never materialize a candidate file: phase 1 streams a PK-only
+projection through the charged batch reader (blob columns are not read at all) and remembers the match as
+(row group, row offset); phase 2 seeks each needed heavy column to that position and decodes exactly one charged
+page per column. The scan phases open the file without the page index; the surgical phase opens it with the index —
+that is what lets it price and locate the page before decoding. An object deleted between the phases answers
+not-found, the same semantics as a delete after the LIST (§5.1). Point-fetch memory is therefore independent of
+file size: a compacted object far larger than the whole budget still serves, page by page.
+
+**Queueing.** Admissions (`Acquire`) form a strict FIFO: a wide request is not starved by a stream of small ones.
+Resizes (`Grow`) of already-held leases bypass the FIFO and are served with priority over the admission head —
+a grower blocks everyone behind its held capacity, so finishing it drains fastest. The fairness guarantee covers
+admissions only: a burst of grows can delay new acquires. Two grows (or a grow and a queued acquire) can mutually
+block on an exhausted budget; the bounded wait (`PROFILER_READ_BUDGET_WAIT`) resolves that as a denial for the
+loser rather than a deadlock, at the accepted cost of an occasional `503` while the budget is formally sufficient.
+
+**Denial semantics: one atomic `503`.** Any budget denial inside `/calls`, `/trace`, or `/tree` fails the whole
+request with `503` and a `Retry-After` header; rows already gathered are discarded and the client's cursor does not
+move, so retrying the same page with the same cursor later is legal and cheap. A partial page was rejected
+deliberately: a page emitted after unread files would advance the cursor past rows the denied sources never
+produced — silently and irreversibly, since §2.3.1 keeps no per-source state — and `next_cursor = null` would fake
+the §2.3.1 termination signal. The `partial` vocabulary stays reserved for source *failures* (§7.4), not for load
+shedding. The problem body uses the guard's dialect — `suggested_filters`, and `estimated_files` /
+`estimated_bytes` / `by_class` when discovery already ran — because narrowing genuinely shrinks the request's
+appetite. Two denial reasons are distinguished in the detail and in
+`profiler_query_read_budget_denials_total{reason}`: `exhausted` (transient contention; retry as advised) and
+`never_fits` (structural: a single charge exceeds the whole budget — the budget is undersized for the data, not
+the process overloaded).
+
+**What the model honestly is.** For the light projections the budget is a hard bound to within one batch. For
+blob-bearing pages and for the decoded-row reconcile it is a calibrated estimate trued up after materialization: a
+skewed page or a dictionary-expanded batch can transiently exceed its pre-charge, which the reconcile then records
+(`batch_overruns_total`). Outside the ledger entirely: the pods manifests and dictionaries (small JSON), the JSON
+encoding of the response, the parquet reader's transient decompression buffers, and the `calltree` build peak
+(proportional to a blob the ledger does hold). The budget is therefore not an absolute RSS ceiling; the sizing
+rule below carries a factor for exactly these gaps, and the overrun counter shows when the estimates drift. A
+write-time cap on blob and JSON column values would turn the page estimates into hard bounds; that is a
+write-contract follow-up, not part of this mechanism.
+
+**Sizing.** `budget ≤ (pod memory limit − baseline RSS) / overhead factor`, with the overhead factor ≈ 2 covering
+the out-of-ledger items above. The default (512 MB) fits the default 2 Gi query pod with a ~256 MiB baseline.
+Structural fit is bounded by the write side: sealed files split at `PROFILER_PARQUET_MAX_SIZE` (64 MB compressed,
+`01-write-contract.md` §9) and compacted objects at `PROFILER_COMPACTION_MAX_BYTES` (256 MiB compressed), and only
+single batches and single pages of them must fit — so `never_fits` at the default budget indicates a
+misconfiguration, not expected operation.
 
 ## 8. Error responses
 
@@ -551,6 +646,7 @@ RFC 7807 Problem Details for actual errors (parameter validation, internal, down
 | 400 | `/pods` window over `PROFILER_MAX_PODS_RANGE` (§2.7). |
 | 404 | PK not found, or `trace_blob = NULL` (blob endpoint). |
 | 503 | `query` itself is not Ready (e.g., DNS discovery uninitialized). |
+| 503 | Read memory budget denied the request (§7.5) — atomic, with `Retry-After`; the body carries the guard-dialect members below and a detail naming the reason (`exhausted` vs `never_fits`). |
 | 504 | Every *attempted* source failed and none succeeded (`succeeded == 0 && failed > 0`). A source legitimately skipped — cold below the cutoff, or a replica whose hot window misses the range — counts as neither, so a hot-only query still answers with S3 down, and a cold-only query still answers with every replica unreachable. |
 
 Partial results (some sources failed but some succeeded) are NOT errors — `partial: true` in the body. See §7.4.
@@ -561,7 +657,9 @@ The two wide-query rejections (§2.3.2) extend the Problem Details body so a cli
 - `estimated_files` / `estimated_bytes` — the scan the query would have cost (cost layer only);
 - `by_class` — `estimated_bytes` split by `retention_class`, so the UI can point at the dominant class.
 
-The span-layer rejection omits the estimate members — it fires before the LIST. Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`).
+The span-layer rejection omits the estimate members — it fires before the LIST. The §7.5 budget rejection reuses
+the same members (minus the estimate when it fires before discovery), so one client affordance renders both.
+Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`).
 
 ## 9. Configuration
 
@@ -584,7 +682,9 @@ The span-layer rejection omits the estimate members — it fires before the LIST
 | `PROFILER_WIDE_RANGE_LIMIT` | `6h` | Span above which `/calls` requires a narrowing filter (§2.3.2). |
 | `PROFILER_MAX_PODS_RANGE` | `8784h` (366 d) | Span above which `/pods` is rejected with `400`; `/pods` lists one S3 prefix per UTC day and has no narrowing filter (§2.7). |
 | `PROFILER_MAX_SCAN_FILES` | `10000` | Candidate-object ceiling for a `/calls` scan; over it, `400` (§2.3.2). |
-| `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling for a `/calls` scan; over it, `400` (§2.3.2). |
+| `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling for a `/calls` scan; over it, `400`. Counts compressed object bytes, per request; size it for the widest single query the deployment allows — the pod is sized from the §7.5 budget, not from this guard. |
+| `PROFILER_READ_MEMORY_BUDGET` | `512MB` | Process-wide read memory budget (§7.5): every reader charges materialized bytes against it. Size ≤ (pod limit − baseline) / overhead factor (≈2). |
+| `PROFILER_READ_BUDGET_WAIT` | `5s` | Bounded queue wait on a budget charge (§7.5); past it the request answers `503` + `Retry-After`. A negative value is rejected at startup. |
 | `PROFILER_EXTERNAL_API_PORT` | `8080` | Bind for `/api/v1/*`. |
 | `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Same as in `01-write-contract.md` §9. |
 

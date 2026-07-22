@@ -82,6 +82,8 @@ The agent tracks one pending ack per `RCV_DATA` it sends (`pendingAcks++` in `at
 
 **Failure mode if the ack is missing.** If the collector reads `RCV_DATA` but never writes the byte, the agent's `pendingAcks` grows without bound; the 5 s flush then blocks in `validateAckSync` until the 30 s socket timeout fires, throws, and reconnects — a silent throughput collapse that looks like a network fault. The synthetic test (§9) exists to catch exactly this.
 
+**Latency sensitivity: the protocol assumes co-location.** The agent writes through ~8 KB socket buffers and, on every 5 s flush, drains all pending acks synchronously per stream, so end-to-end throughput degrades roughly with 1/RTT rather than with available bandwidth. The load campaign measured a ~40× ingest collapse (~440 KB/s → ~11 KB/s on the measuring stand) at 2 s of injected path latency, with zero reconnects — the 40 s read deadline holds and sessions starve instead of failing (`load-testing-report.md` §9, `runs/20260717T235336Z-t7-agent-net`). A WAN-grade agent link is therefore effectively unusable; agents and collectors must share a low-RTT network. Windowing or pipelining the acks would lift the ceiling but changes both sides of the wire contract — deferred (`deferred.md`).
+
 ## 6. Error handling and connection teardown
 
 The collector signals an unrecoverable condition with `ACK_ERROR_MAGIC` = `-1` and then closes the socket. The agent treats `ACK_ERROR_MAGIC` as "collector cannot accept data, rotation requested", throws, and reconnects from a clean state (`validateAckSync`, `DefaultCollectorClient.java:424-426`; reconnect resets the dictionary, `01-write-contract.md` §3.7). Cases:
@@ -116,7 +118,7 @@ The MVP targets the default (off). Cross-reference: `01-write-contract.md` §1 a
 The live server (`backend/libs/server/`) was a skeleton that predated this contract and diverged from §2–§6 in five ways. All five are now fixed; the list is the conformance record and the regression surface for §9.
 
 1. **Handshake version** — was `ProtocolVersion = 10`, which a real agent rejects, dropping the socket (§3). Now `ProtocolVersion = PROTOCOL_VERSION_V2` (`libs/server/common.go`), with the version and ack constants defined once in `libs/protocol/versions.go`.
-2. **`RCV_DATA` ack** — the ack write was commented out, so a real agent's flush cycle stalled into a reconnect (§5). `CommandRcvData` now writes one `ACK_OK` byte per payload, and `REQUEST_ACK_FLUSH` writes one `ACK_OK` and forces the flush that drains them.
+2. **`RCV_DATA` ack** — the ack write was commented out, so a real agent's flush cycle stalled into a reconnect (§5). `CommandRcvData` now writes one `ACK_OK` byte per payload, and `REQUEST_ACK_FLUSH` writes one `ACK_OK` and forces the flush that drains them. The buffered acks were still flushed only on a command event (a `REQUEST_ACK_FLUSH`, an `INIT_STREAM_V2` reply, an error ack, or a full write buffer), so a mid-cycle stream rotation deadlocked: the agent drains every pending ack before it sends `INIT_STREAM_V2`, and those acks sat unflushed until its 30 s read timeout fired and it reconnected with a full dictionary resend. A per-connection goroutine (`periodicFlush`) now flushes any buffered ack every `FlushCheckInterval` = 500 ms, independent of the next command, so the cadence in §5 holds under sustained load.
 3. **`INIT_STREAM_V2` reply** — the four fields were all zero. The server now assigns a fresh non-nil `RandomUuid` handle, echoes the requested rolling sequence, and returns `RotationPeriod` / `RequiredRotationSize` from `ConnectionOpts` (defaulting to 4 MB) (§4).
 4. **Unknown stream** — `CommandInitStream` now validates `streamType` with `model.IsKnownStream` and replies a null UUID before tearing the connection down (§6).
 5. **Unknown command** — the default branch now writes `ACK_ERROR_MAGIC` before erroring, so the agent reconnects instead of stalling; `COMMAND_CLOSE` ends the loop and the handler closes the socket on exit (§6).
@@ -130,8 +132,9 @@ Validation is a synthetic integration test, not golden output (`profiler-plan.md
 
 1. **Handshake version.** `InitializeConnection` offers `PROTOCOL_VERSION_V3`; the test asserts `ServerVersion()` is `PROTOCOL_VERSION_V2` (§3).
 2. **Flush cycle without reconnect.** `INIT_STREAM_V2` → several `RCV_DATA` → flush → `WaitForAcks` drains every ack with no `ACK_ERROR_MAGIC` and no timeout (§5). This is the regression guard for the §8.2 ack bug.
-3. **Unknown stream refused.** `INIT_STREAM_V2` with a bogus stream name yields no valid handle and tears the connection down (§6).
-4. **Legacy `gc` stream accepted.** `INIT_STREAM_V2` for `gc` yields a valid handle, and `RCV_DATA` + flush on it drains cleanly with no `ACK_ERROR_MAGIC` (§4, §8.6).
+3. **Buffered ack flushes on the periodic cadence.** `INIT_STREAM_V2` → one `RCV_DATA`, then a synchronous ack drain that never sends a `REQUEST_ACK_FLUSH`. The ack must arrive well under the client read timeout, proving the collector flushes buffered acks on its own 500 ms cadence rather than only on a command (§5, §8.2).
+4. **Unknown stream refused.** `INIT_STREAM_V2` with a bogus stream name yields no valid handle and tears the connection down (§6).
+5. **Legacy `gc` stream accepted.** `INIT_STREAM_V2` for `gc` yields a valid handle, and `RCV_DATA` + flush on it drains cleanly with no `ACK_ERROR_MAGIC` (§4, §8.6).
 
 Stronger checks left open: driving the real `Dumper` instead of the emulator, and asserting the dictionary decodes as `[len][string]` on the `dictionary` stream (the observable proof of the `V2` reply).
 
