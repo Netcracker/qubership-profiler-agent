@@ -175,8 +175,18 @@ func TestHotStoreIngest(t *testing.T) {
 }
 
 func startCollector(t *testing.T, ctx context.Context, dataDir string) *collector.Service {
+	return startCollectorCfg(t, ctx, dataDir, nil)
+}
+
+// startCollectorCfg starts a collector with store-config overrides applied by
+// mutate (nil keeps the defaults).
+func startCollectorCfg(t *testing.T, ctx context.Context, dataDir string, mutate func(*hotstore.Config)) *collector.Service {
+	cfg := hotstore.Config{DataDir: dataDir}
+	if mutate != nil {
+		mutate(&cfg)
+	}
 	svc, err := collector.New(ctx, collector.Options{
-		Store: hotstore.Config{DataDir: dataDir},
+		Store: cfg,
 		Server: server.ConnectionOpts{
 			ProtocolPort: hotstorePort,
 			Timeout: io2.TcpTimeout{

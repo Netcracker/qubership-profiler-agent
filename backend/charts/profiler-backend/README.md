@@ -95,6 +95,7 @@ Series names are stable — dashboards and the shipped alerts reference them; re
 | `profiler_janitor_parquet_deleted_total` | counter | Aged local parquet deleted past hot retention. |
 | `profiler_janitor_partitions_dropped_total` | counter | Call-index partitions dropped from the hot tier. |
 | `profiler_janitor_wals_purged_total` | counter | Pod-restarts whose WALs were purged. |
+| `profiler_janitor_wals_fast_purged_total` | counter | The `wals_purged_total` subset purged by the near-empty fast path (03 §3.9 step 18a). |
 | `profiler_janitor_segments_evicted_total` | counter | Segments evicted under the disk budget. |
 | `profiler_janitor_evicted_bytes_total` | counter | Bytes freed by evictions. |
 | `profiler_hotstore_segments_disk_bytes` | gauge | Segment bytes on disk (measured each janitor pass). |

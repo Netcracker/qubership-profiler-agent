@@ -70,6 +70,18 @@ type Config struct {
 	// WAL files are deleted (§3.5, 03 §3.9 step 18). The env name is an
 	// implementation choice.
 	WalPurgeGrace time.Duration
+	// WalPurgeFastMaxBytes is the near-empty floor of the fast-path WAL purge
+	// (03 §3.9): a closed pod-restart whose on-disk directory (WALs + segments)
+	// is at or under it purges after the grace WITHOUT waiting for its
+	// call-index partition drop. 0 disables the fast path — the zero value is
+	// meaningful, so Normalize leaves this field alone; the 16 MiB production
+	// default lives in the collect wiring (PROFILER_WAL_PURGE_FAST_MAX_BYTES).
+	// 16 MiB covers a full dictionary resend of a large app (tens of thousands
+	// of signatures at ~100 B each) plus seconds of trace, while a pod-restart
+	// with real traffic history grows past it within its first minutes and
+	// keeps the regular path; the floor also caps the read-side cost, since
+	// only restarts under it trade hot trace reads for the cold fallback.
+	WalPurgeFastMaxBytes int64
 	// JanitorCheckInterval paces JanitorPass (hot retention, WAL purge, disk
 	// budget). Zero disables the loop, mirroring SealCheckInterval: the collect
 	// wiring enables it; tests drive JanitorPass explicitly.

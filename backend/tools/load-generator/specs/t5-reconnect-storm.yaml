@@ -107,6 +107,10 @@ context:
   inram-bytes: sum(profiler_hotstore_inram_bytes{namespace="profiler-load"})
   wal-bytes: sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
   wals-purged: sum(rate(profiler_janitor_wals_purged_total{namespace="profiler-load"}[5m]))
+  # Share of purges taking the near-empty fast path (03 §3.9 step 18a): under
+  # churn this should track wals-purged closely, which is the rollout check for
+  # the PROFILER_WAL_PURGE_FAST_MAX_BYTES default.
+  wals-fast-purged: sum(rate(profiler_janitor_wals_fast_purged_total{namespace="profiler-load"}[5m]))
   collector-goroutines: sum(go_goroutines{namespace="profiler-load", pod=~".*collector.*"})
   collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
   session-ready-p95: max(k6_vdumper_session_ready_time_p95{testid="CHANGE-ME"})

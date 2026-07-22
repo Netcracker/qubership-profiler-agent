@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS call_index (
   calls_wal_offset INTEGER NOT NULL,
   blob_size        INTEGER,
   truncated_reason TEXT,
+  method_text      TEXT,
   PRIMARY KEY (pod_restart, trace_file_index, buffer_offset, record_index)
 );
 CREATE INDEX IF NOT EXISTS call_index_ts_ms ON call_index (ts_ms);
@@ -152,6 +153,12 @@ type (
 		NetWritten     int64
 		ParamsJson     string
 		CallsWalOffset int64
+		// MethodText is the resolved method name the fast-path WAL purge
+		// materializes into the row before the pod-restart's dictionary WAL is
+		// deleted (janitor.go purgeWals); empty until then. The hot read path
+		// prefers it over a DictWord lookup, so /calls keeps rendering names for
+		// a fast-purged pod-restart whose in-RAM state is gone.
+		MethodText string
 	}
 
 	// SegmentRow mirrors one segments-catalog row.
@@ -907,6 +914,11 @@ func (m *metaDb) openPartition(bucket int64) (*gorm.DB, error) {
 			return nil, errors.Wrapf(err, "migrate partition %s: %s", path, alter)
 		}
 	}
+	// method_text is nullable TEXT, so it cannot ride the INTEGER loop above.
+	if err := db.Exec("ALTER TABLE call_index ADD COLUMN method_text TEXT").Error; err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		return nil, errors.Wrapf(err, "migrate partition %s: add method_text", path)
+	}
 	if err := m.meta.Exec(`INSERT OR IGNORE INTO call_partitions (bucket, path, created_at)
 		VALUES (?, ?, ?)`, bucket, path, time.Now().UnixMilli()).Error; err != nil {
 		return nil, errors.Wrap(err, "record partition")
@@ -1030,7 +1042,7 @@ func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64,
 		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
 		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
 		transactions, logs_generated, logs_written, file_read, file_written,
-		net_read, net_written, params_json, calls_wal_offset
+		net_read, net_written, params_json, calls_wal_offset, method_text
 		FROM call_index WHERE ` + where + `
 		AND ts_ms >= COALESCE((SELECT MIN(ts_ms) FROM (
 			SELECT ts_ms FROM call_index WHERE ` + where + ` ORDER BY ts_ms DESC LIMIT ?)), ?)
@@ -1055,7 +1067,7 @@ func (m *metaDb) FindCall(bucket int64, podRestart string, traceFileIndex, buffe
 			ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
 			cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
 			transactions, logs_generated, logs_written, file_read, file_written,
-			net_read, net_written, params_json, calls_wal_offset
+			net_read, net_written, params_json, calls_wal_offset, method_text
 			FROM call_index WHERE pod_restart = ? AND trace_file_index = ? AND buffer_offset = ? AND record_index = ?`,
 			podRestart, traceFileIndex, bufferOffset, recordIndex).Scan(&rows).Error
 	})
@@ -1100,7 +1112,8 @@ func (m *metaDb) Calls(bucket int64) ([]CallIndexRow, error) {
 	err := m.withPartition(bucket, func(db *gorm.DB) error {
 		return db.Raw(`SELECT pod_restart, trace_file_index, buffer_offset, record_index,
 			ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-			cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset
+			cpu_time_ms, wait_time_ms, memory_used, child_calls, params_json, calls_wal_offset,
+			method_text
 			FROM call_index ORDER BY ts_ms, pod_restart`).Scan(&rows).Error
 	})
 	return rows, err
@@ -1171,6 +1184,50 @@ func (m *metaDb) WalPurgeCandidates() ([]WalPurgeCandidate, error) {
 		WHERE closed_at IS NOT NULL AND wals_purged_at IS NULL
 		ORDER BY pod_restart`).Scan(&rows).Error
 	return rows, err
+}
+
+// BackfillMethodText materializes resolved method names into the pod-restart's
+// call_index rows before the fast-path WAL purge deletes the dictionary they
+// resolve against. Only NULL rows are touched, so a crashed purge re-runs as a
+// no-op even after the dictionary is gone. Returns how many rows still lack a
+// name (an id the resolver missed); the caller degrades those to the "#<id>"
+// placeholder the read path already renders for an unknown word.
+func (m *metaDb) BackfillMethodText(podRestart string, resolve func(id int) (string, bool)) (unresolved int64, err error) {
+	buckets, err := m.Buckets()
+	if err != nil {
+		return 0, err
+	}
+	for _, bucket := range buckets {
+		if err := m.withPartition(bucket, func(db *gorm.DB) error {
+			var ids []int
+			if err := db.Raw(`SELECT DISTINCT method_id FROM call_index
+				WHERE pod_restart = ? AND method_text IS NULL`, podRestart).Scan(&ids).Error; err != nil {
+				return err
+			}
+			for _, id := range ids {
+				word, ok := resolve(id)
+				if !ok {
+					var n int64
+					if err := db.Raw(`SELECT COUNT(*) FROM call_index
+						WHERE pod_restart = ? AND method_id = ? AND method_text IS NULL`,
+						podRestart, id).Scan(&n).Error; err != nil {
+						return err
+					}
+					unresolved += n
+					continue
+				}
+				if err := db.Exec(`UPDATE call_index SET method_text = ?
+					WHERE pod_restart = ? AND method_id = ? AND method_text IS NULL`,
+					word, podRestart, id).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return unresolved, errors.Wrapf(err, "backfill method_text of %s in bucket %d", podRestart, bucket)
+		}
+	}
+	return unresolved, nil
 }
 
 // HasPendingParquet reports whether any of the pod-restart's sealed files is

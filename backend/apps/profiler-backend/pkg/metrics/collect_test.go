@@ -74,6 +74,8 @@ func TestRegisterCollectSeries(t *testing.T) {
 		// and the janitor orphan sweep.
 		"profiler_hotstore_wal_disk_bytes",
 		"profiler_janitor_orphan_parquet_removed_total",
+		// The near-empty fast-path purge (03 §3.9 step 18a).
+		"profiler_janitor_wals_fast_purged_total",
 	} {
 		assert.True(t, names[want], "missing series %s", want)
 	}
