@@ -25,14 +25,11 @@ type (
 		// ends; the pod-restart is closed and never resumes (01 §3.7).
 		PodDisconnected(ctx context.Context, pod *ConnectedPod)
 
-		SentCommand(ctx context.Context, c model.Command)
 		ReceivedCommand(ctx context.Context, c model.Command, latency time.Duration, err error)
 
 		Read(ctx context.Context, bytes int, latency time.Duration, err error)
 		Write(ctx context.Context, bytes int, latency time.Duration, err error)
-		IsAlive(ctx context.Context) (bool, error)
 
-		Error(err error)
 		PrintDebug(ctx context.Context)
 		Close(ctx context.Context)
 	}

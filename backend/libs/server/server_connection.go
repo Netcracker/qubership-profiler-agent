@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,7 +38,14 @@ type (
 
 		socketReader *io.TcpReader
 		socketWriter *io.TcpWriter
-		pendingAcks  int
+
+		// writeMu serializes every socketWriter access. The read loop and the
+		// periodic ack flusher (periodicFlush) run in separate goroutines, and the
+		// underlying bufio.Writer is not safe for concurrent use.
+		writeMu sync.Mutex
+		// ackBuffered marks that at least one RCV_DATA ack byte sits unflushed in
+		// the write buffer, awaiting the periodic flush. Guarded by writeMu.
+		ackBuffered bool
 
 		pod       *ConnectedPod
 		listener  Listener
@@ -71,6 +79,14 @@ func (sc *ConnectionHandler) Handle() {
 	log.Debug(sc.ctx, " Got connection from %v ", sc.conn.RemoteAddr())
 	sc.socketReader = io.PrepareTcpReader(sc)
 	sc.socketWriter = io.PrepareTcpWriter(sc)
+
+	// The read loop below blocks on the next command, so RCV_DATA acks written
+	// buffered would sit in the write buffer until the next flushing command. The
+	// agent drains all pending acks before every stream rotation (06 §5), so
+	// flush them on a fixed cadence instead of waiting for a command to do it.
+	stopFlusher := make(chan struct{})
+	go sc.periodicFlush(stopFlusher)
+	defer close(stopFlusher)
 
 	for {
 		err := sc.HandleCommand(sc.ctx)
@@ -181,13 +197,13 @@ func (sc *ConnectionHandler) CommandGetProtocolVersion(ctx context.Context) (err
 		return
 	}
 
-	// resp
+	// resp — hold writeMu so the periodic flusher never races the bufio writer.
+	sc.writeMu.Lock()
 	err = sc.socketWriter.WriteFixedLong(ctx, ProtocolVersion)
-	if err != nil {
-		return
+	if err == nil {
+		err = sc.flushWriterLocked() // flush
 	}
-	// flush
-	err = sc.socketWriter.Flush()
+	sc.writeMu.Unlock()
 	if err != nil {
 		return
 	}
@@ -239,8 +255,7 @@ func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) 
 	// An unknown stream gets a null handle and a teardown; the agent reads the
 	// null UUID, throws, and reconnects (06 §4, §6).
 	if !model.IsKnownStream(streamType) {
-		_ = sc.socketWriter.WriteUuid(ctx, common.Uuid{})
-		_ = sc.socketWriter.Flush()
+		sc.replyNullHandle(ctx)
 		return fmt.Errorf("unknown stream %q from %v", streamType, sc.pod)
 	}
 
@@ -251,8 +266,7 @@ func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) 
 	// The rolling sequence echoes the agent's request; a reset restarts from it.
 	handleId, err := common.RandomUuidChecked()
 	if err != nil {
-		_ = sc.socketWriter.WriteUuid(ctx, common.Uuid{})
-		_ = sc.socketWriter.Flush()
+		sc.replyNullHandle(ctx)
 		return errors.Wrap(err, "generate stream handle")
 	}
 	rotationPeriod := sc.opts.RotationPeriod
@@ -267,8 +281,7 @@ func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) 
 			requestedRollingSequenceId, rollingSequenceId, rotationPeriod, requiredRotationSize); err != nil {
 			// A failing INIT_STREAM_V2 handler answers like an unknown stream:
 			// null handle, then teardown (06 §6).
-			_ = sc.socketWriter.WriteUuid(ctx, common.Uuid{})
-			_ = sc.socketWriter.Flush()
+			sc.replyNullHandle(ctx)
 			return errors.Wrapf(err, "register stream %q", streamType)
 		}
 	}
@@ -277,7 +290,9 @@ func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) 
 	log.Debug(sc.ctx, "INIT_STREAM_V2 for %v: resp => handleId=%v, rotation (period: %v, size: %v), seqId=%v ",
 		streamType, handleId, rotationPeriod, requiredRotationSize, rollingSequenceId)
 
-	// resp
+	// resp — hold writeMu so the periodic flusher never races the bufio writer.
+	sc.writeMu.Lock()
+	defer sc.writeMu.Unlock()
 	if err = sc.socketWriter.WriteUuid(ctx, handleId); err != nil {
 		return
 	}
@@ -291,7 +306,7 @@ func (sc *ConnectionHandler) CommandInitStream(ctx context.Context) (err error) 
 		return
 	}
 	// flush
-	return sc.socketWriter.Flush()
+	return sc.flushWriterLocked()
 }
 
 func (sc *ConnectionHandler) CommandRcvData(ctx context.Context) (err error) {
@@ -338,83 +353,70 @@ func (sc *ConnectionHandler) CommandAckFlush(ctx context.Context) (err error) {
 
 // writeAck writes a single acknowledgement byte to the agent, optionally
 // flushing. value is either ACK_OK (the diagnostic-command count, always 0 in
-// the MVP) or ACK_ERROR_MAGIC to force a reconnect (06 §5, §6).
+// the MVP) or ACK_ERROR_MAGIC to force a reconnect (06 §5, §6). A buffered ack
+// (flush = false) is drained by periodicFlush within FlushCheckInterval.
 func (sc *ConnectionHandler) writeAck(ctx context.Context, value byte, flush bool) error {
+	sc.writeMu.Lock()
+	defer sc.writeMu.Unlock()
 	if err := sc.socketWriter.WriteFixedByte(ctx, value); err != nil {
 		return err
 	}
 	if flush {
-		return sc.socketWriter.Flush()
+		return sc.flushWriterLocked()
 	}
+	sc.ackBuffered = true
 	return nil
 }
 
-func (sc *ConnectionHandler) CommandRequestFlush(ctx context.Context) (err error) {
-	return sc.sendOperation(ctx, model.COMMAND_REQUEST_ACK_FLUSH, true, func(sc *ConnectionHandler) error {
-		// flush
-		sc.pendingAcks += 1
-		err = sc.socketWriter.Flush()
-		if err != nil {
-			return err
-		}
-		return err
-	})
-}
-func (sc *ConnectionHandler) CommandClose(ctx context.Context) (err error) {
-	return sc.sendOperation(ctx, model.COMMAND_CLOSE, true, func(sc *ConnectionHandler) error {
-		// flush
-		err = sc.socketWriter.Flush()
-		if err != nil {
-			return err
-		}
-		return err
-	})
+// flushWriterLocked flushes the socket write buffer and clears the pending-ack
+// marker, so the next periodic tick has nothing left to drain. The caller must
+// hold writeMu.
+func (sc *ConnectionHandler) flushWriterLocked() error {
+	sc.ackBuffered = false
+	return sc.socketWriter.Flush()
 }
 
-func (sc *ConnectionHandler) WaitForAcks() (err error) {
-	return sc.waitForAcks() // for run.go
+// replyNullHandle answers INIT_STREAM_V2 with the null UUID and flushes — the
+// teardown the agent reads before it throws and reconnects (06 §4, §6). Errors
+// are ignored: the connection is being torn down regardless.
+func (sc *ConnectionHandler) replyNullHandle(ctx context.Context) {
+	sc.writeMu.Lock()
+	defer sc.writeMu.Unlock()
+	_ = sc.socketWriter.WriteUuid(ctx, common.Uuid{})
+	_ = sc.flushWriterLocked()
 }
 
-func (sc *ConnectionHandler) waitForAcks() (err error) {
-	for sc.pendingAcks > 0 {
-		byt, err := sc.socketReader.ReadFixedByte(sc.ctx)
-		if sc.check(err) != nil {
-			return errors.Wrap(err, "could not get ack of RC data")
+// periodicFlush drains buffered RCV_DATA acks on a fixed cadence so the agent's
+// pre-rotation ack drain never blocks on an ack the collector has written but
+// not yet flushed (06 §5). It runs for the lifetime of the connection and exits
+// when Handle closes stop. A flush error means the write side is already gone;
+// the read loop observes the same failure and tears the connection down, so the
+// flusher just stops.
+func (sc *ConnectionHandler) periodicFlush(stop <-chan struct{}) {
+	ticker := time.NewTicker(FlushCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			if err := sc.flushPendingAcks(); err != nil {
+				log.Debug(sc.ctx, "periodic ack flush stopped: %v", err)
+				return
+			}
 		}
-		if byt != 0x00 {
-			return errors.New("invalid acknowledgement for RCV data")
-		}
-		sc.pendingAcks--
 	}
-	return nil
 }
 
-func (sc *ConnectionHandler) sendOperation(ctx context.Context,
-	c model.Command, flush bool, worker func(sc *ConnectionHandler) error) (err error) {
-
-	if alive, err := sc.isAlive(); !alive {
-		return err
+// flushPendingAcks flushes the write buffer when an RCV_DATA ack is buffered,
+// and is a no-op otherwise so an idle connection never touches the socket.
+func (sc *ConnectionHandler) flushPendingAcks() error {
+	sc.writeMu.Lock()
+	defer sc.writeMu.Unlock()
+	if !sc.ackBuffered {
+		return nil
 	}
-	defer func() {
-		if sc.listener != nil {
-			sc.listener.SentCommand(ctx, c)
-		}
-	}()
-
-	err = sc.socketWriter.WriteFixedByte(sc.ctx, byte(c))
-	if err != nil {
-		return err
-	}
-	err = worker(sc)
-	if err != nil {
-		return err
-	}
-	// flush
-	if flush {
-		err = sc.socketWriter.Flush()
-		//sc.check(err)
-	}
-	return err
+	return sc.flushWriterLocked()
 }
 
 // Read wrapper around tcp connection (add metrics, etc.)
@@ -457,29 +459,6 @@ func (sc *ConnectionHandler) Close() (err error) {
 	}
 	if sc.cancel != nil {
 		sc.cancel()
-	}
-	return err
-}
-
-func (sc *ConnectionHandler) isAlive() (bool, error) {
-	if sc == nil || sc.conn == nil {
-		return false, sc.check(ErrNotConnected)
-	}
-	if sc.ctx.Err() != nil {
-		return false, nil
-	}
-	if sc.listener != nil {
-		return sc.listener.IsAlive(sc.ctx)
-	}
-	return true, nil
-}
-
-func (sc *ConnectionHandler) check(err error) error {
-	if sc == nil || sc.conn == nil {
-		return ErrNotConnected
-	}
-	if sc.listener != nil {
-		sc.listener.Error(err)
 	}
 	return err
 }

@@ -24,12 +24,9 @@ func (stubListener) RegisterStream(context.Context, *ConnectedPod, common.Uuid, 
 	return nil
 }
 func (stubListener) PodDisconnected(context.Context, *ConnectedPod)                       {}
-func (stubListener) SentCommand(context.Context, model.Command)                           {}
 func (stubListener) ReceivedCommand(context.Context, model.Command, time.Duration, error) {}
 func (stubListener) Read(context.Context, int, time.Duration, error)                      {}
 func (stubListener) Write(context.Context, int, time.Duration, error)                     {}
-func (stubListener) IsAlive(context.Context) (bool, error)                                { return true, nil }
-func (stubListener) Error(error)                                                          {}
 func (stubListener) PrintDebug(context.Context)                                           {}
 func (stubListener) Close(context.Context)                                                {}
 
