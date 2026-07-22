@@ -123,7 +123,7 @@ This step runs asynchronously; `READY` does not wait for it.
 ### 3.9 Purge WALs of fully uploaded pod-restarts
 
 17. Sealed rows carry their own dictionary subset and suspend pauses (`01-write-contract.md` §3.6, schema version 3), so no snapshot upload step exists any more.
-18. Delete a closed pod-restart's local WAL files once (a) every sealed parquet row is uploaded (steps 3.7+3.8 complete), (b) no `calls.wal` offset it owns is still indexed in any live partition, and (c) `PROFILER_WAL_PURGE_GRACE` (default 1 h) has elapsed past its `closed_at`. Gate (b) makes the purge strictly follow the call-index partition drop: purging earlier could strand hot rows whose dictionary WAL is already gone, and hot `/tree` would then render `#<id>` placeholders.
+18. Delete a closed pod-restart's local WAL files once (a) every sealed parquet row is uploaded (steps 3.7+3.8 complete), (b) no `calls.wal` offset it owns is still indexed in any live partition, and (c) `PROFILER_WAL_PURGE_GRACE` (default 1 h) has elapsed past its `closed_at`. Gate (b) is what a reconnect storm stresses: purges wait out the hot-index aging (hot retention + eviction cadence), not just the grace, and the load campaign measured the tracked-restart backlog growing unbounded as purge eligibility lagged (`load-testing-report.md` §8, `runs/20260717T133845Z-t5-reconnect-storm`; the near-empty fast-path in `load-testing-backlog.md` is the planned bound). Gate (b) makes the purge strictly follow the call-index partition drop: purging earlier could strand hot rows whose dictionary WAL is already gone, and hot `/tree` would then render `#<id>` placeholders.
 
 Steps 3.8 and 3.9 are background tasks; `READY` is reached after step 3.7 completes.
 
