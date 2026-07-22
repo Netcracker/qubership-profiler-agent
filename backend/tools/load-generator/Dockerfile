@@ -1,37 +1,39 @@
-FROM grafana/xk6:1.4.7@sha256:16a4044c63bbef291bd51c9213fdcfaee7342d0fac2c9bb9ec64eca23ac35377 as build
-COPY --chmod=0777 . /tmp/proj
+# Build context: backend/ (the Go module root)
+# Usage: docker buildx build --platform linux/arm64 --load \
+#            -t cdt-load-generator:dev -f tools/load-generator/Dockerfile .
+#
+# The k6 binary is linked by k6runner with a plain `go build` (no xk6 CLI):
+# the k6/x/cdt module and the go-prometheus-exporter live in this module, and
+# the traffic is fully synthetic — no captured dumps enter the image.
 
-RUN mkdir -p /tmp/project
-RUN cp -r /tmp/proj/* /tmp/project
+FROM golang:1.26.2-alpine3.22@sha256:7ef941168f213aa115df2e61364d67682129e99dc8188b734139dea862cc7d31 AS builder
 
-WORKDIR /tmp/project
+ARG TARGETOS=linux
+ARG TARGETARCH
 
-RUN xk6 build master \
-    --with github.com/Netcracker/qubership-profiler-backend/apps/load-generator=/tmp/project \
-    --with github.com/Netcracker/qubership-profiler-backend/apps/load-generator/go-metrics=/tmp/project/go-metrics
+WORKDIR /workspace
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY libs/ libs/
+COPY tools/load-generator/ tools/load-generator/
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-w -s" -o /workspace/k6 ./tools/load-generator/k6runner
 
 FROM alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS release
 
-COPY --from=build /tmp/project/k6      /xk6/k6
-COPY              scripts              /xk6/scripts
-COPY              ./data               /xk6/data
+COPY --from=builder /workspace/k6 /xk6/k6
+COPY tools/load-generator/scripts /xk6/scripts
+RUN chmod +x /xk6/k6 /xk6/scripts/start.sh
 
-ENV PODS=1
-ENV DURATION=1m
-ENV COLLECTOR_HOST=localhost
-ENV EMULATOR_NAMESPACE=kTestNamespace
-ENV EMULATOR_SERVICE_PREFIX=kTestService
-ENV EMULATOR_POD_PREFIX=kTestServicePod
+# 5656: the runner's own Go runtime metrics (go-prometheus-exporter).
+# 6565: the k6 REST API the run orchestrator drives.
+EXPOSE 5656
+EXPOSE 6565
 
 WORKDIR /xk6
-RUN chmod +x /xk6
-RUN chmod +x /xk6/k6
-RUN dos2unix /xk6/scripts/start.sh
-RUN chmod +x /xk6/scripts/start.sh
-
-EXPOSE      80
-EXPOSE      8080
-
 USER 10001
 
-ENTRYPOINT  [ "/xk6/scripts/start.sh" ]
+ENTRYPOINT ["/xk6/scripts/start.sh"]

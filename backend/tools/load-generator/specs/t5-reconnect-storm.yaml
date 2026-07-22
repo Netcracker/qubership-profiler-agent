@@ -1,0 +1,124 @@
+# T5.1 agent reconnect storm (load-testing-plan.md §7.5.1, runbook
+# doc/fault-runs.md): 40 pods in churn mode — every healthy incarnation
+# disconnects abruptly after ~45 s (CrashLoopBackOff of the profiled app) and
+# reconnects 10 s later under the same pod name. The storm is generator-side:
+# no faults block, no backend pod is touched, so the §8 checker runs WITHOUT
+# allowances — a backend failure under the storm is a real finding.
+#
+# What the run measures (report section T5): growth and plateau of tracked
+# pod-restarts (store_pods_size), collector RSS/in-RAM cost, WAL sets under
+# the accelerated 2 m WAL_PURGE_GRACE (the production 1 h grace scales the
+# plateau up ~30×; the report must say so), and small-file production in S3
+# (the checker's §8.5 log). The detectors below fire on UNBOUNDED growth —
+# a plateau is the expected pass.
+run:
+  name: t5-reconnect-storm
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # complete freeze; must equal k6.workload of the stand
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "2"           # a little data per incarnation: dictionary + a few calls
+  CALLS_PER_SEC: "3"
+  DICT_INITIAL: "2000"           # the full dictionary re-sent every cycle is the point
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "10s"            # spread the initial storm front
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "45s"          # ~40 reconnects/min across the fleet (jitter ±20%)
+
+ramp:
+  levels: [40]                   # one fixed level: a storm soak, not a ramp
+  confirm:
+    timeout: 5m
+    # No ingest check: churn drop-windows make the steady rate undefined by
+    # design; the fingerprint check still freezes every knob.
+  hold:
+    min: 1h15m                   # hold.min == hold.max: fixed-duration hold
+    max: 1h15m
+    sample: 15s
+    plateau:
+      window: 5m
+      slopeTolerance: 0.05
+      series:
+        pod-restarts: sum(profiler_store_pods_size{namespace="profiler-load"})
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+detectors:
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: ack-errors                 # churn cycles must NOT read as backpressure
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+  # Thresholds derived from the measured purge-cycle noise, not guessed: on
+  # the 2026-07-17 storm attempts both series settled into sawteeth with a
+  # ±11% amplitude around the mean (pods 196–247 around ~225, WAL 62–77 MB
+  # around ~69 MB), and a 0.10 trigger below that amplitude fired on window
+  # alignment alone. 0.25 sits above the cycle noise; a genuine drift (the
+  # attempts hinted at a ~+18%/30 min WAL crest creep) still fires over the
+  # 75 m hold if it is real.
+  - name: pod-restarts-growth        # §7.5.1: the tracked set must plateau under the purge grace
+    kind: monotonic-growth
+    minGrowth: 0.25
+    grace: 15m                       # the plateau needs a few purge cycles to form
+    minValue: 100
+    query: sum(profiler_store_pods_size{namespace="profiler-load"})
+  - name: wal-bytes-growth           # the WAL backlog must stay bounded too
+    kind: monotonic-growth
+    minGrowth: 0.25
+    grace: 15m
+    minValue: 67108864               # 64 MB floor: small sawteeth are not backlog
+    query: sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
+
+context:
+  churns: sum(rate(k6_vdumper_churns_total{testid="CHANGE-ME"}[1m]))
+  reconnects: sum(rate(k6_vdumper_reconnects_total{testid="CHANGE-ME"}[1m]))
+  active-connections: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  connects-rate: sum(rate(profiler_ingest_connects_total{namespace="profiler-load"}[1m]))
+  inram-bytes: sum(profiler_hotstore_inram_bytes{namespace="profiler-load"})
+  wal-bytes: sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
+  wals-purged: sum(rate(profiler_janitor_wals_purged_total{namespace="profiler-load"}[5m]))
+  collector-goroutines: sum(go_goroutines{namespace="profiler-load", pod=~".*collector.*"})
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+  session-ready-p95: max(k6_vdumper_session_ready_time_p95{testid="CHANGE-ME"})
+  s3-lists: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation_type="list"}[5m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]

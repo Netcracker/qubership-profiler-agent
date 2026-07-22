@@ -1,0 +1,105 @@
+# T3 connection-ceiling sweep (load-testing-plan.md §7.3): 1 collector
+# replica, fleets of idle pods (THREADS_PER_POD=0 — keep-alive flush cycles
+# only), ramped by whole fleets. The idle profile is NOT empty: every pod
+# still does the handshake, opens seven streams, and sends the initial
+# dictionary + params once, then ~keep-alive traffic; DICT_INITIAL is pinned
+# small so the setup cost stays a known constant per connection
+# (doc/ceiling-runs.md).
+#
+# This template carries local-stand smoke levels (10 fleets × 100 pods =
+# 1000 connections per step upward); the large cluster scales levels and the
+# generator guard.
+run:
+  name: t3-connections
+  testid: CHANGE-ME
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME
+  runner: CHANGE-ME
+helmValues: ./values-snapshot.yaml
+
+# No confirm.ingest: idle fleets carry no meaningful ingest; the fingerprint
+# check protects the knobs (doc/run-orchestration.md, "Workload wiring").
+workload:                        # complete freeze; must equal k6.workload of the stand
+  PODS_PER_VU: "100"
+  THREADS_PER_POD: "0"           # keep-alive-only pods; CALLS_PER_SEC is moot but still pinned
+  CALLS_PER_SEC: "5"
+  DICT_INITIAL: "100"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "10s"            # spread each fleet's 100 connects
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [10, 20, 30, 40, 50]   # VUs; ×100 pods = connections
+  confirm:
+    timeout: 5m
+    connectionsPerVU: 100        # wait for the collector-side gauge, not just VUs
+    connectionsQuery: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  hold:
+    min: 3m
+    max: 10m
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+        collector-goroutines: sum(go_goroutines{namespace="profiler-load", pod=~".*collector.*"})
+
+detectors:
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.05
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: session-ready-degraded   # accept-latency bite (§7.3)
+    kind: baseline-ratio
+    ratio: 5
+    query: max(k6_vdumper_session_ready_time_p95{testid="CHANGE-ME"})
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+  - name: reconnect-churn          # idle pods must hold, not cycle
+    kind: nonzero
+    query: sum(rate(k6_vdumper_reconnects_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  active-connections: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  pod-restarts: sum(profiler_store_pods_size{namespace="profiler-load"})
+  open-fds: max(process_open_fds{namespace="profiler-load", pod=~".*collector.*"})
+  mem-budget: max(profiler_hotstore_mem_budget_bytes{namespace="profiler-load"})
+  inram-bytes: sum(profiler_hotstore_inram_bytes{namespace="profiler-load"})
+  session-ready-avg: max(k6_vdumper_session_ready_time_avg{testid="CHANGE-ME"})
+  tcp-connect-p95: max(k6_vdumper_tcp_connect_time_p95{testid="CHANGE-ME"})
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0
+    maxShare: 0.7
+
+pprof:
+  points: [0.7, 1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]

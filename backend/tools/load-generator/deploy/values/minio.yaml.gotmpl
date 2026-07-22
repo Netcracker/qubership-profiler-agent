@@ -1,0 +1,34 @@
+# MinIO as the in-cluster S3 target (plan §5). Single node on a PV: the
+# backend's S3 traffic is the thing under test, MinIO itself only has to keep
+# up. Cold-read latency numbers carry the "MinIO understates real object
+# storage" caveat from the plan either way.
+
+mode: standalone
+replicas: 1
+
+rootUser: {{ .Values.minio.rootUser | quote }}
+rootPassword: {{ .Values.minio.rootPassword | quote }}
+
+persistence:
+  enabled: true
+  size: {{ .Values.minio.storageSize }}
+  {{- with .Values.minio.storageClassName }}
+  storageClass: {{ . }}
+  {{- end }}
+
+buckets:
+  - name: profiler-data
+    policy: none
+    purge: false
+
+# The stand scrapes MinIO for S3-side ops/latency (plan §6 "resources" row).
+# public: true makes the chart set MINIO_PROMETHEUS_AUTH_TYPE=public itself —
+# no bearer-token plumbing on a load stand.
+metrics:
+  serviceMonitor:
+    enabled: true
+    public: true
+    includeNode: false
+
+resources:
+  {{- toYaml .Values.minio.resources | nindent 2 }}

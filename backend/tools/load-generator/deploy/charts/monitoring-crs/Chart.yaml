@@ -1,0 +1,8 @@
+apiVersion: v2
+name: monitoring-crs
+description: >-
+  Monitoring CRs of the load-testing stand: GrafanaDashboard objects rendered
+  from backend/tools/load-generator/dashboards/*.json. The helmfile values
+  layer reads the JSON files; this chart only wraps them in CRs.
+type: application
+version: 0.1.0

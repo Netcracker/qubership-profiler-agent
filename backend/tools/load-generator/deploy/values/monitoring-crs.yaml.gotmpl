@@ -1,0 +1,10 @@
+# Reads every dashboard under backend/tools/load-generator/dashboards/ into
+# the monitoring-crs chart, keyed by file name. Adding a dashboard = adding a
+# .json file there; no chart change.
+dashboards:
+{{- range $path := readDir "../../dashboards" }}
+{{- if hasSuffix ".json" $path }}
+  {{ base $path | trimSuffix ".json" }}: |-
+{{ readFile $path | indent 4 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,101 @@
+# T2 throughput-ceiling sweep, bytes/s axis (load-testing-plan.md §7.2):
+# 1 collector replica, more pods at the default per-pod rate each step.
+# This template carries local-stand smoke levels — scale ramp.levels and
+# maxShare limits up for the large cluster, and replace the image digests
+# and the values snapshot per run (doc/run-orchestration.md).
+run:
+  name: t2-bytes
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+# No confirm.ingest here: a ramp-to-saturation sweep legitimately diverges
+# from level × bytesPerVU past the ceiling; the fingerprint check still
+# protects every knob (doc/run-orchestration.md, "Workload wiring").
+workload:                        # complete freeze; must equal k6.workload of the stand
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "5"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [5, 10, 20, 40, 80]
+  confirm:
+    timeout: 3m
+  hold:
+    min: 3m
+    max: 12m
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+detectors:
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.05
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: pending-parquet-growth
+    kind: monotonic-growth
+    minGrowth: 0.10
+    query: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: ack-flush-degraded
+    kind: baseline-ratio
+    ratio: 5
+    query: max(k6_vdumper_ack_flush_time_p95{testid="CHANGE-ME"})
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  upload-lag: max(profiler_upload_lag_seconds{namespace="profiler-load"})
+  upload-backlog: sum(profiler_upload_backlog{namespace="profiler-load"})
+  hot-window-lag: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"})
+  active-connections: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+  seal-queue: max(profiler_seal_queue_depth{namespace="profiler-load"})
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0              # keep in sync with the k6 pod's CPU limit
+    maxShare: 0.7
+
+pprof:
+  points: [0.7, 1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]

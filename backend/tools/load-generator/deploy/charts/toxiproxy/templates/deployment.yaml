@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxiproxy
+  labels:
+    app.kubernetes.io/name: toxiproxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: toxiproxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: toxiproxy
+      annotations:
+        # A config change must restart the pod: toxiproxy reads it at start.
+        checksum/config: {{ toPrettyJson .Values.proxies | sha256sum }}
+    spec:
+      containers:
+        - name: toxiproxy
+          image: {{ .Values.image }}
+          args: ["-config", "/config/proxies.json", "-host", "0.0.0.0"]
+          ports:
+            - name: api
+              containerPort: 8474
+{{- range .Values.proxies }}
+            - name: {{ .name }}
+              containerPort: {{ (splitList ":" .listen) | last }}
+{{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          readinessProbe:
+            httpGet:
+              path: /version
+              port: api
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: toxiproxy-config

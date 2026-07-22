@@ -1,0 +1,147 @@
+# T7.1 S3 unavailable (load-testing-plan.md §7.7, runbook doc/fault-runs.md):
+# the accelerated-soak shape with MinIO scaled to 0 for 20 minutes. The
+# sizing is computed BEFORE the run and frozen here, not tuned mid-run.
+#
+# Sizing (measured on the 2026-07-17 accelerated stand, 3 replicas,
+# ~396 KB/s raw ingest):
+#   - steady per-replica backlog (pending + partitions + WAL) ≈ 180 MB —
+#     dominated by WAL and live partitions, NOT by pending parquet;
+#   - during an outage the backlog grows at ≈ raw/3 + parquet/3 ≈ 165 KB/s
+#     per replica (WAL purge is blocked while parquet stays pending);
+#   - parquet production is only ≈ 32 KB/s per replica (columnar compression
+#     of the synthetic shape).
+# With PENDING_UPLOAD_MAX_BYTES = 256 MiB per replica (the mandatory overlay
+# below), the INGEST gate (backlog ≥ budget) trips ≈ 8–10 min into the
+# outage. The SEAL gate (pending ≥ budget/2 = 128 MiB at 32 KB/s) would need
+# ≈ 68 min — on this stand the documented §7.7 order (SealPaused before
+# IngestPaused) CANNOT occur, because WAL+partitions dominate the backlog;
+# observing which gate fires first is part of the run's deliverable.
+#
+# Deploy for this run:
+#   helmfile -e local-soak apply \
+#     --state-values-set profiler.collector.extraEnv.PROFILER_PENDING_UPLOAD_MAX_BYTES=268435456
+#
+# Expected chain: backlog grows → gates engage → agents get ACK_ERROR and
+# reconnect-loop → revert at +20 m → the backlog drains and losses reconcile
+# with ingest_refused_bytes_total (the checker logs every windowed increment
+# with its volume).
+run:
+  name: t7-s3-outage
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # the accelerated-soak shape; complete freeze
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "3"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [20]
+  confirm:
+    timeout: 3m
+    ingest:
+      # From the phase-5 calibration smoke (runs/20260717T085030Z-t4-cal-3cps).
+      bytesPerVU: 19800
+      tolerance: 0.25
+  hold:
+    min: 1h15m                   # 15 m baseline + 20 m outage + 40 m drain watch
+    max: 1h15m
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+faults:
+  - name: s3-outage
+    at: 15m
+    action: scale
+    target: {namespace: profiler-load, kind: deployment, name: minio}
+    to: 0
+    duration: 20m
+    # scrape-gap covers the checker's own S3 listing: it dies with the
+    # scaled-down MinIO (checker.md scopes the s3 source to any window).
+    expects: [ingest-paused, refused-bytes, ack-errors, pending-parquet-growth,
+              hot-store-growth, hot-window-lag, freshness, markers,
+              compaction-lag, small-file-share, scrape-gap]
+    settle: 20m                  # the drain: uploads catch up, WAL purges resume
+
+detectors:
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: pending-parquet-growth
+    kind: monotonic-growth
+    minGrowth: 0.10
+    grace: 5m
+    minValue: 8388608
+    query: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  - name: hot-window-lag
+    kind: nonzero
+    grace: 5m
+    query: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"}) > bool 420
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:
+  seal-paused: max(profiler_backpressure_seal_paused{namespace="profiler-load"})
+  ingest-paused-gauge: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  pending-parquet: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  wal-bytes: sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
+  partitions-bytes: sum(profiler_hotstore_partitions_disk_bytes{namespace="profiler-load"})
+  refused-bytes-total: sum(profiler_ingest_refused_bytes_total{namespace="profiler-load"})
+  reconnects: sum(rate(k6_vdumper_reconnects_total{testid="CHANGE-ME"}[1m]))
+  vdumper-ack-errors: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+  dropped-chunks: sum(rate(k6_vdumper_dropped_chunks_total{testid="CHANGE-ME"}[1m]))
+  upload-backlog: sum(profiler_upload_backlog{namespace="profiler-load"})
+  upload-lag: max(profiler_upload_lag_seconds{namespace="profiler-load"})
+  put-failures: sum(rate(profiler_upload_put_failures_total{namespace="profiler-load"}[1m]))
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 2.0
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]
+  seconds: 30
+  profiles: [profile, heap, goroutine]

@@ -1,18 +1,24 @@
 global:
   name: cdt-loader
   metricsPort: 5656
+  # k6 REST API; the run orchestrator scales VUs through it.
+  restPort: 6565
   prometheusRW: true
 
 deployment:
   image: ""
-  
+
+  # Everything scripts/scenario.js reads; workload knobs beyond these defaults
+  # come from the frozen run spec (doc/run-orchestration.md).
   env:
-    COLLECTOR_HOST: esc-collector-service.profiler.svc
-    EMULATOR_NAMESPACE: test-load
-    EMULATOR_SERVICE_PREFIX: test-load-1
-    EMULATOR_POD_PREFIX: test-load-1-pod
-    PODS: "10"
-    DURATION: 10m
+    COLLECTOR_HOST: profiler-backend-collector-agent.profiler-load.svc
+    COLLECTOR_PORT: "1715"
+    EMULATOR_NAMESPACE: load
+    EMULATOR_SERVICE: load-svc
+    PODS_PER_VU: "1"
+    MAX_VUS: "600"
+    DURATION: 2h
+    TESTID: dev
 
   # Used only when prometheusRW = true
   envRW:

@@ -1,0 +1,33 @@
+# T6 background query load (plan §7.6, doc/soak-runs.md): the same k6 image
+# with SCENARIO=query-scenario.js. Its own global.name keeps every resource
+# apart from the write-side cdt-loader release — the chart derives all names
+# from global.name, and two releases must never own one Deployment.
+
+global:
+  name: cdt-query
+  prometheusRW: true
+
+deployment:
+  image: {{ .Values.k6.image | quote }}
+
+  env:
+    SCENARIO: query-scenario.js
+    QUERY_URL: http://profiler-backend-query.{{ .Values.stand.namespace }}.svc:8080
+    DURATION: {{ .Values.k6query.duration | quote }}
+    TESTID: {{ .Values.k6query.testid | quote }}
+    # The complete profile map — query-scenario.js has no workload defaults
+    # and refuses to start on a missing knob (doc/run-orchestration.md).
+{{- range $key, $value := required "k6query.workload must pin every query-scenario workload knob" .Values.k6query.workload }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+
+  envRW:
+    K6_PROMETHEUS_RW_SERVER_URL: http://vmsingle-k8s.{{ .Values.monitoring.namespace }}.svc:8429/api/v1/write
+    K6_PROMETHEUS_RW_PUSH_INTERVAL: 10s
+    K6_PROMETHEUS_RW_TREND_STATS: min,max,avg,p(90),p(95)
+
+ingress:
+  enabled: false
+
+grafanaDashboard:
+  enabled: false

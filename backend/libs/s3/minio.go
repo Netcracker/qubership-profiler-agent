@@ -16,6 +16,18 @@ type MinioClient struct {
 }
 
 func NewClient(ctx context.Context, s3Params Params) (*MinioClient, error) {
+	mc, err := NewReadOnlyClient(ctx, s3Params)
+	if err != nil {
+		return nil, err
+	}
+	err = mc.MakeBucket(ctx, mc.Params.BucketName)
+	return mc, err
+}
+
+// NewReadOnlyClient connects like NewClient but never creates the bucket —
+// for observers (the load-test invariant checker) that must not mutate the
+// store they watch.
+func NewReadOnlyClient(ctx context.Context, s3Params Params) (*MinioClient, error) {
 
 	if err := s3Params.IsValid(); err != nil {
 		log.Error(ctx, err, "couldn't connect to S3 storage %s", s3Params.Endpoint)
@@ -59,7 +71,5 @@ func NewClient(ctx context.Context, s3Params Params) (*MinioClient, error) {
 
 	registerMetrics()
 
-	err = mc.MakeBucket(ctx, mc.Params.BucketName)
-
-	return mc, err
+	return mc, nil
 }

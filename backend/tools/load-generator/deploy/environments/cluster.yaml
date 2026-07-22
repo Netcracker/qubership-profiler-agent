@@ -1,0 +1,134 @@
+# Large-cluster stand: real network PVs and node limits, the source of the
+# final numbers (plan §5.2). Storage classes and image references are
+# cluster-specific — set them before the first apply.
+
+monitoring:
+  namespace: monitoring
+  vmSingle:
+    retention: 14d
+    storageSize: 50Gi
+    # Set the cluster's network storage class.
+    storageClassName: ""
+
+stand:
+  namespace: profiler-load
+  # Empty keeps the direct MinIO endpoint; point at toxiproxy for fault runs
+  # (doc/fault-runs.md).
+  s3Endpoint: ""
+
+minio:
+  storageSize: 200Gi
+  storageClassName: ""
+  # Override for anything shared; these defaults are for a throwaway stand.
+  rootUser: minioadmin
+  rootPassword: minioadmin
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+profiler:
+  image:
+    # Point at the registry the cluster pulls from, and pin an immutable tag.
+    registry: ""
+    repository: profiler-backend
+    tag: dev
+  collector:
+    # 3 replicas for contract and soak runs; drop to 1 for ceiling runs (T2,
+    # T3) with `helmfile -e cluster apply --set profiler.collector.replicas=1`
+    # or a run-layer override.
+    replicas: 3
+    storageSize: 50Gi
+    storageClassName: ""
+    # Empty keeps the chart default (15m).
+    hotRetention: ""
+    # Empty keeps the chart default (10GB); the t7-small-pv run shrinks it
+    # (doc/fault-runs.md).
+    chunksStagingMaxBytes: ""
+    # Per-run collector env overrides (doc/ceiling-runs.md).
+    extraEnv: {}
+  query:
+    replicas: 2
+    extraEnv: {}
+    # Empty keeps the chart defaults (limits 1 CPU / 2Gi).
+    resources: {}
+  maintain:
+    # Empty keeps the chart default (5m).
+    checkInterval: ""
+    extraEnv: {}
+  # Empty keeps the chart's per-class retention TTL defaults.
+  retention: {}
+
+k6:
+  installed: true
+  # Push the image for the cluster's architecture (or a multi-arch manifest)
+  # and pin an immutable tag.
+  image: cdt-load-generator:dev
+  # The orchestrator scales VUs from 0 over the k6 REST API; these only cap
+  # and label the run.
+  maxVUs: 2000
+  duration: 6h
+  testid: dev
+  # Empty dials the collector directly; point at toxiproxy for fault runs.
+  collectorHost: ""
+  collectorPort: ""
+  # The COMPLETE workload map for scripts/scenario.js (no scenario defaults;
+  # doc/run-orchestration.md, "Workload wiring"). Ceiling-run baseline —
+  # override per run to match the run spec's workload block exactly.
+  workload:
+    PODS_PER_VU: "1"
+    THREADS_PER_POD: "8"
+    CALLS_PER_SEC: "5"
+    DICT_INITIAL: "2000"
+    DICT_GROWTH_PER_MIN: "10"
+    DURATION_THRESHOLDS: "100ms,1s,10s"
+    DURATION_SHARES: "0.90,0.07,0.025,0.005"
+    STACK_DEPTH: "10"
+    SQL_SHARE: "0.2"
+    SQL_BYTES: "1024"
+    SQL_DEDUP: "0.9"
+    XML_SHARE: "0.05"
+    XML_BYTES: "4096"
+    SUSPEND_RATE: "0.5"
+    ERROR_SHARE: "0.01"
+    REQUEST_ID_SHARE: "1"
+    CPU_FRACTION: "0"
+    WAIT_FRACTION: "0"
+    MEMORY_BYTES: "4096"
+    SEED: "1"
+    START_SPREAD: "2s"
+    RESTART_INTERVAL: "10s"
+    CHURN_INTERVAL: "0s"
+  # Plan §10: pin the runner to dedicated nodes on the big cluster so the
+  # generator is never the bottleneck being measured (add a nodeSelector to
+  # the chart when the cluster materializes).
+
+# T6 background query load; a T4 soak turns it on (doc/soak-runs.md).
+k6query:
+  installed: false
+  duration: 48h
+  testid: query-dev
+  # The complete profile map for scripts/query-scenario.js — same no-defaults
+  # rule as k6.workload.
+  workload:
+    UI_VUS: "3"
+    INCIDENT_VUS: "20"
+    COLD_VUS: "0"
+    UI_RANGE_MINUTES: "60"
+    INCIDENT_PERIOD_MINUTES: "30"
+    INCIDENT_DURATION_MINUTES: "5"
+    WIDE_RANGE_MINUTES: "350"
+    LIST_LIMIT: "50"
+    THINK_SECONDS: "5"
+    COLD_MAX_PAGES: "200"
+
+# Fault tooling (plan §5.3). chaos-mesh is the cluster's netem/IOChaos
+# option (plan §7.7); wire the runtime socket per the cluster's container
+# runtime before installing.
+toxiproxy:
+  installed: false
+chaosMesh:
+  installed: false

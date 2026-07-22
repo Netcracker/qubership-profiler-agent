@@ -1,0 +1,17 @@
+{{- range $name, $json := .Values.dashboards }}
+---
+# grafana-operator v4 (bundled with qubership-monitoring-operator) watches
+# this CRD; the stand's Grafana selects every dashboard in every namespace
+# (see values/monitoring-operator.yaml.gotmpl).
+apiVersion: integreatly.org/v1alpha1
+kind: GrafanaDashboard
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: profiler-load-stand
+    app.kubernetes.io/component: monitoring
+spec:
+  json: |
+{{ $json | indent 4 }}
+{{- end }}

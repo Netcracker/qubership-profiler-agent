@@ -1,0 +1,44 @@
+# k6 runner (../charts/cdt-load-generator): the externally-controlled fleet
+# scenario starts at 0 VUs; the run orchestrator scales it over the REST API
+# (:6565) and freezes the workload knobs in the run spec (plan §5.3), so the
+# stand only pins the fleet shape and the endpoints.
+
+global:
+  name: cdt-loader
+  prometheusRW: true
+
+deployment:
+  image: {{ .Values.k6.image | quote }}
+
+  env:
+    # The local-faults environment reroutes these through toxiproxy
+    # (doc/fault-runs.md); everything else dials the collector directly.
+    COLLECTOR_HOST: {{ .Values.k6.collectorHost | default (printf "profiler-backend-collector-agent.%s.svc" .Values.stand.namespace) }}
+    COLLECTOR_PORT: {{ .Values.k6.collectorPort | default "1715" | quote }}
+    EMULATOR_NAMESPACE: load
+    EMULATOR_SERVICE: load-svc
+    MAX_VUS: {{ .Values.k6.maxVUs | quote }}
+    DURATION: {{ .Values.k6.duration | quote }}
+    TESTID: {{ .Values.k6.testid | quote }}
+    # The complete workload map — the scenario has no workload defaults and
+    # refuses to start on a missing knob (doc/run-orchestration.md).
+{{- range $key, $value := required "k6.workload must pin every scenario workload knob" .Values.k6.workload }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+
+  # k6 pushes its own series into the same VictoriaMetrics the backend is
+  # scraped into, so generator-side and server-side series share a time axis
+  # (plan §5.3). vmsingle-k8s is the service the operator creates for the
+  # default VMSingle named "k8s".
+  envRW:
+    K6_PROMETHEUS_RW_SERVER_URL: http://vmsingle-k8s.{{ .Values.monitoring.namespace }}.svc:8429/api/v1/write
+    K6_PROMETHEUS_RW_PUSH_INTERVAL: 10s
+    K6_PROMETHEUS_RW_TREND_STATS: min,max,avg,p(90),p(95)
+
+ingress:
+  enabled: false
+
+# The chart's bundled dashboard expects a JSON file the chart does not ship;
+# the k6 dashboard comes from ../dashboards/ via the monitoring-crs release.
+grafanaDashboard:
+  enabled: false

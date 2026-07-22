@@ -1,0 +1,128 @@
+# Local stand (OrbStack / kind): scenario development and harness debugging.
+# Disk and S3 sit on the local SSD — no final numbers from here (plan §5.1).
+
+monitoring:
+  namespace: monitoring
+  vmSingle:
+    retention: 3d
+    storageSize: 5Gi
+    # Empty selects the cluster's default StorageClass.
+    storageClassName: ""
+
+stand:
+  namespace: profiler-load
+  # Empty keeps the direct MinIO endpoint; the local-faults overlay points
+  # this at toxiproxy (doc/fault-runs.md).
+  s3Endpoint: ""
+
+minio:
+  storageSize: 20Gi
+  storageClassName: ""
+  # Dev-only credentials; the profiler-backend values reuse the same pair.
+  rootUser: minioadmin
+  rootPassword: minioadmin
+  resources:
+    requests:
+      memory: 512Mi
+
+profiler:
+  image:
+    # Build locally: make -C backend docker-build (see ../README.md).
+    registry: ""
+    repository: profiler-backend
+    tag: dev
+  collector:
+    replicas: 1
+    storageSize: 20Gi
+    storageClassName: ""
+    # Empty keeps the chart default (15m); the local-soak overlay shrinks it.
+    hotRetention: ""
+    # Empty keeps the chart default (10GB); the t7-small-pv run shrinks it
+    # (doc/fault-runs.md).
+    chunksStagingMaxBytes: ""
+    # Per-run collector env, e.g. a small PROFILER_PENDING_UPLOAD_MAX_BYTES
+    # to force backpressure at smoke-level load (doc/ceiling-runs.md).
+    extraEnv: {}
+  query:
+    replicas: 1
+    extraEnv: {}
+    # Empty keeps the chart defaults (limits 1 CPU / 2Gi).
+    resources: {}
+  maintain:
+    # Empty keeps the chart default (5m); the local-soak overlay shrinks it.
+    checkInterval: ""
+    extraEnv: {}
+  # Empty keeps the chart's per-class retention TTL defaults.
+  retention: {}
+
+k6:
+  installed: true
+  # Build locally: make -C backend/tools/load-generator image (buildx,
+  # PLATFORM matches the stand).
+  image: cdt-load-generator:dev
+  # The orchestrator scales VUs from 0 over the k6 REST API; these only cap
+  # and label the run.
+  maxVUs: 200
+  duration: 4h
+  testid: dev
+  # Empty dials the collector directly; the local-faults overlay reroutes
+  # through toxiproxy.
+  collectorHost: ""
+  collectorPort: ""
+  # The COMPLETE workload map for scripts/scenario.js — the scenario has no
+  # workload defaults, and a missing knob crash-loops the pod
+  # (doc/run-orchestration.md, "Workload wiring"). Override per run with
+  # --state-values-set k6.workload.CALLS_PER_SEC=... or an overlay; the run
+  # spec must carry the same values.
+  workload:
+    PODS_PER_VU: "1"
+    THREADS_PER_POD: "8"
+    CALLS_PER_SEC: "5"
+    DICT_INITIAL: "2000"
+    DICT_GROWTH_PER_MIN: "10"
+    DURATION_THRESHOLDS: "100ms,1s,10s"
+    DURATION_SHARES: "0.90,0.07,0.025,0.005"
+    STACK_DEPTH: "10"
+    SQL_SHARE: "0.2"
+    SQL_BYTES: "1024"
+    SQL_DEDUP: "0.9"
+    XML_SHARE: "0.05"
+    XML_BYTES: "4096"
+    SUSPEND_RATE: "0.5"
+    ERROR_SHARE: "0.01"
+    REQUEST_ID_SHARE: "1"
+    CPU_FRACTION: "0"
+    WAIT_FRACTION: "0"
+    MEMORY_BYTES: "4096"
+    SEED: "1"
+    START_SPREAD: "2s"
+    RESTART_INTERVAL: "10s"
+    CHURN_INTERVAL: "0s"
+
+# T6 background query load (query-scenario.js); starts sending on pod start,
+# so keep it parked until a soak needs it:
+#   helmfile -e local-soak apply --state-values-set k6query.installed=true
+k6query:
+  installed: false
+  duration: 4h
+  testid: query-dev
+  # The complete profile map for scripts/query-scenario.js — same no-defaults
+  # rule as k6.workload.
+  workload:
+    UI_VUS: "3"
+    INCIDENT_VUS: "20"
+    COLD_VUS: "0"
+    UI_RANGE_MINUTES: "60"
+    INCIDENT_PERIOD_MINUTES: "30"
+    INCIDENT_DURATION_MINUTES: "5"
+    WIDE_RANGE_MINUTES: "350"
+    LIST_LIMIT: "50"
+    THINK_SECONDS: "5"
+    COLD_MAX_PAGES: "200"
+
+# Fault tooling (plan §5.3): parked until a fault run needs it
+# (doc/fault-runs.md).
+toxiproxy:
+  installed: false
+chaosMesh:
+  installed: false

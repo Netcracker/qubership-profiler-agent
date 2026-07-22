@@ -1,0 +1,123 @@
+# T1 contract-level run (load-testing-plan.md §7.1, runbook doc/soak-runs.md).
+# FINAL NUMBERS PENDING THE LARGE CLUSTER (plan §5.2): run this there, on
+# 3 collector replicas, with images pinned by digest. A local run of this
+# spec validates the mechanics only and must be scaled down (e.g. levels
+# [50], hold 30m) and labeled *(local, not a contract number)*.
+#
+# Sizing: the write contract is ~6 MB/s of raw trace for ~500 pods, i.e.
+# ~12 KB/s per pod. The phase-3 smoke measured ~32 KB/s per pod at
+# 8 threads × 5 calls/s, so 8 × 2 lands at ~12.8 KB/s per pod and 500 pods
+# at ~6.4 MB/s total. Confirm against the ingest-bytes measurement of the
+# first cluster run and adjust CALLS_PER_SEC before quoting numbers.
+#
+# One fixed 2 h hold (hold.min == hold.max). Every §8-shaped detector below
+# is a contract term: a hit means the green path failed, verdict `saturated`
+# with the reason named. Run the checker alongside (doc/checker.md).
+run:
+  name: t1-contract
+  testid: CHANGE-ME              # unique per run; must equal the k6 deployment's TESTID
+outputs: runs/
+
+endpoints:
+  k6: http://localhost:6565
+  vm: http://localhost:8429
+  collector: http://localhost:8081
+
+images:
+  backend: CHANGE-ME             # profiler-backend@sha256:...
+  runner: CHANGE-ME              # cdt-load-generator@sha256:...
+helmValues: ./values-snapshot.yaml
+
+workload:                        # complete freeze; must equal k6.workload of the stand
+  PODS_PER_VU: "1"
+  THREADS_PER_POD: "8"
+  CALLS_PER_SEC: "2"
+  DICT_INITIAL: "2000"
+  DICT_GROWTH_PER_MIN: "10"
+  DURATION_THRESHOLDS: "100ms,1s,10s"
+  DURATION_SHARES: "0.90,0.07,0.025,0.005"
+  STACK_DEPTH: "10"
+  SQL_SHARE: "0.2"
+  SQL_BYTES: "1024"
+  SQL_DEDUP: "0.9"
+  XML_SHARE: "0.05"
+  XML_BYTES: "4096"
+  SUSPEND_RATE: "0.5"
+  ERROR_SHARE: "0.01"
+  REQUEST_ID_SHARE: "1"
+  CPU_FRACTION: "0"
+  WAIT_FRACTION: "0"
+  MEMORY_BYTES: "4096"
+  SEED: "1"
+  START_SPREAD: "2s"
+  RESTART_INTERVAL: "10s"
+  CHURN_INTERVAL: "0s"
+
+ramp:
+  levels: [500]                  # the contract point: 500 pods, one fixed hold
+  confirm:
+    timeout: 10m                 # 500 connections + initial dictionaries take a while
+    connectionsPerVU: 1          # every pod must actually be connected before the hold
+    ingest:
+      # ~12.8 KB/s per pod at 8 × 2 calls/s (the sizing note above). Re-pin
+      # from the first cluster calibration hold before quoting numbers.
+      bytesPerVU: 12800
+      tolerance: 0.25
+  hold:
+    min: 2h                      # hold.min == hold.max: fixed-duration hold
+    max: 2h
+    sample: 15s
+    plateau:
+      window: 2m
+      slopeTolerance: 0.05
+      series:
+        ingest-bytes: sum(rate(profiler_ingest_bytes_total{namespace="profiler-load"}[1m]))
+        collector-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*collector.*", container!=""})
+
+detectors:                       # §8-shaped contract terms
+  - name: ingest-paused
+    kind: sticky-share
+    share: 0.01                  # §8.2: paused < 1% of the run
+    query: max(profiler_backpressure_ingest_paused{namespace="profiler-load"})
+  - name: refused-bytes
+    kind: nonzero                # §8.3: zero refused bytes at contract load
+    query: sum(rate(profiler_ingest_refused_bytes_total{namespace="profiler-load"}[1m]))
+  - name: pending-parquet-growth
+    kind: monotonic-growth       # upload keeps up with seal
+    minGrowth: 0.10
+    grace: 10m                   # cold start fills the empty store; do not read the fill as saturation
+    minValue: 268435456          # 256 MB: the gauge oscillates to zero between upload cycles; small sawteeth are not backlog
+    query: sum(profiler_hotstore_pending_parquet_bytes{namespace="profiler-load"})
+  - name: hot-window-lag
+    kind: nonzero                # §8.4: the gauge is the OLDEST hot-index row's age, healthy at hot retention (15m)
+    grace: 10m                   # + eviction cadence; budget 15m retention + 7m chain + 3m margin = 1500s
+    query: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"}) > bool 1500
+  # baseline-ratio detectors are silent on a single-level run (the baseline
+  # comes from the first ok step, which never completes before the only
+  # hold); ack-flush p95 is archived as context below instead.
+  - name: ack-errors
+    kind: nonzero
+    query: sum(rate(k6_vdumper_ack_errors_total{testid="CHANGE-ME"}[1m]))
+
+context:                         # the baseline-utilization table of plan §7.1
+  ack-flush-p95: max(k6_vdumper_ack_flush_time_p95{testid="CHANGE-ME"})
+  upload-lag: max(profiler_upload_lag_seconds{namespace="profiler-load"})
+  upload-backlog: sum(profiler_upload_backlog{namespace="profiler-load"})
+  hot-window-lag-value: max(profiler_hotstore_hot_window_lag_seconds{namespace="profiler-load"})
+  active-connections: sum(profiler_ingest_active_connections{namespace="profiler-load"})
+  collector-goroutines: sum(go_goroutines{namespace="profiler-load", pod=~".*collector.*"})
+  collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
+  query-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*query.*", container!=""}[1m]))
+  query-rss: sum(container_memory_working_set_bytes{namespace="profiler-load", pod=~".*query.*", container!=""})
+  pv-write-bytes: sum(rate(container_fs_writes_bytes_total{namespace="profiler-load", pod=~".*collector.*"}[1m]))
+
+guard:
+  generator-cpu:
+    query: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~"cdt-loader.*", container!=""}[1m]))
+    limitCores: 4.0              # size the cluster runner up (plan §10) and keep this in sync
+    maxShare: 0.7
+
+pprof:
+  points: [1.0]                  # profile the contract level itself
+  seconds: 30
+  profiles: [profile, heap, goroutine]

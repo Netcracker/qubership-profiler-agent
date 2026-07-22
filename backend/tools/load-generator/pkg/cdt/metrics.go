@@ -1,61 +1,54 @@
 package cdt
 
 import (
-	"errors"
-
-	"go.k6.io/k6/js/modules"
 	"go.k6.io/k6/metrics"
 )
 
-type Metrics struct {
-	dataSent     *metrics.Metric
-	dataReceived *metrics.Metric
+// fleetMetrics holds the custom k6 series the fleet emits. Prometheus
+// remote-write surfaces them as k6_vdumper_* (counters gain a _total suffix,
+// trends expand into the configured stats), which is what
+// dashboards/k6-load-generator.json queries.
+type fleetMetrics struct {
+	sentBytes     *metrics.Metric // per RCV_DATA payload, tagged stream
+	connects      *metrics.Metric // successful handshakes + stream setups
+	reconnects    *metrics.Metric // dead incarnations (the agent's restart path)
+	churns        *metrics.Metric // deliberate churn-mode cycles (T5 storms)
+	ackErrors     *metrics.Metric // ACK_ERROR_MAGIC refusals (backpressure)
+	droppedChunks *metrics.Metric // chunks lost in reconnect drop windows
 
-	sendMessage       *metrics.Metric
-	sendMessageTiming *metrics.Metric
-	sendMessageErrors *metrics.Metric
-
-	readMessage       *metrics.Metric
-	readMessageTiming *metrics.Metric
-	readMessageErrors *metrics.Metric
+	tcpConnectTime   *metrics.Metric // dial only
+	sessionReadyTime *metrics.Metric // dial start -> all seven streams open
+	ackFlushTime     *metrics.Metric // per-stream sync ack drain, flush cycle only
 }
 
-func RegisterMetrics(vu modules.VU) (Metrics, error) {
+func registerMetrics(reg *metrics.Registry) (fleetMetrics, error) {
+	var m fleetMetrics
 	var err error
-	var sm Metrics
-	registry := vu.InitEnv().Registry
-
-	if sm.dataSent, err = registry.NewMetric(metrics.DataSentName, metrics.Counter, metrics.Data); err != nil {
-		return sm, errors.Unwrap(err)
+	counter := func(name string, valueType metrics.ValueType) *metrics.Metric {
+		if err != nil {
+			return nil
+		}
+		var c *metrics.Metric
+		c, err = reg.NewMetric(name, metrics.Counter, valueType)
+		return c
+	}
+	trend := func(name string) *metrics.Metric {
+		if err != nil {
+			return nil
+		}
+		var tr *metrics.Metric
+		tr, err = reg.NewMetric(name, metrics.Trend, metrics.Time)
+		return tr
 	}
 
-	if sm.dataReceived, err = registry.NewMetric(metrics.DataReceivedName, metrics.Counter, metrics.Data); err != nil {
-		return sm, errors.Unwrap(err)
-	}
-
-	if sm.sendMessage, err = registry.NewMetric("cdt_send_count", metrics.Counter); err != nil {
-		return sm, errors.Unwrap(err)
-	}
-
-	if sm.sendMessageTiming, err = registry.NewMetric("cdt_send_time", metrics.Trend, metrics.Time); err != nil {
-		return sm, errors.Unwrap(err)
-	}
-
-	if sm.sendMessageErrors, err = registry.NewMetric("cdt_send_error_count", metrics.Counter); err != nil {
-		return sm, errors.Unwrap(err)
-	}
-
-	if sm.readMessage, err = registry.NewMetric("cdt_read_count", metrics.Counter); err != nil {
-		return sm, errors.Unwrap(err)
-	}
-
-	if sm.readMessageTiming, err = registry.NewMetric("cdt_read_time", metrics.Trend, metrics.Time); err != nil {
-		return sm, errors.Unwrap(err)
-	}
-
-	if sm.readMessageErrors, err = registry.NewMetric("cdt_read_error_count", metrics.Counter); err != nil {
-		return sm, errors.Unwrap(err)
-	}
-
-	return sm, nil
+	m.sentBytes = counter("vdumper_sent_bytes", metrics.Data)
+	m.connects = counter("vdumper_connects", metrics.Default)
+	m.reconnects = counter("vdumper_reconnects", metrics.Default)
+	m.churns = counter("vdumper_churns", metrics.Default)
+	m.ackErrors = counter("vdumper_ack_errors", metrics.Default)
+	m.droppedChunks = counter("vdumper_dropped_chunks", metrics.Default)
+	m.tcpConnectTime = trend("vdumper_tcp_connect_time")
+	m.sessionReadyTime = trend("vdumper_session_ready_time")
+	m.ackFlushTime = trend("vdumper_ack_flush_time")
+	return m, err
 }

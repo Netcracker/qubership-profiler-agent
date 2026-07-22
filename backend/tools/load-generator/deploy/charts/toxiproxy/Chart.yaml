@@ -1,0 +1,9 @@
+apiVersion: v2
+name: toxiproxy
+description: >-
+  Deterministic TCP fault injection for the T7 runs (load-testing-plan.md
+  §7.7): a toxiproxy instance whose proxies front MinIO and the collector's
+  agent port. The runner drives toxics over the REST API
+  (doc/run-orchestration.md, "Fault injection").
+type: application
+version: 0.1.0

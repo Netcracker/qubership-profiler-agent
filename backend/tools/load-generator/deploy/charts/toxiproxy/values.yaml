@@ -1,0 +1,18 @@
+# ghcr.io/shopify/toxiproxy releases: https://github.com/Shopify/toxiproxy
+image: ghcr.io/shopify/toxiproxy:2.12.0
+
+# Static proxy set, loaded at start via -config; the runner adds and removes
+# toxics on these proxies at run time, never the proxies themselves.
+proxies: []
+#  - name: s3
+#    listen: 0.0.0.0:19000
+#    upstream: minio.profiler-load.svc:9000
+#    enabled: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
