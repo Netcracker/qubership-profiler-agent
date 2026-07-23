@@ -19,7 +19,10 @@ import (
 // decrement the refcounts the seal pass added (01-write-contract.md §6.2
 // step 3). upload_failed_at quarantines a file S3 rejected with a permanent
 // error: the row keeps its refcounts pinned but leaves the upload queue
-// (01 §8, upload-failed/).
+// (01 §8, upload-failed/). body_durable_at records that the parquet body is
+// confirmed in S3 while uploaded_at is still NULL — the "body durable, manifest
+// pending" state a rejected pods manifest leaves the row in, so the №2 slow
+// re-test retries only the manifest and never re-PUTs the durable body (#825).
 const metaSchema = `
 CREATE TABLE IF NOT EXISTS pod_restarts (
   pod_restart      TEXT PRIMARY KEY,
@@ -60,6 +63,7 @@ CREATE TABLE IF NOT EXISTS parquet_local (
   uploaded_at     INTEGER,
   upload_failed_at INTEGER,
   first_failed_at  INTEGER,
+  body_durable_at  INTEGER,
   s3_key          TEXT
 );
 CREATE TABLE IF NOT EXISTS parquet_segments (
@@ -213,7 +217,11 @@ type (
 		UploadedAtMs     *int64
 		UploadFailedAtMs *int64
 		FirstFailedAtMs  *int64
-		S3Key            string
+		// BodyDurableAtMs is set once the parquet body is confirmed in S3 while
+		// uploaded_at is still NULL. When it is non-nil the upload task skips the
+		// body PUT and re-tests only the pending pods manifest (#825).
+		BodyDurableAtMs *int64
+		S3Key           string
 	}
 
 	// partHandle is one cached partition DB plus the LRU bookkeeping: a recency
@@ -291,6 +299,12 @@ func openMetaDb(cfg Config) (*metaDb, error) {
 		// a durability fix during the upgrade window.
 		`ALTER TABLE parquet_local ADD COLUMN wal_offset_lo INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE pod_restarts ADD COLUMN wals_purged_at INTEGER`,
+		// A row written before this column carries body_durable_at NULL, so a
+		// pending upload from an older metadata.sqlite re-PUTs its body once more
+		// (the pre-#825 behaviour) before it starts skipping — no correctness loss,
+		// the PUT is idempotent, only the one-time waste the fix removes going
+		// forward.
+		`ALTER TABLE parquet_local ADD COLUMN body_durable_at INTEGER`,
 	} {
 		if err := db.Exec(alter).Error; err != nil &&
 			!strings.Contains(err.Error(), "duplicate column name") {
@@ -462,7 +476,8 @@ func (m *metaDb) LocalParquet(podRestart string) ([]ParquetLocalFile, error) {
 	var rows []ParquetLocalFile
 	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
 		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
-		upload_failed_at AS upload_failed_at_ms, first_failed_at AS first_failed_at_ms, s3_key
+		upload_failed_at AS upload_failed_at_ms, first_failed_at AS first_failed_at_ms,
+		body_durable_at AS body_durable_at_ms, s3_key
 		FROM parquet_local WHERE pod_restart = ? ORDER BY path`, podRestart).Scan(&rows).Error
 	return rows, err
 }
@@ -572,7 +587,7 @@ func (m *metaDb) PendingUploads() ([]ParquetLocalFile, error) {
 	var rows []ParquetLocalFile
 	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
 		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
-		upload_failed_at AS upload_failed_at_ms, s3_key
+		upload_failed_at AS upload_failed_at_ms, body_durable_at AS body_durable_at_ms, s3_key
 		FROM parquet_local WHERE uploaded_at IS NULL AND upload_failed_at IS NULL
 		ORDER BY path`).Scan(&rows).Error
 	return rows, err
@@ -656,6 +671,18 @@ func (m *metaDb) MarkUploaded(path string, uploadedAtMs int64) error {
 	})
 }
 
+// MarkBodyDurable records that the parquet body is confirmed in S3 while the
+// row stays pending (uploaded_at NULL) — the state a durable body reaches
+// before its coupled pods manifest is written. Stamped once, right after the
+// body PUT confirms, it lets the upload task skip re-PUTting the body when the
+// №2 slow re-test re-queues a manifest-quarantined row (#825). The guard keeps
+// it write-once and never overwrites a completed row: uploaded_at supersedes it.
+func (m *metaDb) MarkBodyDurable(path string, durableAtMs int64) error {
+	return errors.Wrap(m.meta.Exec(`UPDATE parquet_local SET body_durable_at = ?
+		WHERE path = ? AND uploaded_at IS NULL AND body_durable_at IS NULL`, durableAtMs, path).Error,
+		"mark parquet body durable in S3")
+}
+
 // MarkUploadFailed re-points a quarantined file at its upload-failed/ location
 // and takes it out of the upload queue. The file's parquet_segments refs move
 // with it in the SAME transaction: a rejected file keeps its segments pinned
@@ -692,7 +719,10 @@ func (m *metaDb) MarkUploadFailed(path, quarantinePath string, failedAtMs int64)
 // is already durable in S3 and still backs hot reads, so it is not moved to
 // upload-failed/; only upload_failed_at is set so the №2 slow re-test
 // (RequeueQuarantinedParquet) retries the manifest on the same rate-limited
-// cadence as a rejected parquet. Segment refcounts stay pinned meanwhile.
+// cadence as a rejected parquet. body_durable_at is already set by then (the
+// body PUT confirmed before the manifest was attempted), so the re-test skips
+// the body PUT and re-tests only the manifest (#825). Segment refcounts stay
+// pinned meanwhile.
 // first_failed_at is stamped once and never reset (see MarkUploadFailed), so a
 // manifest that never heals ages out of the quarantine cap instead of pinning
 // the PV forever behind an ever-refreshed upload_failed_at.

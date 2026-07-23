@@ -236,25 +236,37 @@ func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) error 
 func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *UploadStats,
 	manifestMu *sync.Mutex, manifestsDone map[string]manifestOutcome) error {
 
-	if _, err := os.Stat(f.Path); err != nil {
-		// Recovery clears rows whose file is gone (03 §3.6); mid-flight the
-		// pass just skips them.
-		log.Warning(ctx, "upload: sealed parquet %s is missing on disk, skipping", f.Path)
-		return nil
-	}
-	err := u.putWithRetry(ctx, f.S3Key, func() error { return u.s3.PutFile(ctx, f.S3Key, f.Path) }, stats)
-	if IsPermanentUploadError(err) {
-		if qErr := u.quarantine(ctx, f, err, stats); qErr != nil {
-			log.Error(ctx, qErr, "upload: quarantine of %s failed; the file stays pending", f.Path)
+	// A re-queued manifest-quarantined row already has its body in S3
+	// (body_durable_at set): skip the body PUT and re-test only the pending
+	// manifest, so a stuck manifest never re-PUTs the whole day's parquet bodies
+	// on every re-test interval (#825). The body PUT is idempotent, so a crash
+	// between the PUT and MarkBodyDurable simply re-PUTs once next pass.
+	if f.BodyDurableAtMs == nil {
+		if _, err := os.Stat(f.Path); err != nil {
+			// Recovery clears rows whose file is gone (03 §3.6); mid-flight the
+			// pass just skips them.
+			log.Warning(ctx, "upload: sealed parquet %s is missing on disk, skipping", f.Path)
+			return nil
 		}
-		return nil
-	}
-	if err != nil {
-		if ctx.Err() != nil {
+		err := u.putWithRetry(ctx, f.S3Key, func() error { return u.s3.PutFile(ctx, f.S3Key, f.Path) }, stats)
+		if IsPermanentUploadError(err) {
+			if qErr := u.quarantine(ctx, f, err, stats); qErr != nil {
+				log.Error(ctx, qErr, "upload: quarantine of %s failed; the file stays pending", f.Path)
+			}
+			return nil
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			log.Error(ctx, err, "upload: PUT %s failed after retries; will retry next pass", f.S3Key)
+			return nil
+		}
+		// The body is durable now. Record it before the coupled manifest so any
+		// manifest failure below re-tests only the manifest, never the body.
+		if err := u.store.db.MarkBodyDurable(f.Path, time.Now().UnixMilli()); err != nil {
 			return err
 		}
-		log.Error(ctx, err, "upload: PUT %s failed after retries; will retry next pass", f.S3Key)
-		return nil
 	}
 	// The manifest upsert is serialized across workers: manifestsDone dedups
 	// per (pod-restart, day) and the PUT itself is idempotent, so coarse
@@ -266,8 +278,9 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 		if ctx.Err() != nil {
 			return mErr
 		}
-		// uploaded_at stays NULL, so the next pass re-runs the parquet PUT
-		// and the manifest PUT; both are idempotent.
+		// uploaded_at stays NULL, so the next pass re-runs the manifest PUT; the
+		// body is already durable (body_durable_at set above), so it is not
+		// re-PUT. Both are idempotent.
 		log.Error(ctx, mErr, "upload: pods manifest for %s failed; %s stays pending", f.PodRestart, f.S3Key)
 		return nil
 	}
