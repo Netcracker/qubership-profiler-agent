@@ -552,11 +552,11 @@ func (s *Store) fastPurge(ctx context.Context, key PodRestartKey, podRestart, di
 	if s.cfg.WalPurgeFastMaxBytes <= 0 {
 		return false, nil
 	}
-	size, err := dirSizeBytes(dir)
+	within, err := dirWithinFloor(dir, s.cfg.WalPurgeFastMaxBytes)
 	if err != nil {
 		return false, err
 	}
-	if size > s.cfg.WalPurgeFastMaxBytes {
+	if !within {
 		return false, nil
 	}
 	if unsealed, err := s.db.HasUnsealedCalls(podRestart); err != nil || unsealed {
@@ -577,9 +577,14 @@ func (s *Store) fastPurge(ctx context.Context, key PodRestartKey, podRestart, di
 	return true, nil
 }
 
-// dirSizeBytes sums the file sizes under dir; a missing dir is zero (a crashed
-// purge already removed it).
-func dirSizeBytes(dir string) (int64, error) {
+// dirWithinFloor reports whether the files under dir sum to floor bytes or
+// fewer. It stops walking the moment the running total crosses floor, so a
+// pod-restart well over the near-empty floor costs a few stat calls instead of
+// a full walk of its (possibly many) segment files — the fast-path floor check
+// runs on every still-indexed candidate each janitor tick. A missing dir sums
+// to zero (a crashed purge already removed it), which reads as within the
+// floor.
+func dirWithinFloor(dir string, floor int64) (bool, error) {
 	var total int64
 	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -587,13 +592,16 @@ func dirSizeBytes(dir string) (int64, error) {
 		}
 		if info, err := d.Info(); err == nil {
 			total += info.Size()
+			if total > floor {
+				return filepath.SkipAll
+			}
 		}
 		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
-		return 0, errors.Wrapf(err, "measure %s", dir)
+		return false, errors.Wrapf(err, "measure %s", dir)
 	}
-	return total, nil
+	return total <= floor, nil
 }
 
 // removeEmptyParents best-effort removes now-empty pod/service/namespace dirs
