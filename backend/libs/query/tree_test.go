@@ -232,3 +232,143 @@ func TestTreeResolvesUnderReclassifiedClass(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 	})
 }
+
+// staticDiscovery advertises a fixed set of replica base URLs, standing in for
+// DNS discovery (02 §7.1) so a /tree test can drive the hot path.
+type staticDiscovery []string
+
+func (d staticDiscovery) Replicas(context.Context) ([]string, error) { return d, nil }
+
+// liveReplica is a fake collector replica for the hot /tree path. It serves the
+// planted blob, a dictionary whose word (and ETag) the test flips between
+// requests to model a growing live dictionary, and an empty suspend timeline.
+type liveReplica struct {
+	blob   []byte
+	mu     sync.Mutex
+	method string // dictionary word at method index 1
+	dictID string // dictionary ETag; changes with the word so a stale copy is refetched
+}
+
+func (r *liveReplica) setState(method, dictID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.method, r.dictID = method, dictID
+}
+
+func (r *liveReplica) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	switch {
+	case strings.HasSuffix(req.URL.Path, "/trace"):
+		_, _ = w.Write(r.blob)
+	case strings.HasSuffix(req.URL.Path, "/dictionary"):
+		r.mu.Lock()
+		method, dictID := r.method, r.dictID
+		r.mu.Unlock()
+		etag := `"` + dictID + `"`
+		if req.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", etag)
+		_, _ = w.Write([]byte(`{"version":1,"methods":["",` + strconv.Quote(method) + `]}`))
+	case strings.HasSuffix(req.URL.Path, "/suspend"):
+		_, _ = w.Write([]byte(`{"events":[]}`))
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// TestTreeCachingSeparatesHotFromCold is the reports2 #5 regression: a live
+// (hot) tree is served over a growing dictionary, value streams, and suspend
+// data, so it must not be cached as immutable for a year. The hot response
+// carries a body-derived validator and a revalidating Cache-Control, and its
+// ETag moves when the live dictionary grows; the sealed cold response keeps the
+// PK validator and the long immutable cache, which is correct.
+func TestTreeCachingSeparatesHotFromCold(t *testing.T) {
+	const restartMs = int64(1_700_000_000_000)
+	pk := model.PK{
+		PodNamespace: "ns", PodService: "svc", PodName: "pod", RestartTimeMs: restartMs,
+		TraceFileIndex: 1, BufferOffset: 100, RecordIndex: 0,
+	}
+	// One method (dictionary id 1) entered at +5 and exited at +15: no big-param
+	// references, so the hot path never calls the values endpoint.
+	blob, _ := wire.TraceStream(restartMs, []wire.TraceChunk{
+		{ThreadId: 7, StartMs: restartMs, Events: []wire.TraceEvent{
+			wire.Enter(5, 1), wire.Exit(10),
+		}},
+	})
+
+	t.Run("hot tree is not immutable and its ETag tracks the live dictionary", func(t *testing.T) {
+		replica := &liveReplica{blob: blob}
+		replica.setState("com.example.Service.early", "dict-1")
+		srv := httptest.NewServer(replica)
+		defer srv.Close()
+
+		api := httptest.NewServer(New(Options{HotDiscovery: staticDiscovery{srv.URL}}).Handler())
+		defer api.Close()
+		treeURL := api.URL + "/api/v1/calls/" + url.PathEscape(pk.PathString()) + "/tree"
+
+		first, err := http.Get(treeURL)
+		require.NoError(t, err)
+		firstBody, err := io.ReadAll(first.Body)
+		require.NoError(t, err)
+		require.NoError(t, first.Body.Close())
+		require.Equal(t, http.StatusOK, first.StatusCode, "body: %s", firstBody)
+
+		cc := first.Header.Get("Cache-Control")
+		assert.NotContains(t, cc, "immutable", "a live tree must not be cached as immutable")
+		assert.NotContains(t, cc, "31536000", "a live tree must not carry a one-year max-age")
+		assert.Equal(t, "no-cache", cc, "a live tree revalidates on every use")
+		firstETag := first.Header.Get("ETag")
+		require.NotEmpty(t, firstETag)
+		assert.NotEqual(t, pkETag(pk), firstETag, "the hot validator is body-derived, not the PK hash")
+
+		// The dictionary grows: the same method id now resolves to a fuller name,
+		// so the same PK must produce a different tree and a different validator.
+		replica.setState("com.example.Service.handleRequest", "dict-2")
+		second, err := http.Get(treeURL)
+		require.NoError(t, err)
+		secondBody, err := io.ReadAll(second.Body)
+		require.NoError(t, err)
+		require.NoError(t, second.Body.Close())
+		require.Equal(t, http.StatusOK, second.StatusCode, "body: %s", secondBody)
+
+		assert.NotEqual(t, firstETag, second.Header.Get("ETag"),
+			"a grown live tree revalidates to a new ETag, so a year-old cached copy cannot stick")
+		assert.NotEqual(t, string(firstBody), string(secondBody), "the grown dictionary changes the tree body")
+	})
+
+	t.Run("cold sealed tree keeps the immutable long cache", func(t *testing.T) {
+		tuple := model.PodTuple{Namespace: "ns", Service: "svc", Pod: "pod", RestartTimeMs: restartMs}
+		tsMs := restartMs + 42
+		row := storageparquet.CallV2{
+			TsMs:           tsMs,
+			PodId:          "ns/svc/pod",
+			RestartTimeMs:  restartMs,
+			TraceFileIndex: pk.TraceFileIndex,
+			BufferOffset:   pk.BufferOffset,
+			RecordIndex:    pk.RecordIndex,
+			Namespace:      "ns", ServiceName: "svc", PodName: "pod",
+			Method:         "com.example.Service.handle",
+			DurationMs:     10,
+			RetentionClass: model.RetentionNormalClean,
+			TraceBlob:      blob,
+		}
+		store := newMemColdStore()
+		store.put(sealedKey(model.RetentionNormalClean, tuple, tsMs), writeCallParquet(t, row))
+
+		api := httptest.NewServer(New(Options{ColdStore: store}).Handler())
+		defer api.Close()
+
+		resp, err := http.Get(api.URL + "/api/v1/calls/" + url.PathEscape(pk.PathString()) + "/tree?" +
+			url.Values{"ts_ms": {strconv.FormatInt(tsMs, 10)}}.Encode())
+		require.NoError(t, err)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+
+		assert.Equal(t, "public, max-age=31536000, immutable", resp.Header.Get("Cache-Control"),
+			"a sealed tree is immutable per PK")
+		assert.Equal(t, pkETag(pk), resp.Header.Get("ETag"), "a sealed tree is validated by its PK hash")
+	})
+}

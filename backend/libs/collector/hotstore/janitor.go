@@ -220,13 +220,22 @@ func (s *Store) capQuarantine(ctx context.Context, nowMs int64, stats *JanitorSt
 		}
 		total += sizes[i]
 	}
-	for i, f := range rows { // oldest failure first: the size cap evicts oldest
+	uploadFailedDir := filepath.Join(s.cfg.DataDir, "upload-failed")
+	for i, f := range rows { // oldest FIRST failure first: the size cap evicts oldest
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		overAge := f.UploadFailedAtMs != nil && *f.UploadFailedAtMs+maxAgeMs <= nowMs
+		// The age cap keys off the immutable first-failure time, not the
+		// re-test-reset upload_failed_at: otherwise the slow re-test refreshes the
+		// timestamp every interval and the age arm never fires (a stuck bundle
+		// would pin the PV until only the byte cap trips, with no age signal).
+		firstFailed := f.UploadFailedAtMs
+		if f.FirstFailedAtMs != nil {
+			firstFailed = f.FirstFailedAtMs
+		}
+		overAge := firstFailed != nil && *firstFailed+maxAgeMs <= nowMs
 		if !overAge && total <= s.cfg.QuarantineMaxBytes {
-			break // rows are ordered by failure time; nothing later is older
+			break // rows are ordered by first-failure time; nothing later is older
 		}
 		if err := os.Remove(f.Path); err != nil && !os.IsNotExist(err) {
 			log.Error(ctx, err, "janitor: cannot drop quarantined parquet %s; keeping its row", f.Path)
@@ -237,8 +246,18 @@ func (s *Store) capQuarantine(ctx context.Context, nowMs int64, stats *JanitorSt
 		}
 		total -= sizes[i]
 		stats.QuarantineDropped++
-		log.Warning(ctx, "janitor: dropped quarantined parquet %s (%d rows) past the quarantine cap — these calls are lost to the cold tier",
-			f.Path, f.RowCount)
+		// A manifest-quarantined bundle still lives in the data layout (its
+		// parquet is durable in S3); a parquet-quarantined one moved under
+		// upload-failed/. The parquet loss differs: manifest-flavor keeps the
+		// calls in the cold tier but loses their readable identity, so an
+		// operator is not sent chasing lost call data during an incident.
+		if strings.HasPrefix(f.Path, uploadFailedDir) {
+			log.Warning(ctx, "janitor: dropped quarantined parquet %s (%d rows) past the quarantine cap — these calls are lost to the cold tier",
+				f.Path, f.RowCount)
+		} else {
+			log.Warning(ctx, "janitor: dropped manifest-quarantined parquet %s (%d rows) past the quarantine cap — its calls remain in the cold tier but can no longer be named (identity lost)",
+				f.Path, f.RowCount)
+		}
 	}
 	return nil
 }

@@ -56,9 +56,15 @@ type (
 		// FailedPuts counts every failed PUT attempt, transient or permanent;
 		// its rate is the upload-failure alerting signal. RetriedPuts counts
 		// only the attempts a retry followed.
-		FailedPuts         int64
-		RetriedPuts        int64
-		QuarantinedFiles   int64
+		FailedPuts       int64
+		RetriedPuts      int64
+		QuarantinedFiles int64
+		// QuarantinedObjects counts manifest/snapshot quarantine ATTEMPTS, not
+		// distinct objects: the slow re-test re-attempts a stuck manifest every
+		// interval, and each fresh rejection re-quarantines (overwrites) the same
+		// upload-failed/ body and bumps this counter. Read its rate as "how often
+		// a permanently rejected object is re-tested", not "how many objects are
+		// stuck" — QuarantineStats (first_failed_at) is the stuck-population gauge.
 		QuarantinedObjects int64
 		ManifestPuts       int64
 		SegmentsDeleted    int64
@@ -187,7 +193,7 @@ func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) error 
 	var (
 		mu            sync.Mutex // guards firstErr, manifestsDone, and the merge into stats
 		firstErr      error
-		manifestsDone = map[string]struct{}{}
+		manifestsDone = map[string]manifestOutcome{}
 	)
 	jobs := make(chan ParquetLocalFile)
 	var wg sync.WaitGroup
@@ -228,7 +234,7 @@ func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) error 
 // logged and left for the next pass (nil); only a context or SQLite failure
 // comes back as an error and fails the pass.
 func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *UploadStats,
-	manifestMu *sync.Mutex, manifestsDone map[string]struct{}) error {
+	manifestMu *sync.Mutex, manifestsDone map[string]manifestOutcome) error {
 
 	if _, err := os.Stat(f.Path); err != nil {
 		// Recovery clears rows whose file is gone (03 §3.6); mid-flight the
@@ -254,7 +260,7 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 	// per (pod-restart, day) and the PUT itself is idempotent, so coarse
 	// serialization is correct and manifests are rare next to parquet PUTs.
 	manifestMu.Lock()
-	mErr := u.upsertManifest(ctx, f, manifestsDone, stats)
+	outcome, mErr := u.upsertManifest(ctx, f, manifestsDone, stats)
 	manifestMu.Unlock()
 	if mErr != nil {
 		if ctx.Err() != nil {
@@ -263,6 +269,23 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 		// uploaded_at stays NULL, so the next pass re-runs the parquet PUT
 		// and the manifest PUT; both are idempotent.
 		log.Error(ctx, mErr, "upload: pods manifest for %s failed; %s stays pending", f.PodRestart, f.S3Key)
+		return nil
+	}
+	if outcome == manifestRejected {
+		// The manifest is the only durable, readable source of the pod-restart's
+		// (namespace, service, pod) identity behind the one-way hash in the
+		// parquet key (01 §3.6, 02 §2.7). Marking the parquet uploaded here would
+		// let the hot tier expire and the WALs purge, leaving a cold call that
+		// discovery finds by time range but can never name — pod identity lost.
+		// Quarantine the parquet WITHOUT marking it uploaded instead: it leaves
+		// the tight upload queue, keeps the pod-restart discoverable/pending, and
+		// the №2 slow re-test (requeueQuarantined) retries the manifest on the
+		// same rate-limited cadence until S3 takes it.
+		if qErr := u.store.db.QuarantineForManifest(f.Path, time.Now().UnixMilli()); qErr != nil {
+			return qErr
+		}
+		stats.QuarantinedFiles++
+		log.Warning(ctx, "upload: quarantined %s until its pod manifest is durable; the pod-restart stays pending, not silently undiscoverable", f.S3Key)
 		return nil
 	}
 	if err := u.store.db.MarkUploaded(f.Path, time.Now().UnixMilli()); err != nil {
@@ -303,15 +326,32 @@ func (u *Uploader) putWithRetry(ctx context.Context, key string, put func() erro
 }
 
 // quarantine implements the §8 upload-failed/ path: the file moves out of the
-// PV data layout, the parquet_local row follows it and leaves the upload
-// queue, and — critically — its parquet_segments rows survive, so the segment
-// refcounts stay pinned until a human resolves the rejection.
+// PV data layout, the parquet_local row (and its parquet_segments refs) follow
+// it and leave the upload queue, and — critically — those segment refs survive
+// so the refcounts stay pinned until a human resolves the rejection.
+//
+// The destination mirrors the full S3 key under upload-failed/ (like
+// quarantineObject does for manifests), not just filepath.Base(f.Path): the
+// sealed basename omits the retention class — it lives only in the S3-key
+// directory — so two files of different classes can share a basename and would
+// overwrite each other in a single flat directory (QA 708#3). The S3 key is
+// unique per file, so this destination never collides, and it stays under
+// upload-failed/ for the capQuarantine drop-log heuristic and the №2 re-test.
+//
+// When the №2 re-test heals and the re-upload succeeds, MarkUploaded stamps
+// uploaded_at on the row at this quarantine path but deliberately leaves the
+// file in place — there is no parquet analogue to clearQuarantinedObject. The
+// local parquet may still back hot reads, and hot-retention reaps it later by
+// parquet_local.path (§6.3), exactly as it does for a normally uploaded file;
+// only the small manifest snapshot, which backs nothing, is cleared eagerly.
+// Do NOT make MarkUploaded delete the file: it also runs on the normal,
+// non-quarantine upload path, where the live parquet must survive until
+// retention.
 func (u *Uploader) quarantine(ctx context.Context, f ParquetLocalFile, cause error, stats *UploadStats) error {
-	dir := filepath.Join(u.store.cfg.DataDir, "upload-failed")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	dest := filepath.Join(u.store.cfg.DataDir, "upload-failed", filepath.FromSlash(f.S3Key))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return errors.Wrap(err, "create upload-failed dir")
 	}
-	dest := filepath.Join(dir, filepath.Base(f.Path))
 	if err := os.Rename(f.Path, dest); err != nil {
 		return errors.Wrap(err, "move rejected parquet")
 	}
@@ -323,33 +363,48 @@ func (u *Uploader) quarantine(ctx context.Context, f ParquetLocalFile, cause err
 	return nil
 }
 
+// manifestOutcome records, per (pod-restart, UTC day) within one upload pass,
+// whether the pods manifest is durable in S3 (manifestDurable) or was
+// permanently rejected and quarantined this pass (manifestRejected). It couples
+// the parquet's uploaded_at commit to the manifest across every sibling file of
+// the same pod-restart and day: the manifest is the only cold source of the
+// pod-restart's readable identity (01 §3.6, 02 §2.7), so a rejected manifest
+// must keep every sibling out of "uploaded", not just the file that hit the
+// rejection.
+type manifestOutcome int
+
+const (
+	manifestDurable manifestOutcome = iota
+	manifestRejected
+)
+
 // upsertManifest writes or refreshes the pods manifest of the file's UTC day
 // (01 §3.6): idempotent per (day, pod-restart), bounds over every file the
 // pod-restart sealed into that day so a later seal only widens time_max_ms.
-// A permanently rejected manifest is quarantined and treated as done: the
-// parquet object itself is already durable, so blocking its uploaded_at commit
-// would re-PUT it forever for a manifest S3 refuses to take.
-func (u *Uploader) upsertManifest(ctx context.Context, f ParquetLocalFile, done map[string]struct{}, stats *UploadStats) error {
+// It returns manifestDurable once the manifest is confirmed in S3 and
+// manifestRejected when S3 permanently refuses it: the caller then quarantines
+// the parquet instead of marking it uploaded, so the pod-restart is never left
+// discoverable-but-nameless. A transient failure returns an error and the file
+// stays pending for the next pass. The permanent rejection is NOT terminal —
+// the manifest body is kept under upload-failed/ for inspection, but the №2
+// slow re-test retries it, so a healed (operational) rejection recovers.
+func (u *Uploader) upsertManifest(ctx context.Context, f ParquetLocalFile, done map[string]manifestOutcome, stats *UploadStats) (manifestOutcome, error) {
 	dayStartMs := utcDayStartMs(f.TimeBucketMs)
 	doneKey := fmt.Sprintf("%s/%d", f.PodRestart, dayStartMs)
-	if _, ok := done[doneKey]; ok {
-		return nil
+	if outcome, ok := done[doneKey]; ok {
+		return outcome, nil
 	}
 	key, err := ParsePodRestartKey(f.PodRestart)
 	if err != nil {
-		return err
+		return manifestRejected, err
 	}
 	s3Key := path.Join("pods/v1", utcDayPath(dayStartMs), PodRestartHash(key)+".json")
-	if u.objectQuarantined(s3Key) {
-		done[doneKey] = struct{}{}
-		return nil
-	}
 	timeMinMs, timeMaxMs, ok, err := u.store.db.ManifestBounds(f.PodRestart, dayStartMs, dayStartMs+dayMs)
 	if err != nil {
-		return err
+		return manifestRejected, err
 	}
 	if !ok {
-		return errors.Errorf("no sealed files for %s on day %d despite pending upload", f.PodRestart, dayStartMs)
+		return manifestRejected, errors.Errorf("no sealed files for %s on day %d despite pending upload", f.PodRestart, dayStartMs)
 	}
 	manifest := podsManifest{
 		Namespace:     key.Namespace,
@@ -363,22 +418,27 @@ func (u *Uploader) upsertManifest(ctx context.Context, f ParquetLocalFile, done 
 	}
 	body, err := json.Marshal(manifest)
 	if err != nil {
-		return errors.Wrap(err, "encode pods manifest")
+		return manifestRejected, errors.Wrap(err, "encode pods manifest")
 	}
 	if err := u.putWithRetry(ctx, s3Key, func() error { return u.s3.PutBytes(ctx, s3Key, body) }, stats); err != nil {
 		if !IsPermanentUploadError(err) {
-			return err
+			return manifestRejected, err
 		}
 		if qErr := u.quarantineObject(ctx, s3Key, body, err); qErr != nil {
-			return qErr
+			return manifestRejected, qErr
 		}
+		// Counts a quarantine ATTEMPT: the slow re-test lands here again on every
+		// interval a stuck manifest stays rejected (see the field doc).
 		stats.QuarantinedObjects++
-		done[doneKey] = struct{}{}
-		return nil
+		done[doneKey] = manifestRejected
+		return manifestRejected, nil
 	}
-	done[doneKey] = struct{}{}
+	// The manifest is durable now; drop any stale rejected copy so upload-failed/
+	// reflects only what still needs a human.
+	u.clearQuarantinedObject(ctx, s3Key)
+	done[doneKey] = manifestDurable
 	stats.ManifestPuts++
-	return nil
+	return manifestDurable, nil
 }
 
 // quarantineObject persists a permanently rejected snapshot or manifest body
@@ -397,10 +457,15 @@ func (u *Uploader) quarantineObject(ctx context.Context, s3Key string, body []by
 	return nil
 }
 
-// objectQuarantined reports whether a key already sits in upload-failed/.
-func (u *Uploader) objectQuarantined(s3Key string) bool {
-	_, err := os.Stat(filepath.Join(u.store.cfg.DataDir, "upload-failed", filepath.FromSlash(s3Key)))
-	return err == nil
+// clearQuarantinedObject removes a previously quarantined object body once its
+// key uploads cleanly, so upload-failed/ never keeps a stale copy of a manifest
+// (or snapshot) that is now durable. Best-effort: a missing file is the common
+// case and any other error is logged, not fatal.
+func (u *Uploader) clearQuarantinedObject(ctx context.Context, s3Key string) {
+	dest := filepath.Join(u.store.cfg.DataDir, "upload-failed", filepath.FromSlash(s3Key))
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		log.Warning(ctx, "upload: cannot clear stale quarantined object %s: %v", dest, err)
+	}
 }
 
 // sweepSegments unlinks segments that are done: refcount 0 (every sealed row

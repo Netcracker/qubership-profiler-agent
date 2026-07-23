@@ -168,7 +168,12 @@ type (
 		CompactionMinAge      time.Duration `envconfig:"PROFILER_COMPACTION_MIN_AGE" default:"30m"`
 		CompactionMinFiles    int           `envconfig:"PROFILER_COMPACTION_MIN_FILES" default:"4"`
 		CompactionDeleteGrace time.Duration `envconfig:"PROFILER_COMPACTION_DELETE_GRACE" default:"5m"`
-		CompactionMaxBytes    ByteSize      `envconfig:"PROFILER_COMPACTION_MAX_BYTES" default:"256MB"`
+		// CompactionMaxBytes caps a compacted object and bounds the maintain
+		// job's peak memory. The maintain container limit must clear
+		// maintain.MemoryBudgetMultiplier * this value with headroom, so a
+		// raise here needs a matching raise of the container limit (the chart's
+		// maintain.resources.limits.memory).
+		CompactionMaxBytes ByteSize `envconfig:"PROFILER_COMPACTION_MAX_BYTES" default:"96MB"`
 
 		// Per-class retention TTLs (01 §6.4). Unset values keep the defaults
 		// of the model.RetentionTiers table — the defaults deliberately live

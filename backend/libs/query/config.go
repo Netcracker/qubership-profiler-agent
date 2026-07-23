@@ -23,6 +23,9 @@ type Config struct {
 	// PodsRangeLimit bounds the /pods window (PROFILER_MAX_PODS_RANGE): /pods
 	// has no file-pruning filter and lists one S3 prefix per UTC day, so it
 	// needs its own, more generous span guard than /calls (PR 708 review #3).
+	// It also caps a pod-filtered /calls query: a `pod` filter exempts the query
+	// from WideRangeLimit but does not prune the discovery LIST prefixes, so the
+	// window still needs this outer bound (PR 708 review #1, guardSpan).
 	PodsRangeLimit time.Duration
 	// MaxScanFiles / MaxScanBytes are the §2.3.2 cost layer
 	// (PROFILER_MAX_SCAN_FILES / PROFILER_MAX_SCAN_BYTES).

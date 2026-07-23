@@ -129,27 +129,51 @@ func (s *Store) quarantinePodRestart(ctx context.Context, key PodRestartKey, cau
 }
 
 // reconcileParquetLocal implements 03-lifecycle.md §3.6 step 10 (second half):
-// a parquet_local row whose file is missing on disk is cleared, releasing the
-// segment refs it pinned, so the bucket re-seals its rows; a sealed FILE with
-// no catalog row — a crash between the №6 rename and the pass commit — is
-// removed, because its rows re-seal from the watermark and normally reproduce
-// the same name, but a dictionary grown between the passes can shift a row's
-// class and leave the old name orphaned forever. (Rebuilding parquet_local
-// from orphan files' footers — the §3.2 step-4 repair — is not implemented
-// yet; see the Stage 1 open issues.)
+// a parquet_local row whose file is missing on disk is reconciled by upload
+// state. An UPLOADED file's data is durable in S3 (the hot-retention janitor
+// dropped the local copy and crashed before the row), so the row is just
+// cleared. A PENDING file was lost in the seal-commit-to-upload window (QA
+// 708#2): clearing it alone would strand its calls below the seal watermark
+// forever — durable data loss — so recovery first rewinds the bucket watermark
+// to the pass that produced it, re-exposing its calls for a re-seal, then drops
+// the row (both in one transaction). A sealed FILE with no catalog row — a crash
+// between the №6 rename and the pass commit — is removed, because its rows
+// re-seal from the watermark and normally reproduce the same name, but a
+// dictionary grown between the passes can shift a row's class and leave the old
+// name orphaned forever. (Rebuilding parquet_local from orphan files' footers —
+// the §3.2 step-4 repair — is not implemented yet; see the Stage 1 open issues.)
 func (s *Store) reconcileParquetLocal(ctx context.Context) error {
-	paths, err := s.db.ParquetLocalPaths()
+	rows, err := s.db.ParquetLocalReconcile()
 	if err != nil {
 		return err
 	}
-	catalogued := make(map[string]struct{}, len(paths))
-	for _, path := range paths {
-		catalogued[path] = struct{}{}
-		if _, err := os.Stat(path); err == nil {
+	catalogued := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		catalogued[row.Path] = struct{}{}
+		if _, err := os.Stat(row.Path); err == nil {
 			continue
 		}
-		log.Warning(ctx, "sealed parquet %s is missing on disk; clearing its catalog row", path)
-		if err := s.db.DropParquetLocal(path); err != nil {
+		if row.Uploaded {
+			// The parquet reached S3; the hot-retention janitor removed the local
+			// copy and crashed before deleting the row (upload never deletes the
+			// file — MarkUploaded only sets uploaded_at). The data is durable in
+			// the cold tier, so drop the row without a re-seal.
+			log.Warning(ctx, "uploaded parquet %s is missing on disk; its data is durable in S3, dropping the catalog row", row.Path)
+			if err := s.db.DropParquetLocal(row.Path); err != nil {
+				return err
+			}
+			continue
+		}
+		// The loss window (QA 708#2): a pending file vanished before it reached
+		// S3. Rewind the bucket's seal watermark to the pass that produced it so
+		// its source calls re-seal into a replacement, then drop the dead row —
+		// atomically, so a crash cannot strand the calls below the watermark.
+		// Segments survive the reseal: once the watermark trails these calls,
+		// HasUnsealedCalls pins them against eviction and partition drop.
+		bucket := row.TimeBucketMs / s.cfg.TimeBucket.Milliseconds()
+		log.Warning(ctx, "pending parquet %s is missing on disk before upload; rewinding %s bucket %d seal watermark to %d so its calls re-seal (03 §3.6)",
+			row.Path, row.PodRestart, bucket, row.WalOffsetLo)
+		if err := s.db.RecoverLostPendingParquet(row.Path, row.PodRestart, bucket, row.WalOffsetLo); err != nil {
 			return err
 		}
 	}

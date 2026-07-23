@@ -154,6 +154,10 @@ maintain:
   env: {}
   securityContext: {}
   containerSecurityContext: {}
+  # Compaction peaks at two copies of one compacted object in memory, so the
+  # limit must clear 4 x PROFILER_COMPACTION_MAX_BYTES (default 96 MiB) =
+  # 384 MiB — see libs/maintain MemoryBudgetMultiplier. 1Gi holds that with a
+  # ~2.7x margin; raise it together with PROFILER_COMPACTION_MAX_BYTES.
   resources:
     requests:
       cpu: 100m
