@@ -9,6 +9,7 @@ package hotstore
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,8 @@ func TestRejectedManifestKeepsPodPendingAndRecovers(t *testing.T) {
 	require.Len(t, files, 1)
 	assert.Nil(t, files[0].UploadedAtMs, "uploaded_at must stay NULL until the manifest is durable")
 	require.NotNil(t, files[0].UploadFailedAtMs, "the bundle is visibly quarantined, not silently done")
+	require.NotNil(t, files[0].BodyDurableAtMs,
+		"the body is confirmed in S3: body_durable_at is stamped so the re-test skips the body PUT (#825)")
 	assert.Equal(t, sealedPath, files[0].Path, "the durable parquet is not moved; only its queue state changes")
 	pending, err := store.db.HasPendingParquet(key.String())
 	require.NoError(t, err)
@@ -143,6 +146,8 @@ func TestRejectedManifestKeepsPodPendingAndRecovers(t *testing.T) {
 	assert.EqualValues(t, 1, stats.RequeuedFiles, "the slow re-test re-queues the quarantined bundle")
 	assert.EqualValues(t, 1, stats.UploadedFiles, "once the manifest is durable the bundle completes")
 	assert.EqualValues(t, 1, stats.ManifestPuts, "the manifest is written on the recovery pass")
+	assert.EqualValues(t, 1, s3.parquetPuts.Load(),
+		"the re-test retries only the manifest: the durable body is never re-PUT (#825)")
 
 	files, err = store.db.LocalParquet(key.String())
 	require.NoError(t, err)
@@ -246,4 +251,71 @@ func TestStuckManifestAgesOutOnFirstFailure(t *testing.T) {
 	q, err = store.QuarantineStats()
 	require.NoError(t, err)
 	assert.Zero(t, q.ParquetCount, "the aged-out bundle leaves the quarantine")
+}
+
+// TestStuckManifestDoesNotRePutSiblingBodies pins the #825 amplification: the
+// manifest couples every sibling file of the same (pod-restart, day), so a
+// single stuck manifest used to re-PUT the whole day's parquet bodies on every
+// re-test interval. With body_durable_at recorded, each body is PUT exactly
+// once and the re-test carries only the manifest. Dropping the body_durable_at
+// skip re-PUTs both bodies on each re-test and fails the parquetPuts assertion.
+func TestStuckManifestDoesNotRePutSiblingBodies(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{
+		DataDir:                  t.TempDir(),
+		UploadRetryAttempts:      1,
+		UploadRetryBaseDelay:     time.Millisecond,
+		QuarantineRetestInterval: time.Millisecond,
+		HotRetention:             time.Minute,
+	})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	s3 := &manifestRejectingStore{}
+	s3.rejectManifest.Store(true)
+	uploader := NewUploader(store, s3)
+
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-sib", RestartTimeMs: janitorCallTs}
+	require.NoError(t, store.db.UpsertPodRestart(key, janitorCallTs))
+	require.NoError(t, store.db.ClosePodRestart(key, janitorCallTs))
+
+	bucket := store.cfg.Bucket(janitorCallTs)
+	bucketStart := store.cfg.BucketStartMs(bucket)
+	// Two sibling files of the same pod-restart and UTC day: one manifest covers
+	// both, so a rejected manifest quarantines both.
+	const siblings = 2
+	for seq := 0; seq < siblings; seq++ {
+		sealedPath := filepath.Join(store.cfg.DataDir, fmt.Sprintf("sealed-sib-%d.parquet", seq))
+		require.NoError(t, os.WriteFile(sealedPath, []byte("parquet"), 0o644))
+		require.NoError(t, store.db.RecordSealedFile(parquetLocalRow{
+			Path: sealedPath, PodRestart: key.String(), TimeBucketMs: bucketStart,
+			RetentionClass: RetentionShortClean, Seq: seq, RowCount: 1,
+			TimeMinMs: janitorCallTs, TimeMaxMs: janitorCallTs + 1, FileSize: 7, SealedAtMs: janitorCallTs,
+			S3Key: fmt.Sprintf("parquet/v1/short_clean/x/sealed-sib-%d.parquet", seq),
+		}, nil))
+	}
+
+	// Pass 1: both bodies PUT, the shared manifest is rejected, both quarantine.
+	_, err = uploader.Pass(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, siblings, s3.parquetPuts.Load(), "pass 1 PUTs each sibling body once")
+
+	// Two re-test cycles while the manifest stays rejected: the bodies are never
+	// re-PUT — only the manifest is retried.
+	for i := 0; i < 2; i++ {
+		time.Sleep(2 * time.Millisecond)
+		_, err = uploader.Pass(ctx)
+		require.NoError(t, err)
+		assert.EqualValues(t, siblings, s3.parquetPuts.Load(),
+			"a stuck manifest never re-PUTs the day's parquet bodies on re-test (#825)")
+	}
+
+	// The rejection heals: the final re-test writes the manifest and completes
+	// both bundles, still without re-PUTting either body.
+	s3.rejectManifest.Store(false)
+	time.Sleep(2 * time.Millisecond)
+	stats, err := uploader.Pass(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, siblings, stats.UploadedFiles, "both bundles complete once the manifest is durable")
+	assert.EqualValues(t, siblings, s3.parquetPuts.Load(), "recovery still never re-PUTs a durable body")
 }
