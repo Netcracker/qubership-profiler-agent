@@ -299,6 +299,40 @@ func TestFastPurgeGates(t *testing.T) {
 	})
 }
 
+// TestFastPurgeRechecksPendingParquet pins the seal-commit race close: a pending
+// (sealed but not-yet-uploaded) parquet_local row must block the fast path even
+// when HasUnsealedCalls is already false. That is the state a seal pass leaves —
+// CommitSealPass inserts the pending row and advances the watermark atomically —
+// if it commits between purgeWals's early HasPendingParquet gate and fastPurge.
+// Deleting calls.wal here would strand the file's re-seal if the pending file
+// were later lost, so fastPurge rechecks the gate after HasUnsealedCalls.
+func TestFastPurgeRechecksPendingParquet(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir(), WalPurgeFastMaxBytes: 1 << 20})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-race", RestartTimeMs: janitorCallTs}
+	pr, _ := seedFastPurgeCandidate(t, store, key, "w")
+	bucket := store.cfg.Bucket(janitorCallTs)
+
+	// A second sealed file recorded but not uploaded: the pending row a committed
+	// seal pass leaves behind. Its watermark already covers the one indexed call,
+	// so HasUnsealedCalls stays false and only the pending recheck can catch this.
+	seedSealedFile(t, store, pr.Key, bucket, 1)
+	pending, err := store.db.HasPendingParquet(pr.Key.String())
+	require.NoError(t, err)
+	require.True(t, pending)
+	unsealed, err := store.db.HasUnsealedCalls(pr.Key.String())
+	require.NoError(t, err)
+	require.False(t, unsealed, "the watermark already covers the indexed call")
+
+	ok, err := store.fastPurge(ctx, pr.Key, pr.Key.String(), pr.dir)
+	require.NoError(t, err)
+	assert.False(t, ok, "a live pending parquet must defer the fast purge")
+	assert.FileExists(t, filepath.Join(pr.dir, "dictionary.wal"), "the WAL set survives while an upload is owed")
+}
+
 // TestFastPurgeCrashRetryConverges pins the step-18a idempotence: a purge that
 // crashed after the backfill and the WAL deletion but before SetWalsPurged
 // re-runs to completion — the size check reads a missing directory as zero,
