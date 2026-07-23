@@ -84,16 +84,28 @@ func spanText(span int64, overflow bool) string {
 
 // guardSpan is layer 1 (02 §2.3.2): a window wider than the limit with no
 // file-pruning filter is rejected before any I/O — the discovery LIST for
-// such a query is itself the cost being avoided.
-func (s *Service) guardSpan(q model.CallsQuery, limit time.Duration) *guardRejection {
+// such a query is itself the cost being avoided. A file-pruning filter exempts
+// the query from wideLimit, but a pod filter prunes rows inside already-listed
+// files, not the discovery LIST prefixes: cold discovery still walks every hour
+// prefix in the window (cold/discovery.go), so a pod-filtered query stays bound
+// by the more generous podLimit (PROFILER_MAX_PODS_RANGE) — the same span cap
+// /pods uses (guardPodsSpan) — and is rejected before the LIST fans out across
+// the whole interval (PR 708 review #1, defeating the span guard with a `pod`).
+func (s *Service) guardSpan(q model.CallsQuery, wideLimit, podLimit time.Duration) *guardRejection {
 	span, overflow := windowSpanMs(q.FromMs, q.ToMs)
-	if (!overflow && span <= limit.Milliseconds()) || s.hasNarrowingFilter(q) {
+	if !overflow && span <= wideLimit.Milliseconds() {
+		return nil
+	}
+	if s.hasNarrowingFilter(q) {
+		if len(q.Pods) > 0 {
+			return guardPodsSpan(q.FromMs, q.ToMs, podLimit)
+		}
 		return nil
 	}
 	return &guardRejection{
 		Layer: guardLayerSpan,
 		Detail: fmt.Sprintf("time span %s exceeds PROFILER_WIDE_RANGE_LIMIT %s and no file-pruning filter is present",
-			spanText(span, overflow), limit),
+			spanText(span, overflow), wideLimit),
 		SuggestedFilters: suggestedFilters(q),
 	}
 }

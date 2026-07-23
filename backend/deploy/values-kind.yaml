@@ -50,7 +50,11 @@ maintain:
       memory: 64Mi
     limits:
       cpu: "1"
-      memory: 256Mi
+      # Compaction buffers up to two copies of one compacted object at its
+      # peak, so the limit must clear MemoryBudgetMultiplier (4) x the 96 MiB
+      # PROFILER_COMPACTION_MAX_BYTES default = 384 MiB. 768Mi keeps 2x of
+      # that headroom on the CI stand (libs/maintain MemoryBudgetMultiplier).
+      memory: 768Mi
 
 minio:
   enabled: true

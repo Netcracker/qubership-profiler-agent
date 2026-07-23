@@ -114,6 +114,8 @@ The per-call trace blobs (§4) embed `method_id` and `param_id` references that 
 
 **Pod-restart manifest (S3).** Cold `/pods` (`02-read-contract.md` §2.7) lists the `(namespace, service, pod, restart_time)` tuples with data in a range, but a parquet key carries only `<podRestartHash>`, a one-way hash, so the readable identity cannot be recovered from a LIST. The collector closes the gap with a small manifest — the one snapshot object that remains. For each UTC day a pod-restart seals a bucket into, it writes or refreshes `s3://<bucket>/pods/v1/<yyyy>/<mm>/<dd>/<podRestartHash>.json` = `{ namespace, service, pod, restart_time_ms, timer_start_ms, replica, time_min_ms, time_max_ms }`. Emission is idempotent per `(day, pod-restart)`: the first seal for the day writes it, later seals refresh `time_max_ms`. A pod-restart that spans several days gets one manifest per day it holds data in, so a range query finds it in the day prefixes it already walks (`02-read-contract.md` §5.1), with no widened walk. Live pod-restarts surface from the hot tier (`/internal/v1/pods`), so cold `/pods` over a range is `LIST(pods/v1/<days>)` unioned with the hot replicas. `PROFILER_RETENTION_PODS_TTL` (§9) covers its retention and must exceed the longest parquet class TTL, so a readable row never outlives the manifest naming its pod-restart.
 
+**Completion couples to the manifest.** A pod-restart's sealed parquet is not marked complete until that UTC day's manifest is durable in S3. The manifest is the only cold source of the readable identity behind the one-way `<podRestartHash>`, so completing the parquet while the manifest is missing would leave a cold call that discovery finds by time range but can never name (namespace/service/pod), breaking `/pods` and its filters once the hot tier expires. On a permanent manifest rejection (a 4xx, §8) the collector therefore keeps the manifest body in `upload-failed/` for a human AND quarantines the parquet (`parquet_local.uploaded_at` stays NULL) rather than marking it uploaded: the pod-restart stays discoverable in the hot tier and its WAL purge waits (`03-lifecycle.md` §3.9), and the §8 slow re-test retries the manifest on the quarantine cadence until S3 accepts it — a "permanent" rejection here is typically operational (bucket policy, expired credentials) and heals. A genuinely stuck manifest is bounded by the same quarantine cap as parquet (§8): the cap's age arm and the stuck-quarantine metric measure the immutable *first*-failure time (`parquet_local.first_failed_at`, stamped once and never reset by the re-test), so a manifest that never heals ages out after `PROFILER_QUARANTINE_MAX_AGE` and the bundle is dropped with its loss recorded, rather than pinning WAL/partition/RAM behind an `upload_failed_at` the re-test refreshes every interval.
+
 ### 3.7 Reconnect continuity
 
 A dropped agent connection never heals in place: the agent tears its dumper down to `initialize()` (`lastWrittenDictionaryTag = 0`) and reconnects, re-sending the whole dictionary from index 0 with the reset flag set (`resetRequired = 1`). Each reconnect is a new TCP accept, so the collector stamps a fresh `restartTime` and treats it as a new, independent pod-restart. Because the agent re-sends the full dictionary, that pod-restart is self-contained — the replica that receives it is never dictionary-less, even when it differs from the one that held the previous connection, and replicas need not share dictionary state. The `resetRequired = 1` flag is what tells the collector the incoming dictionary starts from index 0. This is why the collector-stamped `restartTime` at TCP accept (§1 V4) is safe: reconnect does not need cross-connection continuity.
@@ -461,7 +463,9 @@ Why date in the path even though `ts_ms` is in the file: query needs to LIST eff
           long_clean-0.parquet
           any_error-0.parquet
           corrupted-0.parquet
-  upload-failed/             # parquet that S3 rejected and needs human attention
+  upload-failed/             # parquet (and manifests/snapshots) that S3 rejected and need human attention
+    parquet/v1/<class>/...   # a rejected parquet keeps its full S3-key path here, so two classes' same-named files never collide
+    pods/v1/...              # rejected manifest/snapshot bodies mirror their S3 key the same way
     ...
   collector.lock             # exclusive PV ownership (one collector replica)
   metadata.sqlite            # segment catalog, refcounts, seal watermarks, upload checkpoints, call-partition catalog
@@ -508,7 +512,7 @@ A hard kill makes the lock visible during recovery: the dying process's flock ca
 | `PROFILER_MAINTAIN_CHECK_INTERVAL` | `5m` | Poll cadence of the `maintain` loop. |
 | `PROFILER_COMPACTION_MIN_AGE` | `30m` | Minimum age of a sealed object before it is eligible for compaction (§6.6). |
 | `PROFILER_COMPACTION_MIN_FILES` | `4` | Minimum objects in a group before `maintain` compacts it (§6.6). |
-| `PROFILER_COMPACTION_MAX_BYTES` | `256MB` | Target ceiling for a compacted object: a group over it is split into sub-budget objects, and a single object already over it is left as is (§6.6). |
+| `PROFILER_COMPACTION_MAX_BYTES` | `96MB` | Target ceiling for a compacted object: a group over it is split into sub-budget objects, and a single object already over it is left as is (§6.6). Also bounds the maintain job's peak memory — the container limit must clear 4× this value (`libs/maintain` `MemoryBudgetMultiplier`). |
 | `S3_ENDPOINT` | — | MinIO/S3 endpoint URL. |
 | `S3_BUCKET` | — | Target bucket. |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials from the environment. For each credential, set exactly one source: the env form or the `*_FILE` form below. |

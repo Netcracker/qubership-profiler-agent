@@ -170,7 +170,7 @@ A `/calls` query over a wide window with no file-pruning filter is the one shape
 
 The exemption check runs the same class derivation discovery uses, so a filter that would leave the LIST plan untouched never buys an exemption. `method` and `params` do **not** exempt: they filter rows inside already-listed files (§5.4), so they cut the result, not the scan.
 
-**Layer 1 — span.** If `to - from > PROFILER_WIDE_RANGE_LIMIT` (default `6h`) and none of the narrowing filters above is present, reject with `400`. This layer needs no I/O, so it stops the pathological wide-open query before the discovery LIST that layer 2 depends on — a multi-day range is itself thousands of serial LIST round-trips (§5.5).
+**Layer 1 — span.** If `to - from > PROFILER_WIDE_RANGE_LIMIT` (default `6h`) and none of the narrowing filters above is present, reject with `400`. This layer needs no I/O, so it stops the pathological wide-open query before the discovery LIST that layer 2 depends on — a multi-day range is itself thousands of serial LIST round-trips (§5.5). A `pod` filter exempts the query from `PROFILER_WIDE_RANGE_LIMIT` but not from every bound: `pod` prunes rows inside already-listed files, not the discovery LIST prefixes (§5.1), so cold discovery still walks every hour prefix in the window. A pod-filtered `/calls` window is therefore capped at `PROFILER_MAX_PODS_RANGE` (§2.7) — the same span bound `/pods` uses — and is rejected here, before the LIST fans out across the interval, when it exceeds that cap.
 
 **Layer 2 — estimated scan.** For a query that clears layer 1, the discovery LIST (§5.1) already returns, per candidate object, its size and — from the key — its `retention_class`. Summing these gives `(file_count, total_bytes)` for the whole scan with no extra request and no file opened. If `file_count > PROFILER_MAX_SCAN_FILES` or `total_bytes > PROFILER_MAX_SCAN_BYTES`, reject with `400` before reading. The two limits map to the two cost axes of §5.5: object count bounds LIST and GET round-trips, byte total bounds decode-and-scan volume. Both are needed — many tiny files pass a byte limit but not a file limit, and a few large files the reverse.
 
@@ -252,8 +252,8 @@ Accept: application/x-msgpack
 
 200 OK
 Content-Type: application/x-msgpack
-ETag: <hash-of-PK>
-Cache-Control: public, max-age=31536000, immutable
+ETag: <validator>               # cold: <hash-of-PK>; hot: <hash-of-body>
+Cache-Control: <cache-policy>   # cold: public, max-age=31536000, immutable; hot: no-cache
 Content-Encoding: gzip          # transparent if client supports it
 
 body — MessagePack-encoded Map<int, value>:
@@ -266,6 +266,8 @@ body — MessagePack-encoded Map<int, value>:
 ```
 
 The `methods` and `params` arrays carry only strings that this specific tree references — not the entire pod-restart dictionary. The response is self-contained; no separate dictionary fetch is required for this path.
+
+The cache policy splits by tier (reports2 #5). A sealed cold tree is immutable per PK, so it keeps the PK-hash ETag and the one-year immutable cache. A live hot tree is still growing — its dictionary, big-parameter values, and suspend timeline change while the pod runs — so it returns a body-hash ETag with `Cache-Control: no-cache`; the client revalidates on every use and gets a 304 only while the tree is byte-for-byte unchanged.
 
 #### 2.5.3 Field tag tables
 
@@ -630,7 +632,7 @@ write-contract follow-up, not part of this mechanism.
 **Sizing.** `budget ≤ (pod memory limit − baseline RSS) / overhead factor`, with the overhead factor ≈ 2 covering
 the out-of-ledger items above. The default (512 MB) fits the default 2 Gi query pod with a ~256 MiB baseline.
 Structural fit is bounded by the write side: sealed files split at `PROFILER_PARQUET_MAX_SIZE` (64 MB compressed,
-`01-write-contract.md` §9) and compacted objects at `PROFILER_COMPACTION_MAX_BYTES` (256 MiB compressed), and only
+`01-write-contract.md` §9) and compacted objects at `PROFILER_COMPACTION_MAX_BYTES` (96 MiB compressed), and only
 single batches and single pages of them must fit — so `never_fits` at the default budget indicates a
 misconfiguration, not expected operation.
 
@@ -643,7 +645,7 @@ RFC 7807 Problem Details for actual errors (parameter validation, internal, down
 | 400 | Query parameter validation failed. |
 | 400 | Wide query over `PROFILER_WIDE_RANGE_LIMIT` with no narrowing filter (§2.3.2, span layer). |
 | 400 | Estimated scan over `PROFILER_MAX_SCAN_FILES` or `PROFILER_MAX_SCAN_BYTES` (§2.3.2, cost layer). |
-| 400 | `/pods` window over `PROFILER_MAX_PODS_RANGE` (§2.7). |
+| 400 | `/pods` window, or a pod-filtered `/calls` window, over `PROFILER_MAX_PODS_RANGE` (§2.7, §2.3.2). |
 | 404 | PK not found, or `trace_blob = NULL` (blob endpoint). |
 | 503 | `query` itself is not Ready (e.g., DNS discovery uninitialized). |
 | 503 | Read memory budget denied the request (§7.5) — atomic, with `Retry-After`; the body carries the guard-dialect members below and a detail naming the reason (`exhausted` vs `never_fits`). |
@@ -680,7 +682,7 @@ Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`
 | `PROFILER_S3_LIST_CONCURRENCY` | `16` | Parallel S3 LIST cap (§5.2). |
 | `PROFILER_CURSOR_TTL` | `15m` | Validity of a `/calls` pagination cursor (§2.3.1). |
 | `PROFILER_WIDE_RANGE_LIMIT` | `6h` | Span above which `/calls` requires a narrowing filter (§2.3.2). |
-| `PROFILER_MAX_PODS_RANGE` | `8784h` (366 d) | Span above which `/pods` is rejected with `400`; `/pods` lists one S3 prefix per UTC day and has no narrowing filter (§2.7). |
+| `PROFILER_MAX_PODS_RANGE` | `8784h` (366 d) | Span above which `/pods` is rejected with `400`; `/pods` lists one S3 prefix per UTC day and has no narrowing filter (§2.7). Also caps a pod-filtered `/calls` window, which a `pod` filter exempts from `PROFILER_WIDE_RANGE_LIMIT` but not from the discovery-LIST fan-out (§2.3.2); lower it below the default if that fan-out — one LIST per hour prefix per class across the window — is the cost you want to bound. |
 | `PROFILER_MAX_SCAN_FILES` | `10000` | Candidate-object ceiling for a `/calls` scan; over it, `400` (§2.3.2). |
 | `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling for a `/calls` scan; over it, `400`. Counts compressed object bytes, per request; size it for the widest single query the deployment allows — the pod is sized from the §7.5 budget, not from this guard. |
 | `PROFILER_READ_MEMORY_BUDGET` | `512MB` | Process-wide read memory budget (§7.5): every reader charges materialized bytes against it. Size ≤ (pod limit − baseline) / overhead factor (≈2). |

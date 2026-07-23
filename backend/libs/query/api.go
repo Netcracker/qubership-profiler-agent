@@ -137,7 +137,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 	// (PR 708 review #2). A cursor we minted for a query that already passed on
 	// page 1 re-passes here — the window is identical — so honest pagination is
 	// unaffected; guardCost runs after cold discovery below on the same footing.
-	if rej := s.guardSpan(q, s.cfg.WideRangeLimit); rej != nil {
+	if rej := s.guardSpan(q, s.cfg.WideRangeLimit, s.cfg.PodsRangeLimit); rej != nil {
 		return s.sendGuardRejection(c, rej)
 	}
 

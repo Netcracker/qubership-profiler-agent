@@ -88,7 +88,15 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 
 	case model.StreamCalls:
 		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
-			for item := range pipe.CallsPipeReader(ctx, pipe.NewPipeReader(src, false)) {
+			// Like the dictionary below: the reader tells a clean EOF from a torn
+			// or corrupt stream, so return its terminal error. That surfaces the
+			// bad stream — a DecoderErrors bump plus a log, and ACK_ERROR when the
+			// corruption is caught inline before end-of-stream — instead of the
+			// stream being silently accepted (reports2#3, 06 §6). A tail truncated
+			// at disconnect is still ACK_OK'd; the tear shows up only later at
+			// finalize, as the counter and log.
+			rd := pipe.NewPipeReader(src, false)
+			for item := range pipe.CallsPipeReader(ctx, rd) {
 				if err := pr.AppendCall(item.Time.UnixMilli(), item.Call); err != nil {
 					// №2: swallowing a write failure here (ENOSPC on calls.wal
 					// being the canonical case) silently loses calls. Failing the
@@ -97,7 +105,7 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 					return errors.Wrapf(err, "index call of %v", pr.Key)
 				}
 			}
-			return nil
+			return rd.Err()
 		}), nil
 
 	case model.StreamDictionary:
@@ -126,7 +134,14 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 
 	case model.StreamParams:
 		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
-			for item := range pipe.ParamsPipeReader(ctx, pipe.NewPipeReader(src, false)) {
+			// Like the dictionary above: return the reader's terminal error so a
+			// torn or corrupt params stream is surfaced — a DecoderErrors bump
+			// plus a log, and ACK_ERROR when the corruption is caught inline
+			// before end-of-stream — rather than silently accepted (reports2#3).
+			// A tail truncated at disconnect is still ACK_OK'd; the tear shows up
+			// only later at finalize, as the counter and log.
+			rd := pipe.NewPipeReader(src, false)
+			for item := range pipe.ParamsPipeReader(ctx, rd) {
 				err := pr.AppendParam(hotstore.ParamRecord{
 					Name: item.Name, IsIndex: item.IsIndex, IsList: item.IsList,
 					Order: item.Order, Signature: item.Signature,
@@ -138,12 +153,19 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 					return errors.Wrapf(err, "append param of %v", pr.Key)
 				}
 			}
-			return nil
+			return rd.Err()
 		}), nil
 
 	case model.StreamSuspend:
 		return pi.startDecoder(ctx, streamType, nil, func(src io.Reader) error {
-			for item := range pipe.SuspendPipeReader(ctx, pipe.NewPipeReader(src, false)) {
+			// Like the dictionary above: return the reader's terminal error so a
+			// torn or corrupt suspend stream is surfaced — a DecoderErrors bump
+			// plus a log, and ACK_ERROR when the corruption is caught inline
+			// before end-of-stream — rather than silently accepted (reports2#3).
+			// A tail truncated at disconnect is still ACK_OK'd; the tear shows up
+			// only later at finalize, as the counter and log.
+			rd := pipe.NewPipeReader(src, false)
+			for item := range pipe.SuspendPipeReader(ctx, rd) {
 				if err := pr.AppendSuspend(item.Time.UnixMilli(), item.Amount); err != nil {
 					// Like the dictionary above (finding 3): a pause missing
 					// from suspend.wal silently understates suspend_ms, so
@@ -151,7 +173,7 @@ func (pi *podIngest) openFile(ctx context.Context, streamType string, agentFileI
 					return errors.Wrapf(err, "append suspend of %v", pr.Key)
 				}
 			}
-			return nil
+			return rd.Err()
 		}), nil
 
 	case model.StreamGc:

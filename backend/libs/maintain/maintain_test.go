@@ -340,6 +340,54 @@ func TestCompactionLifecycle(t *testing.T) {
 	assert.Equal(t, []string{outKey}, store.keys())
 }
 
+// TestCompactionOutputIndependentOfBudget pins the OOM fix (QA 708#4) as a
+// memory-only change: lowering MaxGroupBytes does not alter the compacted
+// bytes as long as the whole group still fits one subgroup. Two jobs merge
+// the same inputs under the old 256 MiB budget and the new 96 MiB default and
+// must write a byte-identical compacted object.
+func TestCompactionOutputIndependentOfBudget(t *testing.T) {
+	ctx := context.Background()
+	base := testBucketStart.UnixMilli()
+	seeded := time.Now().Add(-2 * time.Hour)
+
+	seed := func(store *fakeStore) {
+		seedParquet(t, store, model.RetentionNormalClean, testBucketStart, "collector-0", "aaaa1111", 0, seeded,
+			[]storageparquet.CallV2{testRow("pod-a", 1000, base+4_000, 1, model.RetentionNormalClean)})
+		seedParquet(t, store, model.RetentionNormalClean, testBucketStart, "collector-1", "bbbb2222", 0, seeded,
+			[]storageparquet.CallV2{testRow("pod-b", 2000, base+7_000, 3, model.RetentionNormalClean)})
+		seedParquet(t, store, model.RetentionNormalClean, testBucketStart, "collector-0", "cccc3333", 0, seeded,
+			[]storageparquet.CallV2{testRow("pod-c", 3000, base+9_500, 4, model.RetentionNormalClean)})
+	}
+
+	compactedBody := func(maxBytes int64) []byte {
+		store := newFakeStore()
+		seed(store)
+		job := NewJob(store, Config{
+			TimeBucket:    5 * time.Minute,
+			MinAge:        30 * time.Minute,
+			MinFiles:      3,
+			DeleteGrace:   5 * time.Minute,
+			MaxGroupBytes: maxBytes,
+		})
+		stats, err := job.Pass(ctx, time.Now())
+		require.NoError(t, err)
+		require.Equal(t, 1, stats.CompactedGroups, "the group fits one subgroup at this budget")
+		var body []byte
+		for _, key := range store.keys() {
+			if strings.Contains(key, "/"+producerToken+"-") {
+				store.mu.Lock()
+				body = append([]byte(nil), store.objects[key].data...)
+				store.mu.Unlock()
+			}
+		}
+		require.NotEmpty(t, body, "compacted object present")
+		return body
+	}
+
+	assert.Equal(t, compactedBody(256<<20), compactedBody(96<<20),
+		"lowering the budget is memory-only: identical inputs yield identical compacted bytes")
+}
+
 // TestCompactionSkipsUnsettledAndSmallGroups pins the two 01 §6.6 guards: a
 // bucket younger than its end + MinAge is left alone however many files it
 // holds, and a settled bucket below MinFiles is not worth a rewrite.

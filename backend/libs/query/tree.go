@@ -342,9 +342,24 @@ func (s *Service) handleCallTree(c echo.Context) error {
 	body := calltree.Encode(tree)
 
 	h := c.Response().Header()
-	h.Set("ETag", pkETag(pk))
-	h.Set("Cache-Control", "public, max-age=31536000, immutable")
-	if c.Request().Header.Get("If-None-Match") == pkETag(pk) {
+	var etag string
+	if fetch.replicaURL != "" {
+		// A live pod-restart's tree is not immutable per PK (reports2 #5): its
+		// dictionary, big-parameter values, and suspend timeline all keep
+		// growing while the pod runs, so an early or placeholder-filled tree
+		// must not sit in a browser or CDN for a year. The encoded body folds
+		// in every live input, so its hash is a validator that changes whenever
+		// the tree does; pair it with no-cache so clients always revalidate.
+		etag = bodyETag(body)
+		h.Set("Cache-Control", "no-cache")
+	} else {
+		// A sealed cold row is self-contained and immutable per PK (§2.4), so
+		// the PK hash validates it and the long immutable cache is correct.
+		etag = pkETag(pk)
+		h.Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	h.Set("ETag", etag)
+	if c.Request().Header.Get("If-None-Match") == etag {
 		return c.NoContent(http.StatusNotModified)
 	}
 	// Content-Encoding: gzip rides on the per-route middleware (§2.5.5).
@@ -389,5 +404,15 @@ func (s *Service) hotBigValues(ctx context.Context, baseURL string, tuple model.
 // PK, so the same tag serves both endpoints.
 func pkETag(pk model.PK) string {
 	sum := sha256.Sum256([]byte(pk.PathString()))
+	return `"` + hex.EncodeToString(sum[:8]) + `"`
+}
+
+// bodyETag hashes the encoded tree itself. A live tree is not immutable per PK,
+// so its validator has to move with its live inputs (dictionary, big-parameter
+// values, suspend timeline); the encoded body already reflects all of them, so
+// two states of the same PK hash differently and a browser or CDN revalidates
+// to the current bytes.
+func bodyETag(body []byte) string {
+	sum := sha256.Sum256(body)
 	return `"` + hex.EncodeToString(sum[:8]) + `"`
 }

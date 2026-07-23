@@ -143,7 +143,7 @@ func TestMaintainDefaults(t *testing.T) {
 	// The delete grace must stay well above one discovery-plus-read round
 	// (01 §6.6); 5m is the contract default (01 §9).
 	assert.Equal(t, 5*time.Minute, m.CompactionDeleteGrace)
-	assert.Equal(t, ByteSize(256<<20), m.CompactionMaxBytes)
+	assert.Equal(t, ByteSize(96<<20), m.CompactionMaxBytes)
 
 	// Unset TTLs resolve to the tier-table defaults (№10): the classification
 	// thresholds, the read pruning, and the TTLs share ONE source, so this

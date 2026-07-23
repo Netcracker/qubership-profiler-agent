@@ -239,6 +239,13 @@ func (s *Store) Seal(ctx context.Context, key PodRestartKey, bucket int64) (Seal
 		return SealResult{}, err
 	}
 
+	// Stamp each file with the pass's start watermark. If a pending file is
+	// lost before upload, recovery rewinds the bucket watermark to exactly this
+	// offset to re-seal the file's calls (metadata.go RecoverLostPendingParquet).
+	for i := range commits {
+		commits[i].row.WalOffsetLo = watermark
+	}
+
 	// Advance the watermark to the first uncovered calls.wal offset: a late
 	// Call appends past it and re-marks the bucket for a patch seal (§6.6).
 	newWatermark := watermark

@@ -14,6 +14,35 @@ const (
 	producerToken = "maintain"
 	// parquetPrefix roots every sealed-file key (01 §7).
 	parquetPrefix = "parquet/v1"
+
+	// MemoryBudgetMultiplier is the invariant between the compaction job's
+	// container memory limit and MaxGroupBytes:
+	//
+	//	container memory limit >= MemoryBudgetMultiplier * MaxGroupBytes
+	//
+	// The compaction of one subgroup holds two full copies of the compacted
+	// body in memory at its peak, and the Go runtime needs room to churn them.
+	// Let B = MaxGroupBytes. splitByBudget caps a subgroup's summed input
+	// bytes at B, and the compacted output re-compresses that same row set
+	// under one shared dictionary, so the output body S is no larger than the
+	// inputs: S <= B. At the peak, inside the writer's Close:
+	//
+	//   - the parquet writer holds the whole compacted row group as compressed
+	//     pages (~S), because a merge writes one row group and parquet-go frees
+	//     a row group's pages only after Close;
+	//   - Close serializes those pages into the output buffer (~S), which the
+	//     PUT then reads to send the Content-MD5 the write contract requires
+	//     (01 §6.2) — a known-size single PUT, not a streaming multipart one;
+	//   - the input read-ahead (one mergeBatchRows batch per open input) and
+	//     the per-input footers add tens of MiB, well under one B.
+	//
+	// Live output buffers therefore reach ~2*S <= 2*B, and with the default
+	// GOGC=100 the heap may grow to ~2x the live set before a collection, so
+	// worst-case RSS approaches 4*B. Hence the 4x floor (for the 96 MiB
+	// default, 4 * 96 MiB = 384 MiB). A deployment that raises
+	// PROFILER_COMPACTION_MAX_BYTES must raise the maintain container limit to
+	// match, or compaction OOM-kills on the first oversized group.
+	MemoryBudgetMultiplier = 4
 )
 
 type (
@@ -41,10 +70,18 @@ type (
 		// read them one discovery-plus-read round later.
 		DeleteGrace time.Duration
 		// MaxGroupBytes is the target ceiling for a compacted object: a group
-		// over it is split into sub-budget objects by a streaming k-way merge
-		// (one read-ahead batch per input, never the whole group in RAM), and
-		// a single input already over it is left uncompacted, which readers
-		// tolerate.
+		// over it is split into sub-budget objects (splitByBudget caps each
+		// subgroup's summed input bytes at MaxGroupBytes), and a single input
+		// already over it is left uncompacted, which readers tolerate.
+		//
+		// It also bounds the compaction job's peak memory, so the container
+		// limit must clear it with headroom — see MemoryBudgetMultiplier for
+		// the invariant and the peak breakdown. The k-way merge streams its
+		// inputs (one read-ahead batch per input), but the parquet writer
+		// buffers the whole compacted row group before the PUT: parquet-go
+		// keeps a row group's compressed pages in memory until Close, and the
+		// merge writes one row group, so the output cannot stream out of the
+		// writer piecemeal without changing the object bytes.
 		MaxGroupBytes int64
 		// ClassTTL maps a retention class to its TTL (01 §6.4). A class
 		// absent from the map never expires.
@@ -121,7 +158,13 @@ func (c Config) Normalize() Config {
 		c.DeleteGrace = 5 * time.Minute
 	}
 	if c.MaxGroupBytes <= 0 {
-		c.MaxGroupBytes = 256 << 20
+		// 96 MiB = 1.5x the seal-side PROFILER_PARQUET_MAX_SIZE default (64 MB,
+		// 01 §6.1). A seal pass splits AFTER crossing its cap, so a lone sealed
+		// file can land slightly above 64 MB; the 1.5x margin keeps such an
+		// at-cap file under budget instead of tripping the SkippedOversized
+		// warning on every pass. MemoryBudgetMultiplier * 96 MiB = 384 MiB
+		// still fits a small maintain container.
+		c.MaxGroupBytes = 96 << 20
 	}
 	if c.ClassTTL == nil {
 		c.ClassTTL = DefaultClassTTL()

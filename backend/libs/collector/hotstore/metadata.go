@@ -56,8 +56,10 @@ CREATE TABLE IF NOT EXISTS parquet_local (
   time_max_ms     INTEGER NOT NULL,
   file_size       INTEGER NOT NULL,
   sealed_at       INTEGER NOT NULL,
+  wal_offset_lo   INTEGER NOT NULL DEFAULT 0,
   uploaded_at     INTEGER,
   upload_failed_at INTEGER,
+  first_failed_at  INTEGER,
   s3_key          TEXT
 );
 CREATE TABLE IF NOT EXISTS parquet_segments (
@@ -187,7 +189,13 @@ type (
 		TimeMaxMs      int64
 		FileSize       int64
 		SealedAtMs     int64
-		S3Key          string
+		// WalOffsetLo is the seal pass's start watermark — the first calls.wal
+		// offset the pass covered. It bounds the re-seal rewind when this file's
+		// local copy is lost before upload (recovery.go reconcileParquetLocal):
+		// rewinding the bucket watermark here re-exposes exactly this pass's
+		// calls (and any sealed after it), never the ones sealed before.
+		WalOffsetLo int64
+		S3Key       string
 	}
 
 	// ParquetLocalFile is the exported view of parquet_local for tests and the
@@ -204,6 +212,7 @@ type (
 		FileSize         int64
 		UploadedAtMs     *int64
 		UploadFailedAtMs *int64
+		FirstFailedAtMs  *int64
 		S3Key            string
 	}
 
@@ -274,6 +283,13 @@ func openMetaDb(cfg Config) (*metaDb, error) {
 	// TABLE above, so the duplicate-column error is the common case).
 	for _, alter := range []string{
 		`ALTER TABLE parquet_local ADD COLUMN upload_failed_at INTEGER`,
+		`ALTER TABLE parquet_local ADD COLUMN first_failed_at INTEGER`,
+		// A row written before this column backfills wal_offset_lo to 0. If such
+		// a legacy pending file is later lost, RecoverLostPendingParquet rewinds
+		// the whole bucket to offset 0 — a bounded, dedup-safe full-bucket reseal,
+		// never the original silent-loss bug. Over-rewind is the right default for
+		// a durability fix during the upgrade window.
+		`ALTER TABLE parquet_local ADD COLUMN wal_offset_lo INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE pod_restarts ADD COLUMN wals_purged_at INTEGER`,
 	} {
 		if err := db.Exec(alter).Error; err != nil &&
@@ -387,10 +403,10 @@ func (m *metaDb) RecordSealedFile(row parquetLocalRow, segRows map[segKey]int) e
 func recordSealedFileTx(tx *gorm.DB, row parquetLocalRow, segRows map[segKey]int) error {
 	if err := tx.Exec(`INSERT INTO parquet_local
 		(path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
-		 time_min_ms, time_max_ms, file_size, sealed_at, uploaded_at, s3_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+		 time_min_ms, time_max_ms, file_size, sealed_at, wal_offset_lo, uploaded_at, s3_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 		row.Path, row.PodRestart, row.TimeBucketMs, row.RetentionClass, row.Seq, row.RowCount,
-		row.TimeMinMs, row.TimeMaxMs, row.FileSize, row.SealedAtMs, row.S3Key).Error; err != nil {
+		row.TimeMinMs, row.TimeMaxMs, row.FileSize, row.SealedAtMs, row.WalOffsetLo, row.S3Key).Error; err != nil {
 		return errors.Wrap(err, "record sealed parquet")
 	}
 	for sk, rows := range segRows {
@@ -446,7 +462,7 @@ func (m *metaDb) LocalParquet(podRestart string) ([]ParquetLocalFile, error) {
 	var rows []ParquetLocalFile
 	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
 		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
-		upload_failed_at AS upload_failed_at_ms, s3_key
+		upload_failed_at AS upload_failed_at_ms, first_failed_at AS first_failed_at_ms, s3_key
 		FROM parquet_local WHERE pod_restart = ? ORDER BY path`, podRestart).Scan(&rows).Error
 	return rows, err
 }
@@ -473,7 +489,9 @@ func releaseSealedFileRefs(tx *gorm.DB, path string) error {
 }
 
 // DropParquetLocal forgets a sealed file and releases the segment refs it
-// pinned; used when the file vanished before its upload (03-lifecycle.md §3.6).
+// pinned; used when an already-uploaded file's local copy vanished
+// (03-lifecycle.md §3.6). The data is durable in S3, so no re-seal follows: the
+// ref release is a no-op here because MarkUploaded already released them.
 func (m *metaDb) DropParquetLocal(path string) error {
 	return m.meta.Transaction(func(tx *gorm.DB) error {
 		if err := releaseSealedFileRefs(tx, path); err != nil {
@@ -481,6 +499,70 @@ func (m *metaDb) DropParquetLocal(path string) error {
 		}
 		return errors.Wrap(tx.Exec(`DELETE FROM parquet_local WHERE path = ?`, path).Error,
 			"drop sealed parquet row")
+	})
+}
+
+// ParquetReconcileRow is the recovery view of one parquet_local row: enough to
+// tell the durable-in-S3 case (uploaded) from the lost pending case, and to
+// bound the re-seal rewind (wal_offset_lo) when the local file is gone.
+type ParquetReconcileRow struct {
+	Path         string
+	PodRestart   string
+	TimeBucketMs int64
+	WalOffsetLo  int64
+	Uploaded     bool
+}
+
+// ParquetLocalReconcile lists every sealed file the catalog believes exists,
+// with the fields recovery needs to reconcile a missing local copy
+// (03-lifecycle.md §3.6 step 10).
+func (m *metaDb) ParquetLocalReconcile() ([]ParquetReconcileRow, error) {
+	var raw []struct {
+		Path         string
+		PodRestart   string
+		TimeBucketMs int64
+		WalOffsetLo  int64
+		UploadedAt   *int64
+	}
+	if err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, wal_offset_lo, uploaded_at
+		FROM parquet_local ORDER BY path`).Scan(&raw).Error; err != nil {
+		return nil, errors.Wrap(err, "list parquet_local for reconcile")
+	}
+	rows := make([]ParquetReconcileRow, len(raw))
+	for i, r := range raw {
+		rows[i] = ParquetReconcileRow{
+			Path: r.Path, PodRestart: r.PodRestart, TimeBucketMs: r.TimeBucketMs,
+			WalOffsetLo: r.WalOffsetLo, Uploaded: r.UploadedAt != nil,
+		}
+	}
+	return rows, nil
+}
+
+// RecoverLostPendingParquet handles the QA 708#2 loss window: a pending (not yet
+// uploaded) sealed file whose local copy vanished before it reached S3. In ONE
+// transaction it rewinds the bucket's seal watermark to walOffsetLo — the start
+// of the pass that produced the file — so the file's source calls re-enter the
+// seal loop and rebuild a replacement, then drops the dead catalog row and
+// releases its now-defunct segment pins. The rewind and the drop must be atomic:
+// dropping the row without rewinding (the old behaviour) left the calls stranded
+// below the watermark forever, invisible to upload and cold queries even though
+// their segment data still existed. MIN keeps the rewind monotone — it never
+// advances a watermark and re-running it is a no-op — so a crashed recovery
+// simply repeats it. A row written before the wal_offset_lo column carries
+// lo = 0, so a lost legacy pending file rewinds the whole bucket: a bounded,
+// dedup-safe full-bucket reseal, never the silent-loss bug — the right default
+// for a durability fix during the upgrade window.
+func (m *metaDb) RecoverLostPendingParquet(path, podRestart string, bucket, walOffsetLo int64) error {
+	return m.meta.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`UPDATE seal_state SET watermark = MIN(watermark, ?)
+			WHERE pod_restart = ? AND bucket = ?`, walOffsetLo, podRestart, bucket).Error; err != nil {
+			return errors.Wrap(err, "rewind seal watermark")
+		}
+		if err := releaseSealedFileRefs(tx, path); err != nil {
+			return err
+		}
+		return errors.Wrap(tx.Exec(`DELETE FROM parquet_local WHERE path = ?`, path).Error,
+			"drop lost pending parquet row")
 	})
 }
 
@@ -515,15 +597,17 @@ func (m *metaDb) PartitionPaths() ([]string, error) {
 	return paths, err
 }
 
-// QuarantinedParquet lists the quarantined sealed files, oldest failure
-// first — the order the №2 quarantine cap evicts in.
+// QuarantinedParquet lists the quarantined sealed files, oldest FIRST failure
+// first — the order the №2 quarantine cap evicts in. The order and the cap key
+// off first_failed_at (the immutable first-failure time), not the re-test-reset
+// upload_failed_at, so the age cap measures true failure age.
 func (m *metaDb) QuarantinedParquet() ([]ParquetLocalFile, error) {
 	var rows []ParquetLocalFile
 	err := m.meta.Raw(`SELECT path, pod_restart, time_bucket_ms, retention_class, seq, row_count,
 		time_min_ms, time_max_ms, file_size, uploaded_at AS uploaded_at_ms,
-		upload_failed_at AS upload_failed_at_ms, s3_key
+		upload_failed_at AS upload_failed_at_ms, first_failed_at AS first_failed_at_ms, s3_key
 		FROM parquet_local WHERE upload_failed_at IS NOT NULL
-		ORDER BY upload_failed_at, path`).Scan(&rows).Error
+		ORDER BY COALESCE(first_failed_at, upload_failed_at), path`).Scan(&rows).Error
 	return rows, err
 }
 
@@ -573,12 +657,50 @@ func (m *metaDb) MarkUploaded(path string, uploadedAtMs int64) error {
 }
 
 // MarkUploadFailed re-points a quarantined file at its upload-failed/ location
-// and takes it out of the upload queue. The parquet_segments rows stay: a
-// rejected file keeps its segments pinned until a human resolves it (01 §8).
+// and takes it out of the upload queue. The file's parquet_segments refs move
+// with it in the SAME transaction: a rejected file keeps its segments pinned
+// until a human resolves it (01 §8), and the refs key off parquet_local.path,
+// so migrating the local path WITHOUT the segment refs would strand them — a
+// later MarkUploaded(quarantinePath) or DropParquetLocal(quarantinePath) would
+// match no parquet_segments rows and pin the refcounts forever (QA 708#3).
+// first_failed_at is stamped once on the FIRST quarantine and never reset, so
+// the give-up age cap and the stuck-quarantine metric measure the true age of
+// the failure even though the slow re-test keeps rewriting upload_failed_at.
 func (m *metaDb) MarkUploadFailed(path, quarantinePath string, failedAtMs int64) error {
-	return errors.Wrap(m.meta.Exec(`UPDATE parquet_local SET path = ?, upload_failed_at = ?
-		WHERE path = ? AND uploaded_at IS NULL`, quarantinePath, failedAtMs, path).Error,
-		"mark sealed parquet upload-failed")
+	return m.meta.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`UPDATE parquet_local
+			SET path = ?, upload_failed_at = ?, first_failed_at = COALESCE(first_failed_at, ?)
+			WHERE path = ? AND uploaded_at IS NULL`, quarantinePath, failedAtMs, failedAtMs, path).Error; err != nil {
+			return errors.Wrap(err, "mark sealed parquet upload-failed")
+		}
+		// The segment refs key off the local path; move them to the quarantine
+		// path so the release still finds them. When the row was already uploaded
+		// (the guard above matched nothing) MarkUploaded already deleted these
+		// rows, so this migrates none — the two stay consistent.
+		return errors.Wrap(tx.Exec(`UPDATE parquet_segments SET path = ? WHERE path = ?`,
+			quarantinePath, path).Error, "migrate quarantined segment refs")
+	})
+}
+
+// QuarantineForManifest takes a sealed file OUT of the tight upload queue after
+// its pod-restart manifest was permanently rejected, WITHOUT marking it
+// uploaded and WITHOUT moving it. The manifest is the only cold source of the
+// pod-restart's readable identity (01 §3.6, 02 §2.7), so uploaded_at must stay
+// NULL until the manifest is durable: while it is NULL the pod-restart stays
+// discoverable/pending, HasPendingParquet blocks the WAL purge, and the
+// hot-retention drop leaves the parquet_local row in place. The parquet itself
+// is already durable in S3 and still backs hot reads, so it is not moved to
+// upload-failed/; only upload_failed_at is set so the №2 slow re-test
+// (RequeueQuarantinedParquet) retries the manifest on the same rate-limited
+// cadence as a rejected parquet. Segment refcounts stay pinned meanwhile.
+// first_failed_at is stamped once and never reset (see MarkUploadFailed), so a
+// manifest that never heals ages out of the quarantine cap instead of pinning
+// the PV forever behind an ever-refreshed upload_failed_at.
+func (m *metaDb) QuarantineForManifest(path string, failedAtMs int64) error {
+	return errors.Wrap(m.meta.Exec(`UPDATE parquet_local
+		SET upload_failed_at = ?, first_failed_at = COALESCE(first_failed_at, ?)
+		WHERE path = ? AND uploaded_at IS NULL`, failedAtMs, failedAtMs, path).Error,
+		"quarantine sealed parquet for a rejected manifest")
 }
 
 // ManifestBounds reports min(time_min_ms) / max(time_max_ms) over one
@@ -1249,7 +1371,9 @@ func (m *metaDb) SetWalsPurged(podRestart string, purgedAtMs int64) error {
 
 // QuarantineStats aggregates the stuck-quarantine state for the metrics
 // endpoint: rejected parquet files (parquet_local.upload_failed_at, 01 §8).
-// Oldest is the earliest failure timestamp, nil when nothing is quarantined.
+// Oldest is the earliest FIRST-failure timestamp (first_failed_at, immutable
+// across re-tests), nil when nothing is quarantined — so the age gauge climbs
+// with the true stuck duration instead of plateauing at the re-test interval.
 type QuarantineStats struct {
 	ParquetCount    int64
 	ParquetOldestMs *int64
@@ -1265,7 +1389,7 @@ func (m *metaDb) QuarantineStats() (QuarantineStats, error) {
 		N      int64
 		Oldest *int64
 	}{}
-	if err := m.meta.Raw(`SELECT COUNT(*) AS n, MIN(upload_failed_at) AS oldest
+	if err := m.meta.Raw(`SELECT COUNT(*) AS n, MIN(COALESCE(first_failed_at, upload_failed_at)) AS oldest
 		FROM parquet_local WHERE upload_failed_at IS NOT NULL`).Scan(&row).Error; err != nil {
 		return out, errors.Wrap(err, "count quarantined parquet")
 	}

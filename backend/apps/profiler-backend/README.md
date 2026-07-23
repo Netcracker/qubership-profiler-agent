@@ -81,7 +81,7 @@ Not wired yet (their features belong to later Stage 1 tasks):
 | `PROFILER_S3_LIST_CONCURRENCY` | `16` | Parallel S3 LIST cap. |
 | `PROFILER_CURSOR_TTL` | `15m` | Pagination-cursor validity. |
 | `PROFILER_WIDE_RANGE_LIMIT` | `6h` | Span above which `/calls` requires a narrowing filter. |
-| `PROFILER_MAX_PODS_RANGE` | `8784h` | Span above which `/pods` is rejected; `/pods` lists one S3 prefix per UTC day. |
+| `PROFILER_MAX_PODS_RANGE` | `8784h` | Span above which `/pods`, or a pod-filtered `/calls` window, is rejected; `/pods` lists one S3 prefix per UTC day. This ceiling also bounds the pod-filtered `/calls` discovery span, which fans out one LIST per hour prefix per class across the window before `guardCost` weighs in; lower it below the default if that fan-out is your DoS concern (the `8784h` default suits `/pods`, which legitimately spans a year of pod restarts). |
 | `PROFILER_MAX_SCAN_FILES` | `10000` | Candidate-object ceiling per `/calls` scan. |
 | `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling per `/calls` scan. |
 | `PROFILER_DURATION_THRESHOLDS` | `100ms,1s,10s` | Must mirror the collector's value: the cold class pruning derives from the same tier table (01 §6.4). |
