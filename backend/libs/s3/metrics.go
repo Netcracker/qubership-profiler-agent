@@ -53,7 +53,7 @@ var (
 // on its own registry. The profiler-backend subcommands each expose a private
 // registry (never the Prometheus default), so without this seam the S3 series
 // would be invisible on their /metrics. registerMetrics still registers the
-// same collectors on the default registry for the legacy apps/maintenance path.
+// same collectors on the default registry for callers that scrape it.
 func Collectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		operationMinioLatencySeconds,

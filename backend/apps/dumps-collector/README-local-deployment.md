@@ -1,6 +1,8 @@
 # dumps-collector: Local Deployment Guide
 
-Complete guide for deploying dumps-collector with PostgreSQL in local Kubernetes (OrbStack) using Helmfile.
+Complete guide for deploying dumps-collector in local Kubernetes (OrbStack) using Helmfile. dumps-collector is
+self-contained: it stores dump metadata in an embedded SQLite database on its PersistentVolume, so no external
+database is required.
 
 ## Table of Contents
 
@@ -53,36 +55,17 @@ kubectl get storageclass  # Should show 'local-path' (default)
 
 ## Quick Start
 
-### Scenario 1: Deploy Everything (PostgreSQL + dumps-collector)
+### 1. Deploy dumps-collector
 
 ```bash
 cd apps/dumps-collector
 
-# Deploy PostgreSQL + dumps-collector (default)
+# Deploy dumps-collector
 helmfile sync
 
-# Wait for all pods to be ready (usually 2-3 minutes)
-watch kubectl get pods -n postgres
+# Wait for pods to be ready (usually 1-2 minutes)
 watch kubectl get pods -n profiler
 ```
-
-### Scenario 2: Deploy Only dumps-collector (PostgreSQL already exists)
-
-If you've deployed PostgreSQL separately using pgskipper-operator or another method:
-
-```bash
-cd apps/dumps-collector
-
-# Deploy only dumps-collector (skips PostgreSQL installation)
-INSTALL_POSTGRES=false helmfile sync
-
-# Wait for pods to be ready
-watch kubectl get pods -n profiler
-```
-
-**Note**: When using `INSTALL_POSTGRES=false`, ensure:
-- PostgreSQL service `pg-patroni.postgres.svc.cluster.local:5432` is accessible
-- Database `postgres` exists with user `profiler` (or adjust `values-local.yaml`)
 
 ### 2. Start Port-Forwards
 
@@ -101,10 +84,6 @@ curl http://localhost:8080/health
 # Test dumps-collector API endpoint
 curl http://localhost:8000/esc/health
 # Expected: 204 No Content
-
-# Test PostgreSQL connection
-psql -h localhost -p 5432 -U profiler -d postgres -c "SELECT version();"
-# Password: profiler_password
 ```
 
 ### 4. Cleanup
@@ -112,17 +91,11 @@ psql -h localhost -p 5432 -U profiler -d postgres -c "SELECT version();"
 ```bash
 # Stop port-forwards
 helmfile -l type=port-forward destroy
-# Or if PostgreSQL was skipped:
-INSTALL_POSTGRES=false helmfile -l type=port-forward destroy
 
-# Remove all deployments (including PostgreSQL if installed)
+# Remove the deployment
 helmfile destroy
 
-# Or remove only dumps-collector (keep PostgreSQL)
-INSTALL_POSTGRES=false helmfile destroy
-
 # Optional: Clean up PVCs (will delete all data!)
-kubectl delete pvc -n postgres --all
 kubectl delete pvc -n profiler --all
 ```
 
@@ -130,28 +103,10 @@ kubectl delete pvc -n profiler --all
 
 ### Components
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    OrbStack Kubernetes                      │
 ├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐  │
-│  │  Namespace: postgres                                │  │
-│  │  ┌──────────────────────┐  ┌──────────────────────┐│  │
-│  │  │ patroni-core         │  │ patroni-services     ││  │
-│  │  │ (Operator)           │  │ (Operator)           ││  │
-│  │  └──────────────────────┘  └──────────────────────┘│  │
-│  │                                                      │  │
-│  │  ┌──────────────────────┐  ┌──────────────────────┐│  │
-│  │  │ pg-patroni-node-0    │  │ pg-patroni-node-1    ││  │
-│  │  │ (Primary)            │  │ (Replica)            ││  │
-│  │  │ PostgreSQL 16        │  │ PostgreSQL 16        ││  │
-│  │  └──────────────────────┘  └──────────────────────┘│  │
-│  │                                                      │  │
-│  │  Services:                                          │  │
-│  │  • pg-patroni:5432 (RW)                            │  │
-│  │  • pg-patroni-ro:5432 (RO)                         │  │
-│  └─────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐  │
 │  │  Namespace: profiler                                │  │
@@ -164,6 +119,8 @@ kubectl delete pvc -n profiler --all
 │  │  │  └────────────┘  └─────────────────────┘   │  │  │
 │  │  │                                              │  │  │
 │  │  │  PersistentVolume: 5Gi (local-path)         │  │  │
+│  │  │    • dumps under /diag/diagnostic           │  │  │
+│  │  │    • metadata in /diag/profiler_dumps.db    │  │  │
 │  │  └──────────────────────────────────────────────┘  │  │
 │  │                                                      │  │
 │  │  Service: cloud-profiler-dumps-collector           │  │
@@ -172,16 +129,16 @@ kubectl delete pvc -n profiler --all
 │  └─────────────────────────────────────────────────────┘  │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
-         │                    │                    │
-         │ (port-forward)     │ (port-forward)     │ (port-forward)
-         ↓                    ↓                    ↓
-    localhost:8080       localhost:8000       localhost:5432
+         │                    │
+         │ (port-forward)     │ (port-forward)
+         ↓                    ↓
+    localhost:8080       localhost:8000
 ```
 
 ### Data Flow
 
 1. **Dump Upload**: Java agents → `PUT http://localhost:8080/diagnostic/{path}` → Nginx WebDAV → PersistentVolume
-2. **Indexing**: prf_dump_writer scans PV every minute → stores metadata in PostgreSQL
+2. **Indexing**: prf_dump_writer scans the PV every minute → stores metadata in SQLite (`/diag/profiler_dumps.db`)
 3. **Download**: User → `GET http://localhost:8000/cdt/v2/download?...` → reads from PV/ZIP archives
 
 ## Detailed Commands
@@ -189,16 +146,10 @@ kubectl delete pvc -n profiler --all
 ### Deployment Management
 
 ```bash
-# Deploy everything (default: with PostgreSQL)
+# Deploy everything
 helmfile sync
 
-# Deploy only dumps-collector (skip PostgreSQL)
-INSTALL_POSTGRES=false helmfile sync
-
-# Deploy only PostgreSQL
-helmfile -l component=postgres sync
-
-# Deploy only application
+# Deploy only the application
 helmfile -l component=application sync
 
 # Deploy everything except port-forwards
@@ -206,14 +157,12 @@ helmfile -l type!=port-forward sync
 
 # Check what will be deployed (dry-run)
 helmfile diff
-INSTALL_POSTGRES=false helmfile diff  # Without PostgreSQL
 
 # Update existing deployment
 helmfile apply
 
 # List all releases
 helmfile list
-INSTALL_POSTGRES=false helmfile list  # Show only dumps-collector releases
 ```
 
 ### Port-Forward Management
@@ -231,7 +180,6 @@ ps aux | grep "kubectl port-forward"
 # Check port-forward logs
 tail -f /tmp/pf-dumps-collector-http.log
 tail -f /tmp/pf-dumps-collector-api.log
-tail -f /tmp/pf-postgres.log
 
 # Kill specific port-forward manually
 kill $(cat /tmp/pf-dumps-collector-http.pid)
@@ -246,39 +194,32 @@ helmfile -l type=port-forward destroy
 # Check all pods
 kubectl get pods -A
 
-# Check PostgreSQL pods
-kubectl get pods -n postgres -l app=postgres
-
 # Check dumps-collector pods
 kubectl get pods -n profiler -l app.kubernetes.io/name=dumps-collector
 
 # Check services
-kubectl get svc -n postgres
 kubectl get svc -n profiler
 
 # Check PVCs
-kubectl get pvc -n postgres
 kubectl get pvc -n profiler
 
 # Check logs
 kubectl logs -n profiler -l app.kubernetes.io/name=dumps-collector -f
-kubectl logs -n postgres -l app=postgres -f
 ```
 
-### Database Access
+### Metadata Access
+
+The metadata lives in an embedded SQLite database on the PV at `/diag/profiler_dumps.db`.
 
 ```bash
-# Via port-forward
-psql -h localhost -p 5432 -U profiler -d postgres
-# Password: profiler_password
+# Copy the database out of the pod for inspection
+kubectl cp -n profiler \
+  "$(kubectl get pod -n profiler -l app.kubernetes.io/name=dumps-collector -o name | head -1 | cut -d/ -f2)":/diag/profiler_dumps.db \
+  ./profiler_dumps.db
 
-# Direct from cluster
-kubectl exec -it -n postgres pg-patroni-node-0 -- \
-  psql -U profiler -d postgres
-
-# Check Patroni cluster status
-kubectl exec -n postgres pg-patroni-node-0 -- \
-  patronictl -c /home/postgres/patroni.yml list
+# Inspect it with a local sqlite3 client
+sqlite3 ./profiler_dumps.db ".tables"
+sqlite3 ./profiler_dumps.db "SELECT * FROM heap_dumps LIMIT 10;"
 ```
 
 ## Configuration
@@ -288,35 +229,25 @@ kubectl exec -n postgres pg-patroni-node-0 -- \
 You can override default values using environment variables:
 
 ```bash
-# Skip PostgreSQL installation (default: true)
-export INSTALL_POSTGRES=false  # Use if PostgreSQL already deployed separately
-
-# Custom namespaces
+# Custom namespace
 export NAMESPACE=my-profiler
-export PG_NAMESPACE=my-postgres
 
 # Custom storage class
 export STORAGE_CLASS=nfs-client
-
-# Custom pgskipper-operator path
-export PGSKIPPER_PATH=/path/to/pgskipper-operator
 
 # Deploy with custom settings
 helmfile sync
 ```
 
 **Key Variables**:
-- `INSTALL_POSTGRES` (default: `true`): Set to `false` to skip PostgreSQL deployment
+
 - `NAMESPACE` (default: `profiler`): Namespace for dumps-collector
-- `PG_NAMESPACE` (default: `postgres`): Namespace for PostgreSQL
 - `STORAGE_CLASS` (default: `local-path`): StorageClass for PVCs
-- `PGSKIPPER_PATH` (default: `../../../pgskipper-operator`): Path to pgskipper-operator charts
 
 ### Customizing values-local.yaml
 
 Edit `values-local.yaml` to customize:
 
-- PostgreSQL credentials
 - Storage size and class
 - Resource limits
 - Retention policies
@@ -373,64 +304,7 @@ curl "http://localhost:8000/cdt/v2/heaps/download/test-pod-abc123-heap-173442240
   -o heap.hprof.zip
 ```
 
-### PostgreSQL Access
-
-```bash
-# Connect via psql
-psql -h localhost -p 5432 -U profiler -d postgres
-
-# View dumps metadata
-psql -h localhost -p 5432 -U profiler -d postgres -c "\dt"
-
-# Check timeline records
-psql -h localhost -p 5432 -U profiler -d postgres -c "SELECT * FROM timelines LIMIT 10;"
-
-# Check heap dumps
-psql -h localhost -p 5432 -U profiler -d postgres -c "SELECT * FROM heap_dumps LIMIT 10;"
-```
-
 ## Troubleshooting
-
-### PostgreSQL Issues
-
-#### Pods stuck in Pending
-
-```bash
-# Check PVC status
-kubectl describe pvc -n postgres
-
-# Check storage class
-kubectl get storageclass
-
-# Solution: Ensure 'local-path' storage class exists
-kubectl get storageclass local-path
-```
-
-#### Connection refused
-
-```bash
-# Wait for cluster initialization (takes 30-60 seconds)
-kubectl wait --for=condition=ready --timeout=300s pods -l app=postgres -n postgres
-
-# Check PostgreSQL logs
-kubectl logs -n postgres -l app=postgres --tail=100
-
-# Verify services are created
-kubectl get svc -n postgres | grep pg-patroni
-```
-
-#### Database authentication failed
-
-```bash
-# Verify credentials in values-local.yaml match
-grep -A5 "postgres:" values-local.yaml
-
-# Check secret
-kubectl get secret -n profiler
-
-# Restart dumps-collector to pick up new credentials
-kubectl rollout restart deployment -n profiler
-```
 
 ### dumps-collector Issues
 
@@ -441,9 +315,8 @@ kubectl rollout restart deployment -n profiler
 kubectl logs -n profiler -l app.kubernetes.io/name=dumps-collector --tail=200
 
 # Common causes:
-# 1. PostgreSQL not ready - wait for PostgreSQL pods
-# 2. Database migration failed - check migration logs
-# 3. Invalid configuration - verify values-local.yaml
+# 1. PV not mounted or not writable - check the PVC and security context
+# 2. Invalid configuration - verify values-local.yaml
 
 # Check events
 kubectl get events -n profiler --sort-by='.lastTimestamp'
@@ -462,7 +335,7 @@ kubectl exec -n profiler -it deployment/cloud-profiler-dumps-collector -- \
 # If permission denied, check security context in chart
 ```
 
-#### Dumps not indexed in database
+#### Dumps not indexed
 
 ```bash
 # Check prf_dump_writer logs
@@ -484,7 +357,6 @@ kubectl exec -n profiler -it deployment/cloud-profiler-dumps-collector -- \
 # Find process using the port
 lsof -i :8080
 lsof -i :8000
-lsof -i :5432
 
 # Kill the process
 kill $(lsof -t -i :8080)
@@ -499,11 +371,9 @@ helmfile -l type=port-forward sync
 ```bash
 # Check if service exists
 kubectl get svc -n profiler cloud-profiler-dumps-collector
-kubectl get svc -n postgres pg-patroni
 
 # Check if pods are ready
 kubectl get pods -n profiler
-kubectl get pods -n postgres
 
 # Manual port-forward test
 kubectl port-forward -n profiler svc/cloud-profiler-dumps-collector 8080:8080
@@ -517,7 +387,6 @@ helmfile list
 
 # Check Kubernetes resources
 kubectl get all -n profiler
-kubectl get all -n postgres
 
 # Describe problem pod
 kubectl describe pod -n profiler <pod-name>
@@ -527,7 +396,6 @@ kubectl exec -it -n profiler deployment/cloud-profiler-dumps-collector -- /bin/s
 
 # Check resource usage
 kubectl top pods -n profiler
-kubectl top pods -n postgres
 ```
 
 ## Advanced Usage
@@ -561,20 +429,6 @@ helmfile apply
 # Consider using ReadWriteMany storage class for multi-replica setup
 ```
 
-### Custom PostgreSQL Configuration
-
-Edit `helmfile.yaml` to modify PostgreSQL settings:
-
-```yaml
-patroni:
-  replicas: 3  # More replicas
-  storage:
-    size: 20Gi  # More storage
-  postgreSQLParams:
-    - "max_connections: 500"
-    - "shared_buffers: 256MB"
-```
-
 ### Enabling Monitoring
 
 If you have Prometheus Operator installed:
@@ -601,13 +455,13 @@ helmfile -f helmfile.yaml -e staging sync
 
 ## File Structure
 
-```
+```text
 apps/dumps-collector/
-├── helmfile.yaml                 # Main deployment configuration
-├── values-local.yaml             # Local development values
-├── README-local-deployment.md    # This file
+├── helmfile.yaml.gotmpl         # Main deployment configuration
+├── values-local.yaml            # Local development values
+├── README-local-deployment.md   # This file
 └── charts/
-    └── port-forward/             # Port-forward helper chart
+    └── port-forward/            # Port-forward helper chart
         ├── Chart.yaml
         ├── values.yaml
         └── templates/
@@ -617,10 +471,9 @@ apps/dumps-collector/
 ## Useful Resources
 
 - **dumps-collector Chart**: `../../charts/dumps-collector/`
-- **pgskipper-operator**: `/Users/vlsi/Documents/code/qubership/pgskipper-operator`
-- **Helmfile Documentation**: https://helmfile.readthedocs.io/
-- **Helm Documentation**: https://helm.sh/docs/
-- **OrbStack Documentation**: https://orbstack.dev/docs
+- **Helmfile Documentation**: <https://helmfile.readthedocs.io/>
+- **Helm Documentation**: <https://helm.sh/docs/>
+- **OrbStack Documentation**: <https://orbstack.dev/docs>
 
 ## Support
 
@@ -628,7 +481,7 @@ For issues or questions:
 
 1. Check the [Troubleshooting](#troubleshooting) section
 2. Review logs: `kubectl logs -n profiler -l app.kubernetes.io/name=dumps-collector -f`
-3. Check GitHub issues: https://github.com/Netcracker/qubership-profiler-backend/issues
+3. Check GitHub issues: <https://github.com/Netcracker/qubership-profiler-backend/issues>
 
 ---
 

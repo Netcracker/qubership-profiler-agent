@@ -1,7 +1,0 @@
-tempTableCreation: 1
-s3FileRemoval:
-  calls: 
-    0ms: 1 
-  dumps:
-    gc: 1
-    wrong_dt: 1

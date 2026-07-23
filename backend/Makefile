@@ -16,14 +16,8 @@ CHARTS_DIR := charts
 EXAMPLES_DIR := examples
 DELIVERY_DIR := delivery
 
-# Build configuration
-# Set SKIP_FRONTEND=Y to exclude the frontend (query app) from builds
-# Example: SKIP_FRONTEND=Y make build-all
-export SKIP_FRONTEND
-
 # Application names (production components)
-# collector and query are excluded for now
-APPS := dumps-collector maintenance profiler-backend
+APPS := dumps-collector profiler-backend
 
 # Tool names (development/support tools)
 TOOLS := load-generator migration
@@ -39,10 +33,6 @@ help:
 	@echo "  test-all         - Run all tests"
 	@echo "  docker-build-all - Build all Docker images"
 	@echo "  archive-all      - Create all deployment archives"
-	@echo ""
-	@echo "Build options:"
-	@echo "  SKIP_FRONTEND=Y  - Skip frontend (query app) build"
-	@echo "                     Example: SKIP_FRONTEND=Y make build-all"
 	@echo ""
 	@echo "Component targets:"
 	@echo "  apps             - Build all applications"
@@ -72,7 +62,7 @@ help:
 	@echo "Utility targets:"
 	@echo "  help-apps         - Show help for apps build system"
 	@echo "  help-tools        - Show help for tools build system"
-	@echo "  help-<app>        - Show help for specific app (e.g., help-collector)"
+	@echo "  help-<app>        - Show help for specific app (e.g., help-profiler-backend)"
 	@echo "  help-<tool>       - Show help for specific tool (e.g., help-migration)"
 
 # Build everything
@@ -154,10 +144,6 @@ tools-archive:
 # =============================================================================
 
 # Individual app targets
-collector-build:
-	@echo "==> Building collector..."
-	$(MAKE) -C $(APPS_DIR)/collector build
-
 dumps-collector-build:
 	@echo "==> Building dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector build
@@ -165,10 +151,6 @@ dumps-collector-build:
 load-generator-build:
 	@echo "==> Building load-generator..."
 	$(MAKE) -C $(TOOLS_DIR)/load-generator build
-
-maintenance-build:
-	@echo "==> Building maintenance..."
-	$(MAKE) -C $(APPS_DIR)/maintenance build
 
 migration-build:
 	@echo "==> Building migration..."
@@ -178,14 +160,6 @@ profiler-backend-build:
 	@echo "==> Building profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend build
 
-query-build:
-	@echo "==> Building query..."
-	$(MAKE) -C $(APPS_DIR)/query build
-
-collector-clean:
-	@echo "==> Cleaning collector..."
-	$(MAKE) -C $(APPS_DIR)/collector clean
-
 dumps-collector-clean:
 	@echo "==> Cleaning dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector clean
@@ -193,10 +167,6 @@ dumps-collector-clean:
 load-generator-clean:
 	@echo "==> Cleaning load-generator..."
 	$(MAKE) -C $(TOOLS_DIR)/load-generator clean
-
-maintenance-clean:
-	@echo "==> Cleaning maintenance..."
-	$(MAKE) -C $(APPS_DIR)/maintenance clean
 
 migration-clean:
 	@echo "==> Cleaning migration..."
@@ -206,14 +176,6 @@ profiler-backend-clean:
 	@echo "==> Cleaning profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend clean
 
-query-clean:
-	@echo "==> Cleaning query..."
-	$(MAKE) -C $(APPS_DIR)/query clean
-
-collector-test:
-	@echo "==> Testing collector..."
-	$(MAKE) -C $(APPS_DIR)/collector test
-
 dumps-collector-test:
 	@echo "==> Testing dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector test
@@ -221,10 +183,6 @@ dumps-collector-test:
 load-generator-test:
 	@echo "==> Testing load-generator..."
 	$(MAKE) -C $(TOOLS_DIR)/load-generator test
-
-maintenance-test:
-	@echo "==> Testing maintenance..."
-	$(MAKE) -C $(APPS_DIR)/maintenance test
 
 migration-test:
 	@echo "==> Testing migration..."
@@ -234,14 +192,6 @@ profiler-backend-test:
 	@echo "==> Testing profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend test
 
-query-test:
-	@echo "==> Testing query..."
-	$(MAKE) -C $(APPS_DIR)/query test
-
-collector-docker:
-	@echo "==> Building Docker image for collector..."
-	$(MAKE) -C $(APPS_DIR)/collector docker-build
-
 dumps-collector-docker:
 	@echo "==> Building Docker image for dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector docker-build
@@ -249,10 +199,6 @@ dumps-collector-docker:
 load-generator-docker:
 	@echo "==> Building Docker image for load-generator..."
 	$(MAKE) -C $(TOOLS_DIR)/load-generator docker-build
-
-maintenance-docker:
-	@echo "==> Building Docker image for maintenance..."
-	$(MAKE) -C $(APPS_DIR)/maintenance docker-build
 
 migration-docker:
 	@echo "==> Building Docker image for migration..."
@@ -262,14 +208,6 @@ profiler-backend-docker:
 	@echo "==> Building Docker image for profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend docker-build
 
-query-docker:
-	@echo "==> Building Docker image for query..."
-	$(MAKE) -C $(APPS_DIR)/query docker-build
-
-collector-archive:
-	@echo "==> Creating archive for collector..."
-	$(MAKE) -C $(APPS_DIR)/collector archive
-
 dumps-collector-archive:
 	@echo "==> Creating archive for dumps-collector..."
 	$(MAKE) -C $(APPS_DIR)/dumps-collector archive
@@ -278,10 +216,6 @@ load-generator-archive:
 	@echo "==> Creating archive for load-generator..."
 	$(MAKE) -C $(TOOLS_DIR)/load-generator archive
 
-maintenance-archive:
-	@echo "==> Creating archive for maintenance..."
-	$(MAKE) -C $(APPS_DIR)/maintenance archive
-
 migration-archive:
 	@echo "==> Creating archive for migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration archive
@@ -289,10 +223,6 @@ migration-archive:
 profiler-backend-archive:
 	@echo "==> Creating archive for profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend archive
-
-query-archive:
-	@echo "==> Creating archive for query..."
-	$(MAKE) -C $(APPS_DIR)/query archive
 
 
 # =============================================================================
@@ -485,10 +415,6 @@ help-tools:
 	$(MAKE) -C $(TOOLS_DIR) help
 
 # Show help for individual apps
-help-collector:
-	@echo "Help for collector application:"
-	$(MAKE) -C $(APPS_DIR)/collector help
-
 help-dumps-collector:
 	@echo "Help for dumps-collector application:"
 	$(MAKE) -C $(APPS_DIR)/dumps-collector help
@@ -497,10 +423,6 @@ help-load-generator:
 	@echo "Help for load-generator tool:"
 	$(MAKE) -C $(TOOLS_DIR)/load-generator help
 
-help-maintenance:
-	@echo "Help for maintenance application:"
-	$(MAKE) -C $(APPS_DIR)/maintenance help
-
 help-migration:
 	@echo "Help for migration tool:"
 	$(MAKE) -C $(TOOLS_DIR)/migration help
@@ -508,8 +430,4 @@ help-migration:
 help-profiler-backend:
 	@echo "Help for profiler-backend application:"
 	$(MAKE) -C $(APPS_DIR)/profiler-backend help
-
-help-query:
-	@echo "Help for query application:"
-	$(MAKE) -C $(APPS_DIR)/query help
 

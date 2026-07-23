@@ -1,3 +1,0 @@
-
-SELECT DISTINCT(table_name) FROM {{.TableName}}
-ORDER BY table_name ASC

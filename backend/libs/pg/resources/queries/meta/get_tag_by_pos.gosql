@@ -1,3 +1,0 @@
-
-SELECT tag FROM %s WHERE position = $1
-

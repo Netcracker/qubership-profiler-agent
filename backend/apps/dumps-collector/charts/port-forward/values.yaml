@@ -20,12 +20,5 @@ portForwards:
     remotePort: 8000
     description: "dumps-collector API endpoint"
 
-  - name: postgres
-    namespace: postgres
-    service: pg-patroni
-    localPort: 5432
-    remotePort: 5432
-    description: "PostgreSQL primary database"
-
 # Note: This values file is for documentation purposes only.
 # Actual port-forwarding is managed by helmfile hooks, not by this chart.
