@@ -110,6 +110,52 @@ func TestRecoverRemovesOrphanSealedParquet(t *testing.T) {
 	assert.NoFileExists(t, orphan, "an uncommitted seal's file is swept")
 }
 
+// TestRecoverSweepsOrphanQuarantinedParquet pins issue #824: quarantine() renames
+// a rejected parquet into upload-failed/ before it records the move, so a rename
+// that succeeds followed by a MarkUploadFailed that fails leaves the file under
+// upload-failed/ with no owning parquet_local row. The quarantine cap and the
+// upload loop both walk rows only, so nothing but recovery can reclaim it.
+// Recovery sweeps upload-failed/ the same way it sweeps parquet/: a .parquet file
+// catalogued by no row is removed, while a legitimately quarantined file — one
+// whose row points at its upload-failed/ path — survives.
+func TestRecoverSweepsOrphanQuarantinedParquet(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	store, err := Open(Config{DataDir: dataDir})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-q", RestartTimeMs: 1_000}
+	require.NoError(t, store.db.UpsertPodRestart(key, 1_000))
+
+	uploadFailedDir := filepath.Join(dataDir, "upload-failed")
+	seed := func(s3Key string) string {
+		path := filepath.Join(uploadFailedDir, filepath.FromSlash(s3Key))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("parquet"), 0o644))
+		return path
+	}
+
+	// The double-fault orphan: the file moved but MarkUploadFailed never
+	// committed, so no row owns it.
+	orphan := seed("parquet/v1/short_clean/2023/11/14/22/collector-0-bbbb-x-x-x-0.parquet")
+
+	// A legitimately quarantined file: its row points at the upload-failed/ path,
+	// so the sweep must spare it.
+	quarantined := seed("parquet/v1/short_clean/2023/11/14/22/collector-0-aaaa-x-x-x-0.parquet")
+	require.NoError(t, store.db.RecordSealedFile(parquetLocalRow{
+		Path: quarantined, PodRestart: key.String(), TimeBucketMs: 0,
+		RetentionClass: RetentionShortClean, Seq: 0, RowCount: 1,
+		TimeMinMs: 1, TimeMaxMs: 2, FileSize: 7, SealedAtMs: 1,
+		S3Key: "parquet/v1/short_clean/x/a.parquet",
+	}, nil))
+	require.NoError(t, store.db.MarkUploadFailed(quarantined, quarantined, 1))
+
+	require.NoError(t, store.Recover(ctx))
+	assert.NoFileExists(t, orphan, "an orphan with no parquet_local row is swept")
+	assert.FileExists(t, quarantined, "a legitimately quarantined file keeps its row and survives")
+}
+
 // TestRecoverReSealsLostPendingParquet pins the QA 708#2 fix: a pending (not yet
 // uploaded) sealed file whose local copy vanished before it reached S3 must not
 // be silently forgotten. Recovery rewinds the bucket's seal watermark to the
