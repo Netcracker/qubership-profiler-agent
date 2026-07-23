@@ -466,9 +466,12 @@ func (s *Store) bucketHasUnsealedCalls(bucket int64) (bool, error) {
 // purge materializes the rows' method names into method_text; trace reads of
 // those rows fall through to the cold tier exactly as after a mem-budget
 // chunk-index release. Deleting the segments under the still-indexed rows is
-// safe because the two gates above already ran: no pending parquet means every
+// safe because fastPurge re-confirms both gates in the race-free order (no
+// unsealed calls, then no pending parquet): no pending parquet means every
 // sealed file is confirmed in S3 and MarkUploaded released its segment
-// refcounts, and no unsealed calls means no future seal will read them.
+// refcounts, and no unsealed calls means no future seal will read them. The
+// early HasPendingParquet gate below is a fast reject; fastPurge's recheck is
+// the authoritative one for the fast path (a seal can commit in between).
 func (s *Store) purgeWals(ctx context.Context, nowMs int64, stats *JanitorStats) error {
 	candidates, err := s.db.WalPurgeCandidates()
 	if err != nil {
@@ -543,9 +546,11 @@ func (s *Store) purgeWals(ctx context.Context, nowMs int64, stats *JanitorStats)
 
 // fastPurge decides the 03 §3.9 fast path for one still-indexed candidate and
 // prepares its rows: eligible when the fast path is enabled, the pod-restart's
-// directory is at or under the near-empty floor, and every indexed call is
-// sealed (an in-flight seal pass keeps its watermark uncommitted, so
-// HasUnsealedCalls also defers to the next janitor tick). On eligibility it
+// directory is at or under the near-empty floor, every indexed call is sealed
+// (an in-flight seal pass keeps its watermark uncommitted, so HasUnsealedCalls
+// defers to the next janitor tick), and no pending parquet remains — rechecked
+// here, after HasUnsealedCalls, to close the seal-commit race described in
+// purgeWals. On eligibility it
 // backfills method_text — committed to the partitions BEFORE the caller
 // deletes the dictionary WAL, so a crashed purge re-runs as a no-op.
 func (s *Store) fastPurge(ctx context.Context, key PodRestartKey, podRestart, dir string) (bool, error) {
@@ -560,6 +565,21 @@ func (s *Store) fastPurge(ctx context.Context, key PodRestartKey, podRestart, di
 		return false, nil
 	}
 	if unsealed, err := s.db.HasUnsealedCalls(podRestart); err != nil || unsealed {
+		return false, err
+	}
+	// Re-check the pending-parquet gate AFTER confirming no unsealed calls, and
+	// after the early HasPendingParquet gate in purgeWals. CommitSealPass inserts
+	// the pending parquet_local row and advances the seal watermark in one
+	// transaction, so a seal pass that commits between purgeWals's early gate and
+	// this point leaves HasUnsealedCalls false yet a live pending file behind. The
+	// early gate alone would then read stale ("no pending") and delete calls.wal
+	// under a file still owed to S3; if that file were later lost, its re-seal
+	// (RecoverLostPendingParquet rewinds the watermark) would find no calls.wal to
+	// rebuild from — permanent loss. Reading unsealed first and pending second
+	// closes the window: unsealed false means the seal already committed, so its
+	// pending row is visible here. A closed pod-restart gains no new calls, so
+	// unsealed stays false and this recheck is stable.
+	if pending, err := s.db.HasPendingParquet(podRestart); err != nil || pending {
 		return false, err
 	}
 	resolve := func(int) (string, bool) { return "", false }
