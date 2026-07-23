@@ -279,10 +279,12 @@ func TestJanitorDiskBudgetEviction(t *testing.T) {
 
 // TestManifestQuarantine drives the lifecycle-track acceptance 4, mirroring
 // the parquet quarantine of the S3 slice: a permanent 4xx on a pods manifest
-// moves the body to upload-failed/ and stops the retry, while the parquet
-// object — already durable — still commits. (The dictionary and suspend
-// snapshots are gone: sealed rows are self-contained, №3/№23, so the pods
-// manifest is the only snapshot object left to quarantine.)
+// moves the body to upload-failed/ and stops the retry. The parquet stays
+// pending — not marked uploaded — because the manifest is the pod-restart's
+// only readable identity (708#8): completing the bundle without it would let
+// the hot tier expire and leave a discoverable-but-nameless cold call. (The
+// dictionary and suspend snapshots are gone: sealed rows are self-contained,
+// №3/№23, so the pods manifest is the only snapshot object left to quarantine.)
 func TestManifestQuarantine(t *testing.T) {
 	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
 	defer cancel()
@@ -332,8 +334,10 @@ func TestManifestQuarantine(t *testing.T) {
 	files, err := store.LocalParquet(key)
 	require.NoError(t, err)
 	require.Len(t, files, 1)
-	assert.NotNil(t, files[0].UploadedAtMs,
-		"the parquet object is durable; a rejected manifest must not re-PUT it forever")
+	assert.Nil(t, files[0].UploadedAtMs,
+		"a rejected manifest keeps the parquet pending, so the pod-restart is never discoverable-but-nameless")
+	require.NotNil(t, files[0].UploadFailedAtMs,
+		"the parquet is quarantined for the manifest, visibly pending, not silently done")
 
 	puts := fake.putCount(manifestKey)
 	_, err = uploader.Pass(ctx)

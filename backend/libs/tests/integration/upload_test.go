@@ -264,7 +264,10 @@ func TestUploadPass(t *testing.T) {
 	t.Run("4xx: quarantined under upload-failed/, refcounts kept", func(t *testing.T) {
 		assert.False(t, fake.has(fileB.S3Key), "a rejected object must not exist in S3")
 		assert.NoFileExists(t, fileB.Path, "the rejected file leaves its sealed path")
-		quarantined := filepath.Join(dataDir, "upload-failed", filepath.Base(fileB.Path))
+		// The quarantine mirrors the full S3 key, not just the basename: the sealed
+		// basename omits the retention class, so two classes can share one and would
+		// collide in a flat directory (QA 708#3).
+		quarantined := filepath.Join(dataDir, "upload-failed", filepath.FromSlash(fileB.S3Key))
 		assert.Equal(t, localBytes(quarantined), func() []byte {
 			data, err := os.ReadFile(quarantined)
 			require.NoError(t, err)
