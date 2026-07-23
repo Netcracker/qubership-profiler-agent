@@ -177,19 +177,48 @@ func (s *Store) reconcileParquetLocal(ctx context.Context) error {
 			return err
 		}
 	}
-	sealedRoot := filepath.Join(s.cfg.DataDir, "parquet")
-	err = filepath.WalkDir(sealedRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".parquet") {
-			return nil //nolint:nilerr // a missing root means nothing sealed yet
+	// A crash before the seal commit leaves a footer-less parquet under parquet/
+	// with no catalog row; a rename→DB double fault in quarantine() (issue #824)
+	// leaves the mirror case under upload-failed/ — the file moved but
+	// MarkUploadFailed never committed, so the row still points at the old
+	// parquet/ path (reconciled above as a lost pending file) and nothing owns
+	// the moved copy. Neither the quarantine cap nor the upload loop walks a
+	// file without a row, so recovery is the only sweep that reclaims it. Both
+	// roots share the same rule: a .parquet file catalogued by no parquet_local
+	// row is an orphan.
+	if err := s.sweepUncataloguedParquet(ctx, filepath.Join(s.cfg.DataDir, "parquet"), catalogued,
+		"sealed parquet %s has no catalog row (crash before the seal commit); removing the orphan"); err != nil {
+		return err
+	}
+	if err := s.sweepUncataloguedParquet(ctx, filepath.Join(s.cfg.DataDir, "upload-failed"), catalogued,
+		"quarantined parquet %s has no catalog row (rename→DB double fault, issue #824); removing the orphan"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// sweepUncataloguedParquet removes every .parquet file under root whose path is
+// not in catalogued (the set of live parquet_local paths). The quarantined
+// manifest and snapshot bodies that also live under upload-failed/ carry
+// non-parquet suffixes, so the suffix filter leaves them untouched.
+func (s *Store) sweepUncataloguedParquet(ctx context.Context, root string, catalogued map[string]struct{}, logMsg string) error {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err // propagate; a missing root is suppressed after WalkDir
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".parquet") {
+			return nil
 		}
 		if _, ok := catalogued[path]; ok {
 			return nil
 		}
-		log.Warning(ctx, "sealed parquet %s has no catalog row (crash before the seal commit); removing the orphan", path)
+		log.Warning(ctx, logMsg, path)
 		return os.Remove(path)
 	})
 	if err != nil && !os.IsNotExist(err) {
-		return errors.Wrap(err, "sweep orphan sealed parquet")
+		// A missing root means nothing sealed yet; any other traversal failure
+		// left orphans behind, so fail recovery rather than report a clean sweep.
+		return errors.Wrap(err, "sweep orphan parquet")
 	}
 	return nil
 }
