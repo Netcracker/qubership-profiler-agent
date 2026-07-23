@@ -2,29 +2,18 @@
 
 ## 🚀 One-Command Deploy
 
-### Option A: Deploy with PostgreSQL (Default)
-
 ```bash
 cd apps/dumps-collector
 
-# 1. Deploy everything (PostgreSQL + dumps-collector)
+# 1. Deploy dumps-collector
 helmfile sync
 
 # 2. Start port-forwards
 helmfile -l type=port-forward sync
 ```
 
-### Option B: Deploy without PostgreSQL (if already deployed separately)
-
-```bash
-cd apps/dumps-collector
-
-# 1. Deploy only dumps-collector (assumes PostgreSQL already exists)
-INSTALL_POSTGRES=false helmfile sync
-
-# 2. Start port-forwards (only for dumps-collector)
-INSTALL_POSTGRES=false helmfile -l type=port-forward sync
-```
+dumps-collector is self-contained: it stores dump metadata in an embedded SQLite database on its PersistentVolume
+(`/diag/profiler_dumps.db`), so no external database is needed.
 
 ## ✅ Verify
 
@@ -32,10 +21,6 @@ INSTALL_POSTGRES=false helmfile -l type=port-forward sync
 # Check dumps-collector
 curl http://localhost:8080/health
 curl http://localhost:8000/esc/health
-
-# Check PostgreSQL
-psql -h localhost -p 5432 -U profiler -d postgres
-# Password: profiler_password
 ```
 
 ## 🧹 Cleanup
@@ -44,11 +29,8 @@ psql -h localhost -p 5432 -U profiler -d postgres
 # Stop port-forwards
 helmfile -l type=port-forward destroy
 
-# Remove everything (including PostgreSQL if installed)
+# Remove the deployment
 helmfile destroy
-
-# Or remove only dumps-collector (keep PostgreSQL)
-INSTALL_POSTGRES=false helmfile destroy
 ```
 
 ## 📋 Useful Commands
@@ -57,14 +39,10 @@ INSTALL_POSTGRES=false helmfile destroy
 # List all releases
 helmfile list
 
-# Deploy only PostgreSQL
-helmfile -l component=postgres sync
-
-# Deploy only application
+# Deploy only the application (skip port-forwards)
 helmfile -l component=application sync
 
 # Check status
-kubectl get pods -n postgres
 kubectl get pods -n profiler
 
 # View logs
@@ -83,25 +61,23 @@ See [README-local-deployment.md](./README-local-deployment.md) for complete docu
 
 ## 🔗 Endpoints (after port-forward)
 
-- **dumps-collector HTTP**: http://localhost:8080
-- **dumps-collector API**: http://localhost:8000
-- **PostgreSQL**: localhost:5432
+- **dumps-collector HTTP/WebDAV**: <http://localhost:8080>
+- **dumps-collector API**: <http://localhost:8000>
 
 ## 📦 What Gets Deployed
 
 | Component | Namespace | Replicas | Storage |
 |-----------|-----------|----------|---------|
-| PostgreSQL (Patroni) | postgres | 2 | 10Gi × 2 |
 | dumps-collector | profiler | 1 | 5Gi |
 
 ## 🎯 Architecture
 
-```
+```text
 [Java Agents] → PUT /diagnostic → [Nginx:8080] → [PV Storage]
                                          ↓
-                                   [prf_dump_writer]
+                                   [prf_dump_writer:8000]
                                          ↓
-                                   [PostgreSQL] (metadata)
+                                   [SQLite] (metadata, on the PV)
                                          ↓
 [Users] ← GET /cdt/v2/download ← [API:8000] ← [PV/ZIP]
 ```
@@ -109,26 +85,27 @@ See [README-local-deployment.md](./README-local-deployment.md) for complete docu
 ## 🔧 Configuration
 
 All configuration in `values-local.yaml`:
-- PostgreSQL: `pg-patroni.postgres.svc.cluster.local:5432`
-- Credentials: `profiler` / `profiler_password`
-- Storage: `local-path` StorageClass (OrbStack)
-- Retention: Archive after 2h, Delete after 7 days
+
+- Metadata store: SQLite at `/diag/profiler_dumps.db` (on the PV)
+- Storage: `local-path` StorageClass (OrbStack), 5Gi mounted at `/diag`
+- Retention: archive after 2h, delete after 7 days, at most 5 heap dumps per pod
 
 ## ⚠️ Prerequisites
 
 - OrbStack with Kubernetes running
 - kubectl, helm, helmfile installed
-- pgskipper-operator at `../../../pgskipper-operator`
 
 ## 🐛 Troubleshooting
 
 **Helmfile errors?**
+
 ```bash
 helmfile list  # Check all releases
 helmfile diff  # See what would change
 ```
 
 **Pods not starting?**
+
 ```bash
 kubectl get pods -A
 kubectl describe pod -n profiler <pod-name>
@@ -136,16 +113,11 @@ kubectl logs -n profiler <pod-name>
 ```
 
 **Port-forward not working?**
+
 ```bash
 lsof -i :8080  # Check if port is in use
 helmfile -l type=port-forward destroy  # Stop all
 helmfile -l type=port-forward sync     # Restart
-```
-
-**PostgreSQL connection issues?**
-```bash
-kubectl get svc -n postgres  # Verify service exists
-kubectl logs -n postgres -l app=postgres  # Check logs
 ```
 
 ---

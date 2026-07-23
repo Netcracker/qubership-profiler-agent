@@ -16,7 +16,7 @@
 
 ### Update Order
 
-The profiler has 3 services and 3 libraries written in Go.
+The profiler backend is written in Go, with services layered on shared libraries.
 
 If you want to update both services and libraries,
 you should start with the libraries, because services use these libraries.
@@ -30,8 +30,6 @@ Moreover, some libraries use other libraries, so you need to follow the update o
 After that, you can update the services in any order:
 
 * [cloud-profiler-dumps-collector](https://github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector)
-* [cloud-maintenance-job](https://github.com/Netcracker/qubership-profiler-backend/apps/maintenance)
-* [cloud-profiler-compactor](https://github.com/Netcracker/qubership-profiler-backend/apps/compactor)
 
 ### Update Dependencies
 

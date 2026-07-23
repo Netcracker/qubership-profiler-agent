@@ -1,5 +1,0 @@
-
-INSERT INTO {{.TableName}}
-    (value, file_id)
-VALUES ($1, $2)
-	ON CONFLICT DO NOTHING

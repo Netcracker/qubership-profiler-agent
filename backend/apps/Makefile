@@ -4,13 +4,7 @@
 .PHONY: help build-all clean-all test-all docker-build-all archive-all
 
 # Variables
-# Set SKIP_FRONTEND=Y to exclude the query (frontend) app from builds
-# collector and maintenance are excluded for now
-ifeq ($(SKIP_FRONTEND),Y)
 APPS := dumps-collector profiler-backend
-else
-APPS := dumps-collector profiler-backend query
-endif
 
 # Default target
 help:
@@ -22,7 +16,7 @@ help:
 	@echo "  test-all         - Run tests for all applications"
 	@echo "  docker-build-all - Build Docker images for all applications"
 	@echo "  archive-all      - Create deployment archives for all applications"
-	@echo "  help-<app>       - Show help for specific app (e.g., help-collector)"
+	@echo "  help-<app>       - Show help for specific app (e.g., help-dumps-collector)"
 	@echo ""
 	@echo "Individual app targets:"
 	@for app in $(APPS); do \
@@ -79,99 +73,51 @@ archive-all:
 	@echo "==> All deployment archives created successfully!"
 
 # Individual app targets
-collector-build:
-	@echo "==> Building collector..."
-	$(MAKE) -C collector build
-
 dumps-collector-build:
 	@echo "==> Building dumps-collector..."
 	$(MAKE) -C dumps-collector build
 
-maintenance-build:
-	@echo "==> Building maintenance..."
-	$(MAKE) -C maintenance build
-
-query-build:
-	@echo "==> Building query..."
-	$(MAKE) -C query build
-
-collector-clean:
-	@echo "==> Cleaning collector..."
-	$(MAKE) -C collector clean
+profiler-backend-build:
+	@echo "==> Building profiler-backend..."
+	$(MAKE) -C profiler-backend build
 
 dumps-collector-clean:
 	@echo "==> Cleaning dumps-collector..."
 	$(MAKE) -C dumps-collector clean
 
-maintenance-clean:
-	@echo "==> Cleaning maintenance..."
-	$(MAKE) -C maintenance clean
-
-query-clean:
-	@echo "==> Cleaning query..."
-	$(MAKE) -C query clean
-
-collector-test:
-	@echo "==> Testing collector..."
-	$(MAKE) -C collector test
+profiler-backend-clean:
+	@echo "==> Cleaning profiler-backend..."
+	$(MAKE) -C profiler-backend clean
 
 dumps-collector-test:
 	@echo "==> Testing dumps-collector..."
 	$(MAKE) -C dumps-collector test
 
-maintenance-test:
-	@echo "==> Testing maintenance..."
-	$(MAKE) -C maintenance test
-
-query-test:
-	@echo "==> Testing query..."
-	$(MAKE) -C query test
-
-collector-docker:
-	@echo "==> Building Docker image for collector..."
-	$(MAKE) -C collector docker-build
+profiler-backend-test:
+	@echo "==> Testing profiler-backend..."
+	$(MAKE) -C profiler-backend test
 
 dumps-collector-docker:
 	@echo "==> Building Docker image for dumps-collector..."
 	$(MAKE) -C dumps-collector docker-build
 
-maintenance-docker:
-	@echo "==> Building Docker image for maintenance..."
-	$(MAKE) -C maintenance docker-build
-
-query-docker:
-	@echo "==> Building Docker image for query..."
-	$(MAKE) -C query docker-build
-
-collector-archive:
-	@echo "==> Creating archive for collector..."
-	$(MAKE) -C collector archive
+profiler-backend-docker:
+	@echo "==> Building Docker image for profiler-backend..."
+	$(MAKE) -C profiler-backend docker-build
 
 dumps-collector-archive:
 	@echo "==> Creating archive for dumps-collector..."
 	$(MAKE) -C dumps-collector archive
 
-maintenance-archive:
-	@echo "==> Creating archive for maintenance..."
-	$(MAKE) -C maintenance archive
-
-query-archive:
-	@echo "==> Creating archive for query..."
-	$(MAKE) -C query archive
+profiler-backend-archive:
+	@echo "==> Creating archive for profiler-backend..."
+	$(MAKE) -C profiler-backend archive
 
 # Help targets for individual apps
-help-collector:
-	@echo "Help for collector application:"
-	$(MAKE) -C collector help
-
 help-dumps-collector:
 	@echo "Help for dumps-collector application:"
 	$(MAKE) -C dumps-collector help
 
-help-maintenance:
-	@echo "Help for maintenance application:"
-	$(MAKE) -C maintenance help
-
-help-query:
-	@echo "Help for query application:"
-	$(MAKE) -C query help
+help-profiler-backend:
+	@echo "Help for profiler-backend application:"
+	$(MAKE) -C profiler-backend help

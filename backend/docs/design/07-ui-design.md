@@ -279,8 +279,7 @@ flowchart LR
 
 - **Serving.** `query` mounts an `embed.FS` at `/ui` on its existing router, with an SPA fallback to
   `index.html` for client-side routes. `/api/v1/*`, `/metrics`, and `/api/v1/health/*` are unchanged. One
-  origin means no CORS. The `service_type=ui` note in `backend/docs/dev/ui-app-local-setup.md` already
-  anticipated the backend serving the UI.
+  origin means no CORS.
 - **API base.** When embedded, the UI calls `/api/v1` on its own origin. A build-time base-URL override
   keeps local development against a remote `query` working.
 - **Local development.** Vite dev server proxies `/api/v1` to a running `query` (`:8080`), or to an MSW
