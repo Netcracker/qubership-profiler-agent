@@ -1,6 +1,9 @@
 {{- if .Values.metrics.serviceMonitor.enabled }}
+# query serves /metrics on a dedicated metrics port that no Service exposes, so
+# the ingress (which maps the external port at path /) never reaches it (04 §12).
+# A PodMonitor scrapes that port on the pod directly, mirroring the maintain loop.
 apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+kind: PodMonitor
 metadata:
   name: {{ include "profiler-backend.fullname" . }}-query
   labels:
@@ -12,10 +15,8 @@ spec:
   selector:
     matchLabels:
       {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "query") | nindent 6 }}
-  endpoints:
-    # query serves /metrics on the external port — it has no internal one
-    # (04 §12); the ingress publishes /api/v1 only.
-    - port: external
+  podMetricsEndpoints:
+    - port: metrics
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
 {{- end }}
