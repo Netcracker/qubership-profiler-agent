@@ -1,0 +1,271 @@
+suite: dumps-collector gateway ingress
+templates:
+  - templates/ingress.yaml
+capabilities:
+  apiVersions:
+    - networking.k8s.io/v1
+release:
+  name: test
+  namespace: test-ns
+tests:
+  - it: legacy-ingress default renders Ingress
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: legacy-ingress
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.rules[0].host
+          value: dumps-collector-test-ns.example.com
+
+  - it: gateway-api-default renders no Ingress
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: dual-publish renders Ingress with ignore annotation
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: legacy-ingress,gateway-api-default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.annotations["gateway-api-converter.netcracker.com/ignore"]
+          value: "true"
+      - equal:
+          path: spec.rules[0].host
+          value: dumps-collector-test-ns.example.com
+
+  - it: ingress.host override is independent of httpRoute.host
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: legacy-ingress,gateway-api-default
+      dumpsCollector.ingress.host: ingress-only.example.com
+      dumpsCollector.httpRoute.host: httproute-only.eg.example.com
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: ingress-only.example.com
+
+  - it: null dumpsCollector.gateway.systemType falls back to legacy Ingress
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: null
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+
+  - it: empty dumpsCollector.gateway.systemType falls back to legacy Ingress
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: ""
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+
+---
+suite: dumps-collector gateway httproute
+templates:
+  - templates/httproute.yaml
+release:
+  name: test
+  namespace: test-ns
+tests:
+  - it: legacy-ingress renders no HTTPRoute
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: legacy-ingress
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: gateway-api-default renders HTTPRoute with eg hostname
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: spec.hostnames[0]
+          value: dumps-collector-test-ns.eg.example.com
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: cloud-profiler-dumps-collector
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 8080
+      - equal:
+          path: spec.parentRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.parentRefs[0].kind
+          value: Gateway
+      - equal:
+          path: spec.parentRefs[0].name
+          value: default-external-gateway
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: gateway-system
+
+  - it: dual-publish renders HTTPRoute with distinct hostname
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: legacy-ingress,gateway-api-default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.hostnames[0]
+          value: dumps-collector-test-ns.eg.example.com
+
+  - it: httpRoute.host override is independent of ingress.host
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+      dumpsCollector.ingress.host: ingress-only.example.com
+      dumpsCollector.httpRoute.host: httproute-only.eg.example.com
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.hostnames[0]
+          value: httproute-only.eg.example.com
+
+  - it: blueGreen peerNamespace uses edge-router with default controllerNamespace
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+      dumpsCollector.gateway.blueGreen.peerNamespace: peer-ns
+      dumpsCollector.gateway.blueGreen.controllerNamespace: ""
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.parentRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.parentRefs[0].kind
+          value: Gateway
+      - equal:
+          path: spec.parentRefs[0].name
+          value: edge-router
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: bluegreen-controller
+
+  - it: blueGreen peerNamespace uses explicit controllerNamespace
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+      dumpsCollector.gateway.blueGreen.peerNamespace: peer-ns
+      dumpsCollector.gateway.blueGreen.controllerNamespace: my-bg-controller
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.parentRefs[0].kind
+          value: Gateway
+      - equal:
+          path: spec.parentRefs[0].name
+          value: edge-router
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: my-bg-controller
+
+  - it: TLS enabled renders Backend and Envoy backendRef
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+      tlsConfig.generateCerts.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentSelector:
+          path: kind
+          value: HTTPRoute
+        equal:
+          path: spec.rules[0].backendRefs[0].group
+          value: gateway.envoyproxy.io
+      - documentSelector:
+          path: kind
+          value: HTTPRoute
+        equal:
+          path: spec.rules[0].backendRefs[0].kind
+          value: Backend
+      - documentSelector:
+          path: kind
+          value: Backend
+        equal:
+          path: spec.tls.insecureSkipVerify
+          value: true
+
+  - it: TLS enabled uses configurable backendTls settings
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+      tlsConfig.generateCerts.enabled: true
+      dumpsCollector.httpRoute.backendTls:
+        insecureSkipVerify: false
+        sni: cloud-profiler-dumps-collector.test-ns.svc.cluster.local
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentSelector:
+          path: kind
+          value: Backend
+        equal:
+          path: spec.tls.insecureSkipVerify
+          value: false
+      - documentSelector:
+          path: kind
+          value: Backend
+        equal:
+          path: spec.tls.sni
+          value: cloud-profiler-dumps-collector.test-ns.svc.cluster.local
+
+  - it: null dumpsCollector.gateway.systemType renders no HTTPRoute
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: empty dumpsCollector.gateway.systemType renders no HTTPRoute
+    set:
+      NAMESPACE: test-ns
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: ""
+    asserts:
+      - hasDocuments:
+          count: 0
