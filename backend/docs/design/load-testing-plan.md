@@ -262,7 +262,8 @@ fully observable — was verified live on OrbStack.
 Shipped:
 
 - **pprof** (§6.1): `net/http/pprof` in `collect`/`query`/`maintain` behind `PROFILER_PPROF_ENABLED` (default off),
-  on the internal/metrics port; on `query` it rides the external listener (its only port).
+  on the internal/metrics port; on `query` it rides the dedicated metrics port (`PROFILER_METRICS_PORT`), off the
+  external listener the ingress publishes (`04-storage-layout.md` §12, reports2#15).
 - **Stand** (§5.3): `backend/tools/load-generator/deploy/` — helmfile with `local` / `cluster` environments.
   qubership-monitoring-operator v0.88.0 comes straight from its git tag via helmfile `git::` charts (the helm-git
   plugin 1.3.0 is broken with helm 4); CRDs are a separate first release, `needs:` orders CRDs → operator → CRs.

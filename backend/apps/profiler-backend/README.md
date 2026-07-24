@@ -14,9 +14,11 @@ states, and the process wiring.
 `all` (`03-lifecycle.md` §9) is not implemented yet.
 
 Every subcommand serves Prometheus `/metrics`: `collect` on the internal port
-(scrapable through LOADING/RECOVERY), `query` on the external port, `maintain`
-on `PROFILER_METRICS_PORT` in loop mode (`--run-now` exits too fast to
-scrape). The series names are a stable contract — the catalog lives in
+(scrapable through LOADING/RECOVERY), `query` and `maintain` on a dedicated
+metrics port (`PROFILER_METRICS_PORT`; `maintain` binds it only in loop mode,
+since `--run-now` exits too fast to scrape). query keeps `/metrics` and
+`/debug/pprof` off its external port so the ingress cannot reach them
+(reports2#15). The series names are a stable contract — the catalog lives in
 `charts/profiler-backend/README.md`.
 
 ## Quick start (docker-compose)
@@ -73,7 +75,8 @@ Not wired yet (their features belong to later Stage 1 tasks):
 
 | Env | Default | Description |
 |---|---|---|
-| `PROFILER_EXTERNAL_API_PORT` | `8080` | `/api/v1` and the health probes. |
+| `PROFILER_EXTERNAL_API_PORT` | `8080` | `/api/v1`, the UI, and the health probes. |
+| `PROFILER_METRICS_PORT` | `8081` | Separate listener for `/metrics` and `/debug/pprof`, off the external port so the ingress cannot reach them. |
 | `COLLECTOR_HEADLESS_SVC` | — | Headless-Service DNS name for replica discovery; empty serves the cold tier only. |
 | `PROFILER_INTERNAL_API_PORT` | `8081` | The replicas' internal API port. |
 | `PROFILER_OVERLAP_MARGIN` | `5m` | Hot/cold overlap window. |
