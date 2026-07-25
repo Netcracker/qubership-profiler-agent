@@ -235,3 +235,35 @@ func TestCallsLeaseOwnsDecodedRows(t *testing.T) {
 	lease.Release()
 	assert.Equal(t, int64(0), b.Used())
 }
+
+// TestFetchDictionaryDecodesEitherBodyShape pins the rolling-upgrade window of
+// #836: the dictionary body lost its `version` field, and a replica still
+// sending it must decode into the same Dictionary as one that does not. The
+// ETag is the only freshness signal either way.
+func TestFetchDictionaryDecodesEitherBodyShape(t *testing.T) {
+	tuple := model.PodTuple{Namespace: "ns", Service: "svc", Pod: "pod", RestartTimeMs: 1000}
+	const etag = `"ns:svc:pod:1000:2"`
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "collector still sending version", body: `{"version":2,"methods":["a","b"]}`},
+		{name: "collector on the current shape", body: `{"methods":["a","b"]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("ETag", etag)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			c := NewClient(time.Second, budget.New(1<<20, time.Second, budget.Hooks{}))
+			dict, notModified, found, err := c.FetchDictionary(context.Background(), srv.URL, tuple, "")
+			require.NoError(t, err)
+			require.True(t, found)
+			assert.False(t, notModified)
+			assert.Equal(t, Dictionary{Words: []string{"a", "b"}, ETag: etag}, dict)
+		})
+	}
+}

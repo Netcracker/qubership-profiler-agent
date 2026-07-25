@@ -297,7 +297,9 @@ func TestHotColdFanout(t *testing.T) {
 		_ = dictResp.Body.Close()
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, dictResp.StatusCode)
-		assert.Contains(t, string(dictBody), `"version":5`)
+		assert.NotContains(t, string(dictBody), "version", "freshness is the ETag's job (#836)")
+		assert.Equal(t, fmt.Sprintf(`"%s:%s:%s:%d:5"`, hotstoreNs, hotstoreSvc, fanPodHot, keyH.RestartTimeMs),
+			dictResp.Header.Get("ETag"), "the ETag carries the word count the body no longer does")
 		assert.Contains(t, string(dictBody), "call.red")
 	})
 

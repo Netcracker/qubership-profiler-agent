@@ -396,15 +396,14 @@ func (a *API) handlePods(c echo.Context) error {
 // dictionarySnapshot is the §2.6 response shape; both arrays carry the full
 // word list because the wire dictionary is one id space (01 §3.6).
 type dictionarySnapshot struct {
-	Version int      `json:"version"`
 	Methods []string `json:"methods"`
 	Params  []string `json:"params"`
 }
 
 // handleDictionary serves GET /internal/v1/pods/{pod-restart}/dictionary for
 // pod-restarts hosted by this replica (02 §2.6, §3). The ETag is
-// (pod-restart, version); a live dictionary only grows, so If-None-Match
-// revalidation answers 304 until it does.
+// (pod-restart, dictionary word count); a live dictionary only grows, so
+// If-None-Match revalidation answers 304 until it does.
 func (a *API) handleDictionary(c echo.Context) error {
 	tuple, err := model.ParsePodRestartPath(c.Param("podRestart"))
 	if err != nil {
@@ -424,7 +423,7 @@ func (a *API) handleDictionary(c echo.Context) error {
 	if c.Request().Header.Get("If-None-Match") == etag {
 		return c.NoContent(http.StatusNotModified)
 	}
-	return c.JSON(http.StatusOK, dictionarySnapshot{Version: len(words), Methods: words, Params: words})
+	return c.JSON(http.StatusOK, dictionarySnapshot{Methods: words, Params: words})
 }
 
 // suspendTimeline is the suspend endpoint's body: the pod-restart's

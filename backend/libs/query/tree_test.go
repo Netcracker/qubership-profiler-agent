@@ -269,7 +269,7 @@ func (r *liveReplica) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		w.Header().Set("ETag", etag)
-		_, _ = w.Write([]byte(`{"version":1,"methods":["",` + strconv.Quote(method) + `]}`))
+		_, _ = w.Write([]byte(`{"methods":["",` + strconv.Quote(method) + `]}`))
 	case strings.HasSuffix(req.URL.Path, "/suspend"):
 		_, _ = w.Write([]byte(`{"events":[]}`))
 	default:
