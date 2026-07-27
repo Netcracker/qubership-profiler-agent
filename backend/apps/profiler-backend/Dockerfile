@@ -16,7 +16,7 @@ RUN npm ci --no-audit --no-fund
 COPY apps/ui/ ./
 RUN npm run build
 
-FROM golang:1.26.2-alpine3.22@sha256:7ef941168f213aa115df2e61364d67682129e99dc8188b734139dea862cc7d31 AS builder
+FROM golang:1.26.4-alpine3.22@sha256:727cfc3c40be55cd1bc9a4a059406b28a059857e3be752aa9d09531e12c20c56 AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH
