@@ -21,4 +21,4 @@ jobs:
           persist-credentials: false
 
       - name: Validate renovate.json
-        run: docker run --rm -v "$PWD":/work -w /work renovate/renovate:latest renovate-config-validator renovate.json
+        run: docker run --rm -v "$PWD":/work -w /work renovate/renovate:latest renovate-config-validator --strict --no-global renovate.json
