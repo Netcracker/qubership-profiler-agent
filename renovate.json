@@ -1,7 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:best-practices"
+    "github>Netcracker/renovate-config:base",
+    "github>Netcracker/renovate-config:annotated-versions",
+    "github>Netcracker/renovate-config:github-actions",
+    "github>Netcracker/renovate-config:go",
+    "github>Netcracker/renovate-config:netcracker-dependencies"
   ],
   "labels": [
     "dependencies"
@@ -128,11 +132,17 @@
       ]
     },
     {
-      "description": "Group all GitHub Actions updates into a single PR",
-      "groupName": "GitHub Actions",
-      "matchManagers": [
-        "github-actions"
-      ]
+      "description": "Disable Docker images that are unavailable from their registries",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "centos7/openjdk11-x64",
+        "centos7/openjdk11-x86",
+        "alpine/openjdk17",
+        "alpine/openjdk21"
+      ],
+      "enabled": false
     }
   ]
 }
