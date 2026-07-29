@@ -22,7 +22,7 @@ COPY tools/load-generator/ tools/load-generator/
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-w -s" -o /workspace/k6 ./tools/load-generator/k6runner
 
-FROM alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS release
+FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS release
 
 COPY --from=builder /workspace/k6 /xk6/k6
 COPY tools/load-generator/scripts /xk6/scripts
