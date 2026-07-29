@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - renovate.json
+      - .github/workflows/renovate-config-lint.yaml
   pull_request:
     paths:
       - renovate.json
+      - .github/workflows/renovate-config-lint.yaml
 
 permissions: read-all
 
