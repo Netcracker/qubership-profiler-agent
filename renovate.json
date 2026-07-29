@@ -56,12 +56,6 @@
       ]
     },
     {
-      "groupName": "jmh",
-      "matchPackageNames": [
-        "org.openjdk.jmh{/,}**"
-      ]
-    },
-    {
       "groupName": "com.github.vlsi",
       "matchPackageNames": [
         "com.github.vlsi{/,}**"
@@ -113,16 +107,14 @@
       ]
     },
     {
-      "description": "Pin sample-apps/it-spring-boot-3 to Spring Boot 3.x; create it-spring-boot-4 module when bumping major",
+      "description": "Keep Spring Boot 3 example modules on Spring Boot 3",
       "groupName": "Spring Boot 3 sample app",
       "matchFileNames": [
-        "sample-apps/it-spring-boot-3/**"
+        "backend/examples/spring-boot-3-*/**"
       ],
       "allowedVersions": "< 4",
       "matchPackageNames": [
-        "org.springframework.boot{/,}**",
-        "org.springframework{/,}**",
-        "org.springframework.session{/,}**"
+        "org.springframework.boot{/,}**"
       ]
     },
     {
