@@ -21,23 +21,17 @@
   ],
   "packageRules": [
     {
-      "description": "Update Go version everywhere at once: build image, go.mod and GitHub Actions workflows",
-      "groupName": "Go",
+      "description": "Run Go toolchain updates weekly on Monday",
       "schedule": [
         "every 1 weeks on Monday"
       ],
       "matchDatasources": [
         "docker",
-        "github-actions",
-        "github-releases",
-        "golang-version",
-        "gomod"
+        "golang-version"
       ],
       "matchPackageNames": [
         "go",
-        "golang",
-        "actions/go-versions",
-        "actions/setup-go"
+        "golang"
       ]
     },
     {
