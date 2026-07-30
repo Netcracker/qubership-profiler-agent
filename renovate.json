@@ -13,28 +13,11 @@
   ],
   "automerge": true,
   "platformAutomerge": false,
-  "schedule": [
-    "every 4 day"
-  ],
   "ignorePaths": [
     "**/node_modules/**",
     "plugins/*/build.gradle.kts"
   ],
   "packageRules": [
-    {
-      "description": "Run Go toolchain updates weekly on Monday",
-      "schedule": [
-        "every 1 weeks on Monday"
-      ],
-      "matchDatasources": [
-        "docker",
-        "golang-version"
-      ],
-      "matchPackageNames": [
-        "go",
-        "golang"
-      ]
-    },
     {
       "groupName": "errorprone",
       "matchPackageNames": [
