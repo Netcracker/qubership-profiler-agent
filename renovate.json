@@ -5,6 +5,7 @@
     "github>Netcracker/renovate-config:annotated-versions",
     "github>Netcracker/renovate-config:github-actions",
     "github>Netcracker/renovate-config:go",
+    "github>Netcracker/renovate-config:maven-groupid",
     "github>Netcracker/renovate-config:netcracker-dependencies"
   ],
   "labels": [
@@ -47,12 +48,6 @@
       "allowedVersions": "< 7",
       "matchPackageNames": [
         "javax:javaee-api"
-      ]
-    },
-    {
-      "groupName": "checkerframework",
-      "matchPackageNames": [
-        "org.checkerframework{/,}**"
       ]
     },
     {
