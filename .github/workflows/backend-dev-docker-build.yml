@@ -48,7 +48,7 @@ jobs:
       CONFIG_FILE: backend/.qubership/docker-build-config.cfg
     steps:
       - name: "Checkout code"
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -91,12 +91,12 @@ jobs:
         component: ${{ fromJson(needs.load-docker-build-components.outputs.component) }}
     steps:
       - name: "Checkout code"
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: "Create metadata"
-        uses: netcracker/qubership-workflow-hub/actions/metadata-action@cabbb90e9471163cfac84bd50ff0296b2803b44c # v2.3.0
+        uses: netcracker/qubership-workflow-hub/actions/metadata-action@b6bee6f61fdc8b367777c1173fc852a58878a6a7 # v2.5.0
         id: metadata
 
       - name: "Prepare tags"
@@ -126,7 +126,7 @@ jobs:
           echo "**Tags:** ${TAGS}" >> $GITHUB_STEP_SUMMARY
 
       - name: "Build and Publish Docker Image"
-        uses: netcracker/qubership-workflow-hub/actions/docker-action@cabbb90e9471163cfac84bd50ff0296b2803b44c # v2.3.0
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@b6bee6f61fdc8b367777c1173fc852a58878a6a7 # v2.5.0
         with:
           component: ${{ toJson(matrix.component) }}
           platforms: ${{ needs.load-docker-build-components.outputs.platforms }}
