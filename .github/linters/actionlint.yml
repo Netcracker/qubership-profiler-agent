@@ -1,0 +1,5 @@
+paths:
+  .github/workflows/renovate-config-lint.yaml:
+    ignore:
+      # GitHub Actions supports concurrency.queue, but actionlint 1.7.12 does not yet.
+      - 'unexpected key "queue" for "concurrency" section'
