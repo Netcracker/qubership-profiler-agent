@@ -58,6 +58,32 @@ func TestUIServing(t *testing.T) {
 				}
 			})
 
+			t.Run("the origin root reaches the app", func(t *testing.T) {
+				client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+					return http.ErrUseLastResponse
+				}}
+				resp, err := client.Get(server.URL + "/")
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+				if tc.base == "" {
+					assert.Equal(t, http.StatusOK, resp.StatusCode)
+					return
+				}
+				// A sub-path build owns nothing at the root but the redirect.
+				assert.Equal(t, http.StatusFound, resp.StatusCode)
+				assert.Equal(t, tc.base+"/", resp.Header.Get("Location"))
+			})
+
+			t.Run("a sub-path build serves the app only under its base", func(t *testing.T) {
+				if tc.base == "" {
+					t.Skip("a root build owns every path by design")
+				}
+				// The documented routes live under the base; the same route at
+				// the root is not a second entry point into the app.
+				resp, _ := get("/calls")
+				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+			})
+
 			t.Run("client-side routes fall back to index.html", func(t *testing.T) {
 				for _, p := range []string{tc.base + "/calls", tc.base + "/pods", tc.base + "/tree/ns:svc:pod:1:2:3:4", tc.base + "/no/such/route"} {
 					resp, body := get(p)
