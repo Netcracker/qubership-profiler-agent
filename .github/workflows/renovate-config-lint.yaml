@@ -9,13 +9,21 @@ on:
     paths:
       - renovate.json
       - .github/workflows/renovate-config-lint.yaml
-
-permissions: read-all
+  schedule:
+    - cron: "54 10 * * 1"
+  workflow_dispatch: {}
 
 jobs:
   validate-renovate-config:
     name: Validate renovate.json
     runs-on: ubuntu-latest
+    outputs:
+      reason: ${{ steps.validate-config.outputs.reason || steps.resolve-presets.outputs.reason }}
+    container:
+      image: renovate/renovate:43.285.4@sha256:bd7d8f646bf9d22aea995eaad06ec26c3f4fd4efbc36826024f5653006c9e7b1
+      options: --user 0
+    permissions:
+      contents: read
     steps:
       - name: Checkout sources
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -23,4 +31,338 @@ jobs:
           persist-credentials: false
 
       - name: Validate renovate.json
-        run: docker run --rm -v "$PWD":/work -w /work renovate/renovate:latest renovate-config-validator --strict --no-global renovate.json
+        id: validate-config
+        shell: bash
+        run: |
+          set +e
+          renovate-config-validator --strict --no-global renovate.json
+          validation_status="$?"
+          set -e
+
+          if [[ "$validation_status" -ne 0 ]]; then
+            echo 'reason=renovate.json failed strict validation' >> "$GITHUB_OUTPUT"
+            exit "$validation_status"
+          fi
+
+      - name: Resolve shared Renovate presets
+        id: resolve-presets
+        shell: bash
+        env:
+          GITHUB_COM_TOKEN: ${{ github.token }}
+          LOG_FORMAT: json
+          LOG_LEVEL: warn
+        run: |
+          set -o pipefail
+          log_file="$(mktemp)"
+          trap 'rm -f "$log_file"' EXIT
+          rate_limit_filter='fromjson? | select((.msg // "") | test("Rate limit exceeded"))'
+          validation_filter='fromjson? | select(.err.validationError? or .msg == "Repository has invalid config")'
+
+          set +e
+          renovate --platform=local --dry-run=extract 2>&1 | tee "$log_file"
+          renovate_status="${PIPESTATUS[0]}"
+          set -e
+
+          if jq -R -e "$rate_limit_filter" "$log_file" >/dev/null; then
+            echo 'reason=GitHub API rate limit prevented shared preset resolution' >> "$GITHUB_OUTPUT"
+            echo "::error::GitHub API rate limit hit; preset resolution could not be verified"
+            jq -R -r "$rate_limit_filter | .msg" "$log_file"
+            exit 1
+          fi
+
+          if jq -R -e "$validation_filter" "$log_file" >/dev/null; then
+            echo 'reason=Renovate could not resolve the repository configuration' >> "$GITHUB_OUTPUT"
+            echo "::error::Renovate could not resolve the repository configuration"
+            jq -R -r "$validation_filter | .err.validationError // .msg" "$log_file"
+            exit 1
+          fi
+
+          if [[ "$renovate_status" -ne 0 ]]; then
+            echo "reason=Renovate preset resolution exited with code $renovate_status" >> "$GITHUB_OUTPUT"
+            echo "::error::Renovate preset resolution exited with code $renovate_status"
+            exit "$renovate_status"
+          fi
+
+  lookup-renovate-dependencies:
+    name: Look up Renovate dependencies
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      reason: ${{ steps.lookup.outputs.reason }}
+    container:
+      image: renovate/renovate:43.285.4@sha256:bd7d8f646bf9d22aea995eaad06ec26c3f4fd4efbc36826024f5653006c9e7b1
+      options: --user 0
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Look up dependencies
+        id: lookup
+        shell: bash
+        env:
+          GITHUB_COM_TOKEN: ${{ github.token }}
+          LOG_FORMAT: json
+          LOG_LEVEL: debug
+        run: |
+          set -euo pipefail
+          log_file="$(mktemp)"
+          first_log_file="$(mktemp)"
+          cache_root="$(mktemp -d)"
+          trap 'rm -f "$log_file" "$first_log_file"; rm -rf "$cache_root"' EXIT
+          records_filter='split("\n") | map(fromjson?) | map(select(type == "object"))'
+          error_filter='select((.level // 0) >= 50 or .err.validationError? or .msg == "Repository has invalid config")'
+          lookup_failure_filter='select((.msg // "") | startswith("Failed to look up"))'
+          rate_limit_filter='select((.msg // "") | test("Rate limit exceeded"))'
+          warning_filter='select((.level // 0) >= 40 and (.level // 0) < 50 and (((.msg // "") | test("Rate limit exceeded")) | not))'
+
+          run_lookup() {
+            lookup_attempt_count=$((lookup_attempt_count + 1))
+            attempt_cache_dir="$(mktemp -d "$cache_root/attempt.XXXXXX")"
+            set +e
+            RENOVATE_CACHE_DIR="$attempt_cache_dir" renovate --platform=local --dry-run=lookup > "$log_file" 2>&1
+            renovate_status="$?"
+            set -e
+          }
+
+          analyze_lookup() {
+            error_count="$(jq -R -s "$records_filter | map($error_filter) | length" "$log_file")"
+            lookup_failure_count="$(jq -R -s "$records_filter | map($lookup_failure_filter) | length" "$log_file")"
+            rate_limit_count="$(jq -R -s "$records_filter | map($rate_limit_filter) | length" "$log_file")"
+            warning_count="$(jq -R -s "$records_filter | map($warning_filter) | length" "$log_file")"
+          }
+
+          lookup_attempt_count=0
+          lookup_retry_count=0
+          run_lookup
+          analyze_lookup
+
+          if [[ "$renovate_status" -eq 0 && "$lookup_failure_count" -ne 0 && "$rate_limit_count" -eq 0 && "$error_count" -eq 0 ]]; then
+            lookup_retry_count=1
+            cp "$log_file" "$first_log_file"
+            echo '::notice::Retrying dependency lookup after soft lookup failures'
+            run_lookup
+            analyze_lookup
+          fi
+
+          {
+            echo "### Local Renovate lookup"
+            echo
+            echo "- Exit code: $renovate_status"
+            echo "- Retries: $lookup_retry_count"
+            echo "- Lookup failures: $lookup_failure_count"
+            echo "- Rate-limit records: $rate_limit_count"
+            echo "- Warning records: $warning_count"
+            echo "- Error records: $error_count"
+            echo "- Platform: experimental local lookup"
+            if [[ "$lookup_retry_count" -ne 0 ]]; then
+              echo
+              echo "#### Initial lookup failures"
+              jq -R -s -r "$records_filter | map($lookup_failure_filter) | .[:20][] | \"- \" + (.msg | tostring | gsub(\"[\\r\\n]+\"; \" \"))" "$first_log_file"
+            fi
+            if [[ "$lookup_failure_count" -ne 0 ]]; then
+              echo
+              echo "#### Lookup failures"
+              jq -R -s -r "$records_filter | map($lookup_failure_filter) | .[:20][] | \"- \" + (.msg | tostring | gsub(\"[\\r\\n]+\"; \" \"))" "$log_file"
+            fi
+            if [[ "$rate_limit_count" -ne 0 ]]; then
+              echo
+              echo "#### Rate limits"
+              jq -R -s -r "$records_filter | map($rate_limit_filter) | .[:20][] | \"- \" + (.msg | tostring | gsub(\"[\\r\\n]+\"; \" \"))" "$log_file"
+            fi
+            if [[ "$warning_count" -ne 0 ]]; then
+              echo
+              echo "#### Warnings"
+              jq -R -s -r "$records_filter | map($warning_filter) | .[:20][] | \"- \" + ((.msg // .err.message // \"Renovate warning\") | tostring | gsub(\"[\\r\\n]+\"; \" \"))" "$log_file"
+            fi
+            if [[ "$error_count" -ne 0 ]]; then
+              echo
+              echo "#### Errors"
+              jq -R -s -r "$records_filter | map($error_filter) | .[:20][] | \"- \" + ((.err.validationError // .msg // .err.message // \"Renovate error\") | tostring | gsub(\"[\\r\\n]+\"; \" \"))" "$log_file"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failure_reason=''
+          if [[ "$rate_limit_count" -ne 0 ]]; then
+            failure_reason='GitHub API rate limit prevented dependency lookup'
+          elif [[ "$lookup_failure_count" -ne 0 ]]; then
+            dependency_word='dependencies'
+            if [[ "$lookup_failure_count" -eq 1 ]]; then
+              dependency_word='dependency'
+            fi
+            failure_reason="Renovate failed to look up $lookup_failure_count $dependency_word"
+          elif [[ "$renovate_status" -ne 0 ]]; then
+            failure_reason="Local Renovate dependency lookup exited with code $renovate_status"
+          elif [[ "$error_count" -ne 0 ]]; then
+            failure_reason="Local Renovate dependency lookup reported $error_count error records"
+          fi
+
+          if [[ -n "$failure_reason" ]]; then
+            stop_marker="$(openssl rand -hex 32)"
+            echo '::group::Renovate debug log'
+            echo "::stop-commands::$stop_marker"
+            tail -c 1000000 "$log_file"
+            echo
+            echo "::$stop_marker::"
+            echo '::endgroup::'
+            echo "reason=$failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::Local Renovate dependency lookup failed"
+            exit 1
+          fi
+
+  monitor-renovate:
+    name: Monitor Renovate health
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    needs:
+      - validate-renovate-config
+      - lookup-renovate-dependencies
+    runs-on: ubuntu-latest
+    concurrency:
+      group: renovate-health-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Inspect Dependency Dashboard and report health
+        env:
+          LOOKUP_REASON: ${{ needs.lookup-renovate-dependencies.outputs.reason }}
+          LOOKUP_RESULT: ${{ needs.lookup-renovate-dependencies.result }}
+          VALIDATION_REASON: ${{ needs.validate-renovate-config.outputs.reason }}
+          VALIDATION_RESULT: ${{ needs.validate-renovate-config.result }}
+        run: |
+          set -euo pipefail
+          dashboard_title='Dependency Dashboard'
+          health_label='renovate-health'
+          health_title='Renovate health check failed'
+          health_marker='<!-- renovate-health-check -->'
+          run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          dashboard_url=''
+          reasons=()
+
+          # The server-side author filter uses the raw renovate[bot] login,
+          # while the returned JSON uses app/renovate. The shared presets use
+          # Renovate's default title. Update all three values together.
+          dashboard_issues_json="$(gh issue list \
+            --state open \
+            --author 'renovate[bot]' \
+            --limit 1000 \
+            --json author,body,number,title,url)"
+
+          dashboard_json="$(jq -c \
+            --arg author 'app/renovate' \
+            --arg title "$dashboard_title" \
+            '[.[] | select(.title == $title and .author.login == $author)] | first // empty' \
+            <<< "$dashboard_issues_json")"
+
+          if [[ -z "$dashboard_json" ]]; then
+            reasons+=('Dependency Dashboard is missing')
+          else
+            dashboard_body="$(jq -r '.body' <<< "$dashboard_json")"
+            dashboard_url="$(jq -r '.url' <<< "$dashboard_json")"
+
+            if grep -q '^## Repository Problems[[:space:]]*$' <<< "$dashboard_body"; then
+              reasons+=('Dependency Dashboard reports repository problems')
+            fi
+            if grep -q '^## Errored[[:space:]]*$' <<< "$dashboard_body"; then
+              reasons+=('Dependency Dashboard reports errored updates')
+            fi
+            if grep -q 'Renovate failed to look up' <<< "$dashboard_body"; then
+              reasons+=('Dependency Dashboard reports lookup failures')
+            fi
+          fi
+
+          if [[ "$VALIDATION_RESULT" != 'success' ]]; then
+            if [[ -n "$VALIDATION_REASON" ]]; then
+              reasons+=("$VALIDATION_REASON")
+            else
+              reasons+=("Renovate configuration validation job finished with: $VALIDATION_RESULT")
+            fi
+          fi
+          if [[ "$LOOKUP_RESULT" != 'success' ]]; then
+            if [[ -n "$LOOKUP_REASON" ]]; then
+              reasons+=("$LOOKUP_REASON")
+            else
+              reasons+=("Local Renovate lookup job finished with: $LOOKUP_RESULT")
+            fi
+          fi
+
+          health_issues_json="$(gh issue list \
+            --state open \
+            --label "$health_label" \
+            --limit 1000 \
+            --json body,number,title,url)"
+
+          health_number="$(jq -r \
+            --arg marker "$health_marker" \
+            --arg title "$health_title" \
+            '[.[] | select(.title == $title and ((.body // "") | contains($marker)))] | first | .number // empty' \
+            <<< "$health_issues_json")"
+
+          if ((${#reasons[@]} == 0)); then
+            {
+              echo '### Renovate health'
+              echo
+              echo 'Healthy'
+              echo
+              echo "- [Dependency Dashboard]($dashboard_url)"
+              echo "- [Workflow run]($run_url)"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [[ -n "$health_number" ]]; then
+              recovery_file="$(mktemp)"
+              trap 'rm -f "$recovery_file"' EXIT
+              printf 'Renovate health recovered.\n\n- [Dependency Dashboard](%s)\n- [Workflow run](%s)\n' \
+                "$dashboard_url" "$run_url" > "$recovery_file"
+              gh issue comment "$health_number" --body-file "$recovery_file"
+              gh issue close "$health_number" --reason completed
+            fi
+            exit 0
+          fi
+
+          report_file="$(mktemp)"
+          trap 'rm -f "$report_file"' EXIT
+          {
+            echo "$health_marker"
+            echo 'The scheduled Renovate health check found these problems:'
+            echo
+            printf -- '- %s\n' "${reasons[@]}"
+            echo
+            if [[ -n "$dashboard_url" ]]; then
+              echo "- [Dependency Dashboard]($dashboard_url)"
+            fi
+            echo "- [Workflow run]($run_url)"
+          } > "$report_file"
+
+          {
+            echo '### Renovate health'
+            echo
+            echo 'Unhealthy'
+            echo
+            printf -- '- %s\n' "${reasons[@]}"
+            echo
+            if [[ -n "$dashboard_url" ]]; then
+              echo "- [Dependency Dashboard]($dashboard_url)"
+            fi
+            echo "- [Workflow run]($run_url)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -n "$health_number" ]]; then
+            gh issue comment "$health_number" --body-file "$report_file"
+          else
+            gh label create "$health_label" \
+              --color D73A4A \
+              --description 'Automated Renovate health incident' \
+              --force
+            gh issue create --title "$health_title" --label "$health_label" --body-file "$report_file"
+          fi
+
+          echo '::error::Renovate health check failed'
+          exit 1
