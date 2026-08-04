@@ -227,7 +227,7 @@ tests:
           path: spec.tls.insecureSkipVerify
           value: true
 
-  - it: TLS enabled uses configurable backendTls settings
+  - it: TLS enabled with verification uses caCertificateRefs in backendTls
     set:
       NAMESPACE: test-ns
       CLOUD_PUBLIC_HOST: example.com
@@ -236,6 +236,9 @@ tests:
       dumpsCollector.httpRoute.backendTls:
         insecureSkipVerify: false
         sni: cloud-profiler-dumps-collector.test-ns.svc.cluster.local
+        caCertificateRefs:
+          - kind: ConfigMap
+            name: cloud-profiler-tls-ca
     asserts:
       - hasDocuments:
           count: 2
@@ -251,6 +254,18 @@ tests:
         equal:
           path: spec.tls.sni
           value: cloud-profiler-dumps-collector.test-ns.svc.cluster.local
+      - documentSelector:
+          path: kind
+          value: Backend
+        equal:
+          path: spec.tls.caCertificateRefs[0].kind
+          value: ConfigMap
+      - documentSelector:
+          path: kind
+          value: Backend
+        equal:
+          path: spec.tls.caCertificateRefs[0].name
+          value: cloud-profiler-tls-ca
 
   - it: null dumpsCollector.gateway.systemType renders no HTTPRoute
     set:
@@ -269,3 +284,21 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: gateway-api-default without CLOUD_PUBLIC_HOST fails before rendering HTTPRoute
+    set:
+      dumpsCollector.gateway.systemType: gateway-api-default
+    asserts:
+      - failedTemplate:
+          errorPattern: CLOUD_PUBLIC_HOST
+
+  - it: gateway-api-default without NAMESPACE uses Release.Namespace for hostname
+    set:
+      CLOUD_PUBLIC_HOST: example.com
+      dumpsCollector.gateway.systemType: gateway-api-default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.hostnames[0]
+          value: dumps-collector-test-ns.eg.example.com
