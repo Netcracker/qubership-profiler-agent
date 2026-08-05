@@ -204,7 +204,10 @@ public class Bootstrap {
             Attributes attrs = man.getMainAttributes();
             String version = attrs.getValue("Implementation-Version");
             return new PluginJarInfo(jarPath, extractPluginIds(attrs), version);
-        } catch (IOException e) {
+        } catch (Throwable e) {
+            // Not only IOException: a SecurityManager that denies the read, or a signature check on
+            // a signed JAR, throws SecurityException from here. Anything that escapes would cost
+            // every other plugin, which is the outcome this classification exists to prevent.
             logger.log(Level.WARNING, "Profiler: unable to read the manifest of " + jarPath
                     + ", the file is skipped", e);
             return null;
