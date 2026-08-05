@@ -76,8 +76,13 @@ public class PluginClassLoader extends URLClassLoader {
         if ("instrumenter".equals(dependencies)) {
             ProfilerTransformerPlugin plugin = Bootstrap.getPlugin(ProfilerTransformerPlugin.class);
             if (plugin == null) {
-                logger.severe("Plugin " + jarName + " requires instrumenter, however it was not found on the classpath. Please ensure /lib/runtime.jar exists and can be loaded.");
-            } else parentLoader = plugin.getClass().getClassLoader();
+                // Loading the plugin anyway would only reach NoClassDefFoundError on its first
+                // class: everything it extends lives in the instrumenter.
+                logger.severe("Plugin " + jarName + " requires instrumenter, however it was not found on the classpath. " +
+                        "The plugin will not be loaded. Please ensure /lib/runtime.jar exists and can be loaded.");
+                return null;
+            }
+            parentLoader = plugin.getClass().getClassLoader();
         }
         return new PluginClassLoader(parentLoader, new URL[]{new File(jarName).toURI().toURL()}, entryPoints, preloadList);
     }

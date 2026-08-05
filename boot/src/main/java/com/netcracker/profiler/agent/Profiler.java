@@ -27,14 +27,24 @@ public class Profiler {
         }
         enter("void " + Profiler.class.getName() + ".startDumper() (Profiler.java:20) [profiler-runtime.jar]");
 
-        dumper.newDumper(ProfilerData.dirtyBuffers, ProfilerData.emptyBuffers, ProfilerData.activeThreads);
-        ProfilerTransformerPlugin plugin = Bootstrap.getPlugin(ProfilerTransformerPlugin.class);
-
-        final ProfilerTransformerPlugin_01 transformerPlugin = (ProfilerTransformerPlugin_01) plugin;
         try {
-            transformerPlugin.reloadClasses(null);
-        } catch (IOException|SAXException|ParserConfigurationException e) {
-            logger.severe("[Profiler] Unable to reload bootstrap classes", e);
+            dumper.newDumper(ProfilerData.dirtyBuffers, ProfilerData.emptyBuffers, ProfilerData.activeThreads);
+            ProfilerTransformerPlugin plugin = Bootstrap.getPlugin(ProfilerTransformerPlugin.class);
+            if (plugin == null) {
+                logger.severe("[Profiler] Unable to find the profiling transformer in the class path");
+                return;
+            }
+            try {
+                ((ProfilerTransformerPlugin_01) plugin).reloadClasses(null);
+            } catch (IOException|SAXException|ParserConfigurationException e) {
+                logger.severe("[Profiler] Unable to reload bootstrap classes", e);
+            }
+        } catch (Throwable e) {
+            // Escaping here would fail Profiler's static initializer, so every later touch of the
+            // class, instrumented application code included, would throw NoClassDefFoundError. A
+            // half-initialized agent has to degrade to "no profiling", not to a broken class.
+            logger.severe("[Profiler] Unable to start the dumper, profiling data is not collected", e);
+            return;
         }
         exit(); // This is not in finally to ensure error message has better chances to be printed
     }
