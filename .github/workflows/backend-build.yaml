@@ -45,24 +45,13 @@ jobs:
           go-version-file: backend/go.mod
 
       - name: apps-build
-        env:
-          SKIP_FRONTEND: Y
         # language=bash
         run: make apps-build
 
-      - name: apps-test
-        env:
-          SKIP_FRONTEND: Y
-        # language=bash
-        run: make apps-test
-
-      # libs-test compiles and runs every package under the backend module
-      # root (backend/libs/**), which `make apps-test` never touches. Legacy
-      # parser/generator tests that depend on uncommitted captured fixtures
-      # skip themselves on a clean checkout (see WORKFLOW.md §6).
-      - name: libs-test
-        # language=bash
-        run: go test ./...
+      # Tests live in the backend-coverage job of build.yaml, where a single
+      # `go test ./...` from the module root covers apps/**, libs/** and tools/**
+      # and feeds the coverage profile to Codecov. This workflow stays a fast
+      # compile check on branch pushes.
 
       - name: tools-build
         # language=bash

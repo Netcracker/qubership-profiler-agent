@@ -48,9 +48,22 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['src/setup-tests.ts'],
+    coverage: {
+      provider: 'v8',
+      // lcov is what CI ships to Codecov; text-summary keeps a local run readable.
+      reporter: ['text-summary', 'lcov'],
+      reportsDirectory: 'coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      // The MSW handlers and the vitest bootstrap are test scaffolding, not app
+      // code — counting them would flatter the number without measuring anything.
+      exclude: ['src/mocks/**', 'src/setup-tests.ts', '**/*.d.ts'],
+    },
     // The tree-render integration tests decode a real wire and can take ~5s in
     // jsdom; their own findByText waits up to 5s, so the test budget needs
-    // headroom above that or they flake under parallel load.
-    testTimeout: 15000,
+    // headroom above that or they flake under parallel load. V8 instrumentation
+    // multiplies that again — tree-page.test.tsx runs ~12s alone under coverage
+    // and ~36s when all 33 files compete for workers — and CI has fewer cores
+    // than a dev machine, so the budget is sized for the instrumented run.
+    testTimeout: 60000,
   },
 });
