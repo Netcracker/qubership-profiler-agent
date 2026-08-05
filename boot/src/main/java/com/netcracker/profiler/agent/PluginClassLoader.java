@@ -89,9 +89,14 @@ public class PluginClassLoader extends URLClassLoader {
 
     private static Attributes getManifestAttributes(String jarName) throws IOException {
         final JarFile jar = new JarFile(jarName);
-        final Manifest manifest = jar.getManifest();
-        jar.close();
-        return manifest.getMainAttributes();
+        final Manifest manifest;
+        try {
+            manifest = jar.getManifest();
+        } finally {
+            jar.close();
+        }
+        // A JAR without a manifest declares no entry points, so it is not a plugin.
+        return manifest == null ? new Attributes() : manifest.getMainAttributes();
     }
 
     public List<Object> startPlugin() throws ClassNotFoundException, InvocationTargetException, IllegalAccessException, NoSuchMethodException, InstantiationException {

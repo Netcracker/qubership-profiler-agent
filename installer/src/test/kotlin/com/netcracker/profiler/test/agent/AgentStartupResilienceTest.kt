@@ -87,6 +87,29 @@ class AgentStartupResilienceTest {
         }
     }
 
+    @Test
+    fun `profiling survives an unreadable file in lib`() {
+        val container = testApplication("[corrupt-jar] ")
+            // A half-finished copy or a truncated download lands here as a file the JAR reader
+            // cannot open at all, which is a different case from a JAR that merely fails to load.
+            .withCopyToContainer(
+                Transferable.of("this is not a JAR"),
+                "$LIB/qubership-profiler-plugins-truncated.jar"
+            )
+            .withCommand("java", "-jar", "/app/testapp.jar", "1")
+
+        val logs = container.use {
+            it.start()
+            it.logs
+        }
+
+        assertApplicationRan(logs, "an unreadable file in $LIB")
+        // One stray file must cost the plugin it is, not the whole agent.
+        assertTrue(logs.contains("Profiler: initialized, version")) {
+            "Expected the profiler to keep loading around the unreadable file.\n\n$logs"
+        }
+    }
+
     private fun assertApplicationRan(logs: String, scenario: String) {
         assertTrue(logs.contains(APPLICATION_STARTED)) {
             "The application did not start with $scenario.\n\n$logs"

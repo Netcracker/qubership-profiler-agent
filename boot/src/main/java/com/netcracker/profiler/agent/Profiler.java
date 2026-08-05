@@ -25,28 +25,37 @@ public class Profiler {
             logger.severe("[Profiler] Unable to find Dumper in the class path", e);
             return;
         }
-        enter("void " + Profiler.class.getName() + ".startDumper() (Profiler.java:20) [profiler-runtime.jar]");
+        try {
+            enter("void " + Profiler.class.getName() + ".startDumper() (Profiler.java:20) [profiler-runtime.jar]");
+        } catch (Throwable e) {
+            logger.severe("[Profiler] Unable to open the dumper startup call, profiling data is not collected", e);
+            return;
+        }
 
         try {
             dumper.newDumper(ProfilerData.dirtyBuffers, ProfilerData.emptyBuffers, ProfilerData.activeThreads);
             ProfilerTransformerPlugin plugin = Bootstrap.getPlugin(ProfilerTransformerPlugin.class);
             if (plugin == null) {
                 logger.severe("[Profiler] Unable to find the profiling transformer in the class path");
-                return;
-            }
-            try {
-                ((ProfilerTransformerPlugin_01) plugin).reloadClasses(null);
-            } catch (IOException|SAXException|ParserConfigurationException e) {
-                logger.severe("[Profiler] Unable to reload bootstrap classes", e);
+            } else {
+                try {
+                    ((ProfilerTransformerPlugin_01) plugin).reloadClasses(null);
+                } catch (IOException|SAXException|ParserConfigurationException e) {
+                    logger.severe("[Profiler] Unable to reload bootstrap classes", e);
+                }
             }
         } catch (Throwable e) {
             // Escaping here would fail Profiler's static initializer, so every later touch of the
             // class, instrumented application code included, would throw NoClassDefFoundError. A
             // half-initialized agent has to degrade to "no profiling", not to a broken class.
+            // The message is logged here rather than after exit() so it survives a failing exit().
             logger.severe("[Profiler] Unable to start the dumper, profiling data is not collected", e);
-            return;
+        } finally {
+            // exit() has to pair with enter() on every path out. LocalState ends a call only when
+            // its depth returns to zero, so a thread left one frame deep never writes another
+            // completed call -- and this runs on whichever application thread touched Profiler first.
+            exit();
         }
-        exit(); // This is not in finally to ensure error message has better chances to be printed
     }
 
     public static LocalState getState() {

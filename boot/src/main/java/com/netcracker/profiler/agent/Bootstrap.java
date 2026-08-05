@@ -65,9 +65,9 @@ public class Bootstrap {
 
             return;
         }
-        addJBossModulesSystemPkg();
         Bootstrap.inst = inst;
         try {
+            addJBossModulesSystemPkg();
             startProfiler(agentArgs);
         } catch (Throwable e) {
             // libinstrument aborts the JVM on any exception leaving premain, killing the
@@ -185,23 +185,26 @@ public class Bootstrap {
     /**
      * Reads the plugin identities and {@code Implementation-Version} from a JAR file.
      *
-     * @return {@code null} when the file carries no plugin, or cannot be read
+     * <p>A readable manifest that declares no entry points yields an entry with no identities: the
+     * file is not a plugin, but it is intact and safe to hand on. {@code null} is reserved for a
+     * file the loader cannot read at all, which must not be handed on -- opening it again downstream
+     * would only throw.
+     *
+     * @return {@code null} when the file has no manifest, or cannot be read
      */
     private static PluginJarInfo readPluginJarInfo(String jarPath) {
         try (JarInputStream jis = new JarInputStream(Files.newInputStream(Paths.get(jarPath)))) {
             Manifest man = jis.getManifest();
             if (man == null) {
+                logger.warning("Profiler: " + jarPath + " has no manifest, the file is skipped");
                 return null;
             }
             Attributes attrs = man.getMainAttributes();
-            Set<String> pluginIds = extractPluginIds(attrs);
-            if (pluginIds.isEmpty()) {
-                return null;
-            }
             String version = attrs.getValue("Implementation-Version");
-            return new PluginJarInfo(jarPath, pluginIds, version);
+            return new PluginJarInfo(jarPath, extractPluginIds(attrs), version);
         } catch (IOException e) {
-            logger.log(Level.WARNING, "Profiler: unable to read manifest from " + jarPath, e);
+            logger.log(Level.WARNING, "Profiler: unable to read the manifest of " + jarPath
+                    + ", the file is skipped", e);
             return null;
         }
     }
@@ -257,17 +260,26 @@ public class Bootstrap {
      * <p>Loading a plugin twice gives each copy its own {@link PluginClassLoader}, and classes from
      * one copy then fail to cast to the same-named classes of the other. The newest copy wins, and
      * the JARs it displaces are named in a warning so the stale files can be removed. Files that
-     * carry no plugin at all pass through untouched.
+     * carry no plugin pass through untouched; files the loader cannot read are dropped here rather
+     * than downstream, where opening them again would fail the whole agent.
      */
     private static List<String> deduplicatePlugins(List<String> plugins) {
         Map<String, List<PluginJarInfo>> byPluginId = new LinkedHashMap<String, List<PluginJarInfo>>();
         List<String> result = new ArrayList<String>();
 
         for (String jarPath : plugins) {
+            if (!jarPath.endsWith(".jar")) {
+                // A .class explicitly passed on the command line, which loadPlugins runs directly.
+                result.add(jarPath);
+                continue;
+            }
             PluginJarInfo info = readPluginJarInfo(jarPath);
             if (info == null) {
-                // Carries no plugin: a .class explicitly passed on the command line, agent.jar,
-                // boot.jar, or a JAR whose manifest could not be read.
+                // Unreadable, and readPluginJarInfo has already said so.
+                continue;
+            }
+            if (info.pluginIds.isEmpty()) {
+                // Intact but not a plugin: agent.jar and boot.jar take this path.
                 result.add(jarPath);
                 continue;
             }
@@ -287,29 +299,42 @@ public class Bootstrap {
         Set<List<String>> reported = new HashSet<>();
         String lib = new File(DumpRootResolverAgent.PROFILER_HOME).getAbsolutePath();
         for (Map.Entry<String, List<PluginJarInfo>> entry : byPluginId.entrySet()) {
-            List<PluginJarInfo> jars = entry.getValue();
-            if (jars.size() == 1) {
+            if (entry.getValue().size() == 1) {
                 continue;
             }
+            // The candidates arrive in File.listFiles() order, which is unspecified. Sorting first
+            // keeps the pick reproducible when the versions cannot separate the copies.
+            List<PluginJarInfo> jars = new ArrayList<PluginJarInfo>(entry.getValue());
+            Collections.sort(jars, new Comparator<PluginJarInfo>() {
+                public int compare(PluginJarInfo left, PluginJarInfo right) {
+                    return left.jarPath.compareTo(right.jarPath);
+                }
+            });
+
             PluginJarInfo winner = jars.get(0);
+            boolean versionsDiffer = false;
             List<String> jarPaths = new ArrayList<String>();
             for (PluginJarInfo jar : jars) {
                 jarPaths.add(jar.jarPath);
-                if (compareVersions(jar.version, winner.version) > 0) {
+                int cmp = compareVersions(jar.version, winner.version);
+                if (cmp != 0) {
+                    versionsDiffer = true;
+                }
+                if (cmp > 0) {
                     winner = jar;
                 }
             }
-            Collections.sort(jarPaths);
             boolean firstReport = reported.add(jarPaths);
 
             StringBuilder sb = new StringBuilder();
             sb.append("Profiler: plugin '").append(entry.getKey()).append("' is provided by several JARs. ")
-                    .append("Only the newest one is loaded; remove the stale file(s) listed below:\n");
+                    .append(versionsDiffer
+                            ? "Only the newest one is loaded"
+                            : "Their versions do not tell them apart, so the first one by name is loaded")
+                    .append("; remove the duplicate file(s) listed below:\n");
             for (PluginJarInfo jar : jars) {
                 sb.append("  - ").append(jar.jarPath.replace(lib, "$esc"));
-                if (jar.version != null) {
-                    sb.append(" (version=").append(jar.version).append(")");
-                }
+                sb.append(" (version=").append(jar.version == null ? "unknown" : jar.version).append(")");
                 if (jar == winner) {
                     sb.append(" -- loaded\n");
                 } else {
@@ -325,7 +350,16 @@ public class Bootstrap {
         }
 
         for (Map.Entry<String, List<PluginJarInfo>> entry : byPluginId.entrySet()) {
-            for (PluginJarInfo jar : entry.getValue()) {
+            List<PluginJarInfo> jars = entry.getValue();
+            // A displaced JAR is dropped whole, so a plugin only it provided goes with it. Loading
+            // it for that one plugin would reintroduce the duplicate the drop just resolved, so the
+            // loss is named rather than hidden.
+            if (jars.size() == 1 && displaced.contains(jars.get(0).jarPath)) {
+                logger.warning("Profiler: plugin '" + entry.getKey() + "' is provided only by "
+                        + jars.get(0).jarPath.replace(lib, "$esc")
+                        + ", which was skipped as a duplicate. The plugin is not loaded.");
+            }
+            for (PluginJarInfo jar : jars) {
                 if (!displaced.contains(jar.jarPath) && !result.contains(jar.jarPath)) {
                     result.add(jar.jarPath);
                 }

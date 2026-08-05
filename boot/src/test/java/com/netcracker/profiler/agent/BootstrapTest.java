@@ -91,10 +91,11 @@ public class BootstrapTest {
     /**
      * The runtime JAR predating {@code Plugin-Id} must land on the same identity as the release that
      * introduced the attribute, otherwise a stale copy loads next to the current one and every
-     * enhancer fails to cast — see issue #412.
+     * enhancer fails to cast — see issue #412. The shared identity has to be the entry-point set:
+     * that is the only thing the two manifests have in common.
      */
     @Test
-    void extractPluginIds_entryPointSetIsSharedAcrossReleases() {
+    void extractPluginIds_entryPointSetSurvivesTheAbsenceOfPluginId() {
         String entryPoints = "com.netcracker.profiler.agent.plugins.EnhancerRegistryPluginImpl "
                 + "com.netcracker.profiler.agent.plugins.ProfilerTransformerPluginImpl "
                 + "com.netcracker.profiler.agent.plugins.DumperPluginImpl";
@@ -102,8 +103,15 @@ public class BootstrapTest {
         Set<String> withAttribute =
                 Bootstrap.extractPluginIds(manifest("Plugin-Id", "profiler-runtime", "Entry-Points", entryPoints));
 
-        assertFalse(Collections.disjoint(withoutAttribute, withAttribute),
-                "Expected a shared plugin identity between " + withoutAttribute + " and " + withAttribute);
+        Set<String> shared = new LinkedHashSet<>(withoutAttribute);
+        shared.retainAll(withAttribute);
+        assertEquals(
+                ids("entry-points:com.netcracker.profiler.agent.plugins.DumperPluginImpl "
+                        + "com.netcracker.profiler.agent.plugins.EnhancerRegistryPluginImpl "
+                        + "com.netcracker.profiler.agent.plugins.ProfilerTransformerPluginImpl"),
+                shared,
+                "Expected the entry-point set to be the identity shared by " + withoutAttribute
+                        + " and " + withAttribute);
     }
 
     @Test
