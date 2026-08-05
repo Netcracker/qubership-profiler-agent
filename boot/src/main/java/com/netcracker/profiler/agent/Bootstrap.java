@@ -6,8 +6,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigInteger;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.util.*;
@@ -193,8 +191,12 @@ public class Bootstrap {
      * @return {@code null} when the file has no manifest, or cannot be read
      */
     private static PluginJarInfo readPluginJarInfo(String jarPath) {
-        try (JarInputStream jis = new JarInputStream(Files.newInputStream(Paths.get(jarPath)))) {
-            Manifest man = jis.getManifest();
+        // JarFile is the reader PluginClassLoader opens the file with. Classifying through a
+        // different one would let the two disagree: JarInputStream reads a manifest out of a file
+        // truncated before its central directory, which JarFile cannot open at all, and a file that
+        // passes here only to fail there costs every plugin rather than itself.
+        try (JarFile jar = new JarFile(jarPath)) {
+            Manifest man = jar.getManifest();
             if (man == null) {
                 logger.warning("Profiler: " + jarPath + " has no manifest, the file is skipped");
                 return null;
@@ -231,9 +233,18 @@ public class Bootstrap {
             if (r == null) {
                 return isNumeric(l) ? 1 : -1;
             }
-            int cmp = isNumeric(l) && isNumeric(r)
-                    ? new BigInteger(l).compareTo(new BigInteger(r))
-                    : l.compareToIgnoreCase(r);
+            boolean leftNumeric = isNumeric(l);
+            boolean rightNumeric = isNumeric(r);
+            int cmp;
+            if (leftNumeric && rightNumeric) {
+                cmp = new BigInteger(l).compareTo(new BigInteger(r));
+            } else if (leftNumeric != rightNumeric) {
+                // 4.0.5.1 is newer than 4.0.5-rc1: a numeric segment outranks a qualifier, the same
+                // way a missing segment does. Comparing them as text would rank rc1 above the .1.
+                cmp = leftNumeric ? 1 : -1;
+            } else {
+                cmp = l.compareToIgnoreCase(r);
+            }
             if (cmp != 0) {
                 return cmp;
             }
@@ -291,7 +302,7 @@ public class Bootstrap {
 
         // A JAR is loaded when it is the newest provider of every identity it declares, which keeps
         // the decision consistent for a JAR that ships several plugins at once.
-        Set<String> displaced = new HashSet<>();
+        Map<String, String> displacedBy = new LinkedHashMap<String, String>();
         // One pair of duplicated JARs normally collides on several identities at once, for example
         // on an explicit Plugin-Id and on the entry-point set. Repeating the same advice per
         // identity would only bury it, so each set of JARs is reported once, under the first
@@ -338,7 +349,7 @@ public class Bootstrap {
                 if (jar == winner) {
                     sb.append(" -- loaded\n");
                 } else {
-                    displaced.add(jar.jarPath);
+                    displacedBy.put(jar.jarPath, winner.jarPath);
                     sb.append(" -- skipped\n");
                 }
             }
@@ -351,16 +362,19 @@ public class Bootstrap {
 
         for (Map.Entry<String, List<PluginJarInfo>> entry : byPluginId.entrySet()) {
             List<PluginJarInfo> jars = entry.getValue();
-            // A displaced JAR is dropped whole, so a plugin only it provided goes with it. Loading
-            // it for that one plugin would reintroduce the duplicate the drop just resolved, so the
-            // loss is named rather than hidden.
-            if (jars.size() == 1 && displaced.contains(jars.get(0).jarPath)) {
-                logger.warning("Profiler: plugin '" + entry.getKey() + "' is provided only by "
-                        + jars.get(0).jarPath.replace(lib, "$esc")
-                        + ", which was skipped as a duplicate. The plugin is not loaded.");
+            // A displaced JAR is dropped whole, so an identity only it provided is left without a
+            // provider. Loading it for that one identity would reintroduce the duplicate the drop
+            // just resolved, so the gap is named rather than hidden. The JAR that displaced it is
+            // named too: it may well provide the same plugin under one of its other identities,
+            // and saying only "not loaded" would send the operator after the wrong file.
+            if (jars.size() == 1 && displacedBy.containsKey(jars.get(0).jarPath)) {
+                String skipped = jars.get(0).jarPath;
+                logger.warning("Profiler: nothing loaded provides plugin '" + entry.getKey()
+                        + "'. Its only provider " + skipped.replace(lib, "$esc")
+                        + " was skipped in favor of " + displacedBy.get(skipped).replace(lib, "$esc") + ".");
             }
             for (PluginJarInfo jar : jars) {
-                if (!displaced.contains(jar.jarPath) && !result.contains(jar.jarPath)) {
+                if (!displacedBy.containsKey(jar.jarPath) && !result.contains(jar.jarPath)) {
                     result.add(jar.jarPath);
                 }
             }

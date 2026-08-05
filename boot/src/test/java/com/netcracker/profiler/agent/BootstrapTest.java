@@ -157,6 +157,19 @@ public class BootstrapTest {
     }
 
     @Test
+    void compareVersions_numericSegmentOutranksAQualifier() {
+        assertTrue(Bootstrap.compareVersions("4.0.5.1", "4.0.5-SNAPSHOT") > 0);
+        assertTrue(Bootstrap.compareVersions("4.0.5-SNAPSHOT", "4.0.5.1") < 0);
+        assertTrue(Bootstrap.compareVersions("4.0.5-2", "4.0.5-rc1") > 0);
+    }
+
+    @Test
+    void compareVersions_qualifierDoesNotOutrankALaterRelease() {
+        assertTrue(Bootstrap.compareVersions("4.0.5-SNAPSHOT", "4.0.6") < 0);
+        assertTrue(Bootstrap.compareVersions("4.0.6", "4.0.5-SNAPSHOT") > 0);
+    }
+
+    @Test
     void compareVersions_missingVersionLosesToAnyVersion() {
         assertTrue(Bootstrap.compareVersions(null, "1.0") < 0);
         assertTrue(Bootstrap.compareVersions("1.0", null) > 0);

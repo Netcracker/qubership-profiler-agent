@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream
 import java.time.Duration
 import java.util.Objects
 import java.util.jar.Attributes
+import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import java.util.jar.Manifest
 
@@ -88,12 +89,18 @@ class AgentStartupResilienceTest {
     }
 
     @Test
-    fun `profiling survives an unreadable file in lib`() {
+    fun `profiling survives files in lib that cannot be read`() {
         val container = testApplication("[corrupt-jar] ")
-            // A half-finished copy or a truncated download lands here as a file the JAR reader
-            // cannot open at all, which is a different case from a JAR that merely fails to load.
+            // Two shapes of damage, because the agent used to classify with one reader and load
+            // with another. A file that is not a ZIP fails both; a JAR cut off before its central
+            // directory still yields a manifest to a streaming reader, and only fails the
+            // random-access one the loader uses.
             .withCopyToContainer(
                 Transferable.of("this is not a JAR"),
+                "$LIB/qubership-profiler-plugins-garbage.jar"
+            )
+            .withCopyToContainer(
+                Transferable.of(truncatedJar()),
                 "$LIB/qubership-profiler-plugins-truncated.jar"
             )
             .withCommand("java", "-jar", "/app/testapp.jar", "1")
@@ -103,10 +110,10 @@ class AgentStartupResilienceTest {
             it.logs
         }
 
-        assertApplicationRan(logs, "an unreadable file in $LIB")
-        // One stray file must cost the plugin it is, not the whole agent.
+        assertApplicationRan(logs, "unreadable files in $LIB")
+        // A stray file must cost the plugin it is, not the whole agent.
         assertTrue(logs.contains("Profiler: initialized, version")) {
-            "Expected the profiler to keep loading around the unreadable file.\n\n$logs"
+            "Expected the profiler to keep loading around the unreadable files.\n\n$logs"
         }
     }
 
@@ -151,5 +158,33 @@ class AgentStartupResilienceTest {
         val jar = ByteArrayOutputStream()
         JarOutputStream(jar, manifest).close()
         return jar.toByteArray()
+    }
+
+    /**
+     * A JAR cut off partway through its payload: the manifest is intact at the front, and the
+     * central directory a random-access reader needs is gone from the tail. It declares no entry
+     * points, so it is the case that used to be classified "intact, not a plugin" and handed to the
+     * loader, which then failed on it and took every other plugin down.
+     */
+    private fun truncatedJar(): ByteArray {
+        val manifest = Manifest().apply {
+            mainAttributes[Attributes.Name.MANIFEST_VERSION] = "1.0"
+            mainAttributes.putValue("Implementation-Version", "9.9.9")
+        }
+        val jar = ByteArrayOutputStream()
+        JarOutputStream(jar, manifest).use { out ->
+            out.putNextEntry(JarEntry("payload.bin"))
+            // Incompressible, so the cut below lands inside the payload instead of past its end.
+            val payload = ByteArray(256 * 1024)
+            var seed = 1L
+            for (i in payload.indices) {
+                seed = seed * 6364136223846793005L + 1442695040888963407L
+                payload[i] = (seed ushr 33).toByte()
+            }
+            out.write(payload)
+            out.closeEntry()
+        }
+        val bytes = jar.toByteArray()
+        return bytes.copyOf(bytes.size / 2)
     }
 }

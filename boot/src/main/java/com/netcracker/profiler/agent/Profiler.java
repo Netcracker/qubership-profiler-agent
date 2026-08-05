@@ -25,14 +25,17 @@ public class Profiler {
             logger.severe("[Profiler] Unable to find Dumper in the class path", e);
             return;
         }
+        final LocalState state;
         try {
-            enter("void " + Profiler.class.getName() + ".startDumper() (Profiler.java:20) [profiler-runtime.jar]");
+            state = getState();
         } catch (Throwable e) {
-            logger.severe("[Profiler] Unable to open the dumper startup call, profiling data is not collected", e);
+            logger.severe("[Profiler] Unable to reach the profiler state, profiling data is not collected", e);
             return;
         }
+        int depthBeforeEnter = state.sp;
 
         try {
+            enter("void " + Profiler.class.getName() + ".startDumper() (Profiler.java:20) [profiler-runtime.jar]");
             dumper.newDumper(ProfilerData.dirtyBuffers, ProfilerData.emptyBuffers, ProfilerData.activeThreads);
             ProfilerTransformerPlugin plugin = Bootstrap.getPlugin(ProfilerTransformerPlugin.class);
             if (plugin == null) {
@@ -54,7 +57,15 @@ public class Profiler {
             // exit() has to pair with enter() on every path out. LocalState ends a call only when
             // its depth returns to zero, so a thread left one frame deep never writes another
             // completed call -- and this runs on whichever application thread touched Profiler first.
-            exit();
+            // The depth decides rather than the control flow: enter() can fail after opening the
+            // frame, and an exit() below the entry depth throws instead of unwinding.
+            try {
+                if (state.sp > depthBeforeEnter) {
+                    exit();
+                }
+            } catch (Throwable e) {
+                logger.severe("[Profiler] Unable to close the dumper startup call", e);
+            }
         }
     }
 
