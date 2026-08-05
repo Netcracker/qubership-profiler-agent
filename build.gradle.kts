@@ -31,6 +31,11 @@ jacoco {
 val jacocoReport by tasks.registering(JacocoReport::class) {
     group = "Coverage reports"
     description = "Generates an aggregate report from all subprojects"
+    reports {
+        // Codecov reads the XML report only; the HTML one just costs build time in CI.
+        xml.required = true
+        html.required = false
+    }
 }
 
 allprojects {

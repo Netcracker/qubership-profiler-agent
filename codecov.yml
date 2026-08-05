@@ -1,0 +1,81 @@
+codecov:
+  notify:
+    # Three uploads per commit: go and ui from the backend-coverage job, java
+    # from build-test. Hold the comment until the last one, or it reports a
+    # collapse in coverage against the half of the report that has not landed
+    # yet. Bump this together with the number of codecov-action steps.
+    after_n_builds: 3
+
+coverage:
+  range: "60...100"
+  status:
+    # The legacy Java tree has never had its coverage measured, so there is no
+    # baseline to gate on. Keep both statuses informational until the first runs
+    # produce real numbers, then tighten them in a separate commit.
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+flags:
+  # carryforward is what keeps a partial upload honest: without it, a pull
+  # request that touches no Java at all would report Java coverage as zero in
+  # the merged report.
+  go:
+    carryforward: true
+  ui:
+    carryforward: true
+  java:
+    carryforward: true
+
+component_management:
+  individual_components:
+    - component_id: backend_go
+      name: Backend (Go)
+      paths:
+        # The Go apps are named one by one rather than globbed as
+        # `backend/apps/**`, because components are selected by repository path
+        # and not by the flag a report arrived under: that glob is a superset of
+        # the Backend UI component below, so every TypeScript file would land in
+        # both. A new Go app under backend/apps/ has to be added here.
+        - "backend/apps/dumps-collector/**"
+        - "backend/apps/profiler-backend/**"
+        - "backend/libs/**"
+        - "backend/tools/**"
+    - component_id: backend_ui
+      name: Backend UI (TypeScript)
+      paths:
+        - "backend/apps/ui/src/**"
+    - component_id: diagtools
+      name: Diagtools (Go)
+      paths:
+        - "diagtools/**"
+    - component_id: java_agent
+      name: Java agent
+      paths:
+        # Defined by subtraction, so every Go tree above has to be named here
+        # too. Without the diagtools exclusion its files would count towards the
+        # Java agent, which they are not part of.
+        - "!backend/**"
+        - "!diagtools/**"
+
+fixes:
+  # `go test -coverprofile` records import paths, not repository paths. The two
+  # Go modules have unrelated module paths, so each needs its own rule; the
+  # diagtools rule strips its prefix down to the bare `diagtools/` directory.
+  - "github.com/Netcracker/qubership-profiler-backend/::backend/"
+  - "github.com/Netcracker/qubership-profiler-agent/::"
+  # vitest runs from backend/apps/ui, so lcov SF: entries read `src/app.tsx`.
+  - "src/::backend/apps/ui/src/"
+
+ignore:
+  # Maven-built demo applications, outside both the Gradle and the Go build.
+  - "backend/examples/**"
+  - "profiler-ui/**"
+  - "sample-apps/**"
+  - "test-app/**"
+
+comment:
+  layout: "header, diff, flags, components"

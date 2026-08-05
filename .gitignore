@@ -18,6 +18,9 @@ nbproject
 *.po.~*~
 node_modules/
 target/
+# Coverage profile written by `go test -coverprofile`; CI uploads it to Codecov.
+# The backend module ignores its own copy in backend/.gitignore.
+/diagtools/coverage.out
 /build/
 /*/build/
 /.kotlin/
