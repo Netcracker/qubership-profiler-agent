@@ -5,3 +5,6 @@
 /feeder
 /runner
 /ui-seed
+
+# Coverage profile written by `go test -coverprofile`; CI uploads it to Codecov.
+/coverage.out

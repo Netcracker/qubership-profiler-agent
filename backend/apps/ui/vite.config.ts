@@ -48,9 +48,24 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['src/setup-tests.ts'],
+    coverage: {
+      provider: 'v8',
+      // lcovonly, not lcov: the latter is a composite that also renders a
+      // browsable HTML report into coverage/lcov-report/, and CI uploads
+      // lcov.info alone. Pass --coverage.reporter=html when you want the pages.
+      reporter: ['text-summary', 'lcovonly'],
+      reportsDirectory: 'coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      // The MSW handlers and the vitest bootstrap are test scaffolding, not app
+      // code — counting them would flatter the number without measuring anything.
+      exclude: ['src/mocks/**', 'src/setup-tests.ts', '**/*.d.ts'],
+    },
     // The tree-render integration tests decode a real wire and can take ~5s in
     // jsdom; their own findByText waits up to 5s, so the test budget needs
-    // headroom above that or they flake under parallel load.
+    // headroom above that or they flake under parallel load. V8 instrumentation
+    // multiplies that again, but only the coverage run pays for it, so that run
+    // raises the budget from its own script rather than slowing down how long a
+    // hung test takes to surface in the plain `npm test` loop.
     testTimeout: 15000,
   },
 });
