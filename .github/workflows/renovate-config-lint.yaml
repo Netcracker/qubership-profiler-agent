@@ -337,7 +337,7 @@ jobs:
             if [[ -n "$health_number" ]]; then
               recovery_file="$(mktemp)"
               trap 'rm -f "$recovery_file"' EXIT
-              printf 'Renovate dependency checks passed. This issue is closing automatically.\n\n- [Successful Renovate health-check run](%s)\n- [Renovate Dependency Dashboard](%s)\n' \
+              printf 'The Renovate health check passed. This issue is closing automatically.\n\n### Details\n\n- [Successful Renovate health-check run](%s)\n- [Renovate Dependency Dashboard](%s)\n' \
                 "$run_url" "$dashboard_url" > "$recovery_file"
               gh issue comment "$health_number" --body-file "$recovery_file"
               gh issue close "$health_number" --reason completed
@@ -349,11 +349,13 @@ jobs:
           trap 'rm -f "$report_file"' EXIT
           if [[ -n "$health_number" ]]; then
             {
-              echo 'Renovate dependency checks are still failing.'
+              echo 'The Renovate health check is still failing.'
               echo
               echo '### Problems'
               echo
               printf -- '- %s\n' "${reasons[@]}"
+              echo
+              echo '### Details'
               echo
               echo "- [Latest failed Renovate health-check run]($run_url)"
               if [[ -n "$dashboard_url" ]]; then
@@ -365,13 +367,15 @@ jobs:
           else
             {
               echo "$health_marker"
-              echo 'Renovate dependency checks need attention.'
+              echo 'The Renovate health check needs attention.'
               echo
               echo '### Problems'
               echo
               printf -- '- %s\n' "${reasons[@]}"
               echo
               echo 'Review the details below, fix the listed problems, and rerun the health check. This issue updates after repeated failures and closes automatically after a successful check.'
+              echo
+              echo '### Details'
               echo
               echo "- [Failed Renovate health-check run]($run_url)"
               if [[ -n "$dashboard_url" ]]; then
