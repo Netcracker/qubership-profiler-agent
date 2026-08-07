@@ -23,21 +23,21 @@
     "vkbeautify": "^0.99.3"
   },
   "devDependencies": {
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^26.1.0",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "26.1.0",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "@types/vkbeautify": "^0.99.4",
-    "@vitejs/plugin-react": "^6.0.3",
-    "fast-check": "^4.8.0",
-    "jsdom": "^29.1.1",
-    "msw": "^2.15.0",
-    "typescript": "~5.9.3",
+    "@types/vkbeautify": "0.99.4",
+    "@vitejs/plugin-react": "6.0.3",
+    "fast-check": "4.8.0",
+    "jsdom": "29.1.1",
+    "msw": "2.15.0",
+    "typescript": "5.9.3",
     "vite": "8.1.2",
-    "vitest": "^4.1.9"
+    "vitest": "4.1.9"
   },
   "msw": {
     "workerDirectory": [
