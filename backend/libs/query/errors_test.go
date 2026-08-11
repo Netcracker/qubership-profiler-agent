@@ -65,9 +65,15 @@ func TestAPIRouteMissAnswersTheProblemEnvelope(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		ui   fstest.MapFS
+		// The SPA catch-all is registered for GET alone, so with it in place
+		// echo matches the path and rejects the method; with no catch-all
+		// there is no route to match at all. 02 §8 documents both rows, and
+		// the split only exists in one of the two builds.
+		unmatchedPathPOSTStatus int
+		unmatchedPathPOSTCode   string
 	}{
-		{"with the SPA embedded", uiFS},
-		{"without the SPA", nil},
+		{"with the SPA embedded", uiFS, http.StatusMethodNotAllowed, httpproblem.CodeMethodNotAllowed},
+		{"without the SPA", nil, http.StatusNotFound, httpproblem.CodeNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{}
@@ -84,6 +90,10 @@ func TestAPIRouteMissAnswersTheProblemEnvelope(t *testing.T) {
 			t.Run("a method no route serves", func(t *testing.T) {
 				requestProblem(t, server, http.MethodPost, "/api/v1/calls",
 					http.StatusMethodNotAllowed, httpproblem.CodeMethodNotAllowed)
+			})
+			t.Run("a non-GET request to a path no route matches", func(t *testing.T) {
+				requestProblem(t, server, http.MethodPost, "/api/v1/nope",
+					tc.unmatchedPathPOSTStatus, tc.unmatchedPathPOSTCode)
 			})
 			if tc.ui == nil {
 				return
