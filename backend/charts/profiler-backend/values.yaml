@@ -195,7 +195,7 @@ minio:
   enabled: false
   # A mutable tag, like image.tag above — pin a dated MinIO release for any
   # shared deployment (PR 708 review #16).
-  image: minio/minio:latest
+  image: minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
   consolePort: 9001
 
 metrics:
