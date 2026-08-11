@@ -93,6 +93,17 @@ func TestErrorHandlerEnvelope(t *testing.T) {
 			detail: "body too large",
 		},
 		{
+			// The bottom of the 4xx window. An off-by-one in the mapper's
+			// lower bound turns a middleware's 400 into a 500 with the
+			// caller's own message replaced, and the 413 row above still
+			// passes.
+			name:   "the lowest 4xx keeps its status and message",
+			err:    echo.NewHTTPError(http.StatusBadRequest, "unparsable Range header"),
+			status: http.StatusBadRequest,
+			code:   httpproblem.CodeInvalidRequest,
+			detail: "unparsable Range header",
+		},
+		{
 			name:   "a 5xx HTTPError is an internal failure like any other",
 			err:    echo.NewHTTPError(http.StatusInternalServerError, "ui assets lack index.html"),
 			status: http.StatusInternalServerError,
@@ -148,6 +159,46 @@ func TestErrorHandlerHeadHasNoBody(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assert.Equal(t, httpproblem.ContentType, resp.Header.Get(echo.HeaderContentType))
 	assert.Empty(t, body)
+}
+
+// What crosses the wire is the constant's value, not its Go name. Every other
+// assertion in this repository compares a response against the constant, so
+// retyping CodeCursorRejected as "cursor" keeps the whole suite green while
+// every client that switched on "cursor_rejected" silently stops matching.
+// These literals are transcribed from the 02-read-contract.md §8 table by
+// hand: to change one, change the document first and treat it as a breaking
+// change to /api/v1.
+func TestCodesMatchTheDocumentedWireValues(t *testing.T) {
+	documented := []struct {
+		constant string
+		wire     string
+	}{
+		{httpproblem.CodeInvalidRequest, "invalid_request"},
+		{httpproblem.CodeCursorRejected, "cursor_rejected"},
+		{httpproblem.CodeQueryTooWide, "query_too_wide"},
+		{httpproblem.CodeReadBudgetExhausted, "read_budget_exhausted"},
+		{httpproblem.CodeCallNotFound, "call_not_found"},
+		{httpproblem.CodePodRestartNotFound, "pod_restart_not_found"},
+		{httpproblem.CodeTraceUnavailable, "trace_unavailable"},
+		{httpproblem.CodeNoSourceAvailable, "no_source_available"},
+		{httpproblem.CodeNotReady, "not_ready"},
+		{httpproblem.CodeNotFound, "not_found"},
+		{httpproblem.CodeMethodNotAllowed, "method_not_allowed"},
+		{httpproblem.CodeInternalError, "internal_error"},
+	}
+
+	distinct := make(map[string]struct{}, len(documented))
+	for _, tc := range documented {
+		t.Run(tc.wire, func(t *testing.T) {
+			assert.Equal(t, tc.wire, tc.constant)
+		})
+		distinct[tc.constant] = struct{}{}
+	}
+	assert.Len(t, distinct, len(documented),
+		"two conditions sharing a value leave the client nothing to branch on")
+
+	assert.Equal(t, "application/problem+json", httpproblem.ContentType,
+		"the RFC 7807 media type; the UI gates error parsing on it")
 }
 
 func TestIsClientSide(t *testing.T) {
