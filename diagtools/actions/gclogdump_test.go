@@ -109,11 +109,17 @@ func writeFile(t *testing.T, path string, data []byte) {
 	require.NoError(t, os.WriteFile(path, data, 0644))
 }
 
-// replaceFile removes the old file and creates a new one (new inode).
+// replaceFile swaps in new contents under an inode that differs from the old
+// one. Removing the file and writing it again does not guarantee that: ext4
+// hands a freed inode straight to the next allocation, so the replacement can
+// land on the same number and the rotation-by-inode branch of uploadActiveLog
+// never runs. Writing beside the original keeps the old inode occupied until
+// the rename takes effect.
 func replaceFile(t *testing.T, path string, data []byte) {
 	t.Helper()
-	os.Remove(path)
-	writeFile(t, path, data)
+	replacement := path + ".replacement"
+	writeFile(t, replacement, data)
+	require.NoError(t, os.Rename(replacement, path))
 }
 
 // --- Tests for uploadRotatedLogs ---
