@@ -17,6 +17,11 @@ import (
 // out rather than carrying its own copy.
 var uiAssetBaseRE = regexp.MustCompile(`(?:src|href)="(/[^"]*?)assets/`)
 
+// apiPrefix is the external API's URL prefix with no surrounding slashes, in
+// the shape handleUI compares a trimmed request path against. It must stay in
+// step with the routes Service.routes registers.
+const apiPrefix = "api/v1"
+
 // uiPrefix is the URL prefix the SPA is served under, read from the built
 // index.html: "" for a root build ("/assets/...") or e.g. "/ui" for
 // "/ui/assets/...". It defaults to root when the base cannot be read.
@@ -38,6 +43,14 @@ func uiPrefix(fsys fs.FS) string {
 func (s *Service) handleUI(c echo.Context) error {
 	p := strings.TrimPrefix(c.Request().URL.Path, s.uiPrefix)
 	p = strings.TrimPrefix(p, "/")
+	// A root-base build registers the catch-all at "/", so echo backtracks an
+	// unmatched /api/v1 path onto it. That is a route miss, not a deep link:
+	// answer the §8 envelope rather than the SPA shell, or an API client
+	// parses index.html as JSON. The check reads the trimmed path, so under a
+	// sub-path base it can never fire — echo routes no /api/v1 request there.
+	if p == apiPrefix || strings.HasPrefix(p, apiPrefix+"/") {
+		return echo.ErrNotFound
+	}
 	if p == "" {
 		p = "index.html"
 	}

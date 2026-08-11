@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
+	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
@@ -188,8 +189,9 @@ func (s *Service) discoverAndFetch(ctx context.Context, pk model.PK, tsMs int64,
 // detail explains the §2.2 hint when it could have changed the answer.
 func (s *Service) pointProblem(c echo.Context, pk model.PK, hints pointHints, fetch pointFetch) error {
 	if fetch.truncated != "" {
-		return sendProblem(c, problem{Title: "trace blob unavailable", Status: http.StatusNotFound,
-			Detail: fmt.Sprintf("the blob of %s was dropped at seal: truncated_reason = %s", pk.PathString(), fetch.truncated)})
+		return sendProblem(c, problem{Problem: httpproblem.New(http.StatusNotFound,
+			httpproblem.CodeTraceUnavailable, "trace blob unavailable",
+			fmt.Sprintf("the blob of %s was dropped at seal: truncated_reason = %s", pk.PathString(), fetch.truncated))})
 	}
 	if fetch.succeeded == 0 && fetch.failed > 0 {
 		return gatewayTimeout(c, fetch.reasons)
@@ -198,7 +200,8 @@ func (s *Service) pointProblem(c echo.Context, pk model.PK, hints pointHints, fe
 	if !hints.hasTs {
 		detail += "; a call outside the hot window needs the ts_ms (and retention_class) hints from its /calls row (02 §2.2)"
 	}
-	return sendProblem(c, problem{Title: "call not found", Status: http.StatusNotFound, Detail: detail})
+	return sendProblem(c, problem{Problem: httpproblem.New(http.StatusNotFound,
+		httpproblem.CodeCallNotFound, "call not found", detail)})
 }
 
 // handleCallTrace serves GET /api/v1/calls/{pk}/trace (02 §2.4): the raw
