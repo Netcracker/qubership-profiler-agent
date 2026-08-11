@@ -47,7 +47,8 @@ func (s *Service) handleUI(c echo.Context) error {
 	// unmatched /api/v1 path onto it. That is a route miss, not a deep link:
 	// answer the §8 envelope rather than the SPA shell, or an API client
 	// parses index.html as JSON. The check reads the trimmed path, so under a
-	// sub-path base it can never fire — echo routes no /api/v1 request there.
+	// sub-path base it can only see <base>/api/v1/..., which the SPA owns no
+	// route for either — its routes are calls, pods, and tree/:pk.
 	if p == apiPrefix || strings.HasPrefix(p, apiPrefix+"/") {
 		return echo.ErrNotFound
 	}
