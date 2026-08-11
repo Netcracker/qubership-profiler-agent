@@ -8,10 +8,9 @@ on:
     branches:
       - '**'
 
-# Every job here only reads the repository: checkout, the language toolchains,
-# Gradle, and the Codecov uploads, which authenticate tokenlessly rather than
-# through OIDC. upload-artifact needs no scope of its own, since v4 and later
-# authenticate against the artifact service with the Actions runtime token.
+# Test jobs execute repository code with read-only contents permission. A
+# separate uploader reads the checked-out repository and coverage artifacts, then
+# uses OIDC for Codecov. Artifact actions authenticate with the Actions runtime token.
 permissions:
   contents: read
 
@@ -23,8 +22,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Runs alongside build-test rather than feeding it: Codecov merges every upload
-  # for a commit server-side, so the two jobs stay independent.
+  # Runs alongside build-test and publishes coverage reports for the isolated
+  # uploader job. Codecov merges its three uploads for each commit server-side.
   backend-coverage:
     name: Backend tests and coverage
     runs-on: ubuntu-latest
@@ -73,28 +72,24 @@ jobs:
         working-directory: backend/apps/ui
         # language=bash
         run: npm run test:coverage
-      # No token on any of the uploads. This repository is public, so Codecov
-      # accepts them over its tokenless path, and that path is the only one a
-      # pull request from a fork can use anyway: GitHub withholds secrets from
-      # those runs. Add CODECOV_TOKEN only if tokenless starts being rejected.
-      - name: Upload Go coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      - name: Upload Go coverage artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          files: backend/coverage.out,diagtools/coverage.out
-          flags: go
-          disable_search: true
-          fail_ci_if_error: true
-      - name: Upload UI coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+          name: coverage-go
+          path: |
+            backend/coverage.out
+            diagtools/coverage.out
+      - name: Upload UI coverage artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          files: backend/apps/ui/coverage/lcov.info
-          flags: ui
-          disable_search: true
-          fail_ci_if_error: true
+          name: coverage-ui
+          path: backend/apps/ui/coverage/lcov.info
 
   build-test:
-    name: Test
+    name: Build and test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       CENTRAL_PORTAL_USERNAME: ${{ secrets.MAVEN_USER }} # zizmor: ignore[secrets-outside-env]
     steps:
@@ -131,13 +126,11 @@ jobs:
         with:
           multi-cache-enabled: false
           arguments: --scan --no-parallel -Pcoverage build jacocoReport
-      - name: Upload Java coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      - name: Upload Java coverage artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          files: build/reports/jacoco/jacocoReport/jacocoReport.xml
-          flags: java
-          disable_search: true
-          fail_ci_if_error: true
+          name: coverage-java
+          path: build/reports/jacoco/jacocoReport/jacocoReport.xml
       - name: Upload it-e2e diagnostics
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ failure() }}
@@ -158,3 +151,74 @@ jobs:
           properties: | # zizmor: ignore[secrets-outside-env]
             centralSnapshotsUsername=${{ secrets.MAVEN_USER }}
             centralSnapshotsPassword=${{ secrets.MAVEN_PASSWORD }}
+
+  codecov-upload:
+    name: Upload coverage to Codecov
+    needs: [backend-coverage, build-test]
+    if: ${{ !cancelled() && needs.backend-coverage.result == 'success' && needs.build-test.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # codecov-action v7 requires a checkout for repository metadata. This job
+      # does not run repository commands, and checkout leaves no credentials.
+      - name: Checkout sources
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Download Go coverage artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: coverage-go
+          path: coverage-reports/go
+      - name: Download UI coverage artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: coverage-ui
+          path: coverage-reports/ui
+      - name: Download Java coverage artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: coverage-java
+          path: coverage-reports/java
+      # Codecov omits OIDC for fork pull requests and retains its tokenless
+      # public-repository upload path for them.
+      - name: Upload Go coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: coverage-reports/go/backend/coverage.out,coverage-reports/go/diagtools/coverage.out
+          flags: go
+          disable_search: true
+          fail_ci_if_error: true
+      - name: Upload UI coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: coverage-reports/ui/lcov.info
+          flags: ui
+          disable_search: true
+          fail_ci_if_error: true
+      - name: Upload Java coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: coverage-reports/java/jacocoReport.xml
+          flags: java
+          disable_search: true
+          fail_ci_if_error: true
+
+  # Keep the required Test context tied to every test and coverage outcome.
+  ci-gate:
+    name: Test
+    needs: [backend-coverage, build-test, codecov-upload]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify CI jobs
+        if: ${{ needs.backend-coverage.result != 'success' || needs.build-test.result != 'success' || needs.codecov-upload.result != 'success' }}
+        # language=bash
+        run: exit 1
