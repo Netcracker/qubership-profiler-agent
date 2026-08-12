@@ -1,54 +1,97 @@
 name-template: "v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
 
+# Categories are evaluated top to bottom, and every changelog category is
+# exclusive, so each pull request lands in the first category it matches.
 categories:
   - title: "💥 Breaking Changes"
-    labels:
-      - breaking-change
-  # Component-scoped categories (PRs labeled with "component: X" + type)
+    exclusive: true
+    when:
+      label: breaking-change
+  # Component-scoped categories require both the component label and the type
+  # label, so they must come before the catch-all categories below.
   - title: "Agent - New Features"
-    labels:
-      - "component: agent"
-      - enhancement
+    exclusive: true
+    when:
+      labels:
+        - "component: agent"
+        - enhancement
+      labels-mode: all
   - title: "Agent - Bug Fixes"
-    labels:
-      - "component: agent"
-      - fix
+    exclusive: true
+    when:
+      labels:
+        - "component: agent"
+        - fix
+      labels-mode: all
   - title: "Dumps Collector - New Features"
-    labels:
-      - "component: dumps-collector"
-      - enhancement
+    exclusive: true
+    when:
+      labels:
+        - "component: dumps-collector"
+        - enhancement
+      labels-mode: all
   - title: "Dumps Collector - Bug Fixes"
-    labels:
-      - "component: dumps-collector"
-      - fix
+    exclusive: true
+    when:
+      labels:
+        - "component: dumps-collector"
+        - fix
+      labels-mode: all
   - title: "Diagtools - New Features"
-    labels:
-      - "component: diagtools"
-      - enhancement
+    exclusive: true
+    when:
+      labels:
+        - "component: diagtools"
+        - enhancement
+      labels-mode: all
   - title: "Diagtools - Bug Fixes"
-    labels:
-      - "component: diagtools"
-      - fix
+    exclusive: true
+    when:
+      labels:
+        - "component: diagtools"
+        - fix
+      labels-mode: all
   # Catch-all for PRs without component labels
   - title: "💡 New Features"
-    labels:
-      - enhancement
+    exclusive: true
+    when:
+      label: enhancement
   - title: "🐞 Bug Fixes"
-    labels:
-      - fix
+    exclusive: true
+    when:
+      label: fix
   - title: "📝 Documentation"
-    labels:
-      - documentation
+    exclusive: true
+    when:
+      label: documentation
   - title: "⚙️ Technical Debt"
-    labels:
-      - refactor
+    exclusive: true
+    when:
+      label: refactor
   - title: "🧰 Maintenance"
-    label: chore
+    exclusive: true
+    when:
+      label: chore
   - title: "⬆️ Dependencies"
     collapse-after: 8
-    labels:
-      - dependencies
+    exclusive: true
+    when:
+      label: dependencies
+
+  # Version resolution. A release without any of these labels gets a patch bump.
+  - type: version-resolver
+    semver-increment: major
+    when:
+      label: major
+  - type: version-resolver
+    semver-increment: minor
+    when:
+      label: minor
+  - type: version-resolver
+    semver-increment: patch
+    when:
+      label: patch
 
 change-template: "- $TITLE (#$NUMBER) by @$AUTHOR"
 no-changes-template: "No significant changes"
@@ -61,20 +104,9 @@ template: |
 
   **Contributors:** $CONTRIBUTORS
 
-version-resolver:
-  major:
-    labels:
-      - major
-  minor:
-    labels:
-      - minor
-  patch:
-    labels:
-      - patch
-  default: patch
-
 # See https://github.com/release-drafter/release-drafter#autolabeler
-# This is more like a reference, since auto-labeling PRs seems to require too many privileges
+# Since v7 the autolabeler is a separate action (release-drafter/release-drafter/autolabeler),
+# so this section only takes effect once a workflow runs that action.
 autolabeler:
   - label: 'dependencies'
     files:
