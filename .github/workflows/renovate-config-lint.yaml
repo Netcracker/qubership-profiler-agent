@@ -302,7 +302,40 @@ jobs:
             dashboard_url="$(jq -r '.url' <<< "$dashboard_json")"
 
             if grep -q '^## Repository Problems[[:space:]]*$' <<< "$dashboard_body"; then
-              reasons+=('Dependency Dashboard reports repository problems')
+              # Renovate records these notices as repository problems even though
+              # timestamp-optional explicitly allows the affected updates to proceed.
+              timestamp_optional_release_warning="⚠️ WARN: Some release(s) did not have a releaseTimestamp, but as we're running with minimumReleaseAgeBehaviour=timestamp-optional, proceeding. See debug logs for more information"
+              timestamp_optional_upgrade_warning="⚠️ WARN: Some upgrade(s) did not have a releaseTimestamp, but as we're running with minimumReleaseAgeBehaviour=timestamp-optional, proceeding. See debug logs for more information"
+              repository_problems_intro_pattern='^These problems occurred while renovating this repository\. \[View logs\]\(https://developer\.mend\.io/[^[:space:])]+\)\.$'
+              ignored_repository_problem_count=0
+              actionable_repository_problem_count=0
+
+              while IFS= read -r repository_problem_line; do
+                if [[ -z "$repository_problem_line" ]]; then
+                  continue
+                fi
+                if [[ "$repository_problem_line" == 'These problems occurred while renovating this repository.' ]]; then
+                  continue
+                fi
+                if [[ "$repository_problem_line" =~ $repository_problems_intro_pattern ]]; then
+                  continue
+                fi
+                if [[ "$repository_problem_line" == " - $timestamp_optional_release_warning" || "$repository_problem_line" == " - $timestamp_optional_upgrade_warning" ]]; then
+                  ignored_repository_problem_count=$((ignored_repository_problem_count + 1))
+                else
+                  actionable_repository_problem_count=$((actionable_repository_problem_count + 1))
+                fi
+              done < <(awk '
+                /^## Repository Problems[[:space:]]*$/ { in_repository_problems = 1; next }
+                in_repository_problems && /^## / { exit }
+                in_repository_problems { print }
+              ' <<< "$dashboard_body")
+
+              if [[ "$ignored_repository_problem_count" -eq 0 || "$actionable_repository_problem_count" -ne 0 ]]; then
+                reasons+=('Dependency Dashboard reports repository problems')
+              else
+                notes+=('Dependency Dashboard only reports expected timestamp-optional notices')
+              fi
             fi
             if grep -q '^## Errored[[:space:]]*$' <<< "$dashboard_body"; then
               reasons+=('Dependency Dashboard reports errored updates')
