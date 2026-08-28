@@ -8,9 +8,10 @@ import { expect, test } from '@playwright/test';
 test('discovery, calls filtering, and a drill into the call tree', async ({ page, context }) => {
   await page.goto('/ui/calls');
 
-  // Pick a quick range; the rail discovers services for the draft window
-  // before Apply.
-  await page.getByText('15 min', { exact: true }).click();
+  // Pick a quick range from the time-range popover; the rail discovers
+  // services for the draft window before Apply.
+  await page.getByRole('button', { name: 'Time range', exact: true }).click();
+  await page.getByText('Last 15 minutes', { exact: true }).click();
   await expect(page.getByText('shop ·')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('e2e', { exact: true })).toBeVisible();
 
@@ -20,7 +21,7 @@ test('discovery, calls filtering, and a drill into the call tree', async ({ page
     .locator('.ant-tree-checkbox')
     .first()
     .click();
-  await page.getByRole('button', { name: 'Apply' }).click();
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
   // The default >500ms chip hides the sub-500ms half of the seeded mix
   // (the assertions stay count-free: reseeding an already-running stack
@@ -49,10 +50,37 @@ test('discovery, calls filtering, and a drill into the call tree', async ({ page
   await expect(treePage.getByText(/Api\.handle/).first()).toBeVisible();
   await expect(treePage.getByText('request.id').first()).toBeVisible();
 
+  // The same URL served cold: /ui/tree/:pk is a deep-link an operator can
+  // paste, not only an in-app navigation target.
+  await treePage.reload();
+  await expect(treePage.getByText(/Api\.handle/).first()).toBeVisible({ timeout: 30_000 });
+
   // Hotspots groups by self time; the DB leaf dominates the seeded shape.
   // (Scoped to the active pane: AntD keeps inactive tab content in the DOM.)
   await treePage.getByRole('tab', { name: 'Hotspots' }).click();
   await expect(
     treePage.getByRole('tabpanel', { name: 'Hotspots' }).getByText(/OrderDao\.query/).first(),
   ).toBeVisible();
+});
+
+// The image builds the bundle under /ui (07 §6), so the documented routes have
+// to render against the deployed base, not just the Vite default. This is the
+// smoke test for that base: a route the first test never opens, plus the origin
+// root, which carries no app of its own.
+test('the documented /ui routes render against the deployed base', async ({ page }) => {
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/ui\/calls(\?|$)/);
+
+  await page.goto('/ui/pods');
+  await expect(page.getByText('Pods Info')).toBeVisible();
+
+  // Pods Info carries the same period picker and rail as Calls (09 §4).
+  // Committing a range is enough here: with nothing selected in the rail the
+  // screen lists every pod-restart in the window, so Apply stays grey.
+  await page.getByRole('button', { name: 'Time range', exact: true }).click();
+  await page.getByText('Last 15 minutes', { exact: true }).click();
+  await expect(page.getByText('shop ·')).toBeVisible({ timeout: 30_000 });
+
+  // The seeded pods land as namespace/service/pod rows.
+  await expect(page.getByText(/e2e\/shop\/shop-/).first()).toBeVisible({ timeout: 30_000 });
 });

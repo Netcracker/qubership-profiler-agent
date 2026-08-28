@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:mock": "VITE_ENABLE_MSW=1 vite",
+    "dev": "UI_BASE_PATH=/ui/ vite",
+    "dev:mock": "VITE_ENABLE_MSW=1 UI_BASE_PATH=/ui/ vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
