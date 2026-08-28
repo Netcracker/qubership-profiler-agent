@@ -21,7 +21,7 @@ scrape). The series names are a stable contract — the catalog lives in
 
 ## Quick start (docker-compose)
 
-From `backend/`:
+From the repository root:
 
 ```bash
 docker compose up --build -d     # MinIO + collector + query
@@ -100,7 +100,7 @@ requests get 15 s to finish.
 
 ## Smoke test
 
-`make smoke` (from `backend/`) recreates the compose stack and runs
+`make smoke` (from the repository root) recreates the compose stack and runs
 `libs/tests/smoke` (build tag `smoke`): a synthetic agent sends
 dictionary + trace + calls + suspend streams over TCP, the hot phase asserts
 `/api/v1/calls` and `/tree` answer before anything reaches MinIO, the cold

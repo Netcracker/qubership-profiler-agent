@@ -37,7 +37,7 @@ export function isWideQueryRejection(e: unknown): e is ApiError {
 /**
  * Cursor rejection — expired, malformed, or frozen-query mismatch (02 §2.3.1).
  * The backend reports every cursor failure as a 400 whose detail names the
- * cursor (decodeCursor / frozenQueryMismatch in backend/libs/query); the
+ * cursor (decodeCursor / frozenQueryMismatch in libs/query); the
  * client's reaction is the same for all of them: restart from page one.
  */
 export function isCursorRejection(e: unknown): e is ApiError {

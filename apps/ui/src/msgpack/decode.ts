@@ -7,7 +7,7 @@ import type { ParamGroupWire, ParamWire, TreeNodeWire, TreeWire } from './tree-w
 // well-formed MessagePack, so a skipped unknown field can be of any future
 // type; the typed layer on top maps field numbers to the merged-v1 model.
 //
-// Robustness rules (mirrors backend/libs/calltree/msgpack.go):
+// Robustness rules (mirrors libs/calltree/msgpack.go):
 // - every failure throws MsgpackDecodeError — corrupted input never panics,
 //   hangs, or over-allocates;
 // - header-declared lengths are capped by the bytes actually remaining;

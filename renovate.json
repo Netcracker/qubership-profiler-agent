@@ -88,7 +88,7 @@
       "description": "Keep Spring Boot 3 example modules on Spring Boot 3",
       "groupName": "Spring Boot 3 sample app",
       "matchFileNames": [
-        "backend/examples/spring-boot-3-*/**"
+        "examples/spring-boot-3-*/**"
       ],
       "allowedVersions": "< 4",
       "matchPackageNames": [

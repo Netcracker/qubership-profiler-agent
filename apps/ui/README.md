@@ -5,9 +5,9 @@ via `go:embed` (07 §6). React 19 + TypeScript (strict) + Ant Design 6, built wi
 
 Design docs are the source of truth:
 
-- [`backend/docs/design/07-ui-design.md`](../../docs/design/07-ui-design.md) — architecture and the tree engine
-- [`backend/docs/design/09-ui-screens.md`](../../docs/design/09-ui-screens.md) — per-screen spec, states, URL scheme
-- [`backend/docs/design/02-read-contract.md`](../../docs/design/02-read-contract.md) — endpoint shapes
+- [`docs/design/07-ui-design.md`](../../docs/design/07-ui-design.md) — architecture and the tree engine
+- [`docs/design/09-ui-screens.md`](../../docs/design/09-ui-screens.md) — per-screen spec, states, URL scheme
+- [`docs/design/02-read-contract.md`](../../docs/design/02-read-contract.md) — endpoint shapes
 
 ## Commands
 
@@ -34,7 +34,7 @@ host toolchain. End to end: `make query-ui` in `it-e2e/`.
 
 | Path | Contents |
 |------|----------|
-| `src/api/` | Wire types mirroring `backend/libs/query/model/wire.go`, PK path codec, typed fetch |
+| `src/api/` | Wire types mirroring `libs/query/model/wire.go`, PK path codec, typed fetch |
 | `src/msgpack/` | Hand-written decoder for the `/tree` merged-v1 envelope (02 §2.5), mirror encoder for tests/mock |
 | `src/url/` | URL-as-state: parse/serialize the 09 §6 query scheme |
 | `src/mocks/` | MSW handlers + deterministic synthetic dataset; the mock mirrors the backend's RFC 7807 bodies |

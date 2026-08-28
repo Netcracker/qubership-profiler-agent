@@ -1,6 +1,6 @@
 # profiler-backend Helm chart
 
-Deploys the Go profiler backend (`backend/docs/design/04-storage-layout.md`):
+Deploys the Go profiler backend (`docs/design/04-storage-layout.md`):
 
 - **collector** — StatefulSet with one RWO PVC per replica (`volumeClaimTemplates`), a governing headless Service for query fan-out, and an L4 Service for agent TCP (port 1715).
 - **query** — stateless Deployment + ClusterIP Service (`/api/v1`, port 8080).

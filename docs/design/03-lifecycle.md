@@ -63,7 +63,7 @@ This is the heaviest section because chunk-level reassembly (`01-write-contract.
 
    - **The PK is the read contract's Call PK** (`02-read-contract.md` §2.2). `pod_restart` expands to `(namespace, service, pod_name, restart_time_ms)`; the three trace-pointer integers complete it. There is no `thread_id` component — recovery drops unclosed calls (§3.7), so the placeholder PK is gone.
    - **`trace_file_index` is the agent's rolling sequence id, not a collector ordinal.** Segment files stay 1:1 with the agent's stream files, so `(trace_file_index, buffer_offset)` resolves without an offset-translation table (`01-write-contract.md` §4.4).
-   - **`sql` and `xml` sit in the same catalog as `trace`.** A trace tag of type `PARAM_BIG` points into `xml`, `PARAM_BIG_DEDUP` into `sql`, each by `(rolling_seq, offset)` (`backend/libs/parser/pipe/traces.go`). Both must survive in the hot store for a blob to decode, so both are refcounted and evicted like `trace`.
+   - **`sql` and `xml` sit in the same catalog as `trace`.** A trace tag of type `PARAM_BIG` points into `xml`, `PARAM_BIG_DEDUP` into `sql`, each by `(rolling_seq, offset)` (`libs/parser/pipe/traces.go`). Both must survive in the hot store for a blob to decode, so both are refcounted and evicted like `trace`.
    - **`dictionary`, `params`, `suspend`, and the raw Call records are not in the segment catalog.** They use append-only WAL files (§3.4; `01-write-contract.md` §3): the dictionary needs per-entry `fsync` durability, because one lost entry makes every trace byte that references it undecodable.
 
 4. Self-check: run `PRAGMA integrity_check` on `metadata.sqlite` and on each attached call partition. On corruption, repair by deleting the affected file and rebuilding from PV contents — rescan the gzip segments to rebuild `segments` (§3.5), re-read parquet footers to rebuild `parquet_local` (§3.6), and re-decode `calls.wal` to rebuild the partitions (§3.4). Rebuild is costly but recoverable. If repair fails → `FATAL`.
@@ -172,7 +172,7 @@ Triggered by SIGTERM (kubelet drain) or SIGINT (operator).
 ### 5.2 Stop new connections (`DRAINING` → `TERMINATING`)
 
 4. After the drain grace, close the TCP listener (no new agent connections accepted).
-5. For each active agent TCP connection, send `COMMAND_CLOSE` (`backend/libs/protocol/commands.go`); wait for the agent's acknowledgement up to `PROFILER_AGENT_CLOSE_TIMEOUT` (default 5 s). If timeout → close from collector side.
+5. For each active agent TCP connection, send `COMMAND_CLOSE` (`libs/protocol/commands.go`); wait for the agent's acknowledgement up to `PROFILER_AGENT_CLOSE_TIMEOUT` (default 5 s). If timeout → close from collector side.
 6. The affected agents will reconnect — to a different collector replica (this one is not in DNS anymore) — and start a fresh pod-restart there. The current pod-restart on this replica is now closed.
 
 > **Known gap.** Step 5's `COMMAND_CLOSE` drain is not implemented. On shutdown `server.Service.Stop()` force-closes each live agent connection instead of sending `COMMAND_CLOSE`, so an agent sees a dropped socket rather than a graceful close (it reconnects either way, `06-wire-protocol-server.md` §6). The force-close is deliberate — a drain would otherwise hold `Stop()` until each idle connection hit its ~40 s read deadline — but the polite `COMMAND_CLOSE` handshake with the 5 s per-connection timeout is still owed.
@@ -234,7 +234,7 @@ Stateless. Two run modes:
 
 ### 8.1 Cron mode (`profiler-backend maintain --cron`)
 
-Process runs continuously; uses `backend/libs/cron/` to schedule jobs. Same simple startup as `query`. Shutdown closes the cron scheduler and exits.
+Process runs continuously; uses `libs/cron/` to schedule jobs. Same simple startup as `query`. Shutdown closes the cron scheduler and exits.
 
 ### 8.2 One-shot mode (`profiler-backend maintain --run-now`)
 
@@ -244,7 +244,7 @@ Process runs the scheduled jobs once and exits. Used by k8s CronJob if we prefer
 
 In-process composition of `collect` + `query` + `maintain`. Used for dev (`profiler-plan.md` decision). Lifecycle is the union:
 
-1. Filesystem-emulated S3 (`backend/libs/s3/` filesystem emulator, deferred — currently MinIO in docker-compose; both supported as dev variants).
+1. Filesystem-emulated S3 (`libs/s3/` filesystem emulator, deferred — currently MinIO in docker-compose; both supported as dev variants).
 2. Local `/data` directory, no PV semantics.
 3. Combined startup runs all three subcommands in goroutines under one `oklog/run` group.
 4. Shutdown sends one signal; each subcommand drains in its own grace period (collector's longest), then process exits.

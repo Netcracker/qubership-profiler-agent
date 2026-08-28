@@ -1,7 +1,7 @@
 // Parses the agent's dictionary word into display parts. The wire format is
 //   <returnType> <package.Class.method>(<args>) (<File>.java:<line>) [<jarPath>/<jarName>]
 // and needs no dedicated fields (08 §7) — this is a port of
-// backend/libs/parser/dictionary/line_parser.go, minus its debug prints.
+// libs/parser/dictionary/line_parser.go, minus its debug prints.
 
 export interface MethodInfo {
   original: string;

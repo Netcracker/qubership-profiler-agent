@@ -3,7 +3,7 @@ package wire
 import "bytes"
 
 // Trace event type bits, numerically identical to the agent's DumperConstants
-// and to backend/libs/parser/pipe/traces.go.
+// and to libs/parser/pipe/traces.go.
 const (
 	eventEnter  = 0
 	eventExit   = 1

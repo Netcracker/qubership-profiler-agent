@@ -3,7 +3,7 @@ import type { ParamGroupWire, ParamWire, TreeNodeWire, TreeWire } from './tree-w
 
 // MessagePack encoder mirroring decode.ts. Production code never encodes a
 // tree — this exists for the MSW mock and for round-trip/fuzz tests, standing
-// in for the Go encoder in backend/libs/calltree/msgpack.go.
+// in for the Go encoder in libs/calltree/msgpack.go.
 
 class Writer {
   private buf = new Uint8Array(1024);

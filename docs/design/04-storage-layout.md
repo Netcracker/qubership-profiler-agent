@@ -1,6 +1,6 @@
 # 04 — Storage layout and k8s manifests
 
-> Status: **draft**, awaiting review. k8s manifests, PVC templates, headless service, Helm structure and values diff against the current `backend/charts/profiler-stack/`. Tied closely to `03-lifecycle.md` (probe wiring, termination grace) and `01-write-contract.md` §8 (on-disk layout).
+> Status: **draft**, awaiting review. k8s manifests, PVC templates, headless service, Helm structure and values diff against the current `charts/profiler-stack/`. Tied closely to `03-lifecycle.md` (probe wiring, termination grace) and `01-write-contract.md` §8 (on-disk layout).
 
 ## 1. Scope
 
@@ -366,7 +366,7 @@ Operators override per-environment. Numbers are baseline for typical workloads (
 
 ## 9. Helm chart structure
 
-**Stage 1 ships a new self-contained chart, `backend/charts/profiler-backend/`,** holding the collector StatefulSet, the query Deployment, the maintain workload, the shared ConfigMap/Secret, an optional in-cluster MinIO for dev/smoke, and the monitoring objects (ServiceMonitor / PrometheusRule). The legacy sub-charts below keep serving the Java stack untouched until their Stage 4/5 retirement — the same reasoning that placed the Go binary at `apps/profiler-backend` instead of over the legacy `apps/` paths. The table records the eventual end-state for the legacy charts, not Stage 1 work:
+**Stage 1 ships a new self-contained chart, `charts/profiler-backend/`,** holding the collector StatefulSet, the query Deployment, the maintain workload, the shared ConfigMap/Secret, an optional in-cluster MinIO for dev/smoke, and the monitoring objects (ServiceMonitor / PrometheusRule). The legacy sub-charts below keep serving the Java stack untouched until their Stage 4/5 retirement — the same reasoning that placed the Go binary at `apps/profiler-backend` instead of over the legacy `apps/` paths. The table records the eventual end-state for the legacy charts, not Stage 1 work:
 
 | Chart | Old shape | New shape (this contract) |
 |---|---|---|
@@ -381,7 +381,7 @@ Operators override per-environment. Numbers are baseline for typical workloads (
 ### 9.1 Umbrella values (sketch)
 
 ```yaml
-# backend/charts/profiler-stack/values.yaml
+# charts/profiler-stack/values.yaml
 
 global:
   image:
@@ -429,7 +429,7 @@ minio:
   # ... minio chart values
 ```
 
-## 10. Diff against current `backend/charts/profiler-stack/values.yaml`
+## 10. Diff against current `charts/profiler-stack/values.yaml`
 
 | Removed | Reason |
 |---|---|
@@ -458,7 +458,7 @@ minio:
 
 ### 11.1 Dev: docker-compose (single-node)
 
-The `all` subcommand runs all three workloads in one process; dev `docker-compose.yaml` mounts a local directory at `/data` and either runs MinIO as a sidecar or uses the filesystem-S3 emulator (`backend/libs/s3/`, deferred — see `01-write-contract.md` decisions). Single Go binary, no k8s, no PVCs.
+The `all` subcommand runs all three workloads in one process; dev `docker-compose.yaml` mounts a local directory at `/data` and either runs MinIO as a sidecar or uses the filesystem-S3 emulator (`libs/s3/`, deferred — see `01-write-contract.md` decisions). Single Go binary, no k8s, no PVCs.
 
 ### 11.2 Dev: kind / minikube (k8s-flavored dev)
 

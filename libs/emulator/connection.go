@@ -17,7 +17,7 @@ type (
 	// the CDT collector. Its ack semantics mirror DefaultCollectorClient.java:
 	// one pending ack per RCV_DATA and per REQUEST_ACK_FLUSH, an opportunistic
 	// drain before each write, a synchronous drain at flush and before every
-	// stream open (backend/docs/design/virtual-dumper.md §2.4).
+	// stream open (docs/design/virtual-dumper.md §2.4).
 	AgentConnection struct {
 		podName       string
 		ctx           context.Context

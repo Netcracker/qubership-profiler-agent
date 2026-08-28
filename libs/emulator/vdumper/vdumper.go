@@ -2,7 +2,7 @@
 // reproduces the Java agent's remote-dump pipeline — the DumperThread +
 // Dumper + DefaultCollectorClient state machine — for load generation. The
 // contract, traced rule by rule to the Java sources, lives in
-// backend/docs/design/virtual-dumper.md.
+// docs/design/virtual-dumper.md.
 package vdumper
 
 import (

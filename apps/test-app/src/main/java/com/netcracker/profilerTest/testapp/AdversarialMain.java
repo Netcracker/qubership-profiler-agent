@@ -49,7 +49,7 @@ import java.time.Duration;
  *
  * <p>The {@code EXPECTED_*} constants are what a correct backend must return
  * byte-exact. The E2E test
- * ({@code backend/libs/tests/smoke_realagent/realagent_test.go}) asserts them
+ * ({@code libs/tests/smoke_realagent/realagent_test.go}) asserts them
  * and fails today on bugs A and B.
  */
 public final class AdversarialMain {

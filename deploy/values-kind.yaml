@@ -2,7 +2,7 @@
 # in-cluster MinIO, fast loops so the smoke completes in minutes.
 #
 #   kind load docker-image profiler-backend:dev
-#   helm install profiler backend/charts/profiler-backend -f backend/deploy/values-kind.yaml
+#   helm install profiler charts/profiler-backend -f deploy/values-kind.yaml
 
 collector:
   replicas: 1

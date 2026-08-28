@@ -2,7 +2,7 @@
 // commas and quoted literals, drop digits, and abbreviate every remaining
 // word to its first character. Two texts differing only in literals and
 // identifier tails collapse to the same signature. Ported from the backend's
-// `sqlSignature` (backend/libs/calltree/params.go), itself carried over from
+// `sqlSignature` (libs/calltree/params.go), itself carried over from
 // the old UI's similarity key (profiler-ui/src/profiler.mjs:3469) — kept in
 // lock-step with the Go implementation so cross-node grouping in the
 // Parameters tab (params-summary.ts) agrees with the per-node grouping the

@@ -1,6 +1,6 @@
-// Wire models of the external read API (backend/docs/design/02-read-contract.md §2).
-// Field names mirror the backend structs in backend/libs/query/model/wire.go and
-// backend/libs/query/api.go; if the two disagree, that is a backend bug — report
+// Wire models of the external read API (docs/design/02-read-contract.md §2).
+// Field names mirror the backend structs in libs/query/model/wire.go and
+// libs/query/api.go; if the two disagree, that is a backend bug — report
 // it, do not adapt the types.
 
 /** 7-component call primary key (02 §2.2). */

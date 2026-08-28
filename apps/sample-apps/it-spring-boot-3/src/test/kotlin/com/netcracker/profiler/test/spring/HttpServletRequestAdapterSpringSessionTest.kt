@@ -19,7 +19,7 @@ import java.time.Duration
  * End-to-end reproduction of the production IllegalAccessException.
  *
  * Setup:
- *  - `backend/examples/spring-boot-3-undertow` is packaged by Maven into a Spring Boot fat jar.
+ *  - `examples/spring-boot-3-undertow` is packaged by Maven into a Spring Boot fat jar.
  *  - The test layers that jar on top of `qubership/qubership-core-base-image:profiler-latest`
  *    (built by the `:installer:buildBaseImage` task). The base image already has the profiler
  *    agent installed under `/app/diag` and wires `-javaagent:/app/diag/lib/agent.jar` via its

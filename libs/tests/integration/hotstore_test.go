@@ -244,7 +244,7 @@ func connectAgent(t *testing.T, ctx context.Context) *emulator.AgentConnection {
 
 // sendStream opens one agent stream file and feeds its bytes in RCV_DATA
 // payloads, splitting the first payload to exercise payload-boundary
-// reassembly (a logical chunk spans many payloads; backend/CLAUDE.md).
+// reassembly (a logical chunk spans many payloads; CLAUDE.md).
 func sendStream(t *testing.T, ac *emulator.AgentConnection, stream string, requestedSeq int, data []byte) {
 	handle, err := ac.CommandInitStream(stream, requestedSeq, false)
 	require.NoError(t, err)

@@ -1,6 +1,6 @@
 # Real-agent E2E harness
 
-Drives the actual Java profiler agent against the Go backend. Two variants share one Go harness (`backend/libs/tests/smoke_realagent/harness.go`) but obtain the agent differently and check different things:
+Drives the actual Java profiler agent against the Go backend. Two variants share one Go harness (`libs/tests/smoke_realagent/harness.go`) but obtain the agent differently and check different things:
 
 - **Byte-exactness** (`realagent_test.go`, tag `smoke_realagent`) — builds the agent from whatever is checked out at HEAD and asserts adversarial method/parameter strings round-trip byte-exact. This is the acceptance gate for the decoder fixes below.
 - **Legacy `gc` stream** (`realagent_v313_test.go`, tag `smoke_realagent_v313`) — downloads the pre-built v3.1.3 release and asserts its calls land in `/api/v1/calls` at all. See [its own section](#v313-variant-the-legacy-gc-stream) below.
@@ -13,10 +13,10 @@ The test **fails today** on two backend decoder bugs. That failing assertion is 
 
 ### What it exercises
 
-The existing Go smoke test (`backend/libs/tests/smoke`) feeds the collector with bytes from a Go emulator. The emulator's own encoder mirrors the buggy decoder, so it cannot surface these bugs. This harness sends bytes from the **real agent**, whose `DataOutputStreamEx.writeChars` writes faithful UTF-16 — which is what exposes them.
+The existing Go smoke test (`libs/tests/smoke`) feeds the collector with bytes from a Go emulator. The emulator's own encoder mirrors the buggy decoder, so it cannot surface these bugs. This harness sends bytes from the **real agent**, whose `DataOutputStreamEx.writeChars` writes faithful UTF-16 — which is what exposes them.
 
-- **Bug A — `readChar` signedness** (`backend/libs/parser/pipe/pipe_reader.go`). The reader reads a signed `int16`, so every UTF-16 code unit `>= U+8000` (most CJK and Hangul) and both halves of a non-BMP surrogate pair (emoji) decode to `U+FFFD`. It corrupts every string: method names, class names, parameter keys, parameter values, thread names.
-- **Bug B — empty dictionary word** (`backend/libs/parser/pipe/dictionary.go`). The reader skips an empty word without advancing its id counter, and the collector appends words by arrival order, so every later id shifts down by one and resolves to the wrong method or parameter name.
+- **Bug A — `readChar` signedness** (`libs/parser/pipe/pipe_reader.go`). The reader reads a signed `int16`, so every UTF-16 code unit `>= U+8000` (most CJK and Hangul) and both halves of a non-BMP surrogate pair (emoji) decode to `U+FFFD`. It corrupts every string: method names, class names, parameter keys, parameter values, thread names.
+- **Bug B — empty dictionary word** (`libs/parser/pipe/dictionary.go`). The reader skips an empty word without advancing its id counter, and the collector appends words by arrival order, so every later id shifts down by one and resolves to the wrong method or parameter name.
 
 ### Moving parts
 
@@ -24,8 +24,8 @@ The existing Go smoke test (`backend/libs/tests/smoke`) feeds the collector with
 | --- | --- |
 | `test-app/src/main/java/com/netcracker/profilerTest/testapp/AdversarialMain.java` | The workload. Records two synthetic calls through the `Profiler` API: Call A carries adversarial Unicode (bug A); Call B resolves an empty dictionary word first, then plain-ASCII names (bug B). |
 | `scripts/e2e-realagent/config/_config.xml` | Profiler config. Marks the test-app package `do-not-profile` so the only recorded calls are the two synthetic ones. |
-| `backend/libs/tests/smoke_realagent/realagent_test.go` | The `//go:build smoke_realagent` test. Runs `gradlew`/`gradlew.bat` to build the agent + test-app jar (`buildHeadAgent`), runs the workload via the shared `runJavaAgent`, polls `/api/v1/calls`, fetches each call's `/tree`, and asserts the strings byte-exact. |
-| `backend/libs/tests/smoke_realagent/harness.go` | Shared by both variants: `runJavaAgent` (the `-javaagent` invocation), `pollNamespaceCalls`, `waitReady`, `repoRoot`. |
+| `libs/tests/smoke_realagent/realagent_test.go` | The `//go:build smoke_realagent` test. Runs `gradlew`/`gradlew.bat` to build the agent + test-app jar (`buildHeadAgent`), runs the workload via the shared `runJavaAgent`, polls `/api/v1/calls`, fetches each call's `/tree`, and asserts the strings byte-exact. |
+| `libs/tests/smoke_realagent/harness.go` | Shared by both variants: `runJavaAgent` (the `-javaagent` invocation), `pollNamespaceCalls`, `waitReady`, `repoRoot`. |
 
 ### Prerequisites
 
@@ -34,7 +34,7 @@ The existing Go smoke test (`backend/libs/tests/smoke`) feeds the collector with
 
 ### Run it
 
-From `backend/`, one shot — brings the stack up, runs the test, tears the stack down:
+From the repository root, one shot — brings the stack up, runs the test, tears the stack down:
 
 ```bash
 make -C backend smoke-realagent
@@ -62,7 +62,7 @@ Environment knobs (all optional):
 
 ## How the agent reaches the collector
 
-The agent switches from local-file dumps to the TCP collector purely because `REMOTE_DUMP_HOST` is set. From `dumper/.../Dumper.java`:
+The agent switches from local-file dumps to the TCP collector purely because `REMOTE_DUMP_HOST` is set. From `apps/dumper/.../Dumper.java`:
 
 ```text
 remoteConfigured  = isNotEmpty(REMOTE_DUMP_HOST)
@@ -97,13 +97,13 @@ param.b.beta  -> value-b-beta                             ->   value-b-alpha
 
 ## What a fix needs to touch
 
-- Bug A: `backend/libs/parser/pipe/pipe_reader.go` — `readChar` must read an unsigned 16-bit code unit and reassemble surrogate pairs into the full code point, matching the Java reference (`DictionaryPhraseReader` / `DataInputStreamEx.readString`).
-- Bug B: `backend/libs/parser/pipe/dictionary.go` — `DictionaryPipeReader` must register every word, including the empty string, so ids stay aligned with the agent (`DictionaryPhraseReader` registers every entry).
+- Bug A: `libs/parser/pipe/pipe_reader.go` — `readChar` must read an unsigned 16-bit code unit and reassemble surrogate pairs into the full code point, matching the Java reference (`DictionaryPhraseReader` / `DataInputStreamEx.readString`).
+- Bug B: `libs/parser/pipe/dictionary.go` — `DictionaryPipeReader` must register every word, including the empty string, so ids stay aligned with the agent (`DictionaryPhraseReader` registers every entry).
 
 ## v3.1.3 variant: the legacy `gc` stream
 
 A second, separate harness is the regression gate for a different bug: agents built before v3.1.4 register an eighth `gc` stream unconditionally whenever they stream directly to a collector, regardless of whether GC-log harvesting is even enabled (`Dumper.java`'s `gcOs`, deleted in commit `ac804ee3` together with `GCDumper` when GC-log collection moved to `diagtools`).
-Before the fix in `backend/libs/protocol/streams.go` / `backend/libs/collector/ingest/streams.go`, the collector treated `gc` as an unknown stream and tore the WHOLE connection down on it — so a pre-v3.1.4 agent wrote no data at all, not just its GC-log bytes.
+Before the fix in `libs/protocol/streams.go` / `libs/collector/ingest/streams.go`, the collector treated `gc` as an unknown stream and tore the WHOLE connection down on it — so a pre-v3.1.4 agent wrote no data at all, not just its GC-log bytes.
 
 Because v3.1.4 removed the `gc` stream entirely, HEAD can no longer reproduce the bug. Rather than building the agent from the `v3.1.3` git tag (a full old-tag Gradle build, including every plugin), `realagent_v313_test.go` downloads the pre-built v3.1.3 release straight from Maven Central:
 `org.qubership.profiler:qubership-profiler-installer:3.1.3` (the zip — the exact `lib/` + `config/` layout `extractInstaller` produces locally, including the shaded `lib/qubership-profiler-runtime.jar` that actually carries `Dumper`/`GCDumper`) and `org.qubership.profiler:qubership-profiler-test-app:3.1.3` (the plain jar).
@@ -115,7 +115,7 @@ The functional 14 MB+ shaded jar only exists inside the `qubership-profiler-inst
 
 | File | Role |
 | --- | --- |
-| `backend/libs/tests/smoke_realagent/realagent_v313_test.go` | The `//go:build smoke_realagent_v313` test. Downloads the v3.1.3 installer zip + test-app jar from Maven Central (`fetchV313Agent`), runs the old `Main` class via the shared `runJavaAgent`, then polls `/api/v1/calls` and asserts ≥1 call from this run's namespace/service landed, proving the connection survived the `gc` stream. |
+| `libs/tests/smoke_realagent/realagent_v313_test.go` | The `//go:build smoke_realagent_v313` test. Downloads the v3.1.3 installer zip + test-app jar from Maven Central (`fetchV313Agent`), runs the old `Main` class via the shared `runJavaAgent`, then polls `/api/v1/calls` and asserts ≥1 call from this run's namespace/service landed, proving the connection survived the `gc` stream. |
 | `scripts/e2e-realagent/config/_config-v313.xml` | Profiler config. Enables instrumentation for `com.netcracker.profilerTest.testapp.**` (default is off until a rule opts a class in). |
 
 Run it (needs Docker for the backend stack and a JRE to run the downloaded agent — no JDK or Gradle build required for this variant):

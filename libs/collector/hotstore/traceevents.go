@@ -10,7 +10,7 @@ import (
 
 type (
 	// TraceEventKind mirrors the trace-stream event types
-	// (backend/libs/parser/pipe/traces.go).
+	// (libs/parser/pipe/traces.go).
 	TraceEventKind byte
 
 	// TraceEvent is one decoded trace event inside a logical chunk. Payload

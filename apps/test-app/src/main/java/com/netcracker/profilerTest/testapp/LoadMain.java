@@ -12,7 +12,7 @@ import java.util.Random;
 
 /**
  * A steady synthetic workload for the phase-2 generator calibration
- * (backend/docs/design/virtual-dumper.md §6): the reference "run A" the
+ * (docs/design/virtual-dumper.md §6): the reference "run A" the
  * virtual dumper's traffic profile is compared against.
  *
  * <p>Like {@link AdversarialMain}, it drives the agent through the

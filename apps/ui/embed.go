@@ -25,7 +25,7 @@ func Dist() (fs.FS, error) {
 		return nil, errors.Wrap(err, "ui assets")
 	}
 	if _, err := fs.Stat(sub, "index.html"); err != nil {
-		return nil, errors.New("ui assets are not built: run `npm run build` in backend/apps/ui")
+		return nil, errors.New("ui assets are not built: run `npm run build` in apps/ui")
 	}
 	return sub, nil
 }

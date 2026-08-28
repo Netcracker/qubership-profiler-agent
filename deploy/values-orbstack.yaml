@@ -3,8 +3,8 @@
 # the collector's TCP port gets a host-reachable IP), and images need no
 # `kind load` — OrbStack's k8s shares the host Docker daemon.
 #
-#   docker build -f backend/apps/profiler-backend/Dockerfile -t profiler-backend:dev backend
-#   helm install profiler backend/charts/profiler-backend -f backend/deploy/values-orbstack.yaml
+#   docker build -f apps/profiler-backend/Dockerfile -t profiler-backend:dev backend
+#   helm install profiler charts/profiler-backend -f deploy/values-orbstack.yaml
 
 collector:
   replicas: 1

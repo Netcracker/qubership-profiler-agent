@@ -1,7 +1,7 @@
 # CDT load generator
 
 Load-testing harness for the Go profiler backend (`load-testing-plan.md`). Traffic comes from the virtual dumper
-(`backend/libs/emulator/vdumper`), a behavioral copy of the Java agent's remote-dump pipeline — fully synthetic, no
+(`libs/emulator/vdumper`), a behavioral copy of the Java agent's remote-dump pipeline — fully synthetic, no
 captured dumps or other binary fixtures.
 
 ## Layout
@@ -23,7 +23,7 @@ captured dumps or other binary fixtures.
 
 ## Build
 
-The deliverable is the Docker image; build it from the module root (`backend/`) so the k6 module can import `libs/`:
+The deliverable is the Docker image; build it from the module root (the repository root) so the k6 module can import `libs/`:
 
 ```bash
 make image                          # docker buildx, PLATFORM=linux/arm64 (OrbStack) by default

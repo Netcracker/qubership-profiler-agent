@@ -22,61 +22,61 @@ as continuous tracing profiler.
 
 Application servers or Portals:
 
-* [Liferay](plugins/liferay)
+* [Liferay](apps/plugins/liferay)
 
 Build systems:
 
 * ANT
-  * [ANT (<=1.10.1)](plugins/ant)
-  * [ANT (>=1.10.2)](plugins/ant_1102)
+  * [ANT (<=1.10.1)](apps/plugins/ant)
+  * [ANT (>=1.10.2)](apps/plugins/ant_1102)
 
 Databases:
 
 * DataStax Cassandra
-  * [DataStax Cassandra 3.x](plugins/cassandra)
-  * [DataStax cassandra 4.x](plugins/cassandra4)
-* [ElasticSearch](plugins/elasticsearch)
-* [MySQL JDBC](plugins/mysql)
-* [PostgeSQL JDBC](plugins/postgresql)
+  * [DataStax Cassandra 3.x](apps/plugins/cassandra)
+  * [DataStax cassandra 4.x](apps/plugins/cassandra4)
+* [ElasticSearch](apps/plugins/elasticsearch)
+* [MySQL JDBC](apps/plugins/mysql)
+* [PostgeSQL JDBC](apps/plugins/postgresql)
 
 Distribution tracing:
 
-* [Brave (Zipkin agent)](plugins/brave)
-* [Jaeger](plugins/jaeger)
-* [Ocelot](plugins/ocelot)
+* [Brave (Zipkin agent)](apps/plugins/brave)
+* [Jaeger](apps/plugins/jaeger)
+* [Ocelot](apps/plugins/ocelot)
 
 HTTP clients:
 
-* [HTTP](plugins/http)
-* [Java HTTP Client](plugins/java_http_client)
-* [Tomcat <= 9.x](plugins/tomcat_http)
-* [Tomcat >= 10.x](plugins/tomcat10_http)
-* [Undertow < 2.3](plugins/undertow_http)
-* [Undertow >= 2.3](plugins/undertow23_http)
+* [HTTP](apps/plugins/http)
+* [Java HTTP Client](apps/plugins/java_http_client)
+* [Tomcat <= 9.x](apps/plugins/tomcat_http)
+* [Tomcat >= 10.x](apps/plugins/tomcat10_http)
+* [Undertow < 2.3](apps/plugins/undertow_http)
+* [Undertow >= 2.3](apps/plugins/undertow23_http)
 
 Java Frameworks:
 
-* [Apache Felix](plugins/apache_felix)
-* [Equinox](plugins/equinox)
-* [Spring Framework](plugins/spring)
-  * [Spring REST](plugins/springrest)
+* [Apache Felix](apps/plugins/apache_felix)
+* [Equinox](apps/plugins/equinox)
+* [Spring Framework](apps/plugins/spring)
+  * [Spring REST](apps/plugins/springrest)
 
 Loggers:
 
-* [Log4j](plugins/log4j_enhancer)
+* [Log4j](apps/plugins/log4j_enhancer)
 
 Other:
 
-* [Jackson](plugins/jackson)
-* [Quartz Scheduler](plugins/quartz)
-* [Rhino](plugins/rhino)
-* [Test](plugins/test)
+* [Jackson](apps/plugins/jackson)
+* [Quartz Scheduler](apps/plugins/quartz)
+* [Rhino](apps/plugins/rhino)
+* [Test](apps/plugins/test)
 
 Queues:
 
-* [ActiveMQ](plugins/activemq)
-* [HornetQ](plugins/hornetq)
-* [RabbitMQ](plugins/rabbitmq)
+* [ActiveMQ](apps/plugins/activemq)
+* [HornetQ](apps/plugins/hornetq)
+* [RabbitMQ](apps/plugins/rabbitmq)
 
 ## How to build
 

@@ -140,7 +140,7 @@ type paramRec struct {
 
 // encodeSuspendPhrases frames each phrase as [fixed-int length][body]. The
 // first body opens with the 8-byte base time; every body then holds
-// (delta, amount) varint pairs (backend/libs/parser/pipe/suspend.go).
+// (delta, amount) varint pairs (libs/parser/pipe/suspend.go).
 func encodeSuspendPhrases(baseMs uint64, phrases [][]suspendEvt) []byte {
 	var out bytes.Buffer
 	for i, evts := range phrases {
@@ -162,7 +162,7 @@ func encodeSuspendPhrases(baseMs uint64, phrases [][]suspendEvt) []byte {
 // encodeParamsPhrases frames each phrase as [fixed-int length][body]. The first
 // body opens with the format version byte; every record is
 // var-string name, bool isIndex, bool isList, varint order, var-string
-// signature (backend/libs/parser/pipe/params.go).
+// signature (libs/parser/pipe/params.go).
 func encodeParamsPhrases(phrases [][]paramRec) []byte {
 	var out bytes.Buffer
 	for i, recs := range phrases {

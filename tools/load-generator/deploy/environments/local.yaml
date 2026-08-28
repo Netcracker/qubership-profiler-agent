@@ -57,7 +57,7 @@ profiler:
 
 k6:
   installed: true
-  # Build locally: make -C backend/tools/load-generator image (buildx,
+  # Build locally: make -C tools/load-generator image (buildx,
   # PLATFORM matches the stand).
   image: cdt-load-generator:dev
   # The orchestrator scales VUs from 0 over the k6 REST API; these only cap

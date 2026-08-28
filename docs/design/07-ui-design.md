@@ -38,7 +38,7 @@ Out of scope for v1 (deferred, with reasons in §8):
 | D1 | **Salvage the shell only.** Start a clean AntD app targeting `/api/v1`. Port framework-agnostic logic (tree search, tree utils) and UX patterns (column management, calls-table layout) as reference; do not carry the 51-file `@netcracker/*` coupling or the dead `/cdt/v2` client. | The `@netcracker/*` → AntD migration is unavoidable in Stage 5 regardless; a clean start avoids also carrying an obsolete contract. |
 | D2 | **Rewrite the five tree computations in TypeScript** over the new `Node` shape. Single SPA, no jQuery, no `profiler.mjs`. | Keeps one codebase and one render path; the draft has none of the five, so there is no React work to preserve either way. |
 | D3 | **No Dashboard in v1.** | Avoids duplicating Grafana; `/stats` is not available until Stage 4. |
-| D4 | **Embed the assets in `query` via `go:embed`, served at `/ui`.** | One service, one image, same origin — no CORS. `query` already exposes a composable `Handler` (`backend/libs/query/service.go`). |
+| D4 | **Embed the assets in `query` via `go:embed`, served at `/ui`.** | One service, one image, same origin — no CORS. `query` already exposes a composable `Handler` (`libs/query/service.go`). |
 | D5 (derived) | **TypeScript, not JavaScript.** Kotlin/JS ruled out (backend is Go). | AntD is TypeScript-first, and the MessagePack decoder and frozen-query contract earn static types. The data layer is a thin typed `fetch` over `/api/v1`, not RTK Query: data loads only on Apply (09 §2.2), pages 2..N ride an opaque server-frozen cursor (02 §2.3.1), and `/tree` is immutable binary already under HTTP caching, so a declarative cache would have nothing to manage. |
 | D6 (derived) | **Plain AntD 6 only.** Drop `@netcracker/ux-react`, `@netcracker/cse-ui-components`, `@netcracker/ux-assets`. | The archived registry is unreachable for external contributors; `profiler-plan.md` §"Stage 5" mandates the removal. AntD 6, not the pre-Stage-5 4.24 pin, is what shipped — the UI is built on AntD 6 APIs, so this unlocks the 4.24 pin rather than downgrading. |
 
@@ -105,7 +105,7 @@ collapse to a single value.
   inbound navigation (trace → profile via the R3 filter) and the call's `Open trace` link.
 - **Outgoing (node-level, many):** trace/span ids stay as tree-node params; each deep-links out on its own.
 
-The old UI read these from params (`brave.trace_id`, `brave.span_id`; `profiler-ui/src/dataFormat.mjs`);
+The old UI read these from params (`brave.trace_id`, `brave.span_id`; `apps/profiler-ui/src/dataFormat.mjs`);
 whether the new pipeline preserves them is **unverified** — `CallV2` has no trace/span columns. Resolve before
 wiring: verify the params survive into `CallV2.Params`, or promote the incoming pair to dedicated columns
 (doc 08). Either way the UI provisions a **link-template seam** now and defers the wiring: a configurable map from a param to an
@@ -176,7 +176,7 @@ flowchart LR
 
 The response is a MessagePack `Map<int, value>` with a version envelope (`02-read-contract.md` §2.5). The
 decoder is not trivial: the existing Go codec is already ~200 lines for the raw v1 schema
-(`backend/libs/calltree/msgpack.go`), so budget for the merged schema plus fuzzing malformed payloads and
+(`libs/calltree/msgpack.go`), so budget for the merged schema plus fuzzing malformed payloads and
 versioned fixtures.
 
 - `Tree` — `0: v` (version), `1: methods[str]` (per-tree method dictionary), `2: params[str]` (per-tree
@@ -197,14 +197,14 @@ total suspension, and self and total execution counts (doc 08 R5–R7). The serv
 merges once (`calltree.Build`); the client computations transform this merged model, they do not re-fetch.
 Self-time is derivable (`durationMs − Σ children.durationMs`); per-node suspension is not — the backend
 attributes it by intersecting each node's work interval with the suspend timeline. The method's `source file:line` and `jar` need no wire field — they
-are parsed client-side from the full `methods[]` string (as `backend/libs/parser/dictionary/line_parser.go`
+are parsed client-side from the full `methods[]` string (as `libs/parser/dictionary/line_parser.go`
 does). Node category is client-side too (Setup categories).
 
 ### 5.3 Tree computations and operations
 
 The analytics core is five pure `TreeModel → TreeModel` (or `TreeModel → FlatProfile`) transforms —
 framework-agnostic and unit-testable against a synthetic tree generator (§7), matching the semantics in
-`profiler-ui/src/profiler.mjs`. They run entirely client-side over the server's merged tree (doc 08 §9). The
+`apps/profiler-ui/src/profiler.mjs`. They run entirely client-side over the server's merged tree (doc 08 §9). The
 old UI's full operation set is larger than these five (see the list below the transforms); the five are the
 ones with real algorithmic weight.
 
@@ -298,7 +298,7 @@ Testing follows the project's synthetic-input, semantics-assertion style — no 
   missing hint, wide-query `400`). UI tests drive pagination, the narrow-your-query prompt, and the
   incomplete-results banner against the mock.
 - **End-to-end.** Extend `it-e2e` (Playwright) to run `query` with the embedded UI over data produced by
-  `backend/tools/data-generator` and `backend/tools/load-generator`. Assert the discovery tree, a calls
+  `tools/data-generator` and `tools/load-generator`. Assert the discovery tree, a calls
   filter, and a drill into the tree — no golden binaries.
 
 ## 8. Deferred

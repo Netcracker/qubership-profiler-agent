@@ -2,7 +2,7 @@
 // local PV: append-only WALs for dictionary/params/suspend and the raw Call
 // records, gzip segments for the offset-addressable bulk streams (trace, sql,
 // xml), and the SQLite metadata that indexes them. It implements the write-path
-// side of backend/docs/design/01-write-contract.md §3-§4, the recovery sequence
+// side of docs/design/01-write-contract.md §3-§4, the recovery sequence
 // of 03-lifecycle.md §3, the seal pass of 01 §5-§6 that materializes the CallV2
 // parquet files locally, and the Uploader that makes them durable in S3 along
 // with the per-day pods/v1 identity manifests (01 §3.6, §6.2).

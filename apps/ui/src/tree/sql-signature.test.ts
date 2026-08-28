@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { sqlSignature } from './sql-signature';
 
-// Mirrors backend/libs/calltree/params_test.go TestSQLSignature — the two
+// Mirrors libs/calltree/params_test.go TestSQLSignature — the two
 // implementations must agree, or per-node grouping (server) and cross-node
 // grouping (params-summary.ts) would classify the same SQL differently.
 describe('sqlSignature', () => {

@@ -38,39 +38,38 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # backend/go.mod pins the newer toolchain of the two modules, so it
+          # go.mod pins the newer toolchain of the two modules, so it
           # builds diagtools as well.
-          go-version-file: backend/go.mod
+          go-version-file: go.mod
           cache-dependency-path: |
-            backend/go.sum
-            diagtools/go.sum
+            go.sum
+            apps/diagtools/go.sum
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: backend/apps/ui/package-lock.json
-      # One `go test ./...` from the module root covers apps/**, libs/** and
+          cache-dependency-path: apps/ui/package-lock.json
+      # One `go test ./...` from the repository root covers apps/**, libs/** and
       # tools/**. Legacy parser/generator tests that depend on uncommitted
       # captured fixtures skip themselves on a clean checkout (see WORKFLOW.md §6).
       - name: Go tests with coverage
-        working-directory: backend
         # language=bash
         run: go test ./... -covermode=atomic -coverprofile=coverage.out
       # diagtools is the repository's other Go module, with its own go.mod and
       # no go.work, so the run above never reaches it. Zig is not needed here:
-      # it is the cross-compiling C toolchain from diagtools/Makefile, and these
+      # it is the cross-compiling C toolchain from apps/diagtools/Makefile, and these
       # tests build for the host.
       - name: diagtools tests with coverage
-        working-directory: diagtools
+        working-directory: apps/diagtools
         # language=bash
         run: go test ./... -covermode=atomic -coverprofile=coverage.out
       - name: Install UI dependencies
-        working-directory: backend/apps/ui
+        working-directory: apps/ui
         # language=bash
         run: npm ci
       - name: UI tests with coverage
-        working-directory: backend/apps/ui
+        working-directory: apps/ui
         # language=bash
         run: npm run test:coverage
       # Codecov refuses a tokenless upload once the branch is protected, so
@@ -81,7 +80,7 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # zizmor: ignore[secrets-outside-env]
-          files: backend/coverage.out,diagtools/coverage.out
+          files: coverage.out,apps/diagtools/coverage.out
           flags: go
           disable_search: true
           fail_ci_if_error: true
@@ -89,7 +88,7 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # zizmor: ignore[secrets-outside-env]
-          files: backend/apps/ui/coverage/lcov.info
+          files: apps/ui/coverage/lcov.info
           flags: ui
           disable_search: true
           fail_ci_if_error: true
@@ -109,7 +108,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Netcracker/qubership-core-base-images
-          path: installer/build/git/qubership-core-base-images
+          path: apps/installer/build/git/qubership-core-base-images
           fetch-depth: 50
           persist-credentials: false
       - name: Set up JDK 21
@@ -121,21 +120,21 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: diagtools/go.mod
+          go-version-file: apps/diagtools/go.mod
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: backend/apps/ui/package-lock.json
+          cache-dependency-path: apps/ui/package-lock.json
       - name: Validate UI lock file
         # This required Test check catches package.json/lockfile drift before merge;
         # the non-required coverage job installs the same lock file later.
-        working-directory: backend/apps/ui
+        working-directory: apps/ui
         run: npm ci --dry-run --no-audit --no-fund
       - name: Setup Zig
         # Zig is used as the cgo C compiler for cross-compiling diagtools
-        # (linux/amd64, linux/arm64, windows/amd64) — see diagtools/Makefile.
+        # (linux/amd64, linux/arm64, windows/amd64) — see apps/diagtools/Makefile.
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.15.2
@@ -160,10 +159,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
           path: |
-            it-e2e/playwright-report/**
-            it-e2e/test-results/**
-            it-e2e/build/test-dump/**
-            it-e2e/config/**
+            apps/it-e2e/playwright-report/**
+            apps/it-e2e/test-results/**
+            apps/it-e2e/build/test-dump/**
+            apps/it-e2e/config/**
       - name: Publish snapshots
         uses: burrunan/gradle-cache-action@4b67497abd37a511d6c1dc6299bdd84ff39f7bf5 # v3.0.2
         if: ${{ env.CENTRAL_PORTAL_USERNAME != '' }}

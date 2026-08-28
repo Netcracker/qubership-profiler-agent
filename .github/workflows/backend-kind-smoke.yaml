@@ -6,21 +6,43 @@ on:
     branches-ignore:
       - 'renovate/**'
     paths:
-      - 'backend/**'
+      - 'apps/dumps-collector/**'
+      - 'apps/profiler-backend/**'
+      - 'apps/ui/**'
+      - 'apps/Makefile'
+      - 'libs/**'
+      - 'tools/**'
+      - 'charts/**'
+      - 'deploy/**'
+      - 'examples/**'
+      - 'docker-transfer/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'docker-compose.yaml'
       - '.github/workflows/backend-kind-smoke.yaml'
   pull_request:
     branches:
       - '**'
     paths:
-      - 'backend/**'
+      - 'apps/dumps-collector/**'
+      - 'apps/profiler-backend/**'
+      - 'apps/ui/**'
+      - 'apps/Makefile'
+      - 'libs/**'
+      - 'tools/**'
+      - 'charts/**'
+      - 'deploy/**'
+      - 'examples/**'
+      - 'docker-transfer/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'docker-compose.yaml'
       - '.github/workflows/backend-kind-smoke.yaml'
 
 permissions:
   contents: read
-
-defaults:
-  run:
-    working-directory: backend
 
 jobs:
   chart-validate:
@@ -54,7 +76,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: backend/go.mod
+          go-version-file: go.mod
 
       # A pinned kind release binary instead of a marketplace action: the
       # smoke script creates and manages the cluster itself.

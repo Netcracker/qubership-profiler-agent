@@ -1,4 +1,4 @@
-# Build context: backend/ (the Go module root)
+# Build context: the repository root (the Go module root)
 # Usage: docker buildx build --platform linux/arm64 --load \
 #            -t cdt-load-generator:dev -f tools/load-generator/Dockerfile .
 #

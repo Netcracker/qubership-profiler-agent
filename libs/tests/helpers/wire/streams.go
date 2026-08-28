@@ -5,7 +5,7 @@ import "bytes"
 // DictionaryStream encodes dictionary words in the PROTOCOL_VERSION_V2 wire
 // format: one phrase — a fixed-int byte length followed by var-strings — with
 // word ids implied by arrival order (06-wire-protocol-server.md §3,
-// backend/libs/parser/pipe/dictionary.go).
+// libs/parser/pipe/dictionary.go).
 func DictionaryStream(words []string) []byte {
 	body := &bytes.Buffer{}
 	for _, w := range words {
@@ -24,7 +24,7 @@ type ParamDef struct {
 }
 
 // ParamsStream encodes the params stream: one phrase opening with the format
-// version byte, then the records (backend/libs/parser/pipe/params.go).
+// version byte, then the records (libs/parser/pipe/params.go).
 func ParamsStream(params []ParamDef) []byte {
 	body := &bytes.Buffer{}
 	body.WriteByte(1) // format version
@@ -42,7 +42,7 @@ func ParamsStream(params []ParamDef) []byte {
 // END from the previous event's end (from the stream base for the first), and
 // AmountMs is the duration. The agent timestamps a delay after detecting it, so
 // the wire carries the pause end, not its start; a pause spans
-// [end − AmountMs, end] (backend/libs/parser/pipe/suspend.go, №4).
+// [end − AmountMs, end] (libs/parser/pipe/suspend.go, №4).
 type SuspendEvent struct {
 	DeltaMs  int
 	AmountMs int
@@ -50,7 +50,7 @@ type SuspendEvent struct {
 
 // SuspendStream encodes the suspend stream: one phrase opening with the 8-byte
 // absolute base time, then (delta, amount) varint pairs
-// (backend/libs/parser/pipe/suspend.go).
+// (libs/parser/pipe/suspend.go).
 func SuspendStream(baseMs int64, events []SuspendEvent) []byte {
 	body := &bytes.Buffer{}
 	putFixedLong(body, uint64(baseMs))

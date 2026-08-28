@@ -1,6 +1,6 @@
 // Command feeder drives N virtual dumpers into a collector: every pod is one
 // emulated agent running the full DumperThread state machine
-// (backend/docs/design/virtual-dumper.md) — seven streams, 5 s flush cycles,
+// (docs/design/virtual-dumper.md) — seven streams, 5 s flush cycles,
 // reconnects with dictionary resend — with the load shape parameterized per
 // load-testing-plan.md §4.
 //

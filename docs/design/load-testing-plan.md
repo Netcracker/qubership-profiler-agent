@@ -4,7 +4,7 @@ Status: campaign closed 2026-07-20 — phases 1–5 done (§11–§15), phase 6 
 contract, and real-timer soak numbers wait for the large cluster; their runs are frozen as a mechanical checklist
 (`tools/load-generator/doc/cluster-checklist.md`). The harness is in maintenance mode. Owner: @vlsi.
 
-This plan defines the load tests for the Go backend (`backend/apps/profiler-backend` and `backend/libs`): what we
+This plan defines the load tests for the Go backend (`apps/profiler-backend` and `libs`): what we
 measure, on which stands, with which generator, and what counts as a pass. The outcome is an engineering report
 (CPU / RAM / disk I/O curves, discovered ceilings) plus a set of automated invariants for long runs, not a formal
 SLO gate.
@@ -30,7 +30,7 @@ Non-goals: formal SLO certification, multi-region setups, profiling the Java age
 
 | Topic | Decision |
 | --- | --- |
-| Load generator | Extend the existing k6 + xk6 generator (`backend/tools/load-generator`) and the Go emulator; no Java-classloader harness |
+| Load generator | Extend the existing k6 + xk6 generator (`tools/load-generator`) and the Go emulator; no Java-classloader harness |
 | Payload | Synthetic, parameterized generation (not dump replay) |
 | Stands | Local k8s (OrbStack or kind) for development; a large k8s cluster for final numbers |
 | S3 | MinIO in-cluster on both stands |
@@ -39,14 +39,14 @@ Non-goals: formal SLO certification, multi-region setups, profiling the Java age
 | Production reference | ~200–500 profiled pods; contract run at 500, connection ceiling probed from 1000 up |
 | Soak | 24–48 h on real timers, plus a short run with accelerated timers |
 | Result format | Exploration report + automated invariants (no hard SLO thresholds) |
-| Artifacts | This doc + code under `backend/tools/load-generator/` (scenarios, stand manifests, checkers) |
+| Artifacts | This doc + code under `tools/load-generator/` (scenarios, stand manifests, checkers) |
 | First step | Stand + observability (pprof, dashboards, monitoring) before generator work |
 
 ## 3. Load generator: close the fidelity gaps
 
 The current generator is faithful on the handshake (pod identity), 1 KB `RCV_DATA` framing, and ack reading, but it
 cannot exercise backpressure or crashloop paths. Gap analysis against the Java dumper
-(`dumper/src/main/java/com/netcracker/profiler/{Dumper,client/DefaultCollectorClient,dump/DumperThread}.java`):
+(`apps/dumper/src/main/java/com/netcracker/profiler/{Dumper,client/DefaultCollectorClient,dump/DumperThread}.java`):
 
 | # | Gap | Size | Needed for |
 | --- | --- | --- | --- |
@@ -60,8 +60,8 @@ cannot exercise backpressure or crashloop paths. Gap analysis against the Java d
 | G8 | `sql`, `xml`, `params` never sent (`callsDictionary` is local-dump-only; `posDictionary` is V3-only and the collector answers V2 — a faithful agent sends neither) | Medium | full-stream realism |
 | G9 | No load-shape knobs (bytes/s, calls/s, distributions); all pods send identical traffic | Medium | parameter sweeps |
 
-Implementation: a "virtual dumper" behavioral layer in Go (shared between `backend/tools/load-generator/pkg/cdt` and
-`backend/libs/emulator`) that mirrors the `DumperThread` + `DefaultCollectorClient` state machine. The behavioral
+Implementation: a "virtual dumper" behavioral layer in Go (shared between `tools/load-generator/pkg/cdt` and
+`libs/emulator`) that mirrors the `DumperThread` + `DefaultCollectorClient` state machine. The behavioral
 contract — wire rules, state machine, knobs, calibration method — lives in `virtual-dumper.md`:
 
 - N producer goroutines per pod model app threads; each fills a per-thread trace buffer with jittered delays, so
@@ -108,10 +108,10 @@ both stands, so cold-read latency numbers carry a caveat: real object storage ad
 
 ### 5.3 Harness layout
 
-Everything reproducible from the repo, target directory `backend/tools/load-generator/`:
+Everything reproducible from the repo, target directory `tools/load-generator/`:
 
 - `deploy/` — a helmfile that composes the stand releases: profiler backend (the existing
-  `backend/charts/profiler-backend` chart), MinIO, qubership-monitoring-operator
+  `charts/profiler-backend` chart), MinIO, qubership-monitoring-operator
   (Prometheus/VictoriaMetrics + Grafana + node-exporter + cAdvisor) plus its CRs as a small local chart,
   k6 runner, and (for T7) chaos tooling. Helmfile `environments:` carry the local-vs-large-cluster value
   layers (storage class, PV sizes, limits, replicas); `needs:` orders operator → CRs. Helmfile covers only
@@ -263,7 +263,7 @@ Shipped:
 
 - **pprof** (§6.1): `net/http/pprof` in `collect`/`query`/`maintain` behind `PROFILER_PPROF_ENABLED` (default off),
   on the internal/metrics port; on `query` it rides the external listener (its only port).
-- **Stand** (§5.3): `backend/tools/load-generator/deploy/` — helmfile with `local` / `cluster` environments.
+- **Stand** (§5.3): `tools/load-generator/deploy/` — helmfile with `local` / `cluster` environments.
   qubership-monitoring-operator v0.88.0 comes straight from its git tag via helmfile `git::` charts (the helm-git
   plugin 1.3.0 is broken with helm 4); CRDs are a separate first release, `needs:` orders CRDs → operator → CRs.
 - **Dashboards** (§6.2): six JSON dashboards under `dashboards/` (ingest, backpressure, pipeline, resources, query,
@@ -290,7 +290,7 @@ Carried into later phases:
 
 ## 12. Phase 2 status (done 2026-07-16)
 
-The feeder stub is replaced by the virtual dumper (`backend/libs/emulator/vdumper`), a behavioral layer mirroring
+The feeder stub is replaced by the virtual dumper (`libs/emulator/vdumper`), a behavioral layer mirroring
 the `DumperThread` + `Dumper` + `DefaultCollectorClient` state machine; the contract is `virtual-dumper.md`. All of
 G1–G9 are closed:
 

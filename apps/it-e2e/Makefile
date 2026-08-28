@@ -1,4 +1,4 @@
-# E2E for the embedded query UI (backend/apps/ui served at /ui).
+# E2E for the embedded query UI (apps/ui served at /ui).
 #
 #   make query-ui          # full cycle: stack up → seed → playwright → down
 #   make query-ui-test     # tests only, against an already-running stack

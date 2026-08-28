@@ -45,7 +45,7 @@ jobs:
             ./.gradle/*
             ./build/*
             ./*/build/*
-            ./profiler-ui/node_modules/*
+            ./apps/profiler-ui/node_modules/*
             ./.agents/*
             ./.claude/*
             ./.codex/*

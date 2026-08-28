@@ -4,7 +4,7 @@ Status: contract for load-testing phase 2 (`load-testing-plan.md` §9.2). Owner:
 
 The virtual dumper is a Go behavioral layer that reproduces the Java agent's remote-dump pipeline — the
 `DumperThread` + `Dumper` + `DefaultCollectorClient` state machine — well enough that load numbers taken with it
-can be trusted. It lives in `backend/libs/emulator/vdumper`, drives the wire through the existing
+can be trusted. It lives in `libs/emulator/vdumper`, drives the wire through the existing
 `libs/emulator.AgentConnection` transport, and is consumed by the `tools/load-generator/feeder` CLI in phase 2 and by
 the k6 xk6 module (`tools/load-generator/pkg/cdt`) when phase 3 revives it.
 
@@ -17,12 +17,12 @@ Every rule in this contract is traced to the Java sources; when in doubt, the Ja
 
 | Concern | Java source |
 | --- | --- |
-| Restart cadence, incarnations | `dumper/src/main/java/com/netcracker/profiler/dump/DumperThread.java` |
-| Streams, flush loop, buffer steal, encodings | `dumper/src/main/java/com/netcracker/profiler/Dumper.java` |
-| Handshake, acks, 1 KB write chop | `dumper/src/main/java/com/netcracker/profiler/client/DefaultCollectorClient.java` |
-| Per-stream remote buffering, phrase framing | `dumper/src/main/java/com/netcracker/profiler/io/RemoteAndLocalOutputStream.java` |
-| Phrase buffer semantics | `proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/PhraseOutputStream.java` |
-| Wire constants | `proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/ProtocolConst.java` |
+| Restart cadence, incarnations | `apps/dumper/src/main/java/com/netcracker/profiler/dump/DumperThread.java` |
+| Streams, flush loop, buffer steal, encodings | `apps/dumper/src/main/java/com/netcracker/profiler/Dumper.java` |
+| Handshake, acks, 1 KB write chop | `apps/dumper/src/main/java/com/netcracker/profiler/client/DefaultCollectorClient.java` |
+| Per-stream remote buffering, phrase framing | `apps/dumper/src/main/java/com/netcracker/profiler/io/RemoteAndLocalOutputStream.java` |
+| Phrase buffer semantics | `apps/proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/PhraseOutputStream.java` |
+| Wire constants | `apps/proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/ProtocolConst.java` |
 
 ### 1.1 Lifecycle state machine
 
@@ -166,7 +166,7 @@ Two rules the calibration run proved material:
 
 ## 3. Go contract
 
-Package `backend/libs/emulator/vdumper`:
+Package `libs/emulator/vdumper`:
 
 ```go
 // Transport is the protocol-level connection the virtual dumper drives.
@@ -250,7 +250,7 @@ Contracts-first and synthetic; no golden byte snapshots, no captured dumps.
 - Shape tests: generated duration-class shares, dictionary growth, sql/xml shares, and error share land within
   statistical tolerance of the configured knobs.
 
-Backend tests are Go (`*_test.go` beside the code), matching the existing `backend/` convention; the Kotlin-tests
+Backend tests are Go (`*_test.go` beside the code), matching the existing backend convention; the Kotlin-tests
 rule applies to JVM modules.
 
 ## 6. Calibration (phase-2 exit criterion)

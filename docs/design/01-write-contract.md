@@ -8,7 +8,7 @@ This document defines what the new Go collector writes to local PV and to S3, an
 
 ## 1. Background: what the agent actually sends
 
-The agent opens a long-lived TCP connection to the collector and multiplexes seven named streams over it (`backend/libs/protocol/streams.go`). Each stream is a sequence of binary chunks delivered via `COMMAND_RCV_DATA` (`backend/libs/parser/parser.go`). This section covers what the agent **sends**; what the collector **reads from each command and writes back** (handshake reply, ack policy, `INIT_STREAM_V2` response, error teardown) is the server-side wire contract in `06-wire-protocol-server.md`.
+The agent opens a long-lived TCP connection to the collector and multiplexes seven named streams over it (`libs/protocol/streams.go`). Each stream is a sequence of binary chunks delivered via `COMMAND_RCV_DATA` (`libs/parser/parser.go`). This section covers what the agent **sends**; what the collector **reads from each command and writes back** (handshake reply, ack policy, `INIT_STREAM_V2` response, error teardown) is the server-side wire contract in `06-wire-protocol-server.md`.
 
 | Stream | Contents | Cardinality |
 |---|---|---|
@@ -19,15 +19,15 @@ The agent opens a long-lived TCP connection to the collector and multiplexes sev
 | `trace` | Binary log of `methodEnter` / `methodExit` events. Children are written before their parent's close. | Many per pod-restart |
 | `sql`, `xml` | Captured payload bodies referenced from calls. | Many per pod-restart |
 
-**Legacy eighth stream: `gc`.** Agents built before v3.1.4 also register a `gc` stream (`Dumper.java`'s `gcOs`), unconditionally whenever they stream directly to a collector — regardless of whether GC-log harvesting is even enabled. v3.1.4 (commit `ac804ee3`) deleted `GCDumper` entirely and relocated GC-log collection to the Go `diagtools` sidecar, so a current agent never opens it. The collector must still accept `gc` (`model.IsKnownStream`, `backend/libs/protocol/streams.go`) and discard its bytes: refusing an unknown stream tears down the whole pod-restart connection (`06-wire-protocol-server.md` §6), which would silently drop every other stream from a pre-3.1.4 agent, not just `gc`. There is nowhere to route these bytes in the redesigned architecture, so they are read and thrown away, not stored.
+**Legacy eighth stream: `gc`.** Agents built before v3.1.4 also register a `gc` stream (`Dumper.java`'s `gcOs`), unconditionally whenever they stream directly to a collector — regardless of whether GC-log harvesting is even enabled. v3.1.4 (commit `ac804ee3`) deleted `GCDumper` entirely and relocated GC-log collection to the Go `diagtools` sidecar, so a current agent never opens it. The collector must still accept `gc` (`model.IsKnownStream`, `libs/protocol/streams.go`) and discard its bytes: refusing an unknown stream tears down the whole pod-restart connection (`06-wire-protocol-server.md` §6), which would silently drop every other stream from a pre-3.1.4 agent, not just `gc`. There is nowhere to route these bytes in the redesigned architecture, so they are read and thrown away, not stored.
 
 Important consequence: **the collector does not assemble calls.** A `Call` record arrives only when the root call has closed on the agent side. The collector's job is to demultiplex streams, persist them, and emit a parquet row per `Call`.
 
-**Optional channel gzip.** `ProtocolConst.ZIPPING_ENABLED` (default `false`, `proto-definition/.../ProtocolConst.java:46`) gzips the whole multiplexed channel; when it is on, the collector must gunzip before it can demux `RCV_DATA`. The MVP targets the default (off); a gunzip wrapper around the socket is the only change if a deployment turns it on (`06-wire-protocol-server.md` §7).
+**Optional channel gzip.** `ProtocolConst.ZIPPING_ENABLED` (default `false`, `apps/proto-definition/.../ProtocolConst.java:46`) gzips the whole multiplexed channel; when it is on, the collector must gunzip before it can demux `RCV_DATA`. The MVP targets the default (off); a gunzip wrapper around the socket is the only change if a deployment turns it on (`06-wire-protocol-server.md` §7).
 
 ### Verified against agent code
 
-Sources: `dumper/src/main/java/com/netcracker/profiler/Dumper.java`, `boot/src/main/java/com/netcracker/profiler/agent/{LocalBuffer.java,DumperConstants.java}`.
+Sources: `apps/dumper/src/main/java/com/netcracker/profiler/Dumper.java`, `apps/boot/src/main/java/com/netcracker/profiler/agent/{LocalBuffer.java,DumperConstants.java}`.
 
 **V1.** Verified. A `Call` record is emitted only after the root call has closed; its trace bytes are written to the trace stream during the same `writeBufferToFS` pass (`Dumper.java:940-983`).
 
@@ -132,7 +132,7 @@ The collector extracts each root call's bytes into a contiguous per-call blob an
 
 Do not conflate three different "chunk" notions:
 
-- **`COMMAND_RCV_DATA` payload** — up to `DATA_BUFFER_SIZE` = 1 KB of one stream's bytes (`proto-definition/.../ProtocolConst.java:4`; the agent chops at `DefaultCollectorClient.java:314`). The collector concatenates these per stream before anything else.
+- **`COMMAND_RCV_DATA` payload** — up to `DATA_BUFFER_SIZE` = 1 KB of one stream's bytes (`apps/proto-definition/.../ProtocolConst.java:4`; the agent chops at `DefaultCollectorClient.java:314`). The collector concatenates these per stream before anything else.
 - **Logical trace chunk** — `[threadId:long, startTime:long]` (16 bytes) + events + `EVENT_FINISH_RECORD`, `LocalBuffer`-sized (≈ tens of KB, `LocalBuffer.SIZE = 4096` events). One chunk's body belongs to one thread, and one chunk spans many `RCV_DATA` payloads. The trace stream also opens with a one-time `timerStartTime` (8 bytes) before the first chunk. Event times reconstruct as `timerStartTime + Σ(event deltas)` (`TracePodReader.java:152-179`), so the epoch is only a constant offset on absolute timestamps. It cancels in every time difference: call durations and the relative call tree decode without it. Only absolute wall-clock timestamps need the epoch, and each chunk header's `startTime` is itself an absolute anchor (`Dumper.java:882`), so it is recoverable even when lost. The per-call blob carries it as a prefix (§4.5), so the trace readers decode absolute times exactly and run unmodified.
 - **Go `Chunk` type** — a rolling-stream handle in the existing parser, unrelated to either of the above.
 
@@ -169,7 +169,7 @@ Indexing is order-independent: it keys off the Call pointer, not the arrival ord
 The hot store is the three offset-addressable bulk streams: `trace`, plus the external value streams `sql` and `xml` that a blob points into. All three are written the same way.
 
 - **One segment file per agent stream file.** The collector opens a segment on each `COMMAND_INIT_STREAM_V2` and names it by the agent's reported stream-file index (see the segment-naming note below); the demultiplexed bytes for that handle are appended and gzip-compressed once, with no WAL double-write (the agent's `<seq>.gz` model, `CompressedLocalAndRemoteOutputStream.java:210-216`). Keeping segments 1:1 with the agent's files lets a Call pointer `(trace_file_index, buffer_offset)` and a trace tag's `(rolling_seq, offset)` resolve by opening `<stream>/<rolling_seq>.gz` and seeking — no offset-translation table. The collector governs segment size through `requiredRotationSize` in the `INIT_STREAM_V2` response; a smaller segment favors partial reads, a larger one favors compression.
-- **Addressing.** `trace` chunks are located by the Call pointer (§4.3); `sql` / `xml` values by the `(rolling_seq, offset)` that a `PARAM_BIG_DEDUP` / `PARAM_BIG` trace tag carries (`backend/libs/parser/pipe/traces.go`). The catalog stores each segment's `(stream, rolling_seq)` and decompressed length; `trace` segments also carry a chunk time range.
+- **Addressing.** `trace` chunks are located by the Call pointer (§4.3); `sql` / `xml` values by the `(rolling_seq, offset)` that a `PARAM_BIG_DEDUP` / `PARAM_BIG` trace tag carries (`libs/parser/pipe/traces.go`). The catalog stores each segment's `(stream, rolling_seq)` and decompressed length; `trace` segments also carry a chunk time range.
 - **Refcount and eviction.** Refcounted in SQLite (§8): a segment is deletable once every sealed row whose blob sources from it has been uploaded (refcount 0), or once it is evicted under the overload policy. Refcounts span buckets — one segment can carry chunks or values for several buckets' calls.
 - **Value segments never reach S3.** The seal pass resolves each `PARAM_BIG` / `PARAM_BIG_DEDUP` reference a blob carries against the `sql` / `xml` segments — guaranteed present at seal by the refcount pinning above — and inlines the values into the row's `big_params_json` column (§5.2, §6.5 step 3). The blob itself keeps the raw references (`02-read-contract.md` §2.4 serves it verbatim); the column is the cold tier's only source for the values. A reference whose segment was already evicted seals without its value, and the read path marks it unresolved (`02-read-contract.md` §2.5) — degraded explicitly, like a truncated blob, never silently.
 - These segment files ARE the hot store: `/internal/v1/calls/{pk}/trace` reads them directly, and the internal values endpoint reads `sql` / `xml` for the hot `/tree` rendering (`02-read-contract.md` §3).
@@ -217,7 +217,7 @@ ts_ms[0] = base_ms + delta[0]
 ts_ms[i] = ts_ms[i-1] + delta[i]      (i >= 1)
 ```
 
-The running total reseeds at every file boundary: a rotation writes a fresh header and resets the agent-side timer (`Dumper.java:1062-1063`, `1394-1401`). This axis carries the whole pipeline: the `bucket` below, retention (§6.4), the `ts_ms` PK component (§5.2), and the read cursor (`02-read-contract.md`) all key off it. A decoder that reads each delta as an offset from `base_ms` is correct only for the first record and corrupts every record after it. Both Go decoders (`backend/libs/parser/pipe/calls.go`, `backend/libs/parser/streams/calls.go`) accumulate the deltas; `TestCallsTimeAccumulation` in each package guards the reconstruction with a synthetic three-record stream from `backend/libs/tests/helpers/wire`.
+The running total reseeds at every file boundary: a rotation writes a fresh header and resets the agent-side timer (`Dumper.java:1062-1063`, `1394-1401`). This axis carries the whole pipeline: the `bucket` below, retention (§6.4), the `ts_ms` PK component (§5.2), and the read cursor (`02-read-contract.md`) all key off it. A decoder that reads each delta as an offset from `base_ms` is correct only for the first record and corrupts every record after it. Both Go decoders (`libs/parser/pipe/calls.go`, `libs/parser/streams/calls.go`) accumulate the deltas; `TestCallsTimeAccumulation` in each package guards the reconstruction with a synthetic three-record stream from `libs/tests/helpers/wire`.
 
 **Write path, per `Call` record:**
 
@@ -234,7 +234,7 @@ A call whose dictionary entry is missing is sealed with `trace_blob` NULL and `t
 
 ### 5.2 Parquet schema
 
-Starting from the existing `CallParquet` (`backend/libs/storage/parquet/calls.go`) and refining. Each column carries a one-line rationale.
+Starting from the existing `CallParquet` (`libs/storage/parquet/calls.go`) and refining. Each column carries a one-line rationale.
 
 ```
 schema CallV2 {
@@ -298,7 +298,7 @@ schema CallV2 {
 | Renamed `Calls` → `child_calls` | "calls" is overloaded with "list of calls"; this is the per-tree counter. |
 | Removed `convertedtype=UINT_*` annotations | Parquet's UINT_64 is poorly supported in some readers. INT64 with documented "always non-negative" suffices. |
 | `TraceId string "seqId_bufOffset_recordIndex"` → three `INT32` columns (`trace_file_index`, `buffer_offset`, `record_index`) | Better column compression, cheaper integer comparison at dedup time, no string parsing on the read path. Decision recorded; no open question remains. |
-| Removed `non_blocking_ms` | No wire source: `writeCall` never emits it and the Go decoder has no field for it (`Dumper.java:1059-1108`, `backend/libs/parser/pipe/calls.go`). Re-adding a column later is additive — backward-readable by name, older rows read as zero; see Schema evolution in §5.2. |
+| Removed `non_blocking_ms` | No wire source: `writeCall` never emits it and the Go decoder has no field for it (`Dumper.java:1059-1108`, `libs/parser/pipe/calls.go`). Re-adding a column later is additive — backward-readable by name, older rows read as zero; see Schema evolution in §5.2. |
 
 ### 5.4 Sharding: time bucket × retention class
 
@@ -320,7 +320,7 @@ On a clean seal the file is uploaded to S3 (Section 7) and kept locally for `hot
 
 ### 5.6 error_flag derivation
 
-The agent marks a call as errored through `ExceptionLogger.callRed()` (typically from a caught exception, `boot/src/main/java/com/netcracker/profiler/agent/ExceptionLogger.java:29-35`), which records the indexed parameter `call.red` on the call. `call.red` is an indexed parameter in every targeted deployment (`installer/.../config/_config.xml`), so it is serialized into the Call record's params and the Go decoder already reads it into `Call.Params` (`backend/libs/parser/pipe/calls.go`). No agent change and no new struct field are needed.
+The agent marks a call as errored through `ExceptionLogger.callRed()` (typically from a caught exception, `apps/boot/src/main/java/com/netcracker/profiler/agent/ExceptionLogger.java:29-35`), which records the indexed parameter `call.red` on the call. `call.red` is an indexed parameter in every targeted deployment (`apps/installer/.../config/_config.xml`), so it is serialized into the Call record's params and the Go decoder already reads it into `Call.Params` (`libs/parser/pipe/calls.go`). No agent change and no new struct field are needed.
 
 At seal, the collector resolves the dictionary id of the literal `call.red` and sets:
 
@@ -550,4 +550,4 @@ Before this document is merged and Stage 1 starts, please confirm or correct:
 
 Follow-ups out of scope for this contract:
 
-- Consolidate `backend/libs/parser/streams/` into `backend/libs/parser/pipe/` (decision 8 in `profiler-plan.md`).
+- Consolidate `libs/parser/streams/` into `libs/parser/pipe/` (decision 8 in `profiler-plan.md`).

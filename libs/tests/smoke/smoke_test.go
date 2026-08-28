@@ -1,12 +1,12 @@
 //go:build smoke
 
 // Package smoke proves the Stage 1 stack end to end against the running
-// docker-compose services (backend/docker-compose.yaml): a synthetic agent
+// docker-compose services (docker-compose.yaml): a synthetic agent
 // feeds the collector over a real TCP socket, the seal and upload loops move
 // the aged bucket into MinIO, and the query service answers /api/v1 from the
 // hot tier, then — with the collector stopped — from S3 alone.
 //
-// Run `make smoke` from backend/, or bring the stack up yourself and run
+// Run `make smoke` from the repository root, or bring the stack up yourself and run
 // `go test -tags smoke -count=1 ./libs/tests/smoke/...`. The test expects a
 // FRESH stack: a bucket holding parquet from an earlier run fails the
 // hot-phase "nothing sealed yet" assertion.
@@ -72,7 +72,7 @@ var (
 // timeBucket must match the collector's PROFILER_TIME_BUCKET.
 const timeBucket = 5 * time.Minute
 
-// composeDir locates backend/docker-compose.yaml for the mid-test
+// composeDir locates docker-compose.yaml for the mid-test
 // stop/start of the collector container.
 func composeDir(t *testing.T) string {
 	if dir := os.Getenv("SMOKE_COMPOSE_DIR"); dir != "" {
@@ -332,7 +332,7 @@ func connectAgent(t *testing.T, ctx context.Context, pod string) *emulator.Agent
 
 // sendStream opens one agent stream file and feeds it in RCV_DATA payloads,
 // splitting the first payload to cross a payload boundary mid-chunk
-// (backend/CLAUDE.md: a logical chunk spans many payloads).
+// (CLAUDE.md: a logical chunk spans many payloads).
 func sendStream(t *testing.T, ac *emulator.AgentConnection, stream string, requestedSeq int, data []byte) {
 	t.Helper()
 	handle, err := ac.CommandInitStream(stream, requestedSeq, false)

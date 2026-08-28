@@ -29,7 +29,7 @@ func BigTag(deltaMs, tagId int, dedup bool, seq, offset int) TraceEvent {
 
 // TraceChunk is one logical trace chunk: a 16-byte [threadId, startTime]
 // header, the events of one thread, and a closing EVENT_FINISH_RECORD
-// (backend/docs/design/01-write-contract.md §4.2).
+// (docs/design/01-write-contract.md §4.2).
 type TraceChunk struct {
 	ThreadId uint64
 	StartMs  int64

@@ -4,7 +4,7 @@ description: >-
   Go profiler backend (Stage 1): collector StatefulSet with per-replica RWO
   storage, query Deployment, maintain job, optional in-cluster MinIO for
   dev/smoke, and Prometheus monitoring objects. See
-  backend/docs/design/04-storage-layout.md.
+  docs/design/04-storage-layout.md.
 type: application
 version: 0.1.0
 appVersion: "1.0.0"

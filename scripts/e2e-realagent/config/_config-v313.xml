@@ -10,7 +10,7 @@
   a loop, relying on ordinary bytecode instrumentation. A class is only
   instrumented once a <rule> in this ruleset matches it (no rule matches ->
   no instrumentation, verified against
-  instrumenter/.../configuration/ConfigurationImpl.java's getRulesForClass),
+  apps/instrumenter/.../configuration/ConfigurationImpl.java's getRulesForClass),
   so this rule turns profiling ON for the test-app package. A bare
   <rule><class>...</class></rule> with no <do-not-profile/> instruments
   every method of every matching class, which covers Main.test(String).

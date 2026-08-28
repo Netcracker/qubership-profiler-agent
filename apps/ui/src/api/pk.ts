@@ -4,7 +4,7 @@ import type { CallPK } from './types';
 // <ns>:<svc>:<pod>:<restartMs>:<file>:<off>:<rec> (02 §2.2). Kubernetes names
 // cannot contain ':', so the segments split unambiguously; percent-encoding of
 // the whole segment happens where the URL is assembled, mirroring
-// PK.PathString / ParsePKPath in backend/libs/query/model/wire.go.
+// PK.PathString / ParsePKPath in libs/query/model/wire.go.
 
 export function pkToPath(pk: CallPK): string {
   return [

@@ -1,4 +1,4 @@
-// Command ui-seed feeds a running dev stack (backend/docker-compose.yaml)
+// Command ui-seed feeds a running dev stack (docker-compose.yaml)
 // with synthetic agent traffic so the embedded UI has something to show —
 // the data source of the it-e2e query-ui suite (07-ui-design.md §7). It
 // emulates a few pod agents over the real TCP protocol, waits until the

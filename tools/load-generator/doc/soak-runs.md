@@ -23,7 +23,7 @@ whole hold; `pprof.points: [1.0]` profiles the level itself without the pointles
 the run as `saturated` with the reason named.
 
 ```bash
-cd backend/tools/load-generator/deploy
+cd tools/load-generator/deploy
 helmfile -e cluster apply --state-values-set profiler.collector.replicas=3
 cd .. && go run ./runner -spec specs/t1-contract.yaml   # after the usual port-forwards (ceiling-runs.md)
 ```
@@ -74,7 +74,7 @@ The overlay keeps the un-enforced invariant `hot_retention ≥ time_bucket + gra
 Run it:
 
 ```bash
-cd backend/tools/load-generator/deploy && helmfile -e local-soak apply
+cd tools/load-generator/deploy && helmfile -e local-soak apply
 # port-forwards: ceiling-runs.md, plus the query service for the checker probe
 cd .. && go run ./runner -spec specs/t4-soak-accelerated.yaml &
 go run ./checker \

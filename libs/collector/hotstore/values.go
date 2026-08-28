@@ -127,7 +127,7 @@ func (pr *PodRestart) readBigValues(ctx context.Context, refs []ValueRef) map[Va
 
 // readVarString decodes one var-string from a forward-only reader: a varint
 // char count, then 2-byte big-endian chars — the format of every value in the
-// sql / xml streams (backend/libs/parser/pipe/strings.go). It reports the
+// sql / xml streams (libs/parser/pipe/strings.go). It reports the
 // bytes consumed so a sequential caller can track its stream position.
 func readVarString(r io.Reader) (string, int64, error) {
 	var n uint64

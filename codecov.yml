@@ -36,46 +36,52 @@ component_management:
       name: Backend (Go)
       paths:
         # The Go apps are named one by one rather than globbed as
-        # `backend/apps/**`, because components are selected by repository path
+        # `apps/**`, because components are selected by repository path
         # and not by the flag a report arrived under: that glob is a superset of
         # the Backend UI component below, so every TypeScript file would land in
-        # both. A new Go app under backend/apps/ has to be added here.
-        - "backend/apps/dumps-collector/**"
-        - "backend/apps/profiler-backend/**"
-        - "backend/libs/**"
-        - "backend/tools/**"
+        # both. A new Go app under apps/ has to be added here.
+        - "apps/dumps-collector/**"
+        - "apps/profiler-backend/**"
+        - "libs/**"
+        - "tools/**"
     - component_id: backend_ui
       name: Backend UI (TypeScript)
       paths:
-        - "backend/apps/ui/src/**"
+        - "apps/ui/src/**"
     - component_id: diagtools
       name: Diagtools (Go)
       paths:
-        - "diagtools/**"
+        - "apps/diagtools/**"
     - component_id: java_agent
       name: Java agent
       paths:
-        # Defined by subtraction, so every Go tree above has to be named here
-        # too. Without the diagtools exclusion its files would count towards the
-        # Java agent, which they are not part of.
-        - "!backend/**"
-        - "!diagtools/**"
+        # Defined by subtraction, so every Go and TypeScript tree above has to be
+        # named here too. They no longer share a `backend/` prefix to exclude in
+        # one line: the Gradle projects and the Go apps are siblings under apps/,
+        # so a new Go app has to be added both to backend_go and to this list.
+        - "!apps/dumps-collector/**"
+        - "!apps/profiler-backend/**"
+        - "!apps/ui/**"
+        - "!apps/diagtools/**"
+        - "!libs/**"
+        - "!tools/**"
 
 fixes:
   # `go test -coverprofile` records import paths, not repository paths. The two
-  # Go modules have unrelated module paths, so each needs its own rule; the
-  # diagtools rule strips its prefix down to the bare `diagtools/` directory.
-  - "github.com/Netcracker/qubership-profiler-backend/::backend/"
-  - "github.com/Netcracker/qubership-profiler-agent/::"
-  # vitest runs from backend/apps/ui, so lcov SF: entries read `src/app.tsx`.
-  - "src/::backend/apps/ui/src/"
+  # Go modules have unrelated module paths, so each needs its own rule. The root
+  # module maps onto the repository root; the diagtools rule strips its prefix
+  # down to the `apps/diagtools/` directory it now lives in.
+  - "github.com/Netcracker/qubership-profiler-backend/::"
+  - "github.com/Netcracker/qubership-profiler-agent/::apps/"
+  # vitest runs from apps/ui, so lcov SF: entries read `src/app.tsx`.
+  - "src/::apps/ui/src/"
 
 ignore:
   # Maven-built demo applications, outside both the Gradle and the Go build.
-  - "backend/examples/**"
-  - "profiler-ui/**"
-  - "sample-apps/**"
-  - "test-app/**"
+  - "examples/**"
+  - "apps/profiler-ui/**"
+  - "apps/sample-apps/**"
+  - "apps/test-app/**"
 
 comment:
   layout: "header, diff, flags, components"

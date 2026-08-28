@@ -17,23 +17,45 @@ on:
     branches-ignore:
       - 'renovate/**'
     paths:
-      - 'backend/**'
+      - 'apps/dumps-collector/**'
+      - 'apps/profiler-backend/**'
+      - 'apps/ui/**'
+      - 'apps/Makefile'
+      - 'libs/**'
+      - 'tools/**'
+      - 'charts/**'
+      - 'deploy/**'
+      - 'examples/**'
+      - 'docker-transfer/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'docker-compose.yaml'
       - 'scripts/e2e-realagent/**'
       - '.github/workflows/backend-smoke-realagent.yaml'
   pull_request:
     branches:
       - '**'
     paths:
-      - 'backend/**'
+      - 'apps/dumps-collector/**'
+      - 'apps/profiler-backend/**'
+      - 'apps/ui/**'
+      - 'apps/Makefile'
+      - 'libs/**'
+      - 'tools/**'
+      - 'charts/**'
+      - 'deploy/**'
+      - 'examples/**'
+      - 'docker-transfer/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'docker-compose.yaml'
       - 'scripts/e2e-realagent/**'
       - '.github/workflows/backend-smoke-realagent.yaml'
 
 permissions:
   contents: read
-
-defaults:
-  run:
-    working-directory: backend
 
 jobs:
   smoke-realagent:
@@ -59,13 +81,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: backend/go.mod
+          go-version-file: go.mod
 
       # Brings the docker-compose stack up, builds+runs the real agent, then
       # tears the stack down. docker compose ships in the runner image.
       - name: Run the real-agent E2E
-        # `defaults.run.working-directory` is already `backend`, so `-C backend`
-        # made Make look for `backend/backend` and the job never actually ran.
+        # The Makefile sits at the repository root, which is also the job's working
+        # directory, so this needs no `-C`.
         # language=bash
         run: make smoke-realagent
 

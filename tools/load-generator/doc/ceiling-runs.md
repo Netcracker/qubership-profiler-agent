@@ -12,7 +12,7 @@ One collector replica is the point of a ceiling run. `local` already pins `colle
 override it per run:
 
 ```bash
-cd backend/tools/load-generator/deploy
+cd tools/load-generator/deploy
 helmfile -e local apply                                                # local stand
 helmfile -e cluster apply --state-values-set profiler.collector.replicas=1   # large cluster
 ```
@@ -46,7 +46,7 @@ other axes from it by changing only the workload block:
 - **dictionary churn**: raise `DICT_GROWTH_PER_MIN` (drives dictionary stream and collector RAM).
 
 ```bash
-cd backend/tools/load-generator
+cd tools/load-generator
 cp specs/t2-bytes.yaml /tmp/run.yaml   # set testid, images (digests), values snapshot, levels
 go run ./runner -spec /tmp/run.yaml
 ```

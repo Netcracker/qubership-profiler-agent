@@ -73,7 +73,7 @@ jobs:
         with:
           node-version: 24
           cache: yarn
-          cache-dependency-path: it-e2e/yarn.lock
+          cache-dependency-path: apps/it-e2e/yarn.lock
 
       - name: Install it-e2e dependencies
         # SuperLiner doesn't install JS dependencies before executing linters, so we need to do it manually

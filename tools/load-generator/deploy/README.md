@@ -16,11 +16,11 @@ does not live here.
 
 ```bash
 # The backend under test (the Makefile tags it latest; the chart pulls dev):
-make -C backend/apps/profiler-backend docker-build
+make -C apps/profiler-backend docker-build
 docker tag profiler-backend:latest profiler-backend:dev
 # The k6 runner — fully synthetic traffic (virtual dumper), built with buildx
 # for the stand's platform (../Makefile defaults to linux/arm64 for OrbStack):
-make -C backend/tools/load-generator image
+make -C tools/load-generator image
 # kind only — OrbStack shares the host docker images:
 kind load docker-image profiler-backend:dev cdt-load-generator:dev
 ```
@@ -28,7 +28,7 @@ kind load docker-image profiler-backend:dev cdt-load-generator:dev
 ## Usage
 
 ```bash
-cd backend/tools/load-generator/deploy
+cd tools/load-generator/deploy
 helmfile -e local apply      # local stand (also the default environment)
 helmfile -e cluster apply    # large cluster; set storage classes and image refs first
 ```

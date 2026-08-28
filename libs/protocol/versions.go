@@ -2,7 +2,7 @@ package model
 
 // Protocol versions exchanged in the GET_PROTOCOL_VERSION(_V2) handshake.
 // Numerically identical to proto-definition/.../transport/ProtocolConst.java;
-// see backend/docs/design/06-wire-protocol-server.md §3.
+// see docs/design/06-wire-protocol-server.md §3.
 const (
 	PROTOCOL_VERSION    uint64 = 100505 // legacy GET_PROTOCOL_VERSION reply
 	PROTOCOL_VERSION_V2 uint64 = 100605 // handshake reply the collector must use

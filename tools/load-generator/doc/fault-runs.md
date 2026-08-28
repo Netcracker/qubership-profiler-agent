@@ -20,7 +20,7 @@ report says so explicitly.
   non-fault run.
 
 ```bash
-cd backend/tools/load-generator/deploy
+cd tools/load-generator/deploy
 helmfile -e local-soak apply     # T5, t7-s3-outage, t7-small-pv
 helmfile -e local-faults apply   # t7-s3-slow, t7-agent-net
 ```

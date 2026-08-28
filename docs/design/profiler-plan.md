@@ -1,6 +1,6 @@
 # Profiler: work plan
 
-Sources: meeting transcript `Profiler-discussions.txt`, working notes `profiler-mom.md`, the actual state of the code in `backend/`.
+Sources: meeting transcript `Profiler-discussions.txt`, working notes `profiler-mom.md`, the actual state of the backend code.
 
 This document expands the items from `profiler-mom.md` with concrete code references and records the decisions we have taken.
 
@@ -8,23 +8,23 @@ This document expands the items from `profiler-mom.md` with concrete code refere
 
 ## 0. Current state (what surfaced from reading the code)
 
-`backend/` hosts four applications, with **different languages and different readiness levels**:
+The backend is four applications, with **different languages and different readiness levels**:
 
 | App | Language / stack | Build status | Storage |
 |---|---|---|---|
-| `backend/apps/collector` | Java 21 / Quarkus 3.25 (Maven) | **excluded from `make build-all`**: `APPS := dumps-collector maintenance` in `backend/Makefile` | Postgres + S3 (MinIO) |
-| `backend/apps/maintenance` | Go 1.25 | Builds | Postgres + S3 |
-| `backend/apps/query` | React 18 + AntD 4.24 + `@netcracker/ux-react` 4.5 + `@netcracker/cse-ui-components` 2.1 | **excluded from `make build-all`** | — (UI) |
-| `backend/apps/dumps-collector` | Go 1.25 | Builds | SQLite (`glebarez/sqlite`) + PV |
+| `apps/collector` | Java 21 / Quarkus 3.25 (Maven) | **excluded from `make build-all`**: `APPS := dumps-collector maintenance` in `Makefile` | Postgres + S3 (MinIO) |
+| `apps/maintenance` | Go 1.25 | Builds | Postgres + S3 |
+| `apps/query` | React 18 + AntD 4.24 + `@netcracker/ux-react` 4.5 + `@netcracker/cse-ui-components` 2.1 | **excluded from `make build-all`** | — (UI) |
+| `apps/dumps-collector` | Go 1.25 | Builds | SQLite (`glebarez/sqlite`) + PV |
 
 Important consequence: the meeting claim "all three pieces are in Go" applies to `maintenance` + `dumps-collector` + (a future Go-rewritten) collector. Today the agent's TCP traffic is received by the Java app `collector`; there is no Go replacement yet.
 
 Additional notes:
-- `backend/charts/profiler-stack/values.yaml` is the umbrella chart. It expects `INFRA_POSTGRES_*` and `INFRA_S3_MINIO_*` as inputs, so the "as designed" deployment requires Postgres + S3.
-- `backend/libs/pg/db.go` describes the schema: temp tables `calls_<ts>`, `traces_<ts>`, `suspend_<ts>` at 5-minute granularity; `dumps_*` at 1-hour granularity with 7-day TTL; inverted index at 1-hour granularity with 14-day TTL. Old partitions are dropped wholesale (see `backend/libs/pg/resources/schema/migration/*`).
-- The collector code that writes to Postgres lives in `backend/apps/collector/src/main/java/com/netcracker/persistence/adapters/cloud/` (DAO per entity: calls, traces, dictionary, params, dumps, pod_statistics). The question "what is actually written to Postgres" is answered by: metadata + decoded call records + the raw trace bytes themselves (`traces_<ts>.trace bytea`).
-- `dumps-collector` is already on SQLite + PV with no Postgres — a working "all-in-one" reference. Its pattern (`backend/apps/dumps-collector/pkg/client/sqlite`, plus rescan/insert/pack/remove tasks orchestrated via `oklog/run`) is a useful template when collapsing the profiler stack to a single binary.
-- The agent (`agent/`, `dumper/`, `runtime/`) is a separate project. It instruments Java applications and pushes a stream over TCP to the collector service (port 1715 in the Helm values).
+- `charts/profiler-stack/values.yaml` is the umbrella chart. It expects `INFRA_POSTGRES_*` and `INFRA_S3_MINIO_*` as inputs, so the "as designed" deployment requires Postgres + S3.
+- `libs/pg/db.go` describes the schema: temp tables `calls_<ts>`, `traces_<ts>`, `suspend_<ts>` at 5-minute granularity; `dumps_*` at 1-hour granularity with 7-day TTL; inverted index at 1-hour granularity with 14-day TTL. Old partitions are dropped wholesale (see `libs/pg/resources/schema/migration/*`).
+- The collector code that writes to Postgres lives in `apps/collector/src/main/java/com/netcracker/persistence/adapters/cloud/` (DAO per entity: calls, traces, dictionary, params, dumps, pod_statistics). The question "what is actually written to Postgres" is answered by: metadata + decoded call records + the raw trace bytes themselves (`traces_<ts>.trace bytea`).
+- `dumps-collector` is already on SQLite + PV with no Postgres — a working "all-in-one" reference. Its pattern (`apps/dumps-collector/pkg/client/sqlite`, plus rescan/insert/pack/remove tasks orchestrated via `oklog/run`) is a useful template when collapsing the profiler stack to a single binary.
+- The agent (`apps/agent/`, `apps/dumper/`, `apps/runtime/`) is a separate project. It instruments Java applications and pushes a stream over TCP to the collector service (port 1715 in the Helm values).
 
 ---
 
@@ -32,11 +32,11 @@ Additional notes:
 
 **We do not reanimate the existing Postgres path as a baseline.** We already know that writing the raw stream from the agent into Postgres is a dead end (Section 0, regarding `traces_<ts>.trace bytea`). Fixing this code only to delete it later is wasted time.
 
-**We do not produce golden output / a walking skeleton.** The new architecture legitimately changes aggregate format and rotation boundaries; bit-exact comparison is meaningless. Validation is via synthetic input fixtures (already present: `backend/tools/load-generator/` and `backend/tools/data-generator/`) plus semantic assertions (top method, p95, number of calls in a range). No binaries committed to the repo.
+**We do not produce golden output / a walking skeleton.** The new architecture legitimately changes aggregate format and rotation boundaries; bit-exact comparison is meaningless. Validation is via synthetic input fixtures (already present: `tools/load-generator/` and `tools/data-generator/`) plus semantic assertions (top method, p95, number of calls in a range). No binaries committed to the repo.
 
 **Work proceeds sequentially from contracts to code.** First: four contract documents plus architecture diagrams. Then: services implemented one by one, each with an integration test on top of synthetic input.
 
-We **reuse code that survives the architecture change**: Go parser of the agent TCP protocol (`backend/libs/parser/`), parquet writer/reader (`backend/libs/storage/parquet/`), S3 abstraction (`backend/libs/s3/`), UI components (excluding the archived deps). We discard Postgres DAOs, temp-table jobs, and the Postgres read path in query.
+We **reuse code that survives the architecture change**: Go parser of the agent TCP protocol (`libs/parser/`), parquet writer/reader (`libs/storage/parquet/`), S3 abstraction (`libs/s3/`), UI components (excluding the archived deps). We discard Postgres DAOs, temp-table jobs, and the Postgres read path in query.
 
 ---
 
@@ -48,7 +48,7 @@ A gating stage: no service code is written until these documents exist.
 What the collector writes to local RWO PV and to S3.
 - Dictionary WAL format: which records (method/param/tag), how they're serialized, when fsync, rotation.
 - Trace stream cache: layout of files on local PV, lookup by `(traceFileIndex, bufferOffset, recordIndex)`, refcount and eviction.
-- Parquet schema: columns, types, what aggregates, how the call-tree blob is encoded (reuse the format from `backend/libs/storage/parquet/`).
+- Parquet schema: columns, types, what aggregates, how the call-tree blob is encoded (reuse the format from `libs/storage/parquet/`).
 - Directory layout on local PV (`wal/`, `trace/`, `parquet-pending/`) and in S3 (`parquet/<duration-bucket>/<yyyy>/<mm>/<dd>/<hh>/...` or similar).
 - File naming: prefix, suffix, uniqueness rules during recovery.
 - Flush semantics: what a replica does when a parquet time bucket closes (uploads to S3, deletes locally, updates the metaindex).
@@ -69,14 +69,14 @@ How query gets data.
 ### 0.4 Storage layout & discovery
 - What lives on local PV vs in S3 — closed in 0.1; here it is consolidated into one diagram.
 - k8s manifests: StatefulSet for collector with `volumeClaimTemplates` (RWO), Headless Service (`clusterIP: None`), Deployment for query (no PV), Deployment/CronJob for maintenance. Explicit resource limits.
-- Helm chart: how `backend/charts/profiler-stack/values.yaml` changes. Target configuration is "S3 only (or filesystem emulator)", no Postgres. Postgres fields are removed from values.
+- Helm chart: how `charts/profiler-stack/values.yaml` changes. Target configuration is "S3 only (or filesystem emulator)", no Postgres. Postgres fields are removed from values.
 - Env vars: `COLLECTOR_HEADLESS_SVC`, `S3_ENDPOINT`/`S3_BUCKET`, `POD_NAMESPACE`.
 
 ### 0.5 Diagrams
 - Data flow: agent → collector (stream demultiplexing + WAL + trace cache) → parquet local → S3; query → collector fan-out + S3 → merge.
 - Deployment: pods, PVs, Services, network boundaries.
 - State diagram: lifecycle of a root call (received as a `Call` record → trace bytes resolved from cache → written to current parquet → flushed to S3).
-- Committed as `.md` with Mermaid blocks, alongside the contracts (in `backend/docs/design/`).
+- Committed as `.md` with Mermaid blocks, alongside the contracts (in `docs/design/`).
 
 ### 0.6 What stays open after Stage 0
 If something cannot be closed in design — list it explicitly and schedule it as a Stage 1 early spike, not as guesswork during coding.
@@ -88,10 +88,10 @@ If something cannot be closed in design — list it explicitly and schedule it a
 Goal: collector receives the stream from the agent, demultiplexes it, persists it via WAL + trace cache, writes parquet to local PV. Nothing about read, nothing about S3.
 
 ### 1.1 Reused with adaptation
-- Agent protocol framing: the read/write field primitives (`backend/libs/io/`) and the demux `Listener` surface (`RegisterPod`, `RegisterStream`, `AppendData`) carry over. What does **not** carry over is `backend/libs/parser/parser.go`: it is an offline dump reader that reads the server's replies *out of the same input stream* as the requests (for example `svrProtocol` at `parser.go:126-130`, the `INIT_STREAM_V2` reply at `parser.go:178-198`). On a live socket the collector must *produce* those bytes, so the response state machine is new code, not a `wr io.Writer` add-on to the offline parser. The live server (`backend/libs/server/server_connection.go`) has been brought into conformance with the wire contract (handshake reply `PROTOCOL_VERSION_V2`, per-`RCV_DATA` ack byte, real `INIT_STREAM_V2` reply, unknown-stream teardown), guarded by an integration test — see `06-wire-protocol-server.md` §8–§9.
+- Agent protocol framing: the read/write field primitives (`libs/io/`) and the demux `Listener` surface (`RegisterPod`, `RegisterStream`, `AppendData`) carry over. What does **not** carry over is `libs/parser/parser.go`: it is an offline dump reader that reads the server's replies *out of the same input stream* as the requests (for example `svrProtocol` at `parser.go:126-130`, the `INIT_STREAM_V2` reply at `parser.go:178-198`). On a live socket the collector must *produce* those bytes, so the response state machine is new code, not a `wr io.Writer` add-on to the offline parser. The live server (`libs/server/server_connection.go`) has been brought into conformance with the wire contract (handshake reply `PROTOCOL_VERSION_V2`, per-`RCV_DATA` ack byte, real `INIT_STREAM_V2` reply, unknown-stream teardown), guarded by an integration test — see `06-wire-protocol-server.md` §8–§9.
 - Server-side wire behavior — command table, handshake reply, ack policy, error teardown — is specified in `06-wire-protocol-server.md`.
-- Parquet writer in `backend/libs/storage/parquet/`.
-- S3 abstraction in `backend/libs/s3/` (used in Stage 2).
+- Parquet writer in `libs/storage/parquet/`.
+- S3 abstraction in `libs/s3/` (used in Stage 2).
 
 ### 1.2 New code
 - **TCP listener:** accepts agent connections, hands the per-connection reader to the protocol parser. Sticky-session-friendly (one connection ↔ one agent).
@@ -120,11 +120,11 @@ Goal: parquet files leave the local PV for S3; retention policies apply per dura
 
 ### 2.1 S3 upload
 - Uploader (in collector or as a sidecar/CronJob): on parquet close, uploads the file to S3 using the layout from Stage 0; deletes the local copy on success.
-- Reuses `backend/libs/s3/` (filesystem emulator in dev, MinIO in prod).
+- Reuses `libs/s3/` (filesystem emulator in dev, MinIO in prod).
 
 ### 2.2 Retention
 - In maintenance (new code, not the legacy `temp_db_*`): S3 walk that deletes parquet files older than the per-bucket TTL. Example policy: `duration < 100ms` — 1 day; `100ms–1s` — 7 days; `> 1s` — 30 days.
-- Reuses logic from `backend/apps/maintenance/pkg/maintenance/s3_file_remove_job.go` but with the new per-bucket policy.
+- Reuses logic from `apps/maintenance/pkg/maintenance/s3_file_remove_job.go` but with the new per-bucket policy.
 
 ### 2.3 Test
 - Upload a known set of parquet files into a test S3 bucket with various ages → run maintenance → verify the surviving set matches the policy.
@@ -138,7 +138,7 @@ Goal: collector exposes an HTTP endpoint that returns aggregates for the hot win
 ### 3.1 Endpoints
 - From Stage 0.2 (Read contract): `/query/calls`, `/query/calltree`, `/query/pods`, `/query/stats`.
 - Reads **only** local state. Nothing from S3.
-- Reference implementation: `backend/apps/dumps-collector/pkg/server/http_server.go` (HTTP endpoint over local SQLite + PV).
+- Reference implementation: `apps/dumps-collector/pkg/server/http_server.go` (HTTP endpoint over local SQLite + PV).
 
 ### 3.2 Test
 - `load-generator` → collector → wait `flush period / 2` → request the read API → verify the recent calls are visible.
@@ -158,7 +158,7 @@ Goal: a stateless service that serves user HTTP requests. Fan-out to collector r
 - Parallel HTTP requests to all collector replicas for the hot window. Per-replica timeout. Partial result with an explicit marker if a replica fails.
 
 ### 4.3 S3 read
-- Read parquet from S3 for the cold window. Use readers from `backend/libs/storage/parquet/`. A manifest file may be needed — to be decided in Stage 0.2.
+- Read parquet from S3 for the cold window. Use readers from `libs/storage/parquet/`. A manifest file may be needed — to be decided in Stage 0.2.
 
 ### 4.4 Merge & dedup
 - Merge hot + cold; dedupe by the PK from Stage 0.2. Sort by time.
@@ -174,7 +174,7 @@ Goal: query UI runs on top of the new API and builds without the archived npm re
 
 ### 5.1 Dependency migration
 - Only now we replace `@netcracker/ux-react`, `@netcracker/cse-ui-components`, `@netcracker/ux-assets` with plain AntD 4.24 (already in dependencies).
-- By feature in `backend/apps/query/src/features/cdt/`: start with `calls` + `sidebar` (the main scenario), then `pods-info`, `controls`, `heap-dumps`.
+- By feature in `apps/query/src/features/cdt/`: start with `calls` + `sidebar` (the main scenario), then `pods-info`, `controls`, `heap-dumps`.
 - Brand palette via AntD theme customization, not via component forks.
 
 ### 5.2 Wiring to the new query API
@@ -186,7 +186,7 @@ Goal: query UI runs on top of the new API and builds without the archived npm re
 - Hook the Figma MCP integration into Claude to speed up layout work.
 
 ### 5.4 CallTree — backlogged
-- `backend/apps/query/src/features/cdt/calls-tree/` is jQuery-style. A separate large epic for later.
+- `apps/query/src/features/cdt/calls-tree/` is jQuery-style. A separate large epic for later.
 
 ---
 
@@ -202,7 +202,7 @@ Goal: a chart that deploys everything in k8s.
 - MinIO — either an external dependency wired via values, or installed alongside.
 
 ### 6.2 Helm
-- Update `backend/charts/profiler-stack/values.yaml`: drop `INFRA_POSTGRES_*`, reconfigure for the new schema.
+- Update `charts/profiler-stack/values.yaml`: drop `INFRA_POSTGRES_*`, reconfigure for the new schema.
 - Keep S3 only (and S3 is optional if dev uses the filesystem emulator).
 
 ### 6.3 Readiness & HPA
@@ -221,17 +221,17 @@ Work that runs in parallel with the main stages and does not fit any single one.
 
 ### C2. Runtime configuration of the agent
 - Change filters/thresholds/enable-disable on the fly via a central endpoint, pushing into the agent over the existing TCP channel.
-- Extend the protocol contract (currently in `backend/apps/collector/src/main/java/com/netcracker/common/ProtocolConst.java`) and the corresponding Go-side handling.
+- Extend the protocol contract (currently in `apps/collector/src/main/java/com/netcracker/common/ProtocolConst.java`) and the corresponding Go-side handling.
 - Independent of Stages 1–6.
 
 ### C3. MCP / skills
-- **Skill for downloading diagnostic dumps** via `dumps-collector` (endpoints already exist in `backend/apps/dumps-collector/pkg/server/http_server.go`). Quick win, can run in parallel with Stages 0–1.
+- **Skill for downloading diagnostic dumps** via `dumps-collector` (endpoints already exist in `apps/dumps-collector/pkg/server/http_server.go`). Quick win, can run in parallel with Stages 0–1.
 - **MCP for profiler data** — on top of the query API from Stage 0.2. After Stage 4.
 - Pankratov: "a good machine-readable API".
 
 ### C4. Metrics / Grafana
 - Maintenance computes aggregates (top-N slowest methods, p95 latency, counters by tag) and exports Prometheus metrics.
-- Infrastructure ready: `backend/libs/metrics/`.
+- Infrastructure ready: `libs/metrics/`.
 - A Grafana dashboard on top of these metrics is an alternative to a separate analytics screen in the UI. Less code, slots into the existing stack.
 
 ### C5. Dumps-collector + heap dumps via S3
@@ -242,13 +242,13 @@ Work that runs in parallel with the main stages and does not fit any single one.
 ## Decisions taken
 
 1. **Contracts-first, no reanimation of the Postgres path.** No walking skeleton, no golden output. First contracts and diagrams (Stage 0), then services one by one with integration tests.
-2. **The new collector is written in Go; the Java collector is legacy and removed after Stage 4.** Initially we considered keeping Java for reuse of `ProfilerAgentReader.java`, but the agent protocol parser already exists in Go (`backend/libs/parser/parser.go`); parquet writer and S3 lib are also in Go. Going Go avoids a long-term bilingual codebase and aligns with the team's "single Go binary" preference.
+2. **The new collector is written in Go; the Java collector is legacy and removed after Stage 4.** Initially we considered keeping Java for reuse of `ProfilerAgentReader.java`, but the agent protocol parser already exists in Go (`libs/parser/parser.go`); parquet writer and S3 lib are also in Go. Going Go avoids a long-term bilingual codebase and aligns with the team's "single Go binary" preference.
 3. **Raw stream into Postgres is never written in production.** Architecture: stream demultiplexing on the collector + dictionary WAL + trace stream cache on local PV + parquet to S3. No RDBMS in the hot path.
 4. **Two UIs (profiler and dumps-collector) is acceptable.** Unification is not a priority.
 5. **RWX PV is not required.** State separation: shared multi-reader → S3 (object storage, not RWX); per-replica hot state → RWO PV via StatefulSet `volumeClaimTemplates`; query → stateless without PV. Discovery via Headless Service + DNS.
 6. **Query reads from two tiers (hot collector + cold S3).** Fan-out + merge + dedup by PK. Hot cutoff = flush interval.
 7. **Migrating `@netcracker/*` → AntD only in Stage 5.** Until then we don't touch the UI.
-8. **Consolidate the parser onto `backend/libs/parser/pipe/`.** The repo currently ships two parallel implementations: pull-style `streams/` (used by `ParsePodTcpDump` for offline replay of captured TCP dumps) and push-style `pipe/` (channel-based, suitable for live TCP ingestion). Every protocol change has to be made in both places; tests are duplicated. Decision: `pipe/` is the single source of truth going forward. `streams/` callers (offline replay tooling) get a thin "feed the whole buffer through `pipe/` and collect events from channels" adapter, and `streams/` is then deleted. Not blocking — execute opportunistically when shared parser code is being touched (e.g. while adding `RESET_STREAM` / `KEEP_ALIVE` handling), not as a standalone refactor. Until consolidation lands, **new protocol/format changes go into `pipe/` only**; do not extend `streams/`.
+8. **Consolidate the parser onto `libs/parser/pipe/`.** The repo currently ships two parallel implementations: pull-style `streams/` (used by `ParsePodTcpDump` for offline replay of captured TCP dumps) and push-style `pipe/` (channel-based, suitable for live TCP ingestion). Every protocol change has to be made in both places; tests are duplicated. Decision: `pipe/` is the single source of truth going forward. `streams/` callers (offline replay tooling) get a thin "feed the whole buffer through `pipe/` and collect events from channels" adapter, and `streams/` is then deleted. Not blocking — execute opportunistically when shared parser code is being touched (e.g. while adding `RESET_STREAM` / `KEEP_ALIVE` handling), not as a standalone refactor. Until consolidation lands, **new protocol/format changes go into `pipe/` only**; do not extend `streams/`.
 
 ---
 
@@ -256,13 +256,13 @@ Work that runs in parallel with the main stages and does not fit any single one.
 
 | Idea from the meeting | Files / directories |
 |---|---|
-| Collector receives an agent stream over TCP | `backend/apps/collector/src/main/java/com/netcracker/cdt/collector/tcp/ProfilerAgentReader.java`, `.../CollectorOrchestratorThread.java` (Java, legacy); `backend/libs/parser/parser.go` (Go, future) |
-| Collector writes "raw" Call-3 + metadata into Postgres | `backend/apps/collector/src/main/java/com/netcracker/persistence/adapters/cloud/` |
-| 5-minute temp tables dropped wholesale | `backend/libs/pg/resources/schema/{calls,traces,suspend}_tables_template.gosql`, `backend/libs/pg/db.go` (`Granularity`, `TempTableLifetime`) |
-| Maintenance job: aggregation → parquet | `backend/apps/maintenance/pkg/maintenance/maintenance_job.go` and neighbors |
-| Different duration ranges in parquet | `backend/libs/storage/parquet/file_map_calls.go` |
-| Dumps-collector as the all-in-one-on-SQLite reference | `backend/apps/dumps-collector/cmd/run.go`, `pkg/client/sqlite/`, `pkg/server/http_server.go` |
-| UI on AntD + `@netcracker/ux-react` | `backend/apps/query/package.json`, `backend/apps/query/src/features/cdt/` |
-| Helm stack requiring Postgres + S3 | `backend/charts/profiler-stack/values.yaml` |
-| `collector`/`query` excluded from the build | `backend/Makefile` — `APPS := dumps-collector maintenance` |
+| Collector receives an agent stream over TCP | `apps/collector/src/main/java/com/netcracker/cdt/collector/tcp/ProfilerAgentReader.java`, `.../CollectorOrchestratorThread.java` (Java, legacy); `libs/parser/parser.go` (Go, future) |
+| Collector writes "raw" Call-3 + metadata into Postgres | `apps/collector/src/main/java/com/netcracker/persistence/adapters/cloud/` |
+| 5-minute temp tables dropped wholesale | `libs/pg/resources/schema/{calls,traces,suspend}_tables_template.gosql`, `libs/pg/db.go` (`Granularity`, `TempTableLifetime`) |
+| Maintenance job: aggregation → parquet | `apps/maintenance/pkg/maintenance/maintenance_job.go` and neighbors |
+| Different duration ranges in parquet | `libs/storage/parquet/file_map_calls.go` |
+| Dumps-collector as the all-in-one-on-SQLite reference | `apps/dumps-collector/cmd/run.go`, `pkg/client/sqlite/`, `pkg/server/http_server.go` |
+| UI on AntD + `@netcracker/ux-react` | `apps/query/package.json`, `apps/query/src/features/cdt/` |
+| Helm stack requiring Postgres + S3 | `charts/profiler-stack/values.yaml` |
+| `collector`/`query` excluded from the build | `Makefile` — `APPS := dumps-collector maintenance` |
 

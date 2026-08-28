@@ -1,4 +1,4 @@
-# Build context: backend/ (the Go module root)
+# Build context: the repository root (the Go module root)
 # Usage: docker build -f apps/profiler-backend/Dockerfile -t profiler-backend .
 #
 # One image, one static binary, one subcommand per workload

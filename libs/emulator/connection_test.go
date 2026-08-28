@@ -15,7 +15,7 @@ import (
 )
 
 // These tests pin the transport half of the virtual-dumper contract
-// (backend/docs/design/virtual-dumper.md §2.4): ack accounting, the
+// (docs/design/virtual-dumper.md §2.4): ack accounting, the
 // opportunistic vs synchronous drains, the typed backpressure error, and the
 // piggybacked-command dialog — each traced to DefaultCollectorClient.java.
 

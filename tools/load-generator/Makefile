@@ -8,7 +8,7 @@
 PLATFORM ?= linux/arm64
 IMAGE    ?= cdt-load-generator:dev
 
-# Build from the module root (backend/): the Dockerfile needs go.mod and the
+# Build from the module root (the repository root): the Dockerfile needs go.mod and the
 # libs/ packages the k6 module imports.
 image:
 	docker buildx build --platform $(PLATFORM) --load -t $(IMAGE) \
