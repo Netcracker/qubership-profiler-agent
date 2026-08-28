@@ -210,9 +210,16 @@ spec:
             - name: external
               containerPort: 8080
               protocol: TCP
+            # Cluster-internal only: no Service carries it, so the ingress cannot
+            # reach /metrics or /debug/pprof (§12, reports2#15).
+            - name: metrics
+              containerPort: 8081
+              protocol: TCP
           env:
             - name: PROFILER_EXTERNAL_API_PORT
               value: "8080"
+            - name: PROFILER_METRICS_PORT
+              value: "8081"
             - name: COLLECTOR_HEADLESS_SVC
               value: "profiler-collector-headless"
             - name: PROFILER_OVERLAP_MARGIN
@@ -471,7 +478,7 @@ Run the full umbrella chart with `collector.replicas: 1`, `query.replicas: 1`, `
 ## 12. What this contract does NOT cover
 
 - **Ingress / external routing** to `/api/v1` — varies per cluster (Ingress controller, OpenShift Route, AWS ALB, etc.). The Helm chart exposes an `ingress.enabled / className / host` block; specific values are operator-supplied.
-- **Grafana dashboards.** The binary exposes `/metrics` (Prometheus format): `collect` on the internal port, `query` on the external port (it has no internal one), `maintain` on its metrics port in loop mode. The `profiler-backend` chart ships ServiceMonitor/PodMonitor objects and a PrometheusRule with the baseline alerts; dashboards land later.
+- **Grafana dashboards.** The binary exposes `/metrics` (Prometheus format): `collect` on the internal port, `query` and `maintain` on a dedicated metrics port (`PROFILER_METRICS_PORT`, default 8081). query serves `/metrics` and `/debug/pprof` on that port, not on the external one: the ingress maps the external port at path `/`, so keeping both off it is the only portable way to stop them leaking past the cluster boundary (reports2#15). The metrics port sits on no Service, so a PodMonitor scrapes it pod-directly. The `profiler-backend` chart ships ServiceMonitor/PodMonitor objects and a PrometheusRule with the baseline alerts; dashboards land later.
 - **Network policies** — supplied per-cluster.
 - **Service mesh** integration (Istio sidecar, Linkerd) — orthogonal to this contract; sidecars work as long as they don't terminate the agent's TCP stream.
 - **Backup of `metadata.sqlite`** — not needed: the database is rebuildable from PV contents (`03-lifecycle.md` §3.2).

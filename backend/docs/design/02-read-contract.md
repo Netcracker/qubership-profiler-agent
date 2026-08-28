@@ -687,7 +687,8 @@ Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`
 | `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling for a `/calls` scan; over it, `400`. Counts compressed object bytes, per request; size it for the widest single query the deployment allows — the pod is sized from the §7.5 budget, not from this guard. |
 | `PROFILER_READ_MEMORY_BUDGET` | `512MB` | Process-wide read memory budget (§7.5): every reader charges materialized bytes against it. Size ≤ (pod limit − baseline) / overhead factor (≈2). |
 | `PROFILER_READ_BUDGET_WAIT` | `5s` | Bounded queue wait on a budget charge (§7.5); past it the request answers `503` + `Retry-After`. A negative value is rejected at startup. |
-| `PROFILER_EXTERNAL_API_PORT` | `8080` | Bind for `/api/v1/*`. |
+| `PROFILER_EXTERNAL_API_PORT` | `8080` | Bind for `/api/v1/*` and the UI. |
+| `PROFILER_METRICS_PORT` | `8081` | Bind for `/metrics` and `/debug/pprof`, on a listener the ingress does not publish (`04-storage-layout.md` §12). |
 | `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Same as in `01-write-contract.md` §9. |
 
 ## 10. What this contract does NOT cover
