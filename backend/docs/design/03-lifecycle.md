@@ -149,6 +149,8 @@ Expected duration of 3.1–3.7 on a healthy PV: seconds to tens of seconds. Domi
 
 The state name is for kubelet logs and human debugging; kubelet only cares about the HTTP code.
 
+While the API handler is unmounted, every non-probe route — the API and the SPA shell alike — answers `503` with the `02-read-contract.md` §8 problem envelope and `code: not_ready`. The two probe routes keep the state body above: it is read by a human, not by an API client.
+
 `/internal/v1/health/live` (liveness):
 
 - `200 OK` while the process is healthy enough to keep running.

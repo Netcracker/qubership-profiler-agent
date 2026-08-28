@@ -22,6 +22,8 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/clock"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
+	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/labstack/echo/v4"
 )
@@ -45,6 +47,16 @@ func New(store *hotstore.Store) *API {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
+	// This echo runs no logger middleware, so the mapper is wrapped to log the
+	// cause before it is dropped from the response: a 500 here would otherwise
+	// reach neither the caller nor the operator, and the fan-out only ever
+	// quotes a truncated snippet of the body (02 §7.4).
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		if !httpproblem.IsClientSide(err) {
+			log.Error(c.Request().Context(), err, "internal API request failed, uri = %s", c.Request().RequestURI)
+		}
+		httpproblem.ErrorHandler(err, c)
+	}
 	a := &API{store: store, echo: e}
 	e.GET("/internal/v1/calls", a.handleCalls)
 	e.GET("/internal/v1/calls/:pk", a.handleCall)
@@ -73,29 +85,21 @@ func (a *API) Run(ctx context.Context, addr string) error {
 	return err
 }
 
-// problem is the RFC 7807 error body (02 §8); the internal API mirrors the
-// external shapes.
-type problem struct {
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Status int    `json:"status"`
-	Detail string `json:"detail,omitempty"`
-}
-
-func sendProblem(c echo.Context, status int, title, detail string) error {
-	c.Response().Header().Set(echo.HeaderContentType, "application/problem+json")
-	c.Response().WriteHeader(status)
-	return json.NewEncoder(c.Response()).Encode(problem{
-		Type: "about:blank", Title: title, Status: status, Detail: detail,
-	})
+func sendProblem(c echo.Context, status int, code, title, detail string) error {
+	return httpproblem.Send(c, httpproblem.New(status, code, title, detail))
 }
 
 func badRequest(c echo.Context, detail string) error {
-	return sendProblem(c, http.StatusBadRequest, "invalid request", detail)
+	return sendProblem(c, http.StatusBadRequest, httpproblem.CodeInvalidRequest, "invalid request", detail)
 }
 
-func notFound(c echo.Context, detail string) error {
-	return sendProblem(c, http.StatusNotFound, "not found", detail)
+// notFound answers a resource this replica does not hold. The caller picks the
+// code — a call, a trace blob, and a pod-restart are three different misses,
+// and none of them is the unmatched route that httpproblem.CodeNotFound is
+// reserved for, so a version-skewed query service can tell "no such endpoint"
+// from "no such data".
+func notFound(c echo.Context, code, detail string) error {
+	return sendProblem(c, http.StatusNotFound, code, "not found", detail)
 }
 
 // callsResponse mirrors the external /calls envelope (02 §3: same JSON
@@ -304,7 +308,7 @@ func (a *API) handleCall(c echo.Context) error {
 		return err
 	}
 	if !ok {
-		return notFound(c, "this replica holds no call "+pk.PathString())
+		return notFound(c, httpproblem.CodeCallNotFound, "this replica holds no call "+pk.PathString())
 	}
 	row, err := a.toCallRow(idx)
 	if err != nil {
@@ -325,7 +329,7 @@ func (a *API) handleTrace(c echo.Context) error {
 	blob, err := a.store.AssembleTraceBlob(c.Request().Context(), podRestartKey(pk),
 		int(pk.TraceFileIndex), int64(pk.BufferOffset), int(pk.RecordIndex))
 	if errors.Is(err, hotstore.ErrBlobUnavailable) {
-		return notFound(c, err.Error())
+		return notFound(c, httpproblem.CodeTraceUnavailable, err.Error())
 	}
 	if err != nil {
 		return err
@@ -416,7 +420,8 @@ func (a *API) handleDictionary(c echo.Context) error {
 	}
 	pr, ok := a.store.PodRestart(key)
 	if !ok {
-		return notFound(c, "this replica hosts no pod-restart "+c.Param("podRestart"))
+		return notFound(c, httpproblem.CodePodRestartNotFound,
+			"this replica hosts no pod-restart "+c.Param("podRestart"))
 	}
 	words := pr.DictionaryWords()
 	etag := fmt.Sprintf(`"%s:%d"`, c.Param("podRestart"), len(words))
@@ -460,7 +465,8 @@ func (a *API) handleSuspend(c echo.Context) error {
 	}
 	pr, ok := a.store.PodRestart(key)
 	if !ok {
-		return notFound(c, "this replica hosts no pod-restart "+c.Param("podRestart"))
+		return notFound(c, httpproblem.CodePodRestartNotFound,
+			"this replica hosts no pod-restart "+c.Param("podRestart"))
 	}
 	pauses := pr.SuspendPauses()
 	body := suspendTimeline{Events: make([]suspendTimelineEvent, 0, len(pauses))}
@@ -504,7 +510,8 @@ func (a *API) handleValues(c echo.Context) error {
 		PodName: tuple.Pod, RestartTimeMs: tuple.RestartTimeMs,
 	}
 	if _, ok := a.store.PodRestart(key); !ok {
-		return notFound(c, "this replica hosts no pod-restart "+c.Param("podRestart"))
+		return notFound(c, httpproblem.CodePodRestartNotFound,
+			"this replica hosts no pod-restart "+c.Param("podRestart"))
 	}
 	values, err := a.store.BigValues(c.Request().Context(), key, refs)
 	if err != nil {

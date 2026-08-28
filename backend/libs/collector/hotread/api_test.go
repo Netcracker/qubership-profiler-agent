@@ -11,6 +11,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotread"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
+	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
@@ -359,4 +360,71 @@ func TestInternalCallsMethodFilterPagination(t *testing.T) {
 	for _, call := range got.Calls {
 		assert.Equal(t, "com.example.Wanted.run", call.Method)
 	}
+}
+
+// problemEnvelope is the §8 body decoded by its wire member names, so a
+// renamed member fails here rather than in a client.
+type problemEnvelope struct {
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Status int    `json:"status"`
+	Detail string `json:"detail"`
+	Code   string `json:"code"`
+}
+
+// getProblem issues one request and decodes the §8 envelope, asserting the
+// media type on the way.
+func getProblem(t *testing.T, srv *httptest.Server, path string) (int, problemEnvelope) {
+	t.Helper()
+	var body problemEnvelope
+	resp, err := http.Get(srv.URL + path)
+	require.NoError(t, err)
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, httpproblem.ContentType, resp.Header.Get("Content-Type"), "body: %s", raw)
+	require.NoError(t, json.Unmarshal(raw, &body), "body: %s", raw)
+	assert.Equal(t, "about:blank", body.Type)
+	assert.Equal(t, resp.StatusCode, body.Status)
+	return resp.StatusCode, body
+}
+
+// The internal API answers failures in the same envelope the external one
+// does, and its codes keep the two kinds of 404 apart: a route this build does
+// not serve is what a version-skewed query service sees, while a missing
+// pod-restart is ordinary data that rolled out of the hot window. Answering
+// both as a bare "not found" would make a deploy skew look like data loss.
+func TestInternalErrorsUseTheProblemEnvelope(t *testing.T) {
+	t.Run("an unexpected store failure keeps its cause out of the response", func(t *testing.T) {
+		store := openTestStore(t)
+		srv := httptest.NewServer(hotread.New(store).Handler())
+		t.Cleanup(srv.Close)
+		require.NoError(t, store.Close())
+
+		window := url.Values{"from": {fmt.Sprint(baseMs - 1000)}, "to": {fmt.Sprint(baseMs + 1000)}}
+		status, body := getProblem(t, srv, "/internal/v1/calls?"+window.Encode())
+		assert.Equal(t, http.StatusInternalServerError, status)
+		assert.Equal(t, httpproblem.CodeInternalError, body.Code)
+		assert.NotContains(t, body.Detail, "sql", "the driver message stays in the log")
+	})
+
+	t.Run("a route this build does not serve", func(t *testing.T) {
+		srv := httptest.NewServer(hotread.New(openTestStore(t)).Handler())
+		t.Cleanup(srv.Close)
+
+		status, body := getProblem(t, srv, "/internal/v1/nope")
+		assert.Equal(t, http.StatusNotFound, status)
+		assert.Equal(t, httpproblem.CodeNotFound, body.Code)
+	})
+
+	t.Run("a pod-restart this replica does not host", func(t *testing.T) {
+		srv := httptest.NewServer(hotread.New(openTestStore(t)).Handler())
+		t.Cleanup(srv.Close)
+
+		status, body := getProblem(t, srv,
+			fmt.Sprintf("/internal/v1/pods/%s:%s:pod-x:7/dictionary", testNs, testSvc))
+		assert.Equal(t, http.StatusNotFound, status)
+		assert.Equal(t, httpproblem.CodePodRestartNotFound, body.Code,
+			"a rolled pod-restart must not look like a missing endpoint")
+	})
 }

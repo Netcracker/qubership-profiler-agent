@@ -6,10 +6,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"os"
-	"strings"
-	"syscall"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
@@ -92,6 +90,9 @@ func New(opts Options) *Service {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
+	// Everything no handler answered itself — a raw error, an unmatched route,
+	// a wrong method — still leaves as the §8 problem envelope.
+	e.HTTPErrorHandler = httpproblem.ErrorHandler
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus:   true,
 		LogURI:      true,
@@ -102,7 +103,7 @@ func New(opts Options) *Service {
 			switch {
 			case v.Error == nil:
 				log.Debug(ctx, "request, uri = %s, status = %d", v.URI, v.Status)
-			case isClientSideError(v.Error):
+			case httpproblem.IsClientSide(v.Error):
 				// A routine 4xx, a canceled/timed-out request, or the caller
 				// closing its socket mid-response: expected traffic, not a
 				// server-side failure (PR 708 review #23).
@@ -149,36 +150,4 @@ func (s *Service) Run(ctx context.Context) error {
 		return nil // a requested shutdown is not a failure
 	}
 	return err
-}
-
-// isClientSideError reports a request outcome the client caused, not the
-// server: a routine 4xx (not-found, bad request), a canceled or timed-out
-// request context, or the caller closing its socket mid-response. None of
-// these need operator attention, unlike a real 5xx or an unexpected error
-// (PR 708 review #23).
-func isClientSideError(err error) bool {
-	var httpErr *echo.HTTPError
-	if errors.As(err, &httpErr) && httpErr.Code >= 400 && httpErr.Code < 500 {
-		return true
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	return isBrokenPipeOrReset(err)
-}
-
-// isBrokenPipeOrReset detects a client that closed its connection while the
-// server was still writing the response.
-func isBrokenPipeOrReset(err error) bool {
-	var netErr *net.OpError
-	if errors.As(err, &netErr) {
-		var sysErr *os.SyscallError
-		if errors.As(netErr.Err, &sysErr) {
-			return errors.Is(sysErr.Err, syscall.EPIPE) || errors.Is(sysErr.Err, syscall.ECONNRESET)
-		}
-	}
-	// Some write paths surface only a formatted string with no syscall
-	// wrapper to match against — fall back to the message.
-	msg := err.Error()
-	return strings.Contains(msg, "broken pipe") || strings.Contains(msg, "connection reset by peer")
 }
