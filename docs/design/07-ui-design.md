@@ -105,7 +105,7 @@ collapse to a single value.
   inbound navigation (trace → profile via the R3 filter) and the call's `Open trace` link.
 - **Outgoing (node-level, many):** trace/span ids stay as tree-node params; each deep-links out on its own.
 
-The old UI read these from params (`brave.trace_id`, `brave.span_id`; `apps/profiler-ui/src/dataFormat.mjs`);
+The old UI read these from params (`brave.trace_id`, `brave.span_id`; `apps/agent/profiler-ui/src/dataFormat.mjs`);
 whether the new pipeline preserves them is **unverified** — `CallV2` has no trace/span columns. Resolve before
 wiring: verify the params survive into `CallV2.Params`, or promote the incoming pair to dedicated columns
 (doc 08). Either way the UI provisions a **link-template seam** now and defers the wiring: a configurable map from a param to an
@@ -204,7 +204,7 @@ does). Node category is client-side too (Setup categories).
 
 The analytics core is five pure `TreeModel → TreeModel` (or `TreeModel → FlatProfile`) transforms —
 framework-agnostic and unit-testable against a synthetic tree generator (§7), matching the semantics in
-`apps/profiler-ui/src/profiler.mjs`. They run entirely client-side over the server's merged tree (doc 08 §9). The
+`apps/agent/profiler-ui/src/profiler.mjs`. They run entirely client-side over the server's merged tree (doc 08 §9). The
 old UI's full operation set is larger than these five (see the list below the transforms); the five are the
 ones with real algorithmic weight.
 

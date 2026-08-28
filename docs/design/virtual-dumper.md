@@ -17,12 +17,12 @@ Every rule in this contract is traced to the Java sources; when in doubt, the Ja
 
 | Concern | Java source |
 | --- | --- |
-| Restart cadence, incarnations | `apps/dumper/src/main/java/com/netcracker/profiler/dump/DumperThread.java` |
-| Streams, flush loop, buffer steal, encodings | `apps/dumper/src/main/java/com/netcracker/profiler/Dumper.java` |
-| Handshake, acks, 1 KB write chop | `apps/dumper/src/main/java/com/netcracker/profiler/client/DefaultCollectorClient.java` |
-| Per-stream remote buffering, phrase framing | `apps/dumper/src/main/java/com/netcracker/profiler/io/RemoteAndLocalOutputStream.java` |
-| Phrase buffer semantics | `apps/proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/PhraseOutputStream.java` |
-| Wire constants | `apps/proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/ProtocolConst.java` |
+| Restart cadence, incarnations | `apps/agent/dumper/src/main/java/com/netcracker/profiler/dump/DumperThread.java` |
+| Streams, flush loop, buffer steal, encodings | `apps/agent/dumper/src/main/java/com/netcracker/profiler/Dumper.java` |
+| Handshake, acks, 1 KB write chop | `apps/agent/dumper/src/main/java/com/netcracker/profiler/client/DefaultCollectorClient.java` |
+| Per-stream remote buffering, phrase framing | `apps/agent/dumper/src/main/java/com/netcracker/profiler/io/RemoteAndLocalOutputStream.java` |
+| Phrase buffer semantics | `apps/agent/proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/PhraseOutputStream.java` |
+| Wire constants | `apps/agent/proto-definition/src/main/java/com/netcracker/profiler/cloud/transport/ProtocolConst.java` |
 
 ### 1.1 Lifecycle state machine
 

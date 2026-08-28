@@ -1,6 +1,6 @@
 # 06 — Wire protocol, server side
 
-> Status: **draft**, awaiting review. Verified against agent code (`apps/dumper/`, `apps/proto-definition/`) and the Go server (`libs/server/`). The server implementation now conforms (§8), guarded by an integration test (§9). No agent change is required.
+> Status: **draft**, awaiting review. Verified against agent code (`apps/agent/dumper/`, `apps/agent/proto-definition/`) and the Go server (`libs/server/`). The server implementation now conforms (§8), guarded by an integration test (§9). No agent change is required.
 
 Contract `01-write-contract.md` §1 covers what the agent **sends** over the TCP channel — the seven named streams and the framing of each. This document covers the other half of the same socket: what the collector **reads from each command and writes back**, on which events it flushes, and how it acknowledges data. It is the source of truth for the TCP listener in Stage 1.1.
 
@@ -12,8 +12,8 @@ A live server already exists (`libs/server/server_connection.go`). It was a skel
 
 - **One TCP connection, one agent, one `(namespace, service, podName)` triple** (`01-write-contract.md` §1 V6). The collector accepts the connection and stamps `restartTime` at accept time (§1 V4).
 - **Request/response over a single duplex socket.** The agent drives: it sends a command, and for the commands that expect a reply it reads the reply before sending the next data command. The collector never initiates a command in the MVP; it only answers.
-- **Framing primitives** are shared with the read path and already exist on the Go side (`libs/io/tcp_writer.go`): `WriteFixedByte`, `WriteFixedInt`, `WriteFixedLong`, `WriteUuid`, `WriteFixedString`, `WriteFixedBuf`. Field encodings match the agent's `FieldIO` (`apps/proto-definition/.../transport/`). "Fixed" long/int are big-endian; strings and byte fields are length-prefixed.
-- **Command bytes** are defined once in `libs/protocol/commands.go` and must stay numerically identical to `apps/proto-definition/.../transport/ProtocolConst.java`.
+- **Framing primitives** are shared with the read path and already exist on the Go side (`libs/io/tcp_writer.go`): `WriteFixedByte`, `WriteFixedInt`, `WriteFixedLong`, `WriteUuid`, `WriteFixedString`, `WriteFixedBuf`. Field encodings match the agent's `FieldIO` (`apps/agent/proto-definition/.../transport/`). "Fixed" long/int are big-endian; strings and byte fields are length-prefixed.
+- **Command bytes** are defined once in `libs/protocol/commands.go` and must stay numerically identical to `apps/agent/proto-definition/.../transport/ProtocolConst.java`.
 
 ## 2. Command table
 

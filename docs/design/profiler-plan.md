@@ -24,7 +24,7 @@ Additional notes:
 - `libs/pg/db.go` describes the schema: temp tables `calls_<ts>`, `traces_<ts>`, `suspend_<ts>` at 5-minute granularity; `dumps_*` at 1-hour granularity with 7-day TTL; inverted index at 1-hour granularity with 14-day TTL. Old partitions are dropped wholesale (see `libs/pg/resources/schema/migration/*`).
 - The collector code that writes to Postgres lives in `apps/collector/src/main/java/com/netcracker/persistence/adapters/cloud/` (DAO per entity: calls, traces, dictionary, params, dumps, pod_statistics). The question "what is actually written to Postgres" is answered by: metadata + decoded call records + the raw trace bytes themselves (`traces_<ts>.trace bytea`).
 - `dumps-collector` is already on SQLite + PV with no Postgres — a working "all-in-one" reference. Its pattern (`apps/dumps-collector/pkg/client/sqlite`, plus rescan/insert/pack/remove tasks orchestrated via `oklog/run`) is a useful template when collapsing the profiler stack to a single binary.
-- The agent (`apps/agent/`, `apps/dumper/`, `apps/runtime/`) is a separate project. It instruments Java applications and pushes a stream over TCP to the collector service (port 1715 in the Helm values).
+- The agent (`apps/agent/agent/`, `apps/agent/dumper/`, `apps/agent/runtime/`) is a separate project. It instruments Java applications and pushes a stream over TCP to the collector service (port 1715 in the Helm values).
 
 ---
 

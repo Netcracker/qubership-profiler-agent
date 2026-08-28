@@ -51,37 +51,33 @@ component_management:
     - component_id: diagtools
       name: Diagtools (Go)
       paths:
-        - "apps/diagtools/**"
+        - "apps/agent/diagtools/**"
     - component_id: java_agent
       name: Java agent
       paths:
-        # Defined by subtraction, so every Go and TypeScript tree above has to be
-        # named here too. They no longer share a `backend/` prefix to exclude in
-        # one line: the Gradle projects and the Go apps are siblings under apps/,
-        # so a new Go app has to be added both to backend_go and to this list.
-        - "!apps/dumps-collector/**"
-        - "!apps/profiler-backend/**"
-        - "!apps/ui/**"
-        - "!apps/diagtools/**"
-        - "!libs/**"
-        - "!tools/**"
+        # Every Gradle project sits under apps/agent/, so this is a positive glob
+        # rather than a subtraction of each Go tree. diagtools is the one exception:
+        # it is a published Kotlin library that also ships a Go binary, and the
+        # component above claims it, so exclude it here to keep files out of both.
+        - "apps/agent/**"
+        - "!apps/agent/diagtools/**"
 
 fixes:
   # `go test -coverprofile` records import paths, not repository paths. The two
   # Go modules have unrelated module paths, so each needs its own rule. The root
   # module maps onto the repository root; the diagtools rule strips its prefix
-  # down to the `apps/diagtools/` directory it now lives in.
+  # down to the `apps/agent/diagtools/` directory it now lives in.
   - "github.com/Netcracker/qubership-profiler-backend/::"
-  - "github.com/Netcracker/qubership-profiler-agent/::apps/"
+  - "github.com/Netcracker/qubership-profiler-agent/::apps/agent/"
   # vitest runs from apps/ui, so lcov SF: entries read `src/app.tsx`.
   - "src/::apps/ui/src/"
 
 ignore:
   # Maven-built demo applications, outside both the Gradle and the Go build.
   - "examples/**"
-  - "apps/profiler-ui/**"
-  - "apps/sample-apps/**"
-  - "apps/test-app/**"
+  - "apps/agent/profiler-ui/**"
+  - "apps/agent/sample-apps/**"
+  - "apps/agent/test-app/**"
 
 comment:
   layout: "header, diff, flags, components"

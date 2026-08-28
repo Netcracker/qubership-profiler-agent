@@ -62,7 +62,7 @@ Environment knobs (all optional):
 
 ## How the agent reaches the collector
 
-The agent switches from local-file dumps to the TCP collector purely because `REMOTE_DUMP_HOST` is set. From `apps/dumper/.../Dumper.java`:
+The agent switches from local-file dumps to the TCP collector purely because `REMOTE_DUMP_HOST` is set. From `apps/agent/dumper/.../Dumper.java`:
 
 ```text
 remoteConfigured  = isNotEmpty(REMOTE_DUMP_HOST)

@@ -321,12 +321,12 @@ hold thousands of SQL texts and binds, so values fold into groups server-side.
 | 3 | `params` | `[Param]` | no | Nested params — binds under their SQL. Omitted when empty. |
 | 4 | `unresolved` | bool | no | The value is an unresolved big-parameter reference (§2.5). Omitted when false. |
 
-**Aggregation semantics** (ported from the Java `apps/parsers/` `Hotspot` / `TreeBuilderTrace`, deviations noted):
+**Aggregation semantics** (ported from the Java `apps/agent/parsers/` `Hotspot` / `TreeBuilderTrace`, deviations noted):
 
 - **Group key.** Values group per param by the normalized signature when the param is SQL-shaped —
   it arrived as `PARAM_BIG_DEDUP` (the deduplicated big-value stream carries SQL by construction,
   `01-write-contract.md` §4.4) or its key word is `binds` — and by the exact value otherwise. The
-  normalization is the old UI's `signatures.sql` (`apps/profiler-ui/src/profiler.mjs:3469`): drop commas, strip
+  normalization is the old UI's `signatures.sql` (`apps/agent/profiler-ui/src/profiler.mjs:3469`): drop commas, strip
   single-quoted literals (`''` escapes included) and digits, abbreviate every word to its first character,
   strip whitespace. *Deviation:* the Java aggregation keyed a group by an invocation's whole value-set; the
   per-value key is what makes the signature axis work, and one invocation's duration is attributed to a

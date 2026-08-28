@@ -46,7 +46,7 @@ Non-goals: formal SLO certification, multi-region setups, profiling the Java age
 
 The current generator is faithful on the handshake (pod identity), 1 KB `RCV_DATA` framing, and ack reading, but it
 cannot exercise backpressure or crashloop paths. Gap analysis against the Java dumper
-(`apps/dumper/src/main/java/com/netcracker/profiler/{Dumper,client/DefaultCollectorClient,dump/DumperThread}.java`):
+(`apps/agent/dumper/src/main/java/com/netcracker/profiler/{Dumper,client/DefaultCollectorClient,dump/DumperThread}.java`):
 
 | # | Gap | Size | Needed for |
 | --- | --- | --- | --- |

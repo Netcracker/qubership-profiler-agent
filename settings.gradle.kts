@@ -111,18 +111,18 @@ include("plugins:undertow_http")
 include("plugins:vertx")
 
 
-// Every subproject lives under apps/, but its project path stays flat: `:boot`, not
-// `:apps:boot`. That keeps the type-safe accessors (projects.boot), the inter-project
+// Every subproject lives under apps/agent/, but its project path stays flat: `:boot`, not
+// `:apps:agent:boot`. That keeps the type-safe accessors (projects.boot), the inter-project
 // dependency notations, and the published Maven coordinates exactly as they were before
 // the modules moved. Walk top-down and set every directory explicitly rather than relying
 // on a child inheriting a relocated parent's directory, which only works while nothing has
 // read the child's projectDir yet.
-fun relocateUnderApps(descriptor: ProjectDescriptor) {
-    descriptor.projectDir = file("apps/" + descriptor.path.removePrefix(":").replace(':', '/'))
-    descriptor.children.forEach { relocateUnderApps(it) }
+fun relocateUnderAgent(descriptor: ProjectDescriptor) {
+    descriptor.projectDir = file("apps/agent/" + descriptor.path.removePrefix(":").replace(':', '/'))
+    descriptor.children.forEach { relocateUnderAgent(it) }
 }
 
-rootProject.children.forEach { relocateUnderApps(it) }
+rootProject.children.forEach { relocateUnderAgent(it) }
 
 
 // See https://github.com/gradle/gradle/issues/1348#issuecomment-284758705 and

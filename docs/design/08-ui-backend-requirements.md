@@ -19,7 +19,7 @@ the read path simply does not project it. Those are cheap wins. The genuinely ne
 - **Tree.** The `/tree` `Node` is a raw call tree: `{methodIdx, enterMsRel, durationMs, params, children}`. The
   old UI renders a *merged* node with self and total duration, self and total suspension, execution and
   child-execution counts, first and last invocation offsets, and per-method source location. The old node
-  model is `apps/profiler-ui/src/profiler.mjs` `M_*` (M_DURATION, M_SELF_DURATION, M_SUSPENSION,
+  model is `apps/agent/profiler-ui/src/profiler.mjs` `M_*` (M_DURATION, M_SELF_DURATION, M_SUSPENSION,
   M_SELF_SUSPENSION, M_EXECUTIONS, M_CHILD_EXECUTIONS, M_START_TIME, M_END_TIME, M_TAGS).
 - **Storage.** Parquet is bucketed by start time (5 min) and by retention class, and the retention class is a
   duration band (`short_clean < 100 ms`, `normal_clean 100–1000 ms`, `long_clean ≥ 1000 ms`, `any_error`).
@@ -53,7 +53,7 @@ agent still sends them and whether `CallV2` keeps them; expose in `CallJSON` if 
 | R5 | B | Return a **merged** tree, not a raw one, server-side in `calltree.Build`. Merge sibling invocations of the same method under a parent into one node carrying `selfExecutions` and total `executions` (self + children). | A raw tree is unbounded — a 1M-iteration loop is 1M nodes (the user-guide notes 1–10M calls per request). The old UI always merged. This gates both payload size and render viability. |
 | R6 | B | Per-node self and total duration (`selfDurationMs`, `durationMs`). | Self-time is `durationMs − Σ children.durationMs`; the backend computes it during the merge. |
 | R7 | B | Per-node self and total suspension (`selfSuspensionMs`, `suspensionMs`). | The agent records suspension as a global pod-restart stop-the-world timeline, not per method. The tree builder attributes it by intersecting each node's `[enter, exit]` work interval with the timeline, at build time (`calltree.Build`). **Data-path gap:** `calltree.Build` today takes only `(blob, recordIndex, Options)` — designing the suspend-timeline input and its hot/cold retrieval is part of R7 and precedes 5.2. |
-| R11 | B | Aggregate node params into a mini-tree at merge. Group high-cardinality values (SQL, binds) by a normalized signature, keep the top-N groups by time with per-group `durationMs` / `executions`, bucket the rest into `::other`, and nest binds under their SQL. | A single node can hold thousands of SQL texts; shipping them raw defeats the merge. The old UI capped at top-256 + `::other` and grouped similar SQL by stripping string literals and digits (`apps/profiler-ui/src/profiler.mjs:3469`). The exact contract — group key, attribution, the 256-group cap and eviction, bind nesting, and the deviations from the Java `apps/parsers/` `Hotspot` aggregation — is formalized in `02-read-contract.md` §2.5.3. |
+| R11 | B | Aggregate node params into a mini-tree at merge. Group high-cardinality values (SQL, binds) by a normalized signature, keep the top-N groups by time with per-group `durationMs` / `executions`, bucket the rest into `::other`, and nest binds under their SQL. | A single node can hold thousands of SQL texts; shipping them raw defeats the merge. The old UI capped at top-256 + `::other` and grouped similar SQL by stripping string literals and digits (`apps/agent/profiler-ui/src/profiler.mjs:3469`). The exact contract — group key, attribution, the 256-group cap and eviction, bind nesting, and the deviations from the Java `apps/agent/parsers/` `Hotspot` aggregation — is formalized in `02-read-contract.md` §2.5.3. |
 
 First/last invocation offsets are not needed — dropped from the node model.
 
@@ -71,7 +71,7 @@ Expanding a node must **skip pass-through chains** and land on the next node tha
 deep stack where each level passes ~100% of its time to a single child must expand in one click, not one
 click per level — otherwise a typical deep stack is unusable.
 
-- **Source of truth:** `apps/profiler-ui/src/profiler.mjs` `sortNode` (line 6186), stored in `M_COLLAPSE_LEVELS`.
+- **Source of truth:** `apps/agent/profiler-ui/src/profiler.mjs` `sortNode` (line 6186), stored in `M_COLLAPSE_LEVELS`.
 - **Heuristic (top-down, by duration):** collapse a node into its dominant first child when the part of the
   node's duration *not* explained by that child is ≤ 10% of the node's duration, the execution counts are
   consistent (not a fan-out), and the node carries no params/tags. Levels accumulate down the chain, so a
@@ -139,14 +139,14 @@ pass-through chain so a match inside one stays reachable (`tree/search.ts`).
   surfacing the params and the link seam now avoids a later rework. Inbound navigation (trace/log → profile)
   needs the param-filter query (R3) to find calls by `trace_id`.
 
-## 10. Deferred: dump analysis and the `apps/parsers/` module
+## 10. Deferred: dump analysis and the `apps/agent/parsers/` module
 
 The old UI's "Analyze dump" turned several offline artifacts into the same tree — thread dumps, stackcollapse,
-Oracle DBMS_HPROF, and JFR (`apps/parsers/src/main/java/com/netcracker/profiler/fetch/`). Stage 5 defers all of it;
+Oracle DBMS_HPROF, and JFR (`apps/agent/parsers/src/main/java/com/netcracker/profiler/fetch/`). Stage 5 defers all of it;
 the disposition is recorded here so it is not lost.
 
-- **`apps/parsers/` is not superseded wholesale.** The Go rewrite covers only the live path (agent protocol →
-  parquet → `calltree`). The offline analyzers and the Excel export live only in `apps/parsers/` (Java). Remove the
+- **`apps/agent/parsers/` is not superseded wholesale.** The Go rewrite covers only the live path (agent protocol →
+  parquet → `calltree`). The offline analyzers and the Excel export live only in `apps/agent/parsers/` (Java). Remove the
   live-path parts once Go proves out; keep the rest until ported.
 - **Simple analyzers → Go, later.** Thread dump and stackcollapse are text; port them into the single binary
   and the CLI, reusing the `calltree` merge (thread-dump aggregation is the same merge as R5). DBMS_HPROF is a

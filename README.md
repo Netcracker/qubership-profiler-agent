@@ -22,61 +22,61 @@ as continuous tracing profiler.
 
 Application servers or Portals:
 
-* [Liferay](apps/plugins/liferay)
+* [Liferay](apps/agent/plugins/liferay)
 
 Build systems:
 
 * ANT
-  * [ANT (<=1.10.1)](apps/plugins/ant)
-  * [ANT (>=1.10.2)](apps/plugins/ant_1102)
+  * [ANT (<=1.10.1)](apps/agent/plugins/ant)
+  * [ANT (>=1.10.2)](apps/agent/plugins/ant_1102)
 
 Databases:
 
 * DataStax Cassandra
-  * [DataStax Cassandra 3.x](apps/plugins/cassandra)
-  * [DataStax cassandra 4.x](apps/plugins/cassandra4)
-* [ElasticSearch](apps/plugins/elasticsearch)
-* [MySQL JDBC](apps/plugins/mysql)
-* [PostgeSQL JDBC](apps/plugins/postgresql)
+  * [DataStax Cassandra 3.x](apps/agent/plugins/cassandra)
+  * [DataStax cassandra 4.x](apps/agent/plugins/cassandra4)
+* [ElasticSearch](apps/agent/plugins/elasticsearch)
+* [MySQL JDBC](apps/agent/plugins/mysql)
+* [PostgeSQL JDBC](apps/agent/plugins/postgresql)
 
 Distribution tracing:
 
-* [Brave (Zipkin agent)](apps/plugins/brave)
-* [Jaeger](apps/plugins/jaeger)
-* [Ocelot](apps/plugins/ocelot)
+* [Brave (Zipkin agent)](apps/agent/plugins/brave)
+* [Jaeger](apps/agent/plugins/jaeger)
+* [Ocelot](apps/agent/plugins/ocelot)
 
 HTTP clients:
 
-* [HTTP](apps/plugins/http)
-* [Java HTTP Client](apps/plugins/java_http_client)
-* [Tomcat <= 9.x](apps/plugins/tomcat_http)
-* [Tomcat >= 10.x](apps/plugins/tomcat10_http)
-* [Undertow < 2.3](apps/plugins/undertow_http)
-* [Undertow >= 2.3](apps/plugins/undertow23_http)
+* [HTTP](apps/agent/plugins/http)
+* [Java HTTP Client](apps/agent/plugins/java_http_client)
+* [Tomcat <= 9.x](apps/agent/plugins/tomcat_http)
+* [Tomcat >= 10.x](apps/agent/plugins/tomcat10_http)
+* [Undertow < 2.3](apps/agent/plugins/undertow_http)
+* [Undertow >= 2.3](apps/agent/plugins/undertow23_http)
 
 Java Frameworks:
 
-* [Apache Felix](apps/plugins/apache_felix)
-* [Equinox](apps/plugins/equinox)
-* [Spring Framework](apps/plugins/spring)
-  * [Spring REST](apps/plugins/springrest)
+* [Apache Felix](apps/agent/plugins/apache_felix)
+* [Equinox](apps/agent/plugins/equinox)
+* [Spring Framework](apps/agent/plugins/spring)
+  * [Spring REST](apps/agent/plugins/springrest)
 
 Loggers:
 
-* [Log4j](apps/plugins/log4j_enhancer)
+* [Log4j](apps/agent/plugins/log4j_enhancer)
 
 Other:
 
-* [Jackson](apps/plugins/jackson)
-* [Quartz Scheduler](apps/plugins/quartz)
-* [Rhino](apps/plugins/rhino)
-* [Test](apps/plugins/test)
+* [Jackson](apps/agent/plugins/jackson)
+* [Quartz Scheduler](apps/agent/plugins/quartz)
+* [Rhino](apps/agent/plugins/rhino)
+* [Test](apps/agent/plugins/test)
 
 Queues:
 
-* [ActiveMQ](apps/plugins/activemq)
-* [HornetQ](apps/plugins/hornetq)
-* [RabbitMQ](apps/plugins/rabbitmq)
+* [ActiveMQ](apps/agent/plugins/activemq)
+* [HornetQ](apps/agent/plugins/hornetq)
+* [RabbitMQ](apps/agent/plugins/rabbitmq)
 
 ## How to build
 

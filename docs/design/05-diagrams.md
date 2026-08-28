@@ -245,7 +245,7 @@ Three invariants the table encodes:
 
 ## 8. What this contract does NOT cover
 
-- **Sequence of agent-side instrumentation** (how the bytecode rewriter, runtime, and dumper interact to produce the wire stream) — out of scope for backend design. See `apps/agent/`, `apps/dumper/`, `apps/runtime/` modules.
+- **Sequence of agent-side instrumentation** (how the bytecode rewriter, runtime, and dumper interact to produce the wire stream) — out of scope for backend design. See `apps/agent/agent/`, `apps/agent/dumper/`, `apps/agent/runtime/` modules.
 - **Maintain job internals** (compaction algorithms, S3 listing patterns) — covered briefly in `profiler-plan.md`, detailed when Stage 4 begins.
 - **Auth flow** (Keycloak, Bearer, etc.) — deferred; no MVP auth (`02-read-contract.md` §1).
 

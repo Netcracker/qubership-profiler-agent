@@ -23,11 +23,11 @@ The agent opens a long-lived TCP connection to the collector and multiplexes sev
 
 Important consequence: **the collector does not assemble calls.** A `Call` record arrives only when the root call has closed on the agent side. The collector's job is to demultiplex streams, persist them, and emit a parquet row per `Call`.
 
-**Optional channel gzip.** `ProtocolConst.ZIPPING_ENABLED` (default `false`, `apps/proto-definition/.../ProtocolConst.java:46`) gzips the whole multiplexed channel; when it is on, the collector must gunzip before it can demux `RCV_DATA`. The MVP targets the default (off); a gunzip wrapper around the socket is the only change if a deployment turns it on (`06-wire-protocol-server.md` §7).
+**Optional channel gzip.** `ProtocolConst.ZIPPING_ENABLED` (default `false`, `apps/agent/proto-definition/.../ProtocolConst.java:46`) gzips the whole multiplexed channel; when it is on, the collector must gunzip before it can demux `RCV_DATA`. The MVP targets the default (off); a gunzip wrapper around the socket is the only change if a deployment turns it on (`06-wire-protocol-server.md` §7).
 
 ### Verified against agent code
 
-Sources: `apps/dumper/src/main/java/com/netcracker/profiler/Dumper.java`, `apps/boot/src/main/java/com/netcracker/profiler/agent/{LocalBuffer.java,DumperConstants.java}`.
+Sources: `apps/agent/dumper/src/main/java/com/netcracker/profiler/Dumper.java`, `apps/agent/boot/src/main/java/com/netcracker/profiler/agent/{LocalBuffer.java,DumperConstants.java}`.
 
 **V1.** Verified. A `Call` record is emitted only after the root call has closed; its trace bytes are written to the trace stream during the same `writeBufferToFS` pass (`Dumper.java:940-983`).
 
@@ -132,7 +132,7 @@ The collector extracts each root call's bytes into a contiguous per-call blob an
 
 Do not conflate three different "chunk" notions:
 
-- **`COMMAND_RCV_DATA` payload** — up to `DATA_BUFFER_SIZE` = 1 KB of one stream's bytes (`apps/proto-definition/.../ProtocolConst.java:4`; the agent chops at `DefaultCollectorClient.java:314`). The collector concatenates these per stream before anything else.
+- **`COMMAND_RCV_DATA` payload** — up to `DATA_BUFFER_SIZE` = 1 KB of one stream's bytes (`apps/agent/proto-definition/.../ProtocolConst.java:4`; the agent chops at `DefaultCollectorClient.java:314`). The collector concatenates these per stream before anything else.
 - **Logical trace chunk** — `[threadId:long, startTime:long]` (16 bytes) + events + `EVENT_FINISH_RECORD`, `LocalBuffer`-sized (≈ tens of KB, `LocalBuffer.SIZE = 4096` events). One chunk's body belongs to one thread, and one chunk spans many `RCV_DATA` payloads. The trace stream also opens with a one-time `timerStartTime` (8 bytes) before the first chunk. Event times reconstruct as `timerStartTime + Σ(event deltas)` (`TracePodReader.java:152-179`), so the epoch is only a constant offset on absolute timestamps. It cancels in every time difference: call durations and the relative call tree decode without it. Only absolute wall-clock timestamps need the epoch, and each chunk header's `startTime` is itself an absolute anchor (`Dumper.java:882`), so it is recoverable even when lost. The per-call blob carries it as a prefix (§4.5), so the trace readers decode absolute times exactly and run unmodified.
 - **Go `Chunk` type** — a rolling-stream handle in the existing parser, unrelated to either of the above.
 
@@ -320,7 +320,7 @@ On a clean seal the file is uploaded to S3 (Section 7) and kept locally for `hot
 
 ### 5.6 error_flag derivation
 
-The agent marks a call as errored through `ExceptionLogger.callRed()` (typically from a caught exception, `apps/boot/src/main/java/com/netcracker/profiler/agent/ExceptionLogger.java:29-35`), which records the indexed parameter `call.red` on the call. `call.red` is an indexed parameter in every targeted deployment (`apps/installer/.../config/_config.xml`), so it is serialized into the Call record's params and the Go decoder already reads it into `Call.Params` (`libs/parser/pipe/calls.go`). No agent change and no new struct field are needed.
+The agent marks a call as errored through `ExceptionLogger.callRed()` (typically from a caught exception, `apps/agent/boot/src/main/java/com/netcracker/profiler/agent/ExceptionLogger.java:29-35`), which records the indexed parameter `call.red` on the call. `call.red` is an indexed parameter in every targeted deployment (`apps/agent/installer/.../config/_config.xml`), so it is serialized into the Call record's params and the Go decoder already reads it into `Call.Params` (`libs/parser/pipe/calls.go`). No agent change and no new struct field are needed.
 
 At seal, the collector resolves the dictionary id of the literal `call.red` and sets:
 

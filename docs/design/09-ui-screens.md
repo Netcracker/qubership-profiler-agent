@@ -87,7 +87,7 @@ tag for `sql`, `error`, and similar.
 |---------|-----------|
 | Duration chips | `All`, `>10ms`, `>100ms`, `>500ms`, `>3s`, `>5s`. Default `>500ms`, so page one is not sub-millisecond noise. Maps to `duration_min_ms`. This is the v1 "slowest" affordance (true ranking is 08 R2). |
 | Errors only | Toggle → `error_only=true`. |
-| Hide system/proxy | Toggle, default on: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. Client-side filter unless a backend `hide_system` flag is added. |
+| Hide system/proxy | Toggle, default on: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. Client-side filter unless a backend `hide_system` flag is added. |
 | Query | Method substring; `$param=value` is the later param-filter (08 R3). |
 | Columns | Show, hide, reorder, resize; persisted in local storage. |
 | Sort | By column, within loaded pages. Cross-range ranking needs 08 R2 — label the scope so it does not read as global. |
