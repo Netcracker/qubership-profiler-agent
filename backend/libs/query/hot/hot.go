@@ -86,8 +86,11 @@ type (
 		Pods []model.PodEntry `json:"pods"`
 	}
 
+	// dictionaryBody decodes the §2.6 snapshot; freshness comes from the
+	// ETag alone. The decoder ignores unknown fields, so a collector still
+	// on the pre-#836 shape — the one that also sends "version" — decodes
+	// here unchanged during a rolling upgrade.
 	dictionaryBody struct {
-		Version int      `json:"version"`
 		Methods []string `json:"methods"`
 	}
 
