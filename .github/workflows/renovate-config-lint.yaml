@@ -276,6 +276,17 @@ jobs:
           reasons=()
           notes=()
 
+          # The Dependency Dashboard is written by the hosted Renovate run, and
+          # its lookup failures stay on the issue until that run repeats. The
+          # lookup job resolves the same package files from this workflow and
+          # retries once, so its verdict decides whether a dashboard lookup
+          # failure is actionable here.
+          local_lookup_succeeded=false
+          if [[ "$LOOKUP_RESULT" == 'success' ]]; then
+            local_lookup_succeeded=true
+          fi
+          waived_lookup_problem_count=0
+
           issues_enabled="$(gh api "repos/$GH_REPO" --jq '.has_issues')"
           dashboard_json=''
           if [[ "$issues_enabled" == 'true' ]]; then
@@ -306,6 +317,9 @@ jobs:
               # timestamp-optional explicitly allows the affected updates to proceed.
               timestamp_optional_release_warning="⚠️ WARN: Some release(s) did not have a releaseTimestamp, but as we're running with minimumReleaseAgeBehaviour=timestamp-optional, proceeding. See debug logs for more information"
               timestamp_optional_upgrade_warning="⚠️ WARN: Some upgrade(s) did not have a releaseTimestamp, but as we're running with minimumReleaseAgeBehaviour=timestamp-optional, proceeding. See debug logs for more information"
+              # Renovate summarizes the same lookup failures the footer lists,
+              # so this notice adds no signal the lookup job has not checked.
+              lookup_failure_warning='⚠️ WARN: Package lookup failures'
               repository_problems_intro_pattern='^These problems occurred while renovating this repository\. \[View logs\]\(https://developer\.mend\.io/[^[:space:])]+\)\.$'
               ignored_repository_problem_count=0
               actionable_repository_problem_count=0
@@ -322,6 +336,9 @@ jobs:
                 fi
                 if [[ "$repository_problem_line" == " - $timestamp_optional_release_warning" || "$repository_problem_line" == " - $timestamp_optional_upgrade_warning" ]]; then
                   ignored_repository_problem_count=$((ignored_repository_problem_count + 1))
+                elif [[ "$local_lookup_succeeded" == true && "$repository_problem_line" == " - $lookup_failure_warning" ]]; then
+                  ignored_repository_problem_count=$((ignored_repository_problem_count + 1))
+                  waived_lookup_problem_count=$((waived_lookup_problem_count + 1))
                 else
                   actionable_repository_problem_count=$((actionable_repository_problem_count + 1))
                 fi
@@ -333,15 +350,20 @@ jobs:
 
               if [[ "$ignored_repository_problem_count" -eq 0 || "$actionable_repository_problem_count" -ne 0 ]]; then
                 reasons+=('Dependency Dashboard reports repository problems')
-              else
-                notes+=('Dependency Dashboard only reports expected timestamp-optional notices')
+              fi
+              if [[ "$ignored_repository_problem_count" -ne "$waived_lookup_problem_count" ]]; then
+                notes+=('Dependency Dashboard reports expected timestamp-optional notices')
               fi
             fi
             if grep -q '^## Errored[[:space:]]*$' <<< "$dashboard_body"; then
               reasons+=('Dependency Dashboard reports errored updates')
             fi
-            if grep -q 'Renovate failed to look up' <<< "$dashboard_body"; then
-              reasons+=('Dependency Dashboard reports lookup failures')
+            if [[ "$waived_lookup_problem_count" -ne 0 ]] || grep -q 'Renovate failed to look up' <<< "$dashboard_body"; then
+              if [[ "$local_lookup_succeeded" == true ]]; then
+                notes+=('Dependency Dashboard reports lookup failures; the local lookup job succeeded')
+              else
+                reasons+=('Dependency Dashboard reports lookup failures')
+              fi
             fi
           elif [[ "$issues_enabled" == 'true' ]]; then
             reasons+=('Renovate Dependency Dashboard was not found')
@@ -384,8 +406,13 @@ jobs:
               echo 'Healthy'
               echo
               if ((${#notes[@]} != 0)); then
+                echo '#### Notes'
+                echo
                 printf -- '- %s\n' "${notes[@]}"
+                echo
               fi
+              echo '#### Details'
+              echo
               if [[ -n "$dashboard_url" ]]; then
                 echo "- [Renovate Dependency Dashboard]($dashboard_url)"
               fi
@@ -397,6 +424,12 @@ jobs:
               trap 'rm -f "$recovery_file"' EXIT
               {
                 echo 'The Renovate health check passed. This issue is closing automatically.'
+                if ((${#notes[@]} != 0)); then
+                  echo
+                  echo '### Notes'
+                  echo
+                  printf -- '- %s\n' "${notes[@]}"
+                fi
                 echo
                 echo '### Details'
                 echo
@@ -420,6 +453,12 @@ jobs:
               echo '### Problems'
               echo
               printf -- '- %s\n' "${reasons[@]}"
+              if ((${#notes[@]} != 0)); then
+                echo
+                echo '### Notes'
+                echo
+                printf -- '- %s\n' "${notes[@]}"
+              fi
               echo
               echo '### Details'
               echo
@@ -444,6 +483,12 @@ jobs:
               echo 'Review the details below, fix the listed problems, and rerun the health check. This issue updates after repeated failures and closes automatically after a successful check.'
               echo
               echo "$opt_out_hint_issue"
+              if ((${#notes[@]} != 0)); then
+                echo
+                echo '### Notes'
+                echo
+                printf -- '- %s\n' "${notes[@]}"
+              fi
               echo
               echo '### Details'
               echo
@@ -459,12 +504,18 @@ jobs:
             echo
             echo 'Unhealthy'
             echo
+            echo '#### Problems'
+            echo
             printf -- '- %s\n' "${reasons[@]}"
             echo
             if ((${#notes[@]} != 0)); then
+              echo '#### Notes'
+              echo
               printf -- '- %s\n' "${notes[@]}"
               echo
             fi
+            echo '#### Details'
+            echo
             if [[ -n "$dashboard_url" ]]; then
               echo "- [Renovate Dependency Dashboard]($dashboard_url)"
             fi
