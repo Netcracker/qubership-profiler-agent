@@ -1,5 +1,5 @@
 ---
-description: Triggers for qubership-workflow-hub-usage skills when working on GitHub Actions workflows.
+description: "Triggers for qubership-workflow-hub-usage skills when working on GitHub Actions workflows."
 globs: "**/.github/workflows/*.{yml,yaml}"
 ---
 
