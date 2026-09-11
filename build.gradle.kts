@@ -51,6 +51,8 @@ val parameters by tasks.registering {
 
 dependencies {
     nmcpAggregation(projects.agent)
+    // The Gradle metadata of every published module depends on this platform, see build-logic.java
+    nmcpAggregation(projects.bomThirdparty)
     nmcpAggregation(projects.boot)
     nmcpAggregation(projects.common)
     nmcpAggregation(projects.cli)
