@@ -23,12 +23,22 @@ jobs:
       contents: write
       # release-drafter reads the merged pull requests to build the release notes
       pull-requests: read
+      # publishing to GitHub Packages uploads the Maven artifacts
+      packages: write
     steps:
       - name: Validate input parameters
         env:
           VERSION: ${{ inputs.version }}
+          PUBLISH_TO_CENTRAL: ${{ vars.PUBLISH_TO_CENTRAL != 'false' }}
+          PUBLISH_TO_GITHUB_PACKAGES: ${{ vars.PUBLISH_TO_GITHUB_PACKAGES == 'true' }}
         # language=bash
         run: |
+          # A release that publishes nowhere would still create the tag and the GitHub release
+          if [[ "$PUBLISH_TO_CENTRAL" != "true" && "$PUBLISH_TO_GITHUB_PACKAGES" != "true" ]]; then
+            echo "Error: Both PUBLISH_TO_CENTRAL and PUBLISH_TO_GITHUB_PACKAGES repository variables disable publishing. Enable at least one of them."
+            exit 1
+          fi
+
           # Ensure we release from main or release/** branches, ensure version number follows semver
           BRANCH_NAME=${GITHUB_REF##refs/heads/}
           if [[ ! "$BRANCH_NAME" =~ ^(main|release/.+)$ ]]; then
@@ -129,9 +139,29 @@ jobs:
           # binaries shipped by release-drafter.
           use-cache: false
 
-      # Publish to Central before generating a tag, so we don't need to drop the tag if
-      # Central deployment fails.
+      # Publish the artifacts before generating a tag, so we don't need to drop the tag if
+      # a deployment fails.
+      # GitHub Packages goes first: a maintainer can delete a package version there, while a
+      # version released to Central cannot be removed. The GitHub Packages upload is not atomic,
+      # so a failed upload leaves part of the version behind; delete it before a rerun.
+      # When both registries are enabled and one of them already accepted the version, set that
+      # registry's variable to 'false' for the rerun.
+      - name: Publish to GitHub Packages
+        if: ${{ vars.PUBLISH_TO_GITHUB_PACKAGES == 'true' }}
+        uses: burrunan/gradle-cache-action@4b67497abd37a511d6c1dc6299bdd84ff39f7bf5 # v3.0.2
+        with:
+          arguments: publishAggregationToGithubPackages
+          # language=properties
+          properties: |
+            release=true
+        env:
+          ORG_GRADLE_PROJECT_githubPackagesUsername: ${{ github.actor }}
+          ORG_GRADLE_PROJECT_githubPackagesPassword: ${{ github.token }}
+          SIGNING_PGP_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env]
+          SIGNING_PGP_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }} # zizmor: ignore[secrets-outside-env]
+
       - name: Publish to Central Portal
+        if: ${{ vars.PUBLISH_TO_CENTRAL != 'false' }}
         uses: burrunan/gradle-cache-action@4b67497abd37a511d6c1dc6299bdd84ff39f7bf5 # v3.0.2
         with:
           arguments: publishAggregationToCentralPortal
