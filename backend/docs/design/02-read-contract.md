@@ -153,7 +153,7 @@ The query is frozen at the first page so the window does not drift as wall-clock
 
 **Termination.** `next_cursor` is `null` only when the seek position passes `from` and the window is exhausted. A page may come back empty in the middle of the range — its rows aged out of the hot tier and were deleted from the cold tier by a retention-class TTL between fetches — while a non-null `next_cursor` still points further down; the client keeps paging. An empty page is not an end-of-stream signal on its own.
 
-**Cursor TTL.** A cursor is valid for `PROFILER_CURSOR_TTL` (default `15m`) from issue. An expired cursor is rejected with `400`, and the client restarts from page 1. The TTL bounds how far the frozen `to` can lag real time and covers a position that points into parquet already removed by a retention TTL. Signing the cursor (HMAC, to stop a client forging a position that forces an expensive scan) is deferred; internal validation of the frozen-query fingerprint is enough for the in-team MVP.
+**Cursor TTL.** A cursor is valid for `PROFILER_CURSOR_TTL` (default `15m`) from issue. An expired cursor is rejected with `400`, and the client restarts from page 1. Expiry, a cursor that does not decode, and a frozen-query mismatch all answer `400` with `code: cursor_rejected` (§8) — one code for the three conditions, because the client's reaction to all of them is the same page-1 restart. Every other `400` on `/calls` carries `invalid_request`, which is a caller bug to surface rather than to retry. The TTL bounds how far the frozen `to` can lag real time and covers a position that points into parquet already removed by a retention TTL. Signing the cursor (HMAC, to stop a client forging a position that forces an expensive scan) is deferred; internal validation of the frozen-query fingerprint is enough for the in-team MVP.
 
 ### 2.3.2 Wide-query guard
 
@@ -640,6 +640,8 @@ misconfiguration, not expected operation.
 
 RFC 7807 Problem Details for actual errors (parameter validation, internal, downstream failures that produce zero data).
 
+Every failure of `/api/v1` and `/internal/v1` answers in this envelope, with `Content-Type: application/problem+json` — including the failures no handler produces itself: a route miss, a wrong method, and an unexpected internal error. A client parses one error schema and never has to fall back on a status code alone.
+
 | HTTP | Condition |
 |---|---|
 | 400 | Query parameter validation failed. |
@@ -647,11 +649,31 @@ RFC 7807 Problem Details for actual errors (parameter validation, internal, down
 | 400 | Estimated scan over `PROFILER_MAX_SCAN_FILES` or `PROFILER_MAX_SCAN_BYTES` (§2.3.2, cost layer). |
 | 400 | `/pods` window, or a pod-filtered `/calls` window, over `PROFILER_MAX_PODS_RANGE` (§2.7, §2.3.2). |
 | 404 | PK not found, or `trace_blob = NULL` (blob endpoint). |
-| 503 | `query` itself is not Ready (e.g., DNS discovery uninitialized). |
+| 404 | No route matches the path. The embedded SPA serves its client-side routes but never an unmatched `/api/v1` path. |
+| 405 | The path matches no route for the request method. With the SPA embedded, a non-GET request to an unmatched path lands here rather than on the route-miss row above, because the SPA catch-all is registered for `GET` alone. |
+| 500 | An unexpected internal failure. The detail is deliberately generic — the cause is in the server log, not in the response, so bucket names, object keys, and driver messages stay out of a client's hands. |
+| 503 | `query` itself is not Ready (e.g., DNS discovery uninitialized). While the API handler is unmounted this covers every non-probe path, the SPA shell included; the `/health/ready` and `/health/live` probes keep the state body of `03-lifecycle.md` §4. |
 | 503 | Read memory budget denied the request (§7.5) — atomic, with `Retry-After`; the body carries the guard-dialect members below and a detail naming the reason (`exhausted` vs `never_fits`). |
 | 504 | Every *attempted* source failed and none succeeded (`succeeded == 0 && failed > 0`). A source legitimately skipped — cold below the cutoff, or a replica whose hot window misses the range — counts as neither, so a hot-only query still answers with S3 down, and a cold-only query still answers with every replica unreachable. |
 
 Partial results (some sources failed but some succeeded) are NOT errors — `partial: true` in the body. See §7.4.
+
+**Branch on `code`, not on prose.** `type` is always `about:blank`, and `title` and `detail` are written for a human — either may be reworded in any release. The `code` member names the condition, and is the only member of the envelope a client should switch on. It is optional in the sense that a response from an older build carries none; a client that finds no `code` falls back to the status.
+
+| `code` | HTTP | Condition |
+|---|---|---|
+| `invalid_request` | 400 | A caller bug: a malformed, missing, or out-of-range parameter. Surface it — retrying the identical request gets the identical answer. |
+| `cursor_rejected` | 400 | The cursor expired, did not decode, or was contradicted by re-sent filters (§2.3.1). Recoverable: a paging client restarts from page 1 rather than showing an error. |
+| `query_too_wide` | 400 | A wide-query guard rejection (§2.3.2), span or cost layer; the guard extension members below carry the narrowing affordance. |
+| `read_budget_exhausted` | 503 | A read memory budget denial (§7.5), with `Retry-After`. |
+| `not_ready` | 503 | The service has not mounted its API handler yet (`03-lifecycle.md` §2). |
+| `call_not_found` | 404 | No tier holds the call. |
+| `trace_unavailable` | 404 | The call exists, but its trace blob does not — dropped at seal, or unassemblable from the hot segments. |
+| `pod_restart_not_found` | 404 | `/internal/v1` only: the addressed replica hosts no such pod-restart. Distinct from `not_found` so a rolled pod-restart does not look like an endpoint this build lacks. |
+| `no_source_available` | 504 | Every attempted source failed and none succeeded. |
+| `not_found` | 404 | No route matches the path. |
+| `method_not_allowed` | 405 | The path matches no route for this method. |
+| `internal_error` | 500 | An unexpected server-side failure. |
 
 The two wide-query rejections (§2.3.2) extend the Problem Details body so a client can render a guided prompt instead of a bare error:
 
