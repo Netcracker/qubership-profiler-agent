@@ -106,7 +106,12 @@ type (
 	Query struct {
 		LogLevel string `envconfig:"PROFILER_LOG_LEVEL" default:"info"`
 
-		ExternalAPIPort  int           `envconfig:"PROFILER_EXTERNAL_API_PORT" default:"8080"`
+		ExternalAPIPort int `envconfig:"PROFILER_EXTERNAL_API_PORT" default:"8080"`
+		// MetricsPort serves /metrics and /debug/pprof on a listener separate
+		// from the external API, so the ingress (which maps the external port at
+		// path /) never exposes them (04 §12). It stays off every Service and is
+		// scraped pod-directly by a PodMonitor.
+		MetricsPort      int           `envconfig:"PROFILER_METRICS_PORT" default:"8081"`
 		CollectorService string        `envconfig:"COLLECTOR_HEADLESS_SVC"`
 		CollectorPort    int           `envconfig:"PROFILER_INTERNAL_API_PORT" default:"8081"`
 		OverlapMargin    time.Duration `envconfig:"PROFILER_OVERLAP_MARGIN" default:"5m"`
@@ -129,10 +134,9 @@ type (
 
 		ShutdownDrainGrace time.Duration `envconfig:"PROFILER_SHUTDOWN_DRAIN_GRACE" default:"30s"`
 
-		// PprofEnabled mounts net/http/pprof on the external API port —
-		// query has no internal port (04 §12), so the profiles ride the
-		// same listener as /api/v1. The ingress publishes /api/v1 only, so
-		// /debug/pprof stays cluster-internal; still, default off.
+		// PprofEnabled mounts net/http/pprof on the metrics port (04 §12), so
+		// the profiles never ride the external listener the ingress publishes.
+		// Default off: profiles cost CPU to take.
 		PprofEnabled bool `envconfig:"PROFILER_PPROF_ENABLED"`
 
 		// DumpsCollectorURL is the dumps-collector base URL, e.g.
