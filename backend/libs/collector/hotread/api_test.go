@@ -246,10 +246,11 @@ func TestInternalEmptyWindow(t *testing.T) {
 }
 
 // TestInternalDictionary covers §2.6 over a live pod-restart: the full word
-// list in both arrays, version = word count, and ETag revalidation.
+// list in both arrays, no `version` field, and ETag revalidation over a
+// growing dictionary.
 func TestInternalDictionary(t *testing.T) {
 	store := openTestStore(t)
-	addPod(t, store, "pod-1", 7, "m.a", "m.b", "call.red")
+	pr := addPod(t, store, "pod-1", 7, "m.a", "m.b", "call.red")
 	srv := httptest.NewServer(hotread.New(store).Handler())
 	t.Cleanup(srv.Close)
 
@@ -260,13 +261,14 @@ func TestInternalDictionary(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body, &fields))
+	assert.NotContains(t, fields, "version", "freshness is the ETag's job (#836)")
 	var snap struct {
-		Version int      `json:"version"`
 		Methods []string `json:"methods"`
 		Params  []string `json:"params"`
 	}
 	require.NoError(t, json.Unmarshal(body, &snap))
-	assert.Equal(t, 3, snap.Version)
 	assert.Equal(t, []string{"m.a", "m.b", "call.red"}, snap.Methods)
 	assert.Equal(t, snap.Methods, snap.Params, "one id space: both arrays carry the full list (01 §3.6)")
 	etag := resp.Header.Get("ETag")
@@ -279,6 +281,25 @@ func TestInternalDictionary(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp2.Body.Close()
 	assert.Equal(t, http.StatusNotModified, resp2.StatusCode)
+
+	// Growth still shows through the ETag alone, with no counter in the body.
+	_, err = pr.AppendDictionaryWord("m.c")
+	require.NoError(t, err)
+	req3, err := http.NewRequest(http.MethodGet, path, nil)
+	require.NoError(t, err)
+	req3.Header.Set("If-None-Match", etag)
+	resp3, err := http.DefaultClient.Do(req3)
+	require.NoError(t, err)
+	body3, err := io.ReadAll(resp3.Body)
+	require.NoError(t, err)
+	_ = resp3.Body.Close()
+	require.Equal(t, http.StatusOK, resp3.StatusCode, "body: %s", body3)
+	assert.NotEqual(t, etag, resp3.Header.Get("ETag"), "the ETag moves when a word is appended")
+	var grown struct {
+		Methods []string `json:"methods"`
+	}
+	require.NoError(t, json.Unmarshal(body3, &grown))
+	assert.Equal(t, []string{"m.a", "m.b", "call.red", "m.c"}, grown.Methods)
 
 	missing := srv.URL + fmt.Sprintf("/internal/v1/pods/%s:%s:pod-x:7/dictionary", testNs, testSvc)
 	respMissing, err := http.Get(missing)
