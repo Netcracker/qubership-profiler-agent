@@ -11,7 +11,7 @@ import (
 
 const (
 	bucketName = "integration-test"
-	minioImage = "minio/minio"
+	minioImage = "quay.io/minio/minio"
 )
 
 type MinioContainer struct {
