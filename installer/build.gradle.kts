@@ -93,7 +93,7 @@ val buildBaseImage by tasks.registering(Exec::class) {
     executable = "docker"
     workingDir(baseImageRepo)
     args("build")
-    args("--file", "images/java-21-prof/Dockerfile")
+    args("--file", "images/java-21-alpine-prof/Dockerfile")
     args("-t", coreBaseImageTag)
     args("--build-arg", "QUBERSHIP_PROFILER_ARTIFACT_SOURCE=local")
     args("--build-arg", "QUBERSHIP_PROFILER_VERSION=$version")
