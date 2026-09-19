@@ -1,3 +1,9 @@
+{{- if eq (int .Values.query.port) (int .Values.query.metricsPort) }}
+{{- fail "query.port and query.metricsPort must differ: /metrics rides a separate listener the ingress does not publish (04 §12)" }}
+{{- end }}
+{{- if or (hasKey .Values.query.env "PROFILER_EXTERNAL_API_PORT") (hasKey .Values.query.env "PROFILER_METRICS_PORT") }}
+{{- fail "set query.port / query.metricsPort, not query.env.PROFILER_EXTERNAL_API_PORT or query.env.PROFILER_METRICS_PORT: query.env renders after the first-class ports and a duplicate key would override the declared containerPort" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,9 +39,17 @@ spec:
             - name: external
               containerPort: {{ .Values.query.port }}
               protocol: TCP
+            # Cluster-internal only: no Service exposes this port, and the
+            # ingress maps the external port alone (04 §12). Scraped pod-directly
+            # by the query PodMonitor.
+            - name: metrics
+              containerPort: {{ .Values.query.metricsPort }}
+              protocol: TCP
           env:
             - name: PROFILER_EXTERNAL_API_PORT
               value: {{ .Values.query.port | quote }}
+            - name: PROFILER_METRICS_PORT
+              value: {{ .Values.query.metricsPort | quote }}
             - name: COLLECTOR_HEADLESS_SVC
               value: {{ include "profiler-backend.collectorHeadless" . | quote }}
             - name: PROFILER_INTERNAL_API_PORT
