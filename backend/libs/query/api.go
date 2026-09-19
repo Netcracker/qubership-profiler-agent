@@ -1,13 +1,13 @@
 package query
 
 import (
-	"encoding/json"
 	"errors"
 	"math"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
@@ -15,12 +15,10 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-// problem is an RFC 7807 body (02 §8) with the §2.3.2 guard extensions.
+// problem is an RFC 7807 body (02 §8) with the §2.3.2 guard extensions. The
+// embedded envelope marshals flat, so the extensions sit beside its members.
 type problem struct {
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Status int    `json:"status"`
-	Detail string `json:"detail,omitempty"`
+	httpproblem.Problem
 
 	SuggestedFilters []string         `json:"suggested_filters,omitempty"`
 	EstimatedFiles   *int             `json:"estimated_files,omitempty"`
@@ -82,21 +80,29 @@ func (s *Service) handleConfig(c echo.Context) error {
 }
 
 func sendProblem(c echo.Context, p problem) error {
-	if p.Type == "" {
-		p.Type = "about:blank"
-	}
-	c.Response().Header().Set(echo.HeaderContentType, "application/problem+json")
-	c.Response().WriteHeader(p.Status)
-	return json.NewEncoder(c.Response()).Encode(p)
+	return httpproblem.Send(c, p)
 }
 
+// badRequest rejects a request the caller has to fix. A cursor failure is not
+// one of those — it goes through cursorRejected.
 func badRequest(c echo.Context, detail string) error {
-	return sendProblem(c, problem{Title: "invalid request", Status: http.StatusBadRequest, Detail: detail})
+	return sendProblem(c, problem{Problem: httpproblem.New(http.StatusBadRequest,
+		httpproblem.CodeInvalidRequest, "invalid request", detail)})
+}
+
+// cursorRejected refuses a pagination cursor: expired, malformed, or
+// contradicted by re-sent filters (02 §2.3.1). It carries its own code because
+// the client's answer — restart from page 1 — is the opposite of what it does
+// with a badRequest, and a paging client must not have to read the detail
+// prose to tell the two apart.
+func cursorRejected(c echo.Context, detail string) error {
+	return sendProblem(c, problem{Problem: httpproblem.New(http.StatusBadRequest,
+		httpproblem.CodeCursorRejected, "invalid request", detail)})
 }
 
 func gatewayTimeout(c echo.Context, reasons []string) error {
-	return sendProblem(c, problem{Title: "no data source available", Status: http.StatusGatewayTimeout,
-		Detail: strings.Join(reasons, "; ")})
+	return sendProblem(c, problem{Problem: httpproblem.New(http.StatusGatewayTimeout,
+		httpproblem.CodeNoSourceAvailable, "no data source available", strings.Join(reasons, "; "))})
 }
 
 // handleCalls serves GET /api/v1/calls (02 §2.3): validate or thaw the frozen
@@ -120,12 +126,12 @@ func (s *Service) handleCalls(c echo.Context) error {
 	} else {
 		tok, err := decodeCursor(params.Get("cursor"), s.cfg.CursorTTL)
 		if err != nil {
-			return badRequest(c, err.Error())
+			return cursorRejected(c, err.Error())
 		}
 		// Pages 2..N run against the frozen query; re-sent filters must match
 		// it or the request is rejected (02 §2.3.1).
 		if detail := frozenQueryMismatch(tok.Query, params); detail != "" {
-			return badRequest(c, detail)
+			return cursorRejected(c, detail)
 		}
 		q = tok.Query
 		after = &tok.Pos
@@ -314,11 +320,8 @@ func (s *Service) sendBudgetRejection(c echo.Context, endpoint string, cause err
 	}
 	c.Response().Header().Set("Retry-After", strconv.Itoa(retry))
 
-	p := problem{
-		Title:  "read memory budget exhausted",
-		Status: http.StatusServiceUnavailable,
-		Detail: detail,
-	}
+	p := problem{Problem: httpproblem.New(http.StatusServiceUnavailable,
+		httpproblem.CodeReadBudgetExhausted, "read memory budget exhausted", detail)}
 	if q != nil {
 		p.SuggestedFilters = suggestedFilters(*q)
 	}
@@ -334,9 +337,8 @@ func (s *Service) sendBudgetRejection(c echo.Context, endpoint string, cause err
 func (s *Service) sendGuardRejection(c echo.Context, rej *guardRejection) error {
 	s.metrics.countGuardRejection(rej.Layer)
 	p := problem{
-		Title:            "query too wide",
-		Status:           http.StatusBadRequest,
-		Detail:           rej.Detail,
+		Problem: httpproblem.New(http.StatusBadRequest, httpproblem.CodeQueryTooWide,
+			"query too wide", rej.Detail),
 		SuggestedFilters: rej.SuggestedFilters,
 	}
 	if rej.HasEstimate {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
+	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
@@ -371,4 +372,55 @@ func TestTreeCachingSeparatesHotFromCold(t *testing.T) {
 			"a sealed tree is immutable per PK")
 		assert.Equal(t, pkETag(pk), resp.Header.Get("ETag"), "a sealed tree is validated by its PK hash")
 	})
+}
+
+// A sealed row whose self-contained columns do not decode is a server-side
+// failure, and the client learns only that. The decoder message names the
+// column and the wrapper names the object the row came from — both are storage
+// coordinates that belong in the operator's log, not in a /tree response.
+func TestTreeCorruptSealedRowAnswersAGenericInternalError(t *testing.T) {
+	const restartMs = int64(1_700_000_000_000)
+	tuple := model.PodTuple{Namespace: "ns", Service: "svc", Pod: "pod", RestartTimeMs: restartMs}
+	pk := model.PK{
+		PodNamespace: "ns", PodService: "svc", PodName: "pod", RestartTimeMs: restartMs,
+		TraceFileIndex: 1, BufferOffset: 100, RecordIndex: 0,
+	}
+	tsMs := restartMs + 42
+
+	blob, _ := wire.TraceStream(restartMs, []wire.TraceChunk{
+		{ThreadId: 7, StartMs: restartMs, Events: []wire.TraceEvent{
+			wire.Enter(5, 1), wire.Exit(10),
+		}},
+	})
+	corrupt := "{not json"
+	row := storageparquet.CallV2{
+		TsMs:           tsMs,
+		PodId:          tuple.Namespace + "/" + tuple.Service + "/" + tuple.Pod,
+		RestartTimeMs:  restartMs,
+		TraceFileIndex: pk.TraceFileIndex,
+		BufferOffset:   pk.BufferOffset,
+		RecordIndex:    pk.RecordIndex,
+		Namespace:      "ns", ServiceName: "svc", PodName: "pod",
+		Method:         "com.example.Service.handle",
+		DurationMs:     10,
+		RetentionClass: model.RetentionShortClean,
+		TraceBlob:      blob,
+		DictWordsJson:  &corrupt,
+	}
+
+	store := newMemColdStore()
+	store.put(sealedKey(model.RetentionShortClean, tuple, tsMs), writeCallParquet(t, row))
+
+	api := httptest.NewServer(New(Options{ColdStore: store}).Handler())
+	defer api.Close()
+
+	body := requestProblem(t, api, http.MethodGet,
+		"/api/v1/calls/"+url.PathEscape(pk.PathString())+"/tree?"+
+			url.Values{"ts_ms": {strconv.FormatInt(tsMs, 10)}}.Encode(),
+		http.StatusInternalServerError, httpproblem.CodeInternalError)
+
+	assert.NotEmpty(t, body.Detail, "a generic detail is still a detail")
+	assert.NotContains(t, body.Detail, "dict_words_json", "the failing column stays in the log")
+	assert.NotContains(t, body.Detail, "parquet/v1", "the object key stays in the log")
+	assert.NotContains(t, body.Detail, pk.PathString())
 }
