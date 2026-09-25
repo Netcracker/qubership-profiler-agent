@@ -114,7 +114,7 @@ context:
   collector-goroutines: sum(go_goroutines{namespace="profiler-load", pod=~".*collector.*"})
   collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
   session-ready-p95: max(k6_vdumper_session_ready_time_p95{testid="CHANGE-ME"})
-  s3-lists: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation_type="list"}[5m]))
+  s3-lists: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation="list"}[5m]))
 
 guard:
   generator-cpu:

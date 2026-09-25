@@ -416,8 +416,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (operation_type) (rate(cdt_minio_operation_latency_seconds_count{namespace=\"$namespace\"}[$__rate_interval]))",
-          "legendFormat": "{{operation_type}}",
+          "expr": "sum by (operation) (rate(cdt_minio_operation_latency_seconds_count{namespace=\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{operation}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -469,8 +469,8 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, operation_type) (rate(cdt_minio_operation_latency_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
-          "legendFormat": "{{operation_type}}",
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(cdt_minio_operation_latency_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
+          "legendFormat": "{{operation}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
