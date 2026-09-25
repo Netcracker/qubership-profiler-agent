@@ -1116,6 +1116,11 @@ func suspendOverlapMs(pauses []SuspendPause, tsMs int64, durationMs int) int {
 // №2 backpressure the due pairs are still counted — the seal_queue_depth
 // gauge must grow while sealing pauses — but no seal runs: the calls stay in
 // the WALs, segments, and partitions instead of becoming more pending parquet.
+//
+// A pair whose seal fails is skipped: it is counted in [Store.SealSkippedBuckets]
+// and logged, and it does not make SealDue return an error. The returned error
+// means the pass itself failed: the metadata could not be read, or backpressure
+// could not be refreshed.
 func (s *Store) SealDue(ctx context.Context, nowMs int64) (int, error) {
 	if err := s.refreshBackpressure(ctx); err != nil {
 		return 0, err
@@ -1166,9 +1171,11 @@ func (s *Store) SealDue(ctx context.Context, nowMs int64) (int, error) {
 	// The due pairs run over a worker pool of PROFILER_SEAL_CONCURRENCY (§6.1,
 	// №9). A pair that fails — a poisoned bucket whose index outran its WAL —
 	// is skipped with a metric instead of aborting the pass (№8): the other
-	// buckets keep sealing, and the contiguity barrier keeps moving. The №2
-	// gate stays honoured: once it trips mid-pass, workers stop taking pairs
-	// and in-flight seals finish.
+	// buckets keep sealing, and the contiguity barrier keeps moving. The skip
+	// is reported through sealSkippedBuckets and its log line only; errs
+	// collects the failures that fail the whole pass. The №2 gate stays
+	// honoured: once it trips mid-pass, workers stop taking pairs and
+	// in-flight seals finish.
 	workers := s.cfg.SealConcurrency
 	if workers > len(due) {
 		workers = len(due)
@@ -1192,9 +1199,6 @@ func (s *Store) SealDue(ctx context.Context, nowMs int64) (int, error) {
 				if _, err := s.Seal(ctx, d.key, d.bucket); err != nil {
 					s.sealSkippedBuckets.Add(1)
 					log.Error(ctx, err, "seal loop: skipping poisoned bucket %d of %s this pass", d.bucket, d.key)
-					errMu.Lock()
-					errs = append(errs, errors.Wrapf(err, "seal %s bucket %d", d.key, d.bucket))
-					errMu.Unlock()
 				} else {
 					sealed.Add(1)
 				}

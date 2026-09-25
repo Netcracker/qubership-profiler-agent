@@ -161,6 +161,8 @@ type (
 		// Loop-error counters incremented at the seal/janitor pass-failed log
 		// sites (the Prometheus *_loop_errors_total seam). A single failed pass
 		// is transient; a sustained rate means the loop is wedged.
+		// sealLoopErrors counts seal passes that failed as a whole; a pair
+		// skipped inside a pass counts in sealSkippedBuckets instead.
 		sealLoopErrors    atomic.Int64
 		janitorLoopErrors atomic.Int64
 	}
