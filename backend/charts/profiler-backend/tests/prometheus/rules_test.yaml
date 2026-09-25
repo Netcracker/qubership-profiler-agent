@@ -116,6 +116,65 @@ tests:
         alertname: ProfilerLoopErrors
         exp_alerts: []
 
+  # A stalled janitor: its last-success timestamp tracks the clock until
+  # t=10m and then stops at 600. time() - 600 passes 900 after t=25m, and the
+  # alert fires once the 5m for-window closes.
+  - interval: 1m
+    input_series:
+      - series: "profiler_janitor_last_success_timestamp_seconds"
+        values: "0+60x10 600x40"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ProfilerJanitorStalled
+        exp_alerts: [] # exactly 900s old, not past the threshold yet
+      - eval_time: 40m
+        alertname: ProfilerJanitorStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The janitor has not completed a pass for 15 minutes"
+              description: "No janitor pass completed every step in the last 15 minutes; segments_disk_bytes and inram_bytes are stale, so ProfilerDiskBudgetNearFull cannot be trusted, and retention and eviction may not be running."
+
+  # A janitor that keeps completing passes must never page.
+  - interval: 1m
+    input_series:
+      - series: "profiler_janitor_last_success_timestamp_seconds"
+        values: "0+60x50"
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: ProfilerJanitorStalled
+        exp_alerts: []
+
+  # Stale backpressure gauges: the refresh timestamp stops at 600 (t=10m),
+  # with the same timing as the stalled janitor.
+  - interval: 1m
+    input_series:
+      - series: "profiler_backpressure_last_refresh_timestamp_seconds"
+        values: "0+60x10 600x40"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ProfilerBackpressureStale
+        exp_alerts: [] # exactly 900s old, not past the threshold yet
+      - eval_time: 40m
+        alertname: ProfilerBackpressureStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The pending-upload gauges have not been refreshed for 15 minutes"
+              description: "No backpressure refresh completed in the last 15 minutes; pending_parquet_bytes, partitions_disk_bytes, wal_disk_bytes, and the seal and ingest gates reflect an old backlog."
+
+  # A refresh that keeps completing must never page.
+  - interval: 1m
+    input_series:
+      - series: "profiler_backpressure_last_refresh_timestamp_seconds"
+        values: "0+60x50"
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: ProfilerBackpressureStale
+        exp_alerts: []
+
   # Ingest refusals: the gate starts refusing at t=10m and the counter climbs;
   # the alert fires once the 5m for-window closes, and a collector that never
   # refuses must never page.

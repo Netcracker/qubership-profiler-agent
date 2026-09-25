@@ -98,9 +98,11 @@ Series names are stable — dashboards and the shipped alerts reference them; re
 | `profiler_janitor_wals_fast_purged_total` | counter | The `wals_purged_total` subset purged by the near-empty fast path (03 §3.9 step 18a). |
 | `profiler_janitor_segments_evicted_total` | counter | Segments evicted under the disk budget. |
 | `profiler_janitor_evicted_bytes_total` | counter | Bytes freed by evictions. |
+| `profiler_janitor_last_success_timestamp_seconds` | gauge | Unix time of the last janitor pass that completed every step; 0 until the first one. The gauges measured each janitor pass are at least this old. |
+| `profiler_backpressure_last_refresh_timestamp_seconds` | gauge | Unix time of the last completed backpressure refresh; 0 until the first one. `pending_parquet_bytes`, `partitions_disk_bytes`, and `wal_disk_bytes` are at least this old. |
 | `profiler_hotstore_segments_disk_bytes` | gauge | Segment bytes on disk (measured each janitor pass). |
 | `profiler_hotstore_segments_disk_budget_bytes` | gauge | The configured budget. |
-| `profiler_hotstore_hot_window_lag_seconds` | gauge | Age of the oldest hot-index row; sustained growth = stuck hot→cold handoff. |
+| `profiler_hotstore_hot_window_lag_seconds` | gauge | Age of the oldest hot-index row; sustained growth = stuck hot→cold handoff. Absent when the hot index cannot be read. |
 | `profiler_hotstore_quarantine_objects{kind}` | gauge | Stuck quarantined objects: `parquet`, `snapshot`. Shrinks only manually. |
 | `profiler_hotstore_quarantine_oldest_age_seconds{kind}` | gauge | Age of the oldest quarantined object. |
 | `profiler_hotstore_evicted_segment_chunk_refs` | gauge | In-RAM chunk refs pointing at evicted segments (risk B-3). |
@@ -119,7 +121,7 @@ Series names are stable — dashboards and the shipped alerts reference them; re
 
 ## Alerts
 
-`files/prometheus-rules.yaml` (shipped via the PrometheusRule) carries: `ProfilerStuckQuarantine`, `ProfilerQuarantineAgeHigh`, `ProfilerDiskBudgetNearFull`, `ProfilerHotWindowLagHigh`, `ProfilerUploadFailures`. `make rules-test` runs `promtool test rules` over the same file (`tests/prometheus/rules_test.yaml`), including the forced stuck-quarantine scenario.
+`files/prometheus-rules.yaml` (shipped via the PrometheusRule) carries: `ProfilerStuckQuarantine`, `ProfilerQuarantineAgeHigh`, `ProfilerDiskBudgetNearFull`, `ProfilerHotWindowLagHigh`, `ProfilerUploadFailures`, `ProfilerJanitorStalled`, `ProfilerBackpressureStale`. `make rules-test` runs `promtool test rules` over the same file (`tests/prometheus/rules_test.yaml`), including the forced stuck-quarantine scenario.
 
 ## Validation
 
