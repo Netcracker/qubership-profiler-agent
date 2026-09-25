@@ -304,8 +304,17 @@ func (s *Store) enforceMemBudget(ctx context.Context, stats *JanitorStats) error
 	for _, pr := range pods {
 		total += pr.memFootprint()
 	}
+	noteBudget := func() {
+		flipState(&s.memOverBudget, total > budget, func() {
+			log.Warning(ctx, "mem budget: in-RAM pod-restart state holds %d bytes after evicting closed pod-restarts, over PROFILER_MEM_BUDGET=%d; live connections hold the rest",
+				total, budget)
+		}, func() {
+			log.Info(ctx, "mem budget: in-RAM pod-restart state holds %d bytes, within PROFILER_MEM_BUDGET=%d", total, budget)
+		})
+	}
 	if total <= budget {
 		s.inRamBytes.Store(total)
+		noteBudget()
 		return nil
 	}
 
@@ -360,10 +369,22 @@ func (s *Store) enforceMemBudget(ctx context.Context, stats *JanitorStats) error
 		}
 	}
 	s.inRamBytes.Store(total)
-	if total > budget {
-		log.Warning(ctx, "mem budget: %d bytes still held against the %d budget after evicting closed pod-restarts; live connections hold the rest", total, budget)
-	}
+	noteBudget()
 	return nil
+}
+
+// flipState stores over in flag and runs enter or leave when that changes
+// the stored value, so a budget logs its transitions and not every pass
+// that finds it unchanged.
+func flipState(flag *atomic.Bool, over bool, enter, leave func()) {
+	if flag.Swap(over) == over {
+		return
+	}
+	if over {
+		enter()
+	} else {
+		leave()
+	}
 }
 
 // dropAgedParquet implements 01-write-contract.md §6.3: a local parquet file
