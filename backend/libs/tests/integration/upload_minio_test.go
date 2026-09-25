@@ -105,10 +105,14 @@ func TestUploadPassMinio(t *testing.T) {
 	t.Run("a real 4xx classifies as permanent", func(t *testing.T) {
 		broken := *mc.Client
 		broken.Params.BucketName = "no-such-bucket"
+		metrics := newMinioMetrics()
+		before := readMinioCounts(t, metrics, s3.OperationPut)
 		err := collector.NewS3ObjectStore(&broken, "").PutBytes(ctx, "x.json", []byte("{}"))
 		require.Error(t, err)
 		assert.True(t, hotstore.IsPermanentUploadError(err),
 			"NoSuchBucket is a 404 the retry loop cannot fix")
+		assert.Equal(t, minioCounts{errors: 1}, readMinioCounts(t, metrics, s3.OperationPut).minus(before),
+			"a rejected PUT counts one put error")
 	})
 }
 

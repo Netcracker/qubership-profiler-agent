@@ -23,6 +23,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
+	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers"
 	parquetgo "github.com/parquet-go/parquet-go"
@@ -401,4 +402,39 @@ func TestMaintainMinio(t *testing.T) {
 		assert.Empty(t, listKeys(t, ctx, store, expiredManifest), "expired manifest %s", expiredManifest)
 		assert.Len(t, listKeys(t, ctx, store, youngManifest), 1, "young manifest %s", youngManifest)
 	})
+}
+
+// TestMaintainMinioMetrics proves the maintain S3ObjectStore counts its
+// requests in the cdt_minio_* series: a PUT, the HEAD that opens an object
+// and one ranged read of it as two GETs of one object, and a DELETE.
+func TestMaintainMinioMetrics(t *testing.T) {
+	ctx, cancel := context.WithCancel(log.SetLevel(context.Background(), log.INFO))
+	defer cancel()
+	mc := helpers.CreateMinioContainer(ctx)
+	defer func() { _ = mc.Terminate(ctx) }()
+
+	store := maintain.NewS3ObjectStore(mc.Client, "")
+	metrics := newMinioMetrics()
+	before := map[string]minioCounts{}
+	for _, op := range []string{s3.OperationPut, s3.OperationGet, s3.OperationRemove} {
+		before[op] = readMinioCounts(t, metrics, op)
+	}
+
+	const key = "parquet/v1/metrics-probe.parquet"
+	require.NoError(t, store.Put(ctx, key, []byte("0123456789")))
+	obj, err := store.Open(ctx, key)
+	require.NoError(t, err)
+	buf := make([]byte, 4)
+	_, err = obj.ReadAt(buf, 2)
+	require.NoError(t, err)
+	assert.Equal(t, "2345", string(buf))
+	require.NoError(t, obj.Close())
+	require.NoError(t, store.Delete(ctx, key))
+
+	assert.Equal(t, minioCounts{requests: 1, objects: 1},
+		readMinioCounts(t, metrics, s3.OperationPut).minus(before[s3.OperationPut]), "put")
+	assert.Equal(t, minioCounts{requests: 2, objects: 1},
+		readMinioCounts(t, metrics, s3.OperationGet).minus(before[s3.OperationGet]), "get")
+	assert.Equal(t, minioCounts{requests: 1, objects: 1},
+		readMinioCounts(t, metrics, s3.OperationRemove).minus(before[s3.OperationRemove]), "remove")
 }
