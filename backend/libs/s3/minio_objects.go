@@ -24,7 +24,7 @@ func (m *MinioClient) ListObjects(ctx context.Context) ([]*minio.ObjectInfo, err
 	for object := range objectCh {
 		if object.Err != nil {
 			log.Error(ctx, object.Err, "[%s] couldn't get the list of objects", bucketName)
-			ObserveError(operationTypeList)
+			ObserveError(OperationList)
 			return nil, object.Err
 		}
 		objects = append(objects, common.Ref(object))
@@ -36,7 +36,7 @@ func (m *MinioClient) ListObjects(ctx context.Context) ([]*minio.ObjectInfo, err
 	// from burying real anomalies (PR 708 review #27); ObserveOperation still
 	// carries it as a metric for anyone watching LIST cost over time.
 	log.Debug(ctx, "[%s] Got list of %d object in %v", bucketName, len(objects), ts)
-	ObserveOperation(ts.Seconds(), len(objects), operationTypeList)
+	ObserveOperation(ts.Seconds(), len(objects), OperationList)
 
 	return objects, nil
 }
@@ -53,7 +53,7 @@ func (m *MinioClient) ListObjectsWithPrefix(ctx context.Context, prefix string) 
 	for object := range objectCh {
 		if object.Err != nil {
 			log.Error(ctx, object.Err, "[%s] couldn't get the list of objects with prefix %s", bucketName, prefix)
-			ObserveError(operationTypeList)
+			ObserveError(OperationList)
 			return nil, object.Err
 		}
 		objects = append(objects, common.Ref(object))
@@ -63,7 +63,7 @@ func (m *MinioClient) ListObjectsWithPrefix(ctx context.Context, prefix string) 
 	// See ListObjects: routine per-pass LIST calls stay at DEBUG (PR 708
 	// review #27).
 	log.Debug(ctx, "[%s] Got list of %d object with prefix %s in %v", bucketName, len(objects), prefix, ts)
-	ObserveOperation(ts.Seconds(), len(objects), operationTypeList)
+	ObserveOperation(ts.Seconds(), len(objects), OperationList)
 
 	return objects, nil
 }
@@ -76,42 +76,42 @@ func (m *MinioClient) GetObject(ctx context.Context, objectName, localPath strin
 	object, err := m.Client.GetObject(ctx, bucketName, objectName, opts)
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't get object [%s]", bucketName, objectName)
-		ObserveError(operationTypeGet)
+		ObserveError(OperationGet)
 		return err
 	}
 	defer object.Close()
 
 	if err := os.MkdirAll(localPath, 0700); err != nil && !os.IsExist(err) {
 		log.Error(ctx, err, "[%s] couldn't create local directory '%s'", bucketName, localPath)
-		ObserveError(operationTypeGet)
+		ObserveError(OperationGet)
 		return err
 	}
 
 	localFile, err := os.Create(fmt.Sprintf("%s/%s", localPath, objectName))
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't open local file '%s' for object [%s/%s]", bucketName, localFile, objectName)
-		ObserveError(operationTypeGet)
+		ObserveError(OperationGet)
 		return err
 	}
 	defer localFile.Close()
 
 	if _, err = io.Copy(localFile, object); err != nil {
 		log.Error(ctx, err, "[%s] couldn't save local file '%s' for object [%s/%s]", bucketName, localFile, objectName)
-		ObserveError(operationTypeGet)
+		ObserveError(OperationGet)
 		return err
 	}
 
 	fstat, err := localFile.Stat()
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't get stat for local file '%s'", bucketName, localFile)
-		ObserveError(operationTypeGet)
+		ObserveError(OperationGet)
 		return err
 	}
 
 	ts := time.Since(startTime)
 	log.Info(ctx, "[%s] Successfully downloaded object [%s] to %s (%d Mb) in %v",
 		bucketName, objectName, localFile, fstat.Size(), ts)
-	ObserveOperation(ts.Seconds(), 1, operationTypeGet)
+	ObserveOperation(ts.Seconds(), 1, OperationGet)
 	return nil
 }
 
@@ -122,7 +122,7 @@ func (m *MinioClient) PutObject(ctx context.Context, filename, objectName string
 	object, err := os.Open(filename)
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't open file '%s'", bucketName, filename)
-		ObserveError(operationTypePut)
+		ObserveError(OperationPut)
 		return nil, err
 	}
 	defer object.Close()
@@ -130,7 +130,7 @@ func (m *MinioClient) PutObject(ctx context.Context, filename, objectName string
 	objectStat, err := object.Stat()
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't get stat for file '%s'", bucketName, filename)
-		ObserveError(operationTypePut)
+		ObserveError(OperationPut)
 		return nil, err
 	}
 
@@ -139,7 +139,7 @@ func (m *MinioClient) PutObject(ctx context.Context, filename, objectName string
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't upload file '%s' [%d bytes] as object '%s'",
 			bucketName, filename, objectStat.Size(), objectName)
-		ObserveError(operationTypePut)
+		ObserveError(OperationPut)
 		return nil, err
 	}
 
@@ -147,7 +147,7 @@ func (m *MinioClient) PutObject(ctx context.Context, filename, objectName string
 	ts := time.Since(startTime)
 	log.Info(ctx, "[%s] Successfully uploaded '%s' (%d Mb) in %v",
 		bucketName, objectName, mBytes, ts)
-	ObserveOperation(ts.Seconds(), 1, operationTypePut)
+	ObserveOperation(ts.Seconds(), 1, OperationPut)
 	return &info, nil
 }
 
@@ -162,13 +162,13 @@ func (m *MinioClient) RemoveObject(ctx context.Context, objectName, versionId st
 	err := m.Client.RemoveObject(ctx, bucketName, objectName, opts)
 	if err != nil {
 		log.Error(ctx, err, "[%s] couldn't remove object [%s]", bucketName, objectName)
-		ObserveError(operationTypeRemove)
+		ObserveError(OperationRemove)
 		return err
 	}
 
 	ts := time.Since(startTime)
 	log.Info(ctx, "[%s] Successfully removed object [%s] in %v", bucketName, objectName, ts)
-	ObserveOperation(ts.Seconds(), 1, operationTypeRemove)
+	ObserveOperation(ts.Seconds(), 1, OperationRemove)
 	return nil
 }
 
@@ -190,7 +190,7 @@ func (m *MinioClient) RemoveObjects(ctx context.Context, objList []*minio.Object
 	for obj := range removeObjCh {
 		if obj.Err != nil {
 			log.Error(ctx, obj.Err, "[%s] couldn't remove object [%s]", bucketName, obj.ObjectName)
-			ObserveError(operationTypeRemoveMany)
+			ObserveError(OperationRemoveMany)
 			errs[obj.ObjectName] = obj.Err
 		} else {
 			successfulObjs--
@@ -199,6 +199,6 @@ func (m *MinioClient) RemoveObjects(ctx context.Context, objList []*minio.Object
 
 	ts := time.Since(startTime)
 	log.Info(ctx, "[%s] Successfully removed %d objects in %v", bucketName, successfulObjs, ts)
-	ObserveOperation(ts.Seconds(), successfulObjs, operationTypeRemoveMany)
+	ObserveOperation(ts.Seconds(), successfulObjs, OperationRemoveMany)
 	return errs
 }
