@@ -460,7 +460,7 @@ func (s *Store) dropAgedParquet(ctx context.Context, nowMs int64, stats *Janitor
 			return err
 		}
 		stats.ParquetDeleted++
-		log.Info(ctx, "janitor: deleted local parquet %s (uploaded %s ago)",
+		log.Debug(ctx, "janitor: deleted local parquet %s (uploaded %s ago)",
 			f.S3Key, time.Duration(nowMs-*f.UploadedAtMs)*time.Millisecond)
 	}
 	return nil
