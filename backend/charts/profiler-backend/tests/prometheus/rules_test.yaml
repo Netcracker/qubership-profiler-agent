@@ -117,17 +117,18 @@ tests:
         exp_alerts: []
 
   # A stalled janitor: its last-success timestamp tracks the clock until
-  # t=10m and then stops at 600. time() - 600 passes 900 after t=25m, and the
-  # alert fires once the 5m for-window closes.
+  # t=10m and then stops at 600. time() - 600 is exactly 900 at t=25m and
+  # first exceeds it at t=26m, so the alert goes pending then and fires at
+  # t=31m. A rule written with >= would already fire at t=30m.
   - interval: 1m
     input_series:
       - series: "profiler_janitor_last_success_timestamp_seconds"
         values: "0+60x10 600x40"
     alert_rule_test:
-      - eval_time: 25m
+      - eval_time: 30m
         alertname: ProfilerJanitorStalled
-        exp_alerts: [] # exactly 900s old, not past the threshold yet
-      - eval_time: 40m
+        exp_alerts: [] # 900s old at t=25m, not past the threshold
+      - eval_time: 31m
         alertname: ProfilerJanitorStalled
         exp_alerts:
           - exp_labels:
@@ -153,10 +154,10 @@ tests:
       - series: "profiler_backpressure_last_refresh_timestamp_seconds"
         values: "0+60x10 600x40"
     alert_rule_test:
-      - eval_time: 25m
+      - eval_time: 30m
         alertname: ProfilerBackpressureStale
-        exp_alerts: [] # exactly 900s old, not past the threshold yet
-      - eval_time: 40m
+        exp_alerts: [] # 900s old at t=25m, not past the threshold
+      - eval_time: 31m
         alertname: ProfilerBackpressureStale
         exp_alerts:
           - exp_labels:
