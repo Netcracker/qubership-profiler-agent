@@ -321,7 +321,7 @@ func (s *Store) recoverPodRestart(ctx context.Context, key PodRestartKey) (*PodR
 	if err := pr.rescanSegments(ctx); err != nil {
 		return nil, err
 	}
-	if err := pr.reconcileCalls(); err != nil {
+	if err := pr.reconcileCalls(ctx); err != nil {
 		return nil, err
 	}
 	// Recovered pod-restarts are all closed; the dictionary served the
@@ -457,7 +457,7 @@ func (pr *PodRestart) rescanSegment(ctx context.Context, stream string, seq int)
 // AHEAD of a truncated calls.wal (SQLite synced, the WAL tail did not), and
 // such rows would poison every seal of their bucket — loadSealRows can never
 // find their records. They are dropped together with the torn tail.
-func (pr *PodRestart) reconcileCalls() error {
+func (pr *PodRestart) reconcileCalls(ctx context.Context) error {
 	maxOffset, indexed, err := pr.store.db.MaxCallsWalOffset(pr.Key.String())
 	if err != nil {
 		return err
@@ -491,7 +491,7 @@ func (pr *PodRestart) reconcileCalls() error {
 		return err
 	}
 	if purged > 0 {
-		log.Warning(context.Background(), "recovery: dropped %d index rows of %s pointing past the end of calls.wal; their records were lost with the torn tail (№8)",
+		log.Warning(ctx, "recovery: dropped %d index rows of %s pointing past the end of calls.wal; their records were lost with the torn tail (№8)",
 			purged, pr.Key)
 	}
 	return nil

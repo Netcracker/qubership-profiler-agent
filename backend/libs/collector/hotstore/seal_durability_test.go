@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
@@ -245,13 +246,11 @@ func TestSealCountsLostBigValues(t *testing.T) {
 	assert.Equal(t, TruncDiskBudget, *rows[0].TruncatedReason)
 }
 
-// TestRecoverPurgesIndexRowsPastTruncatedWal is the №8 crash-consistency
-// test: a power loss tears calls.wal mid-record while the SQLite index (its
-// own file, its own sync policy) kept every row. Recovery must drop the rows
-// past the torn tail, and the bucket must seal instead of retrying forever.
-func TestRecoverPurgesIndexRowsPastTruncatedWal(t *testing.T) {
-	ctx := context.Background()
-	dataDir := t.TempDir()
+// tornCallsWalStore leaves in dataDir a store whose pod-restart indexed three
+// calls while calls.wal lost the body of the last one, as a power loss that
+// synced the SQLite index but not the WAL tail would. The store is closed.
+func tornCallsWalStore(t *testing.T, dataDir string) PodRestartKey {
+	t.Helper()
 	store, err := Open(Config{DataDir: dataDir})
 	require.NoError(t, err)
 
@@ -266,8 +265,7 @@ func TestRecoverPurgesIndexRowsPastTruncatedWal(t *testing.T) {
 			TraceFileIndex: 1, BufferOffset: i * 100, RecordIndex: 0,
 		}))
 	}
-	bucket := store.cfg.Bucket(durabilityTs)
-	rows, err := store.Calls(bucket)
+	rows, err := store.Calls(store.cfg.Bucket(durabilityTs))
 	require.NoError(t, err)
 	require.Len(t, rows, 3)
 	lastOffset := int64(0)
@@ -280,15 +278,30 @@ func TestRecoverPurgesIndexRowsPastTruncatedWal(t *testing.T) {
 	// kill -9: no pod-restart Close, no WAL footers; then the torn tail — the
 	// last record loses its body while its index row survives.
 	require.NoError(t, store.Close())
-	walPath := filepath.Join(pr.dir, "calls.wal")
-	require.NoError(t, os.Truncate(walPath, lastOffset+3))
+	require.NoError(t, os.Truncate(filepath.Join(pr.dir, "calls.wal"), lastOffset+3))
+	return key
+}
 
-	store, err = Open(Config{DataDir: dataDir})
+// TestRecoverPurgesIndexRowsPastTruncatedWal is the №8 crash-consistency
+// test: a power loss tears calls.wal mid-record while the SQLite index (its
+// own file, its own sync policy) kept every row. Recovery must drop the rows
+// past the torn tail, warn about them, and the bucket must seal instead of
+// retrying forever.
+func TestRecoverPurgesIndexRowsPastTruncatedWal(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	key := tornCallsWalStore(t, dataDir)
+
+	store, err := Open(Config{DataDir: dataDir})
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
-	require.NoError(t, store.Recover(ctx))
+	var recoverErr error
+	out := log.CaptureAsString(func() { recoverErr = store.Recover(ctx) }, true)
+	require.NoError(t, recoverErr)
+	assert.Contains(t, out, "recovery: dropped 1 index rows of", "Recover log")
 
-	rows, err = store.Calls(bucket)
+	bucket := store.cfg.Bucket(durabilityTs)
+	rows, err := store.Calls(bucket)
 	require.NoError(t, err)
 	assert.Len(t, rows, 2, "the row whose record tore off is dropped with the tail")
 
@@ -308,6 +321,24 @@ func TestRecoverPurgesIndexRowsPastTruncatedWal(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	assert.Equal(t, 2, files[0].RowCount)
+}
+
+// The warning about index rows dropped past a torn calls.wal is logged with
+// the context passed to Recover, so a caller at the ERROR level does not see
+// it. TestRecoverPurgesIndexRowsPastTruncatedWal shows the same fixture
+// printing it at the default level.
+func TestRecoverTornWalWarningFollowsCallerLevel(t *testing.T) {
+	ctx := log.SetLevel(context.Background(), log.ERROR)
+	dataDir := t.TempDir()
+	tornCallsWalStore(t, dataDir)
+
+	store, err := Open(Config{DataDir: dataDir})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	var recoverErr error
+	out := log.CaptureAsString(func() { recoverErr = store.Recover(ctx) }, true)
+	require.NoError(t, recoverErr)
+	assert.NotContains(t, out, "recovery: dropped", "Recover log at the ERROR level")
 }
 
 // TestSealDueSkipsPoisonedPair pins the №8 loop behaviour: one poisoned
