@@ -34,6 +34,12 @@ type JanitorStats struct {
 	WalsFastPurged  int64
 	SegmentsEvicted int64
 	EvictedBytes    int64
+	// SegmentsEvictedByCase / EvictedBytesByCase split SegmentsEvicted and
+	// EvictedBytes by EvictionCase. They are arrays, not maps, so a
+	// snapshot copies them by value and the zero JanitorStats stays
+	// comparable.
+	SegmentsEvictedByCase [numEvictionCases]int64
+	EvictedBytesByCase    [numEvictionCases]int64
 	// QuarantineDropped counts quarantined parquet files removed by the
 	// age/size cap (№2) — bounded, loudly-logged data loss.
 	QuarantineDropped int64
@@ -49,6 +55,45 @@ type JanitorStats struct {
 	// between the seal rename and its commit — removed by the janitor sweep
 	// (re-review finding 7); their rows re-seal from the watermark.
 	OrphanParquetRemoved int64
+}
+
+// EvictionCase classifies a disk-budget segment eviction (01 §4.6) by what it
+// costs. EvictZeroRef and EvictReferenced segments belong to closed,
+// fully sealed pod-restarts, so the sealed parquet already holds their data.
+// EvictOwedSeal and EvictLive segments lose data: a call that still needed
+// the segment seals with trace_blob = NULL and truncated_reason = disk_budget.
+type EvictionCase int
+
+const (
+	// EvictZeroRef is a segment no pending parquet references.
+	EvictZeroRef EvictionCase = iota
+	// EvictReferenced is a segment that sealed parquet not yet uploaded
+	// references.
+	EvictReferenced
+	// EvictOwedSeal is a segment of a pod-restart with unsealed calls.
+	EvictOwedSeal
+	// EvictLive is a segment of a pod-restart whose connection is live.
+	EvictLive
+	numEvictionCases
+)
+
+// EvictionCases lists every EvictionCase in order, for the metrics that
+// materialize one series per case.
+var EvictionCases = []EvictionCase{EvictZeroRef, EvictReferenced, EvictOwedSeal, EvictLive}
+
+// String returns the case label value of the eviction metrics.
+func (c EvictionCase) String() string {
+	switch c {
+	case EvictZeroRef:
+		return "zero_ref"
+	case EvictReferenced:
+		return "referenced"
+	case EvictOwedSeal:
+		return "owed_seal"
+	case EvictLive:
+		return "live"
+	}
+	return fmt.Sprintf("EvictionCase(%d)", int(c))
 }
 
 // JanitorCountersSnapshot returns the process-lifetime janitor counters.
@@ -67,6 +112,10 @@ func (s *Store) countJanitor(stats JanitorStats) {
 	s.janitorCounters.WalsFastPurged += stats.WalsFastPurged
 	s.janitorCounters.SegmentsEvicted += stats.SegmentsEvicted
 	s.janitorCounters.EvictedBytes += stats.EvictedBytes
+	for c := range stats.SegmentsEvictedByCase {
+		s.janitorCounters.SegmentsEvictedByCase[c] += stats.SegmentsEvictedByCase[c]
+		s.janitorCounters.EvictedBytesByCase[c] += stats.EvictedBytesByCase[c]
+	}
 	s.janitorCounters.QuarantineDropped += stats.QuarantineDropped
 	s.janitorCounters.DictionariesUnloaded += stats.DictionariesUnloaded
 	s.janitorCounters.ChunkIndexesReleased += stats.ChunkIndexesReleased
@@ -742,11 +791,19 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 			referenced = append(referenced, candidate{row, size})
 		}
 	}
+	// The state follows the measurement before eviction, so a pass that
+	// evicts back under the budget does not flip it back and forth.
+	flipState(&s.segmentsOverBudget, total > budget, func() {
+		log.Warning(ctx, "janitor: hot-store segments hold %d bytes, over PROFILER_CHUNKS_STAGING_MAX_BYTES=%d; evicting segments until they fit",
+			total, budget)
+	}, func() {
+		log.Info(ctx, "janitor: hot-store segments hold %d bytes, within PROFILER_CHUNKS_STAGING_MAX_BYTES=%d", total, budget)
+	})
 	if total <= budget {
 		s.segmentsDiskBytes.Store(total)
 		return nil
 	}
-	log.Warning(ctx, "janitor: hot-store segments hold %d bytes over the %d budget; evicting", total, budget)
+	var passCount, passBytes [numEvictionCases]int64
 	for _, c := range append(append(zeroRef, referenced...), owedSeal...) {
 		if total <= budget {
 			break
@@ -771,22 +828,54 @@ func (s *Store) enforceDiskBudget(ctx context.Context, nowMs int64, stats *Janit
 			return err
 		}
 		total -= c.size
-		stats.SegmentsEvicted++
-		stats.EvictedBytes += c.size
+		evCase := EvictReferenced
 		switch {
 		case unsealed[c.row.PodRestart]:
-			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes) that an OWED SEAL still needed — its calls will seal truncated (disk_budget)",
-				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size)
+			evCase = EvictOwedSeal
 		case live[c.row.PodRestart]:
-			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes) of a LIVE pod-restart — a later dedup reference or long call loses it (disk_budget)",
-				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size)
-		default:
-			log.Warning(ctx, "janitor: evicted segment %s/%s/%d (%d bytes, refcount %d) under the disk budget",
-				c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size, c.row.Refcount)
+			evCase = EvictLive
+		case c.row.Refcount == 0:
+			evCase = EvictZeroRef
 		}
+		passCount[evCase]++
+		passBytes[evCase] += c.size
+		stats.SegmentsEvicted++
+		stats.EvictedBytes += c.size
+		stats.SegmentsEvictedByCase[evCase]++
+		stats.EvictedBytesByCase[evCase] += c.size
+		log.Debug(ctx, "janitor: evicted segment %s/%s/%d (%d bytes, refcount %d, %s) under the disk budget",
+			c.row.PodRestart, c.row.Stream, c.row.RollingSeq, c.size, c.row.Refcount, evCase)
 	}
 	s.segmentsDiskBytes.Store(total)
+	logEvictionSummary(ctx, passCount, passBytes, total, budget)
 	return nil
+}
+
+// logEvictionSummary writes one record for the segments a disk-budget pass
+// evicted, by case. It is a WARNING when an owed_seal or live eviction lost
+// data, and INFO otherwise.
+func logEvictionSummary(ctx context.Context, count, bytes [numEvictionCases]int64, left, budget int64) {
+	var evicted int64
+	for _, n := range count {
+		evicted += n
+	}
+	if evicted == 0 {
+		return
+	}
+	var cases strings.Builder
+	for _, c := range EvictionCases {
+		if cases.Len() > 0 {
+			cases.WriteString(", ")
+		}
+		fmt.Fprintf(&cases, "%s %d (%d bytes)", c, count[c], bytes[c])
+	}
+	format := "janitor: evicted %d segments under the disk budget: %s; segments now hold %d bytes against PROFILER_CHUNKS_STAGING_MAX_BYTES=%d"
+	if count[EvictOwedSeal] > 0 || count[EvictLive] > 0 {
+		log.Warning(ctx, format+"; the owed_seal and live evictions truncate calls that needed them (disk_budget)",
+			evicted, cases.String(), left, budget)
+	} else {
+		log.Info(ctx, format, evicted, cases.String(), left, budget)
+	}
 }
 
 // orphanSealedMinAge guards the orphan sweep against an in-flight seal pass:

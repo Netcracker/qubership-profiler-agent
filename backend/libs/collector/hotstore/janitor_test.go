@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -452,7 +453,7 @@ func TestJanitorQuarantineBlocksPartitionDrops(t *testing.T) {
 // evicted row keeps its refcount and turns 'evicted', which is exactly what
 // the seal pass maps to truncated_reason = disk_budget.
 func TestJanitorEvictionOrder(t *testing.T) {
-	ctx := context.Background()
+	ctx := log.SetLevel(context.Background(), log.INFO)
 	dataDir := t.TempDir()
 	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-e", RestartTimeMs: janitorCallTs}
 
@@ -498,12 +499,28 @@ func TestJanitorEvictionOrder(t *testing.T) {
 		return "missing"
 	}
 
+	pass := func() (JanitorStats, string) {
+		var stats JanitorStats
+		out := log.CaptureAsString(func() {
+			var err error
+			stats, err = store.JanitorPass(ctx, janitorCallTs)
+			require.NoError(t, err)
+		}, true)
+		return stats, out
+	}
+
 	// 400 bytes over a 250 budget: the two refcount-0 closed segments go, in
 	// created_at order, and that is enough — C (referenced) and D (open) stay.
-	stats, err := store.JanitorPass(ctx, janitorCallTs)
-	require.NoError(t, err)
+	// The pass logs one INFO summary and no per-segment record.
+	stats, out := pass()
 	assert.EqualValues(t, 2, stats.SegmentsEvicted)
 	assert.EqualValues(t, 200, stats.EvictedBytes)
+	assert.Equal(t, [numEvictionCases]int64{EvictZeroRef: 2}, stats.SegmentsEvictedByCase)
+	assert.Equal(t, [numEvictionCases]int64{EvictZeroRef: 200}, stats.EvictedBytesByCase)
+	assert.Len(t, logLines(out, "INFO", "janitor: evicted 2 segments under the disk budget: zero_ref 2 (200 bytes), referenced 0 (0 bytes)"), 1,
+		"output:\n%s", out)
+	assert.Empty(t, logLines(out, "WARNING", "evicted"), "output:\n%s", out)
+	assert.NotContains(t, out, "evicted segment ")
 	assert.NoFileExists(t, segA)
 	assert.NoFileExists(t, segB)
 	assert.FileExists(t, segC, "a referenced segment survives while refcount-0 ones suffice")
@@ -516,9 +533,12 @@ func TestJanitorEvictionOrder(t *testing.T) {
 	require.NoError(t, store.Close())
 	store = openStore(120)
 	defer func() { _ = store.Close() }()
-	stats, err = store.JanitorPass(ctx, janitorCallTs)
-	require.NoError(t, err)
+	stats, out = pass()
 	assert.EqualValues(t, 1, stats.SegmentsEvicted)
+	assert.Equal(t, [numEvictionCases]int64{EvictReferenced: 1}, stats.SegmentsEvictedByCase)
+	assert.Equal(t, [numEvictionCases]int64{EvictReferenced: 100}, stats.EvictedBytesByCase)
+	assert.Len(t, logLines(out, "INFO", "janitor: evicted 1 segments under the disk budget: zero_ref 0 (0 bytes), referenced 1 (100 bytes)"), 1,
+		"output:\n%s", out)
 	assert.NoFileExists(t, segC)
 	assert.FileExists(t, segD)
 	assert.Equal(t, "evicted", status(3))
@@ -581,6 +601,85 @@ func TestDiskBudgetSparesLivePodValueSegments(t *testing.T) {
 	assert.Equal(t, "SELECT * FROM dedup",
 		values[ValueRef{Stream: StreamSql, Seq: 1, Offset: offsets[0]}],
 		"a later dedup reference must resolve against the protected segment")
+}
+
+// Evicting a live pod-restart's segment loses data, so the pass summary is a
+// WARNING and the eviction counts under EvictLive. The segment budget logs
+// one WARNING when a pass finds the segments over
+// PROFILER_CHUNKS_STAGING_MAX_BYTES and one INFO when a later pass finds them
+// within it; a pass that finds the state unchanged logs neither.
+func TestDiskBudgetLiveEvictionLogsTransitions(t *testing.T) {
+	ctx := log.SetLevel(context.Background(), log.INFO)
+	store, err := Open(Config{DataDir: t.TempDir(), ChunksStagingMaxBytes: 1})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	pr, err := store.OpenPodRestart(PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-live", RestartTimeMs: janitorCallTs})
+	require.NoError(t, err)
+	valueBytes, _ := wire.ValueStream([]string{"SELECT * FROM dedup"})
+	seg, err := pr.OpenSegment(StreamSql, 1)
+	require.NoError(t, err)
+	_, err = seg.Write(valueBytes)
+	require.NoError(t, err)
+	require.NoError(t, pr.FinalizeSegment(seg))
+	info, err := os.Stat(filepath.Join(pr.dir, StreamSql, SegmentFileName(1)))
+	require.NoError(t, err)
+	pass := func() (JanitorStats, string) {
+		var stats JanitorStats
+		out := log.CaptureAsString(func() {
+			var err error
+			stats, err = store.JanitorPass(ctx, time.Now().UnixMilli())
+			require.NoError(t, err)
+		}, true)
+		return stats, out
+	}
+
+	stats, out := pass()
+	assert.Equal(t, [numEvictionCases]int64{EvictLive: 1}, stats.SegmentsEvictedByCase)
+	assert.Equal(t, [numEvictionCases]int64{EvictLive: info.Size()}, stats.EvictedBytesByCase)
+	assert.Len(t, logLines(out, "WARNING", "over PROFILER_CHUNKS_STAGING_MAX_BYTES=1"), 1, "output:\n%s", out)
+	summary := logLines(out, "WARNING", "janitor: evicted 1 segments under the disk budget")
+	if assert.Len(t, summary, 1, "output:\n%s", out) {
+		assert.Contains(t, summary[0], fmt.Sprintf("live 1 (%d bytes)", info.Size()))
+		assert.Contains(t, summary[0], "truncate calls")
+	}
+
+	_, out = pass()
+	assert.Len(t, logLines(out, "INFO", "within PROFILER_CHUNKS_STAGING_MAX_BYTES=1"), 1, "output:\n%s", out)
+	assert.Empty(t, logLines(out, "WARNING", "PROFILER_CHUNKS_STAGING_MAX_BYTES"), "output:\n%s", out)
+
+	_, out = pass()
+	assert.NotContains(t, out, "PROFILER_CHUNKS_STAGING_MAX_BYTES")
+}
+
+// JanitorCountersSnapshot returns a copy: a later pass does not change the
+// per-case eviction counts of a snapshot taken before it. Run with -race,
+// this also guards the Prometheus scrape against the janitor goroutine.
+func TestJanitorCountersSnapshotIsACopy(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir(), ChunksStagingMaxBytes: 150})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-c", RestartTimeMs: janitorCallTs}
+	require.NoError(t, store.db.UpsertPodRestart(key, janitorCallTs))
+	require.NoError(t, store.db.ClosePodRestart(key, janitorCallTs))
+	seed := func(seq int) {
+		path := filepath.Join(store.cfg.DataDir, fmt.Sprintf("seg-%06d.gz", seq))
+		require.NoError(t, os.WriteFile(path, bytes.Repeat([]byte{0xAB}, 100), 0o644))
+		require.NoError(t, store.db.UpsertSegment(key.String(), StreamTrace, seq, path, int64(seq)))
+		require.NoError(t, store.db.FinalizeSegment(key.String(), StreamTrace, seq, 100, nil, nil))
+	}
+	seed(1)
+	seed(2)
+	_, err = store.JanitorPass(ctx, janitorCallTs)
+	require.NoError(t, err)
+	first := store.JanitorCountersSnapshot()
+	require.EqualValues(t, 1, first.SegmentsEvictedByCase[EvictZeroRef], "200 bytes over a 150 budget evict one segment")
+
+	seed(3)
+	_, err = store.JanitorPass(ctx, janitorCallTs)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, first.SegmentsEvictedByCase[EvictZeroRef], "the earlier snapshot")
+	assert.EqualValues(t, 2, store.JanitorCountersSnapshot().SegmentsEvictedByCase[EvictZeroRef], "a snapshot after the second pass")
 }
 
 // TestJanitorSweepsOrphanSealedParquet pins the finding-7 fix: a crash between
