@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -51,6 +52,48 @@ func TestTrackProgressStopJoins(t *testing.T) {
 
 	assert.Equal(t, callsAtStop, calls.Load(), "describe calls after stop returned")
 	assert.JSONEq(t, `{"state":"READY"}`, readyBody(t, g))
+}
+
+// TestTrackProgressStopWaitsForInFlightRefresh holds a describe call open and
+// pins that stop does not return until it finishes. TestTrackProgressStopJoins
+// catches a stop that only cancels by chance, when a tick races the cancel;
+// this one catches it on every run.
+func TestTrackProgressStopWaitsForInFlightRefresh(t *testing.T) {
+	g := NewGate("/internal/v1")
+	g.Set(StateRecovery, "recovering the hot store")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var first sync.Once
+	stop := g.TrackProgress(context.Background(), StateRecovery, progressInterval, func() string {
+		first.Do(func() {
+			close(entered)
+			<-release
+		})
+		return "in progress"
+	})
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("describe was never called")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		close(release)
+		t.Fatal("stop returned while a describe call was still running")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("stop did not return after the describe call finished")
+	}
 }
 
 // TestTrackProgressLeavesOtherStates pins that a refresh that finds the gate
