@@ -49,9 +49,11 @@ func TestObservedReaderAt_SuccessfulReadsCountRequestsNotObjects(t *testing.T) {
 	assert.Equal(t, opCounts{requests: 3}, readGets(t, context.Background(), fake, 0, 10, 20))
 }
 
+// A read of the last byte is inside the object and reaches S3, and it ends
+// in io.EOF.
 func TestObservedReaderAt_ReadEndingInEOFIsASuccess(t *testing.T) {
-	fake := &scriptedReaderAt{results: []readResult{{5, io.EOF}}}
-	assert.Equal(t, opCounts{requests: 1}, readGets(t, context.Background(), fake, 95))
+	fake := &scriptedReaderAt{results: []readResult{{1, io.EOF}}}
+	assert.Equal(t, opCounts{requests: 1}, readGets(t, context.Background(), fake, observedSize-1))
 }
 
 func TestObservedReaderAt_OffsetOutsideTheObjectRecordsNothing(t *testing.T) {
