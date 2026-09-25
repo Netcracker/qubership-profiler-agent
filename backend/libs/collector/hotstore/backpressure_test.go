@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -351,4 +352,98 @@ func TestUploaderPoolBoundedConcurrency(t *testing.T) {
 	assert.Zero(t, backlog)
 	assert.LessOrEqual(t, s3.maxConcurrent.Load(), int64(3), "the pool never exceeds UploadConcurrency")
 	assert.GreaterOrEqual(t, s3.maxConcurrent.Load(), int64(2), "the pool actually runs PUTs in parallel")
+}
+
+// logLines returns the lines of captured log output written at level (ERROR,
+// WARNING, INFO, DEBUG) whose text contains substr.
+func logLines(out, level, substr string) []string {
+	var lines []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "] ["+level+"] ") && strings.Contains(line, substr) {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// outageUploader opens a store with five pending files and an uploader over
+// an S3 that fails every PUT transiently, three attempts per file.
+func outageUploader(t *testing.T) (*Store, *fakeObjectStore, *Uploader) {
+	t.Helper()
+	store, err := Open(Config{
+		DataDir:              t.TempDir(),
+		UploadRetryAttempts:  3,
+		UploadRetryBaseDelay: time.Millisecond,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	pr, err := store.OpenPodRestart(PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-o", RestartTimeMs: janitorCallTs})
+	require.NoError(t, err)
+	for seq := 0; seq < 5; seq++ {
+		seedPendingParquet(t, store, pr.Key, seq, 100)
+	}
+	s3 := &fakeObjectStore{}
+	s3.failTransient.Store(true)
+	return store, s3, NewUploader(store, s3)
+}
+
+// An S3 outage logs one ERROR when uploads start failing and one INFO when
+// they recover, however many files are pending and however many passes the
+// outage lasts. Every failed attempt is still counted on FailedPuts, and the
+// per-attempt and per-file records are DEBUG only.
+func TestUploadOutageLogsOnlyTransitions(t *testing.T) {
+	ctx := log.SetLevel(context.Background(), log.INFO)
+	_, s3, uploader := outageUploader(t)
+	pass := func() string {
+		return log.CaptureAsString(func() {
+			_, err := uploader.Pass(ctx)
+			require.NoError(t, err)
+		}, true)
+	}
+
+	out := pass()
+	assert.Len(t, logLines(out, "ERROR", ""), 1, "pass 1 output:\n%s", out)
+	assert.Len(t, logLines(out, "ERROR", "5 of 5 pending files failed to upload"), 1, "pass 1 output:\n%s", out)
+	assert.Empty(t, logLines(out, "WARNING", ""), "pass 1 output:\n%s", out)
+	assert.NotContains(t, out, "attempt")
+	assert.NotContains(t, out, "failed after retries")
+
+	out = pass()
+	assert.Empty(t, logLines(out, "ERROR", ""), "pass 2 output:\n%s", out)
+	assert.Empty(t, logLines(out, "WARNING", ""), "pass 2 output:\n%s", out)
+	assert.EqualValues(t, 30, uploader.CountersSnapshot().FailedPuts, "5 files, 3 attempts each, 2 passes")
+
+	s3.failTransient.Store(false)
+	out = pass()
+	assert.Equal(t, logLines(out, "INFO", "uploads recovered"), logLines(out, "INFO", ""),
+		"pass 3 output:\n%s", out)
+	assert.Len(t, logLines(out, "INFO", "this pass uploaded 5 of 5 pending files"), 1, "pass 3 output:\n%s", out)
+	assert.Empty(t, logLines(out, "ERROR", ""), "pass 3 output:\n%s", out)
+	assert.Empty(t, logLines(out, "WARNING", ""), "pass 3 output:\n%s", out)
+	assert.NotContains(t, out, "uploaded parquet/")
+}
+
+// A pass that moves every pending file to quarantine uploads nothing, so it
+// does not log a recovery: S3 is rejecting the files, not taking them. The
+// next pass, with nothing pending, logs the recovery once.
+func TestUploadAllQuarantinedDoesNotLogRecovery(t *testing.T) {
+	ctx := log.SetLevel(context.Background(), log.INFO)
+	_, s3, uploader := outageUploader(t)
+	pass := func() string {
+		return log.CaptureAsString(func() {
+			_, err := uploader.Pass(ctx)
+			require.NoError(t, err)
+		}, true)
+	}
+	out := pass()
+	require.Len(t, logLines(out, "ERROR", "failed to upload"), 1, "pass 1 output:\n%s", out)
+
+	s3.failTransient.Store(false)
+	s3.failPermanent.Store(true)
+	out = pass()
+	assert.Len(t, logLines(out, "ERROR", "S3 rejected"), 5, "pass 2 output:\n%s", out)
+	assert.Empty(t, logLines(out, "INFO", "uploads recovered"), "pass 2 output:\n%s", out)
+
+	out = pass()
+	assert.Len(t, logLines(out, "INFO", "uploads recovered"), 1, "pass 3 output:\n%s", out)
 }
