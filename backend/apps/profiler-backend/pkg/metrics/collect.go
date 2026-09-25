@@ -19,6 +19,9 @@ var truncatedReasons = []string{
 	hotstore.TruncMemPressure,
 }
 
+// passesHelp describes the three *_passes_total series.
+const passesHelp = "Passes the loop started, failed or not; the denominator of loop_errors_total."
+
 // RegisterCollect wires the collect-process series over the store and
 // uploader snapshots. Everything reads a cheap snapshot at scrape time — no
 // collector holds a store lock across I/O. uploader may be nil (no object
@@ -40,8 +43,13 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 	counter("seal", "files_total", "Parquet files produced by seal passes.",
 		func() int64 { return store.SealCountersSnapshot().Files }, nil)
 	counter("seal", "loop_errors_total",
-		"Failed seal passes (the loop logged and retried on the next tick). A sustained rate means sealing is wedged.",
+		"Failed seal passes (the loop logged and retried on the next tick). A sustained share of seal_passes_total means sealing is wedged.",
 		func() int64 { return store.SealLoopErrors() }, nil)
+	counter("seal", "passes_total", passesHelp,
+		func() int64 { return store.SealPasses() }, nil)
+	counter("seal", "wal_bytes_read_total",
+		"calls.wal bytes seal passes read (№9); it grows with the WAL size, not with passes × WAL size.",
+		func() int64 { return store.SealCountersSnapshot().WalBytesRead }, nil)
 	counter("seal", "lost_big_values_total",
 		"Big-parameter values a seal could not resolve because their value segment was evicted or torn (№7); each loss truncates its row with disk_budget.",
 		func() int64 { return store.SealCountersSnapshot().LostBigValues }, nil)
@@ -63,23 +71,39 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 		}
 		upload("uploaded_files_total", "Parquet files confirmed in S3 (01 §6.2).",
 			func(s hotstore.UploadStats) int64 { return s.UploadedFiles })
-		upload("put_failures_total", "Failed S3 PUT attempts, transient or permanent — the upload-failure alert reads this rate.",
-			func(s hotstore.UploadStats) int64 { return s.FailedPuts })
 		upload("retried_puts_total", "PUT attempts a retry followed (in-pass backoff, 01 §6.2).",
 			func(s hotstore.UploadStats) int64 { return s.RetriedPuts })
 		upload("quarantined_files_total", "Parquet files moved to upload-failed/ on a permanent rejection (01 §8).",
 			func(s hotstore.UploadStats) int64 { return s.QuarantinedFiles })
 		upload("quarantined_objects_total", "Manifest bodies parked under upload-failed/ (01 §8).",
 			func(s hotstore.UploadStats) int64 { return s.QuarantinedObjects })
-		upload("manifest_puts_total", "pods/v1 manifest upserts (01 §3.6).",
+		upload("manifest_puts_total", "Successful pods/v1 manifest upserts (01 §3.6).",
 			func(s hotstore.UploadStats) int64 { return s.ManifestPuts })
 		upload("swept_segments_total", "Refcount-0 segments unlinked by the post-upload sweep (03 §3.7 step 14).",
 			func(s hotstore.UploadStats) int64 { return s.SegmentsDeleted })
 		upload("requeued_files_total", "Quarantined parquet files re-queued by the slow re-test (№2).",
 			func(s hotstore.UploadStats) int64 { return s.RequeuedFiles })
+		// The PUT counters read live atomics rather than CountersSnapshot, which
+		// moves only when a pass ends: the upload-failure alerts read them.
+		for _, object := range hotstore.PutObjects {
+			object := object
+			counter("upload", "put_attempts_total",
+				"S3 PUT calls by object kind, counted as each call starts; the denominator of put_failures_total.",
+				func() int64 { return uploader.PutAttempts(object) },
+				prometheus.Labels{"object": object.String()})
+			for _, reason := range hotstore.PutFailureReasons {
+				reason := reason
+				counter("upload", "put_failures_total",
+					"Failed S3 PUT calls by object kind and reason: permanent is a rejection no retry can fix (the object goes to upload-failed/), transient is everything else.",
+					func() int64 { return uploader.PutFailures(object, reason) },
+					prometheus.Labels{"object": object.String(), "reason": reason.String()})
+			}
+		}
 		counter("upload", "loop_errors_total",
-			"Failed upload passes (whole-pass failures the loop retried), distinct from per-file put_failures_total.",
+			"Failed upload passes (whole-pass failures the loop retried), distinct from per-PUT put_failures_total.",
 			func() int64 { return uploader.LoopErrors() }, nil)
+		counter("upload", "passes_total", passesHelp,
+			func() int64 { return uploader.Passes() }, nil)
 	}
 
 	janitor := func(name, help string, value func(hotstore.JanitorStats) int64) {
@@ -115,8 +139,10 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 		"Sealed parquet files with no catalog row (a crash between the seal rename and its commit) removed by the janitor sweep; their rows re-seal from the watermark.",
 		func(s hotstore.JanitorStats) int64 { return s.OrphanParquetRemoved })
 	counter("janitor", "loop_errors_total",
-		"Failed janitor passes (the loop logged and retried on the next tick). A sustained rate means retention/eviction is wedged.",
+		"Failed janitor passes (the loop logged and retried on the next tick). A sustained share of janitor_passes_total means retention/eviction is wedged.",
 		func() int64 { return store.JanitorLoopErrors() }, nil)
+	counter("janitor", "passes_total", passesHelp,
+		func() int64 { return store.JanitorPasses() }, nil)
 
 	gauge("hotstore", "segments_disk_bytes",
 		"On-disk bytes of the hot-store segment files, as of the last janitor pass.",
@@ -267,7 +293,7 @@ type quarantineCollector struct {
 var (
 	quarantineObjectsDesc = prometheus.NewDesc(
 		namespace+"_hotstore_quarantine_objects",
-		"Objects stuck in quarantine awaiting a human: parquet files under upload-failed/ (01 §8). Shrinks only on manual intervention.",
+		"Objects in quarantine: parquet files under upload-failed/ (01 §8). Shrinks when the slow re-test (№2) re-queues an entry, which returns if S3 rejects it again, and when the age/size cap drops one (janitor_quarantine_dropped_total). An entry S3 keeps rejecting needs a human.",
 		[]string{"kind"}, nil)
 	quarantineAgeDesc = prometheus.NewDesc(
 		namespace+"_hotstore_quarantine_oldest_age_seconds",

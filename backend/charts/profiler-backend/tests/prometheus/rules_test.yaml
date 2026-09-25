@@ -77,43 +77,146 @@ tests:
               summary: "Hot-store segments near the disk budget"
               description: "Segment files exceed 90% of PROFILER_CHUNKS_STAGING_MAX_BYTES; the janitor will start evicting segments and calls will seal with truncated_reason=disk_budget."
 
-  # Loop errors: the seal loop climbs by one failure per minute (well over the
-  # 3-in-15m threshold), the other two loops stay flat. The alert must fire
-  # after its 10m for-window, and NOT while only a couple of failures have
-  # accrued.
+  # Loop errors: the seal loop runs every 15s (four passes a minute) and
+  # every pass fails. The alert names the loop, and fires only after its 10m
+  # for-window.
   - interval: 1m
     input_series:
+      - series: "profiler_seal_passes_total"
+        values: "0+4x40"
       - series: "profiler_seal_loop_errors_total"
-        values: "0+1x40"
-      - series: "profiler_upload_loop_errors_total"
-        values: "0x40"
-      - series: "profiler_janitor_loop_errors_total"
-        values: "0x40"
+        values: "0+4x40"
     alert_rule_test:
       - eval_time: 5m
         alertname: ProfilerLoopErrors
-        exp_alerts: [] # only ~5 failures and the 10m for-window is still open
+        exp_alerts: [] # the 10m for-window is still open
       - eval_time: 30m
         alertname: ProfilerLoopErrors
         exp_alerts:
           - exp_labels:
+              loop: seal
               severity: warning
             exp_annotations:
               summary: "A collector maintenance loop keeps failing"
-              description: "The seal, upload, or janitor loop logged repeated pass failures over the last 15 minutes; the hot→cold handoff may be stalling."
+              description: "The seal loop failed more than half of its passes over the last 15 minutes; the hot→cold handoff may be stalling."
 
-  # A healthy pipeline with the occasional single failed pass must never page.
+  # A healthy seal loop with one failed pass out of about 60 must never page.
   - interval: 1m
     input_series:
+      - series: "profiler_seal_passes_total"
+        values: "0+4x40"
       - series: "profiler_seal_loop_errors_total"
         values: "0 0 0 1 1x36"
-      - series: "profiler_upload_loop_errors_total"
-        values: "0x40"
-      - series: "profiler_janitor_loop_errors_total"
-        values: "0x40"
     alert_rule_test:
       - eval_time: 30m
         alertname: ProfilerLoopErrors
+        exp_alerts: []
+
+  # A janitor on a 5m interval runs three passes in the 15m window; one failed
+  # pass is a third of them and must not page.
+  - interval: 1m
+    input_series:
+      - series: "profiler_janitor_passes_total"
+        values: "0+0.2x40"
+      - series: "profiler_janitor_loop_errors_total"
+        values: "0x10 1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ProfilerLoopErrors
+        exp_alerts: []
+
+  # Upload failures: 20 of every 100 PUTs fail, over the 10% line.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_upload_put_attempts_total{object="parquet"}'
+        values: "0+100x40"
+      - series: 'profiler_upload_put_failures_total{object="parquet",reason="transient"}'
+        values: "0+20x40"
+      - series: 'profiler_upload_put_failures_total{object="parquet",reason="permanent"}'
+        values: "0x40"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ProfilerUploadFailures
+        exp_alerts: [] # the 10m for-window is still open
+      - eval_time: 25m
+        alertname: ProfilerUploadFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "S3 uploads are failing"
+              description: "More than 10% of S3 PUT attempts failed over the last 10 minutes; pending parquet stays on the PV and retries with backoff."
+
+  # Two failures in every 100 PUTs are background noise and must not page.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_upload_put_attempts_total{object="parquet"}'
+        values: "0+100x40"
+      - series: 'profiler_upload_put_failures_total{object="parquet",reason="transient"}'
+        values: "0+2x40"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ProfilerUploadFailures
+        exp_alerts: []
+
+  # An idle uploader makes no attempts; the ratio is NaN and must not page.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_upload_put_attempts_total{object="parquet"}'
+        values: "0x40"
+      - series: 'profiler_upload_put_failures_total{object="parquet",reason="transient"}'
+        values: "0x40"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ProfilerUploadFailures
+        exp_alerts: []
+
+  # An S3 outage: one PUT a minute, each hanging in the client timeout and
+  # failing. A slow trickle where every attempt fails still pages.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_upload_put_attempts_total{object="parquet"}'
+        values: "0+1x40"
+      - series: 'profiler_upload_put_failures_total{object="parquet",reason="transient"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ProfilerUploadFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "S3 uploads are failing"
+              description: "More than 10% of S3 PUT attempts failed over the last 10 minutes; pending parquet stays on the PV and retries with backoff."
+
+  # A single permanent rejection pages ProfilerUploadRejected.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_upload_put_failures_total{object="manifest",reason="permanent"}'
+        values: "0x10 1x30"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ProfilerUploadRejected
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ProfilerUploadRejected
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "S3 rejects uploads permanently"
+              description: "S3 rejected a PUT with an error retrying cannot fix; the object went to upload-failed/. Check the bucket permissions and policy."
+
+  # Transient failures alone are not a rejection.
+  - interval: 1m
+    input_series:
+      - series: 'profiler_upload_put_failures_total{object="parquet",reason="transient"}'
+        values: "0+5x40"
+      - series: 'profiler_upload_put_failures_total{object="parquet",reason="permanent"}'
+        values: "0x40"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ProfilerUploadRejected
         exp_alerts: []
 
   # Ingest refusals: the gate starts refusing at t=10m and the counter climbs;

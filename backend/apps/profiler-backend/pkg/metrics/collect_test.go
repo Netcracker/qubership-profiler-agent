@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
@@ -76,9 +78,59 @@ func TestRegisterCollectSeries(t *testing.T) {
 		"profiler_janitor_orphan_parquet_removed_total",
 		// The near-empty fast-path purge (03 §3.9 step 18a).
 		"profiler_janitor_wals_fast_purged_total",
+		// Issue #955: PUT attempts, loop pass denominators, and WAL bytes read.
+		"profiler_upload_put_attempts_total",
+		"profiler_seal_passes_total",
+		"profiler_upload_passes_total",
+		"profiler_janitor_passes_total",
+		"profiler_seal_wal_bytes_read_total",
 	} {
 		assert.True(t, names[want], "missing series %s", want)
 	}
+}
+
+// TestRegisterCollectPutSeriesMaterialized pins that every object and
+// failure reason exists at zero before the first PUT, so an alert over the
+// ratio never waits for a series to appear mid-incident.
+func TestRegisterCollectPutSeriesMaterialized(t *testing.T) {
+	store, err := hotstore.Open(hotstore.Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	reg := NewRegistry()
+	RegisterCollect(reg, store, hotstore.NewUploader(store, nil))
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	// seriesByLabels maps each series of the named family to its value, keyed
+	// by its labels rendered as sorted name=value pairs joined by commas.
+	seriesByLabels := func(name string) map[string]float64 {
+		out := map[string]float64{}
+		for _, mf := range families {
+			if mf.GetName() != name {
+				continue
+			}
+			for _, m := range mf.GetMetric() {
+				pairs := make([]string, 0, len(m.GetLabel()))
+				for _, lp := range m.GetLabel() {
+					pairs = append(pairs, lp.GetName()+"="+lp.GetValue())
+				}
+				sort.Strings(pairs)
+				out[strings.Join(pairs, ",")] = m.GetCounter().GetValue()
+			}
+		}
+		return out
+	}
+
+	assert.Equal(t, map[string]float64{
+		"object=manifest": 0,
+		"object=parquet":  0,
+	}, seriesByLabels("profiler_upload_put_attempts_total"))
+	assert.Equal(t, map[string]float64{
+		"object=manifest,reason=permanent": 0,
+		"object=manifest,reason=transient": 0,
+		"object=parquet,reason=permanent":  0,
+		"object=parquet,reason=transient":  0,
+	}, seriesByLabels("profiler_upload_put_failures_total"))
 }
 
 // TestRegisterIngestSeries pins the ingest metric names, including the

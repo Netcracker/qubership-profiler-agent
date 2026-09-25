@@ -41,6 +41,8 @@ func (s *Store) Recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	stats := s.cfg.Recovery
+	stats.PodRestartsFound.Store(int64(len(keys)))
 	workers := runtime.GOMAXPROCS(0)
 	if workers > 8 {
 		workers = 8 // gunzip-bound; more workers only contend on SQLite
@@ -70,12 +72,15 @@ func (s *Store) Recover(ctx context.Context) error {
 							fatalErr = qErr
 						}
 						fatalMu.Unlock()
+						continue
 					}
+					stats.PodRestartsProcessed.Add(1)
 					continue
 				}
 				s.mu.Lock()
 				s.pods[key.String()] = pr
 				s.mu.Unlock()
+				stats.PodRestartsProcessed.Add(1)
 			}
 		}()
 	}
@@ -123,6 +128,8 @@ func (s *Store) quarantinePodRestart(ctx context.Context, key PodRestartKey, cau
 	if err != nil {
 		return err
 	}
+	s.cfg.Recovery.QuarantinedPodRestarts.Add(1)
+	s.cfg.Recovery.DroppedIndexRowsQuarantine.Add(purged)
 	log.Warning(ctx, "recovery: quarantined %s under %s (%d index rows dropped); its calls are lost to the hot tier",
 		key, dest, purged)
 	return nil
@@ -176,6 +183,7 @@ func (s *Store) reconcileParquetLocal(ctx context.Context) error {
 		if err := s.db.RecoverLostPendingParquet(row.Path, row.PodRestart, bucket, row.WalOffsetLo); err != nil {
 			return err
 		}
+		s.cfg.Recovery.LostPendingParquet.Add(1)
 	}
 	// A crash before the seal commit leaves a footer-less parquet under parquet/
 	// with no catalog row; a rename→DB double fault in quarantine() (issue #824)
@@ -213,7 +221,11 @@ func (s *Store) sweepUncataloguedParquet(ctx context.Context, root string, catal
 			return nil
 		}
 		log.Warning(ctx, logMsg, path)
-		return os.Remove(path)
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		s.cfg.Recovery.OrphanParquetRemoved.Add(1)
+		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
 		// A missing root means nothing sealed yet; any other traversal failure
@@ -490,6 +502,7 @@ func (pr *PodRestart) reconcileCalls() error {
 	if err != nil {
 		return err
 	}
+	pr.store.cfg.Recovery.DroppedIndexRowsTornTail.Add(purged)
 	if purged > 0 {
 		log.Warning(context.Background(), "recovery: dropped %d index rows of %s pointing past the end of calls.wal; their records were lost with the torn tail (№8)",
 			purged, pr.Key)

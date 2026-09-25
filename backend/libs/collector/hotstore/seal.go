@@ -149,7 +149,7 @@ func (s *Store) countLostBigValues(n int64) {
 	s.sealCounters.LostBigValues += n
 }
 
-// countWalBytesRead accumulates the №9 calls.wal read gauge.
+// countWalBytesRead accumulates the №9 calls.wal read counter.
 func (s *Store) countWalBytesRead(n int64) {
 	s.sealMu.Lock()
 	defer s.sealMu.Unlock()
@@ -1288,6 +1288,7 @@ func (s *Store) RunSealLoop(ctx context.Context, interval time.Duration) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			s.sealPasses.Add(1)
 			if _, err := s.SealDue(ctx, time.Now().UnixMilli()); err != nil {
 				s.sealLoopErrors.Add(1)
 				log.Error(ctx, err, "seal loop pass failed")
