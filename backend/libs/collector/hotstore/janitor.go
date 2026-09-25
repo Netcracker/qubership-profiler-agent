@@ -9,6 +9,7 @@ package hotstore
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -184,21 +185,41 @@ func (s *Store) refreshBackpressure(ctx context.Context) error {
 	// grows the partitions and the WALs whether or not sealing runs, and the
 	// WALs purge only after upload + retention + grace.
 	backlog := pending + partitions + walBytes
-	s.setGate(ctx, &s.sealPaused, pending >= budget/2, "seal", pending, budget/2)
-	s.setGate(ctx, &s.ingestPaused, backlog >= budget, "ingest", backlog, budget)
+	s.setGate(ctx, &s.sealPaused, pending >= budget/2, "seal", pending, budget/2, budget)
+	s.setGate(ctx, &s.ingestPaused, backlog >= budget, "ingest", backlog, budget, budget)
 	return nil
 }
 
-// setGate flips one backpressure gate, logging only the transitions.
-func (s *Store) setGate(ctx context.Context, gate *atomic.Bool, engaged bool, name string, total, budget int64) {
+// setGate flips one backpressure gate, logging only the transitions. The
+// gate engages when total reaches threshold; configured is the
+// PROFILER_PENDING_UPLOAD_MAX_BYTES value the threshold derives from.
+func (s *Store) setGate(ctx context.Context, gate *atomic.Bool, engaged bool, name string, total, threshold, configured int64) {
 	if gate.Swap(engaged) == engaged {
 		return
 	}
 	if engaged {
-		log.Warning(ctx, "backpressure: %s paused — pending backlog holds %d bytes against the %d budget", name, total, budget)
+		log.Warning(ctx, "backpressure: %s paused: %s holds %d bytes, at or over %s",
+			name, gateMeasure(name), total, gateThreshold(threshold, configured))
 	} else {
-		log.Info(ctx, "backpressure: %s resumed (%d of %d budget)", name, total, budget)
+		log.Info(ctx, "backpressure: %s resumed: %s holds %d bytes, under %s",
+			name, gateMeasure(name), total, gateThreshold(threshold, configured))
 	}
+}
+
+// gateMeasure names what a backpressure gate measures.
+func gateMeasure(name string) string {
+	if name == "seal" {
+		return "pending parquet"
+	}
+	return "the whole backlog (pending parquet, partitions, WALs)"
+}
+
+// gateThreshold renders a gate threshold against the setting it derives from.
+func gateThreshold(threshold, configured int64) string {
+	if threshold == configured {
+		return fmt.Sprintf("PROFILER_PENDING_UPLOAD_MAX_BYTES=%d", configured)
+	}
+	return fmt.Sprintf("%d (half of PROFILER_PENDING_UPLOAD_MAX_BYTES=%d)", threshold, configured)
 }
 
 // capQuarantine bounds the upload-failed/ quarantine (№2). Quarantined

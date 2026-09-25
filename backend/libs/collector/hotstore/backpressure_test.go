@@ -80,8 +80,11 @@ func seedPendingParquet(t *testing.T, store *Store, key PodRestartKey, seq int, 
 // TestBackpressureGateThresholds pins the two-stage №2 budget: pending
 // parquet alone trips the seal gate at half the budget, the whole backlog
 // trips the ingest gate at the full budget, and draining uploads lifts both.
+// The seal gate logs once when it engages, with the threshold and the
+// configured PROFILER_PENDING_UPLOAD_MAX_BYTES it is half of, and a refresh
+// that leaves it engaged logs nothing.
 func TestBackpressureGateThresholds(t *testing.T) {
-	ctx := context.Background()
+	ctx := log.SetLevel(context.Background(), log.INFO)
 	store, err := Open(Config{DataDir: t.TempDir(), PendingUploadMaxBytes: 1000})
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
@@ -97,9 +100,13 @@ func TestBackpressureGateThresholds(t *testing.T) {
 	assert.False(t, store.IngestPaused())
 
 	pathB := seedPendingParquet(t, store, key, 1, 200)
-	refresh()
+	out := log.CaptureAsString(refresh, true)
 	assert.True(t, store.SealPaused(), "600 pending parquet ≥ half the 1000 budget")
 	assert.False(t, store.IngestPaused(), "the full budget is not reached yet")
+	assert.Equal(t, []string{"seal paused: pending parquet holds 600 bytes, at or over 500 (half of PROFILER_PENDING_UPLOAD_MAX_BYTES=1000)"},
+		gateMessages(logLines(out, "WARNING", "backpressure:")), "output:\n%s", out)
+	out = log.CaptureAsString(refresh, true)
+	assert.Empty(t, out, "a refresh that leaves the seal gate engaged")
 
 	pathC := seedPendingParquet(t, store, key, 2, 400)
 	refresh()
@@ -242,6 +249,36 @@ func TestS3DownBoundedBacklogNoSilentLoss(t *testing.T) {
 	assert.Equal(t, appended, indexedCalls(), "every call survived the outage")
 }
 
+// While the seal gate holds, SealDue seals nothing and logs nothing: the
+// gate logged the pause once when it engaged, and the seal_queue_depth gauge
+// reports the due buckets.
+func TestSealDueWhilePausedLogsNothing(t *testing.T) {
+	ctx := log.SetLevel(context.Background(), log.INFO)
+	store, err := Open(Config{DataDir: t.TempDir(), PendingUploadMaxBytes: 1000})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	pr, err := store.OpenPodRestart(PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-s", RestartTimeMs: janitorCallTs})
+	require.NoError(t, err)
+	require.NoError(t, pr.AppendCall(janitorCallTs, data.Call{
+		Method: 0, Duration: 10, ThreadName: "main",
+		TraceFileIndex: 1, BufferOffset: 0, RecordIndex: 0,
+	}))
+	seedPendingParquet(t, store, pr.Key, 0, 600)
+	require.NoError(t, store.refreshBackpressure(ctx))
+	require.True(t, store.SealPaused(), "600 pending bytes reach half of the 1000 budget")
+
+	now := time.Now().UnixMilli()
+	out := log.CaptureAsString(func() {
+		for i := 0; i < 2; i++ {
+			sealed, err := store.SealDue(ctx, now)
+			require.NoError(t, err)
+			assert.Zero(t, sealed, "SealDue call %d", i+1)
+		}
+	}, true)
+	assert.Empty(t, out)
+	assert.EqualValues(t, 1, store.SealQueueDepth(), "the paused bucket stays counted as due")
+}
+
 // TestQuarantineRetestRecovers pins the №2 slow re-test: a permanent
 // rejection quarantines the file, and after the retest interval the next
 // pass retries it — successfully once the rejection healed.
@@ -352,6 +389,17 @@ func TestUploaderPoolBoundedConcurrency(t *testing.T) {
 	assert.Zero(t, backlog)
 	assert.LessOrEqual(t, s3.maxConcurrent.Load(), int64(3), "the pool never exceeds UploadConcurrency")
 	assert.GreaterOrEqual(t, s3.maxConcurrent.Load(), int64(2), "the pool actually runs PUTs in parallel")
+}
+
+// gateMessages strips the header of each log line, up to and including the
+// "backpressure: " prefix the gate records carry, leaving the message.
+func gateMessages(lines []string) []string {
+	msgs := make([]string, 0, len(lines))
+	for _, line := range lines {
+		_, msg, _ := strings.Cut(line, "backpressure: ")
+		msgs = append(msgs, msg)
+	}
+	return msgs
 }
 
 // logLines returns the lines of captured log output written at level (ERROR,
