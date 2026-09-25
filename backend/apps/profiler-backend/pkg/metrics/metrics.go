@@ -49,6 +49,30 @@ func Mux(reg *prometheus.Registry, next http.Handler, withPprof bool) http.Handl
 	return mux
 }
 
+// MetricsMux serves /metrics (and /debug/pprof when withPprof) on a dedicated
+// listener with no fallthrough: an unmatched path answers 404, never an API or
+// UI route. query binds this on its metrics port so the ingress, which maps the
+// external port at path /, cannot reach either surface (04 §12). Unlike Mux, it
+// has no `next` handler and mounts no health gate — a scrape works regardless of
+// service state.
+func MetricsMux(reg *prometheus.Registry, withPprof bool) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", Handler(reg))
+	if withPprof {
+		RegisterPprof(mux)
+	}
+	return mux
+}
+
+// QueryHandlers builds query's two HTTP surfaces. external instruments and
+// serves api (the /api/v1 + UI handler behind the health gate); metricsH serves
+// /metrics and pprof on a separate listener. external never carries /metrics or
+// pprof — that split is what keeps them off the port the ingress publishes at
+// path / (04 §12). Both draw from the same registry.
+func QueryHandlers(reg *prometheus.Registry, api http.Handler, pprofEnabled bool) (external, metricsH http.Handler) {
+	return InstrumentHTTP(reg, api), MetricsMux(reg, pprofEnabled)
+}
+
 // InstrumentHTTP wraps next with the profiler_query_http_request_seconds
 // histogram (code, method). No path label: call PKs in paths would explode
 // the cardinality, and the load dashboards (load-testing-plan.md §6.2) need

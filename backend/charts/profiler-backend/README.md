@@ -78,7 +78,7 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 
 Series names are stable — dashboards and the shipped alerts reference them; renames are breaking changes (a Go test, `pkg/metrics/collect_test.go`, pins them). Labels stay low-cardinality: `reason`, `kind`, `layer`, `result` — never pod, PK, or replica.
 
-`collect` serves `/metrics` on the internal port (`:8081`), scrapable through LOADING/RECOVERY; `query` on the external port (`:8080`); `maintain` on `PROFILER_METRICS_PORT` in deployment mode (CronJob pods exit too fast to scrape).
+`collect` serves `/metrics` on the internal port (`:8081`), scrapable through LOADING/RECOVERY; `query` on its dedicated metrics port (`PROFILER_METRICS_PORT`, default `:8081`), kept off the external port so the ingress cannot reach `/metrics` or `/debug/pprof` (reports2#15) and scraped pod-directly by a PodMonitor; `maintain` on `PROFILER_METRICS_PORT` in deployment mode (CronJob pods exit too fast to scrape).
 
 | Series | Type | Meaning |
 |---|---|---|
