@@ -4,7 +4,7 @@ plugins {
 
 dependencies {
     constraints {
-        api("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
+        api("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
     }
     implementation(project(":basics"))
     implementation(project(":build-parameters"))
