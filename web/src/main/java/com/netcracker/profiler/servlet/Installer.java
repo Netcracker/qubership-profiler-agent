@@ -437,6 +437,7 @@ public class Installer implements ServletContextListener {
         }
     }
 
+    @SuppressWarnings("ReferenceEquality") // class loaders are compared by identity
     public static String getNonActiveProfilerWarning() {
         if (PropertyFacade.getProperty("com.netcracker.profiler.skip.nonactive", null) != null) return null;
 

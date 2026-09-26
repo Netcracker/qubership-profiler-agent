@@ -74,6 +74,7 @@ public class TagDictionary implements Cloneable {
         return methods;
     }
 
+    @SuppressWarnings("ReferenceEquality") // merging a dictionary into itself is a no-op
     public Map<Integer, Integer> merge(TagDictionary that) {
         if (that == this) return Collections.emptyMap();
 
