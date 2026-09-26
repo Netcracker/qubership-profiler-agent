@@ -13,7 +13,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.100
 	github.com/oklog/run v1.2.0
 	github.com/otiai10/copy v1.14.1
-	github.com/parquet-go/parquet-go v0.30.1
+	github.com/parquet-go/parquet-go v0.32.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.67.5
