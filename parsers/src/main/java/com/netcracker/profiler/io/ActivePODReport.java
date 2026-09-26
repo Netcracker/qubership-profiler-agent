@@ -188,7 +188,7 @@ public class ActivePODReport {
         return downloadOptions;
     }
 
-    private static class DownloadOptions {
+    static class DownloadOptions {
         String typeName;
         String uri;
 

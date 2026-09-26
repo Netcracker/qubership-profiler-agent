@@ -38,6 +38,7 @@ public class ProfiledTree {
         return rowid;
     }
 
+    @SuppressWarnings("ReferenceEquality") // copy-on-write: clone only when the dictionary instance is shared
     public void merge(ProfiledTree that) {
         if (dict != that.dict && !ownDict) {
             ownDict = true;

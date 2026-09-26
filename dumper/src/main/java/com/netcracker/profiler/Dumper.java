@@ -361,7 +361,7 @@ public class Dumper implements IDumper, DumperConstants {
             this.outputStreams.remove(this.removeDict);
 
             for (ICompressedLocalAndRemoteOutputStream stream : this.remoteStreams) {
-                if (stream == this.removeDict) {
+                if (stream.equals(this.removeDict)) {
                     stream.setClient(null);
                     continue;
                 }
@@ -766,6 +766,7 @@ public class Dumper implements IDumper, DumperConstants {
         lastBufferScaleTime = TimerCache.timer;
     }
 
+    @SuppressWarnings("ReferenceEquality") // a buffer belongs to exactly one LocalState instance
     private void stealDataFromBuffers() throws IOException, InterruptedException {
         final long latestTimeToSteal = TimerCache.now - TimeUnit.SECONDS.toMillis(BUFFER_STEAL_INTERVAL);
         final long nextWarningTime = TimerCache.now + TimeUnit.SECONDS.toMillis(3600);
