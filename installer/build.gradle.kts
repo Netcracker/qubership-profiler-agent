@@ -95,6 +95,10 @@ val buildBaseImage by tasks.registering(Exec::class) {
     args("build")
     args("--file", "images/java-21-alpine-prof/Dockerfile")
     args("-t", coreBaseImageTag)
+    // Pass the Alpine base explicitly, as the qubership-core-base-images CI does: the Dockerfile default
+    // is pinned to a digest of qubership-core-base:latest, and that tag became the UBI image,
+    // see https://github.com/Netcracker/qubership-core-base-images/issues/277
+    args("--build-arg", "BASE_IMAGE=ghcr.io/netcracker/qubership-core-base:alpine-latest")
     args("--build-arg", "QUBERSHIP_PROFILER_ARTIFACT_SOURCE=local")
     args("--build-arg", "QUBERSHIP_PROFILER_VERSION=$version")
     args(".")
