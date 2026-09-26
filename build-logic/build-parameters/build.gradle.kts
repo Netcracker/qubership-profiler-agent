@@ -64,10 +64,6 @@ buildParameters {
     string("jdkTestImplementation") {
         description.set("Vendor-specific virtual machine implementation to use testing $projectName (see https://docs.gradle.org/8.4/userguide/toolchains.html#selecting_toolchains_by_virtual_machine_implementation)")
     }
-    bool("enableCheckerframework") {
-        defaultValue.set(false)
-        description.set("Run CheckerFramework (nullness) verifications")
-    }
     bool("enableErrorprone") {
         defaultValue.set(true)
         description.set("Run ErrorProne verifications")
