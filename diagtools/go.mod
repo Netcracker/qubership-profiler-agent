@@ -1,6 +1,6 @@
 module github.com/Netcracker/qubership-profiler-agent/diagtools
 
-go 1.25.8
+go 1.26.0
 
 toolchain go1.26.8
 
@@ -10,7 +10,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.6
 	github.com/stretchr/testify v1.11.1
 	github.com/vlsi/jattach/v2 v2.2.2
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
