@@ -1,19 +1,32 @@
 package s3
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"context"
+	"errors"
+	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+// OperationLabel is the label that carries the operation on every
+// cdt_minio_* series. A query that groups or filters these series by
+// operation uses this name.
+const OperationLabel = "operation"
+
+// Values of [OperationLabel].
 const (
-	// operation type label for cdt_minio_operation_latency_seconds: get, list, put, remove, remove_many
-	operationTypeLabelName  = "operation"
-	operationTypeGet        = "get"
-	operationTypeList       = "list"
-	operationTypePut        = "put"
-	operationTypeRemove     = "remove"
-	operationTypeRemoveMany = "remove_many"
+	OperationGet        = "get"
+	OperationList       = "list"
+	OperationPut        = "put"
+	OperationRemove     = "remove"
+	OperationRemoveMany = "remove_many"
 )
 
 var (
-	// cdt_minio_operation_latency_seconds metric
+	// cdt_minio_operation_latency_seconds observes one sample per completed
+	// request, a NoSuchKey answer included. For "get" that is the HEAD that
+	// opens an object, every ranged read of it, and every whole-object GET.
 	// supported labels:
 	// * "operation": "get", "list", "put", "remove" or "remove_many"
 	operationMinioLatencySeconds = prometheus.NewHistogramVec(
@@ -21,10 +34,12 @@ var (
 			Name: "cdt_minio_operation_latency_seconds",
 			Help: "Processing minio operation time in seconds",
 		},
-		[]string{operationTypeLabelName},
+		[]string{OperationLabel},
 	)
 
-	// cdt_minio_operation_objects_count metric
+	// cdt_minio_operation_objects_count counts the objects a completed request
+	// touched. For "get" it counts objects opened or fetched, not the ranged
+	// reads of an opened object.
 	// supported labels:
 	// * "operation": "get", "list", "put", "remove" or "remove_many"
 	operationMinioObjectsCount = prometheus.NewCounterVec(
@@ -32,12 +47,13 @@ var (
 			Name: "cdt_minio_operation_objects_count",
 			Help: "Processing minio objects count",
 		},
-		[]string{operationTypeLabelName},
+		[]string{OperationLabel},
 	)
 
 	// cdt_minio_operation_errors_count classes every failed minio operation by
 	// operation type, so the S3-error rate is a first-class alerting signal
-	// instead of a line lost in the logs.
+	// instead of a line lost in the logs. A failed ranged read counts once per
+	// object, and a request the caller cancelled does not count.
 	// supported labels:
 	// * "operation": "get", "list", "put", "remove" or "remove_many"
 	operationMinioErrorsCount = prometheus.NewCounterVec(
@@ -45,7 +61,7 @@ var (
 			Name: "cdt_minio_operation_errors_count",
 			Help: "Failed minio operations count, by operation type",
 		},
-		[]string{operationTypeLabelName},
+		[]string{OperationLabel},
 	)
 )
 
@@ -67,8 +83,8 @@ func Collectors() []prometheus.Collector {
 // invisible to Gather, and dashboards want a stable zero, not a series that
 // only appears on the first request or the first error.
 var operationTypes = []string{
-	operationTypeGet, operationTypeList, operationTypePut,
-	operationTypeRemove, operationTypeRemoveMany,
+	OperationGet, OperationList, OperationPut,
+	OperationRemove, OperationRemoveMany,
 }
 
 // RegisterMetrics registers the cdt_minio_* collectors on reg and initializes
@@ -85,7 +101,7 @@ func RegisterMetrics(reg prometheus.Registerer) {
 		}
 	}
 	for _, op := range operationTypes {
-		labels := prometheus.Labels{operationTypeLabelName: op}
+		labels := prometheus.Labels{OperationLabel: op}
 		operationMinioLatencySeconds.With(labels)
 		operationMinioObjectsCount.With(labels)
 		operationMinioErrorsCount.With(labels)
@@ -100,16 +116,38 @@ func registerMetrics() {
 
 func ObserveOperation(seconds float64, objectsCount int, operationType string) {
 	operationMinioLatencySeconds.With(prometheus.Labels{
-		operationTypeLabelName: operationType,
+		OperationLabel: operationType,
 	}).Observe(seconds)
 	operationMinioObjectsCount.With(prometheus.Labels{
-		operationTypeLabelName: operationType,
+		OperationLabel: operationType,
 	}).Add(float64(objectsCount))
 }
 
 // ObserveError counts one failed minio operation of the given type.
 func ObserveError(operationType string) {
 	operationMinioErrorsCount.With(prometheus.Labels{
-		operationTypeLabelName: operationType,
+		OperationLabel: operationType,
 	}).Inc()
+}
+
+// ObserveResult records the outcome of one S3 request that started at start.
+// A nil err observes the latency and adds objects to the objects count. An
+// err that is [context.Canceled] or [context.DeadlineExceeded] while ctx is
+// done records nothing, because the caller abandoned the request. Any other
+// err, a deadline the transport hit under a live ctx included, counts one
+// error.
+func ObserveResult(ctx context.Context, operation string, start time.Time, objects int, err error) {
+	switch {
+	case err == nil:
+		ObserveOperation(time.Since(start).Seconds(), objects, operation)
+	case ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
+		// Abandoned: neither a completed request nor an S3 failure.
+	default:
+		ObserveError(operation)
+	}
+}
+
+// IsNotFound reports whether err is an S3 NoSuchKey answer.
+func IsNotFound(err error) bool {
+	return minio.ToErrorResponse(err).Code == "NoSuchKey"
 }

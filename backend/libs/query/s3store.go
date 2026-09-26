@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
@@ -48,47 +49,61 @@ func (r *S3ObjectReader) List(ctx context.Context, prefix string) ([]cold.Object
 }
 
 func (r *S3ObjectReader) Open(ctx context.Context, key string) (cold.Object, error) {
+	start := time.Now()
 	obj, err := r.mc.Client.GetObject(ctx, r.mc.Bucket(), r.prefix.Apply(key), minio.GetObjectOptions{})
 	if err != nil {
-		return nil, mapNotFound(err)
+		return nil, observeGet(ctx, start, err)
 	}
 	// GetObject is lazy; Stat is the first round trip and surfaces a 404 of a
 	// listed-then-compacted key here (02 §5.1).
 	stat, err := obj.Stat()
 	if err != nil {
 		_ = obj.Close()
-		return nil, mapNotFound(err)
+		return nil, observeGet(ctx, start, err)
 	}
-	return &s3Object{obj: obj, size: stat.Size}, nil
+	s3.ObserveResult(ctx, s3.OperationGet, start, 1, nil)
+	return &s3Object{obj: obj, reader: s3.NewObservedReaderAt(ctx, obj, stat.Size), size: stat.Size}, nil
 }
 
 func (r *S3ObjectReader) Get(ctx context.Context, key string) ([]byte, error) {
+	start := time.Now()
 	obj, err := r.mc.Client.GetObject(ctx, r.mc.Bucket(), r.prefix.Apply(key), minio.GetObjectOptions{})
 	if err != nil {
-		return nil, mapNotFound(err)
+		return nil, observeGet(ctx, start, err)
 	}
 	defer func() { _ = obj.Close() }()
 	body, err := io.ReadAll(obj)
 	if err != nil {
-		return nil, mapNotFound(err)
+		return nil, observeGet(ctx, start, err)
 	}
+	s3.ObserveResult(ctx, s3.OperationGet, start, 1, nil)
 	return body, nil
 }
 
-func mapNotFound(err error) error {
-	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+// observeGet records a failed GET that started at start and returns err,
+// mapped to cold.ErrNotFound for a missing key. A missing key is a completed
+// request that read no object, not an S3 failure.
+func observeGet(ctx context.Context, start time.Time, err error) error {
+	if s3.IsNotFound(err) {
+		s3.ObserveResult(ctx, s3.OperationGet, start, 0, nil)
 		return errors.Wrap(cold.ErrNotFound, err.Error())
 	}
+	s3.ObserveResult(ctx, s3.OperationGet, start, 0, err)
 	return err
 }
 
 // s3Object exposes one S3 object as a sized io.ReaderAt; *minio.Object
 // serves discontiguous ReadAt offsets with ranged requests.
 type s3Object struct {
-	obj  *minio.Object
-	size int64
+	obj    *minio.Object
+	reader *s3.ObservedReaderAt
+	size   int64
 }
 
-func (o *s3Object) ReadAt(p []byte, off int64) (int, error) { return o.obj.ReadAt(p, off) }
-func (o *s3Object) Close() error                            { return o.obj.Close() }
+func (o *s3Object) ReadAt(p []byte, off int64) (int, error) { return o.reader.ReadAt(p, off) }
 func (o *s3Object) Size() int64                             { return o.size }
+
+func (o *s3Object) Close() error {
+	o.reader.Close()
+	return o.obj.Close()
+}

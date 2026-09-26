@@ -3,9 +3,12 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,4 +138,65 @@ rampp: {}
 			require.Error(t, err)
 		})
 	}
+}
+
+// minioLabelRefs matches a label name where a PromQL query or a Grafana
+// legend names one: inside a grouping clause, as a selector matcher, or as
+// a legend template.
+var minioLabelRefs = []*regexp.Regexp{
+	regexp.MustCompile(`\bby\s*\(([^)]*)\)`),
+	regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*(?:=~|!~|!=|=)\s*\\?"`),
+	regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`),
+}
+
+// Every label that names an S3 operation on a cdt_minio_* series is spelled
+// [s3.OperationLabel]; any other spelling groups every operation into one
+// series or matches nothing. A legend line is checked with the query line
+// above it, since the legend names the label the query grouped by.
+func TestMinioQueriesUseMetricLabel(t *testing.T) {
+	var files []string
+	for _, pattern := range []string{"../specs/*.yaml", "../dashboards/*.json"} {
+		matches, err := filepath.Glob(pattern)
+		require.NoError(t, err)
+		files = append(files, matches...)
+	}
+	require.NotEmpty(t, files)
+
+	checked := 0
+	for _, file := range files {
+		body, err := os.ReadFile(file)
+		require.NoError(t, err)
+		lines := strings.Split(string(body), "\n")
+		for i, line := range lines {
+			if !strings.Contains(line, "cdt_minio_") {
+				continue
+			}
+			text := line
+			if i+1 < len(lines) && strings.Contains(lines[i+1], "legendFormat") {
+				text += "\n" + lines[i+1]
+			}
+			checked++
+			for _, label := range operationLabels(text) {
+				assert.Equal(t, s3.OperationLabel, label, "%s:%d: %s", file, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	assert.NotZero(t, checked, "no cdt_minio_ query found in %v", files)
+}
+
+// operationLabels returns every label name in text that starts with
+// "operation".
+func operationLabels(text string) []string {
+	var out []string
+	for _, re := range minioLabelRefs {
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			for _, name := range strings.Split(m[1], ",") {
+				name = strings.TrimSpace(name)
+				if strings.HasPrefix(name, "operation") {
+					out = append(out, name)
+				}
+			}
+		}
+	}
+	return out
 }

@@ -53,10 +53,10 @@ func (o *S3ObjectStore) put(ctx context.Context, key string, body io.Reader, siz
 		ContentType:    contentType,
 		SendContentMd5: true, // §6.2 step 3
 	})
+	s3.ObserveResult(ctx, s3.OperationPut, startTime, 1, err)
 	if err != nil {
 		return classifyS3Error(err)
 	}
-	s3.ObserveOperation(time.Since(startTime).Seconds(), 1, "put")
 	return nil
 }
 

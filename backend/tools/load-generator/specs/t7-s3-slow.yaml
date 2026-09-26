@@ -111,7 +111,7 @@ context:
   upload-lag: max(profiler_upload_lag_seconds{namespace="profiler-load"})
   retried-puts: sum(rate(profiler_upload_retried_puts_total{namespace="profiler-load"}[1m]))
   put-failures: sum(rate(profiler_upload_put_failures_total{namespace="profiler-load"}[1m]))
-  s3-put-latency-p95: histogram_quantile(0.95, sum(rate(cdt_minio_operation_latency_seconds_bucket{namespace="profiler-load", operation_type="put"}[5m])) by (le))
+  s3-put-latency-p95: histogram_quantile(0.95, sum(rate(cdt_minio_operation_latency_seconds_bucket{namespace="profiler-load", operation="put"}[5m])) by (le))
   wal-bytes: sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
   seal-paused: max(profiler_backpressure_seal_paused{namespace="profiler-load"})
   collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))

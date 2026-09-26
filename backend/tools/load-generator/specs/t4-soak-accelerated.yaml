@@ -103,7 +103,7 @@ context:
   hotstore-pv-bytes: sum(profiler_hotstore_segments_disk_bytes{namespace="profiler-load"}) + sum(profiler_hotstore_partitions_disk_bytes{namespace="profiler-load"}) + sum(profiler_hotstore_wal_disk_bytes{namespace="profiler-load"})
   collector-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*collector.*", container!=""}[1m]))
   query-cpu: sum(rate(container_cpu_usage_seconds_total{namespace="profiler-load", pod=~".*query.*", container!=""}[1m]))
-  s3-lists: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation_type="list"}[5m]))
+  s3-lists: sum(rate(cdt_minio_operation_latency_seconds_count{namespace="profiler-load", operation="list"}[5m]))
 
 guard:
   generator-cpu:

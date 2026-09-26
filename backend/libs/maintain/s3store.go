@@ -3,6 +3,7 @@ package maintain
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/minio/minio-go/v7"
@@ -45,49 +46,66 @@ func (o *S3ObjectStore) List(ctx context.Context, prefix string) ([]ObjectInfo, 
 }
 
 func (o *S3ObjectStore) Open(ctx context.Context, key string) (Object, error) {
+	start := time.Now()
 	obj, err := o.mc.Client.GetObject(ctx, o.mc.Bucket(), o.prefix.Apply(key), minio.GetObjectOptions{})
 	if err != nil {
-		return nil, mapNotFound(err)
+		return nil, observeGet(ctx, start, err)
 	}
 	// GetObject is lazy; Stat is the first round trip and surfaces a 404 of a
 	// concurrently deleted key here.
 	stat, err := obj.Stat()
 	if err != nil {
 		_ = obj.Close()
-		return nil, mapNotFound(err)
+		return nil, observeGet(ctx, start, err)
 	}
-	return &s3Object{obj: obj, size: stat.Size}, nil
+	s3.ObserveResult(ctx, s3.OperationGet, start, 1, nil)
+	return &s3Object{obj: obj, reader: s3.NewObservedReaderAt(ctx, obj, stat.Size), size: stat.Size}, nil
 }
 
 func (o *S3ObjectStore) Put(ctx context.Context, key string, body []byte) error {
+	start := time.Now()
 	_, err := o.mc.Client.PutObject(ctx, o.mc.Bucket(), o.prefix.Apply(key),
 		bytes.NewReader(body), int64(len(body)), minio.PutObjectOptions{
 			ContentType:    "application/octet-stream",
 			SendContentMd5: true, // 01 §6.2 step 3
 		})
+	s3.ObserveResult(ctx, s3.OperationPut, start, 1, err)
 	return err
 }
 
 func (o *S3ObjectStore) Delete(ctx context.Context, key string) error {
+	start := time.Now()
 	// S3 DeleteObject succeeds on a missing key, which is exactly the
 	// idempotent-delete contract of ObjectStore.
-	return o.mc.Client.RemoveObject(ctx, o.mc.Bucket(), o.prefix.Apply(key), minio.RemoveObjectOptions{})
+	err := o.mc.Client.RemoveObject(ctx, o.mc.Bucket(), o.prefix.Apply(key), minio.RemoveObjectOptions{})
+	s3.ObserveResult(ctx, s3.OperationRemove, start, 1, err)
+	return err
 }
 
-func mapNotFound(err error) error {
-	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+// observeGet records a failed GET that started at start and returns err,
+// mapped to ErrNotFound for a missing key. A missing key is a completed
+// request that read no object, not an S3 failure.
+func observeGet(ctx context.Context, start time.Time, err error) error {
+	if s3.IsNotFound(err) {
+		s3.ObserveResult(ctx, s3.OperationGet, start, 0, nil)
 		return errors.Wrap(ErrNotFound, err.Error())
 	}
+	s3.ObserveResult(ctx, s3.OperationGet, start, 0, err)
 	return err
 }
 
 // s3Object exposes one S3 object as a sized io.ReaderAt; *minio.Object
 // serves discontiguous ReadAt offsets with ranged requests.
 type s3Object struct {
-	obj  *minio.Object
-	size int64
+	obj    *minio.Object
+	reader *s3.ObservedReaderAt
+	size   int64
 }
 
-func (o *s3Object) ReadAt(p []byte, off int64) (int, error) { return o.obj.ReadAt(p, off) }
-func (o *s3Object) Close() error                            { return o.obj.Close() }
+func (o *s3Object) ReadAt(p []byte, off int64) (int, error) { return o.reader.ReadAt(p, off) }
 func (o *s3Object) Size() int64                             { return o.size }
+
+func (o *s3Object) Close() error {
+	o.reader.Close()
+	return o.obj.Close()
+}
