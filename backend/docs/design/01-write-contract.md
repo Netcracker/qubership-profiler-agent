@@ -519,7 +519,7 @@ A hard kill makes the lock visible during recovery: the dying process's flock ca
 | `S3_BUCKET` | — | Target bucket. |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials from the environment. For each credential, set exactly one source: the env form or the `*_FILE` form below. |
 | `S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE` | — | Path to a file holding the credential; trailing whitespace is trimmed. The k8s manifests mount the S3 Secret as a volume and point these at it (`04-storage-layout.md` §3.2, §6), so the credential never appears in a pod spec or `kubectl describe`. The env forms remain for dev/compose. |
-| `S3_CA_FILE` | — | Path to a CA bundle for the S3 endpoint's TLS. Ignored unless the endpoint is `https`. |
+| `S3_CA_FILE` | — | Path to a CA bundle for the S3 endpoint's TLS. Ignored unless the endpoint is `https`. The file must contain at least one PEM-encoded certificate; otherwise the subcommand fails at startup with an error naming the file. |
 | `S3_INSECURE_SKIP_VERIFY` | `false` | Skip S3 TLS certificate verification. For dev against a self-signed MinIO only. |
 | `S3_PATH_PREFIX` | (empty) | Per-deployment key prefix below the bucket, applied to every object the backend writes and reads (§7) — parquet and the `pods/v1` manifests — so several deployments can share one bucket. Set the same value on all three subcommands. |
 | `STATEFULSET_ORDINAL` | (from `HOSTNAME`) | Used in S3 object key. |
