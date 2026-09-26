@@ -193,9 +193,9 @@ retention:
 # `kubectl port-forward` to consolePort (PR 708 review #17).
 minio:
   enabled: false
-  # A mutable tag, like image.tag above — pin a dated MinIO release for any
-  # shared deployment (PR 708 review #16).
-  image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+  # Netcracker's MinIO build, pinned to a dated release and digest. The
+  # upstream quay.io/minio/minio image now requires authentication to pull.
+  image: ghcr.io/netcracker/qubership-minio:RELEASE.2026-06-26T06-18-36Z@sha256:8738ba45f08a2a8ed2f61491ffc7ff8c350ac64c20600bebcf80d3af930154ca
   consolePort: 9001
 
 metrics:

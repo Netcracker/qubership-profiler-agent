@@ -3,6 +3,16 @@
 # up. Cold-read latency numbers carry the "MinIO understates real object
 # storage" caveat from the plan either way.
 
+# The chart defaults to quay.io/minio/minio and quay.io/minio/mc, which now
+# require authentication to pull. Netcracker's MinIO build ships both the
+# server and mc, so the bucket job uses the same image.
+image:
+  repository: ghcr.io/netcracker/qubership-minio
+  tag: RELEASE.2026-06-26T06-18-36Z@sha256:8738ba45f08a2a8ed2f61491ffc7ff8c350ac64c20600bebcf80d3af930154ca
+mcImage:
+  repository: ghcr.io/netcracker/qubership-minio
+  tag: RELEASE.2026-06-26T06-18-36Z@sha256:8738ba45f08a2a8ed2f61491ffc7ff8c350ac64c20600bebcf80d3af930154ca
+
 mode: standalone
 replicas: 1
 

@@ -6,7 +6,7 @@
 #   make smoke        # end-to-end proof against this stack
 services:
   minio:
-    image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: ghcr.io/netcracker/qubership-minio:RELEASE.2026-06-26T06-18-36Z@sha256:8738ba45f08a2a8ed2f61491ffc7ff8c350ac64c20600bebcf80d3af930154ca
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
