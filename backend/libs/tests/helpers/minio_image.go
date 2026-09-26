@@ -11,7 +11,8 @@ import (
 
 const (
 	bucketName = "integration-test"
-	minioImage = "quay.io/minio/minio"
+	// Netcracker's MinIO build: quay.io/minio/minio now requires authentication to pull.
+	minioImage = "ghcr.io/netcracker/qubership-minio:RELEASE.2026-06-26T06-18-36Z@sha256:8738ba45f08a2a8ed2f61491ffc7ff8c350ac64c20600bebcf80d3af930154ca"
 )
 
 type MinioContainer struct {
