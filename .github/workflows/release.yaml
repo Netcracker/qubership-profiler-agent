@@ -229,7 +229,7 @@ jobs:
         component: ${{ fromJson(needs.load-docker-components.outputs.components) }}
     steps:
       - name: Docker build and publish
-        uses: netcracker/qubership-workflow-hub/actions/docker-action@cabbb90e9471163cfac84bd50ff0296b2803b44c # v2.3.0
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@288a6a0d9a78e80dfdefccab1be6497a39deb746 # v2.8.0
         with:
           ref: 'v${{ needs.publish-release.outputs.version }}'
           download-artifact: false
