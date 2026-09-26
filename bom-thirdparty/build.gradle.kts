@@ -31,7 +31,7 @@ dependencies {
         api("org.apache.tomcat.embed:tomcat-embed-core:11.0.25")
         api("org.apache.tomcat.embed:tomcat-embed-logging-juli:8.5.2")
         api("org.hdrhistogram:HdrHistogram:2.2.2")
-        api("org.jspecify:jspecify:1.0.0")
+        api("org.jspecify:jspecify:1.0.1")
         api("org.lz4:lz4-java") {
             version {
                 rejectAll()
