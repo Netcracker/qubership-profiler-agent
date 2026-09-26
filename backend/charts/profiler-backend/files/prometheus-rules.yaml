@@ -81,6 +81,35 @@ groups:
         annotations:
           summary: "A collector maintenance loop keeps failing"
           description: "The seal, upload, or janitor loop logged repeated pass failures over the last 15 minutes; the hot→cold handoff may be stalling."
+      # segments_disk_bytes, inram_bytes, and evicted_segment_chunk_refs keep
+      # the value of the last janitor pass that reached them, so a janitor
+      # that stopped completing passes leaves ProfilerDiskBudgetNearFull
+      # reading stale numbers. 900s is 30 default janitor intervals
+      # (PROFILER_JANITOR_CHECK_INTERVAL=30s); an interval raised above about
+      # 3 minutes needs a higher threshold here. The value is 0 until the first
+      # pass, which the 5m for-window absorbs. Unlike ProfilerLoopErrors, this
+      # also fires for a pass that hangs without returning an error.
+      - alert: ProfilerJanitorStalled
+        expr: time() - profiler_janitor_last_success_timestamp_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The janitor has not completed a pass for 15 minutes"
+          description: "No janitor pass completed every step in the last 15 minutes; segments_disk_bytes and inram_bytes are stale, so ProfilerDiskBudgetNearFull cannot be trusted, and retention and eviction may not be running."
+      # pending_parquet_bytes, partitions_disk_bytes, and wal_disk_bytes, and
+      # the seal and ingest gates computed from them, change only when a
+      # backpressure refresh completes. The janitor, seal, and upload passes
+      # all run a refresh, so 900s without one means none of them reaches it.
+      # The threshold matches ProfilerJanitorStalled.
+      - alert: ProfilerBackpressureStale
+        expr: time() - profiler_backpressure_last_refresh_timestamp_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The pending-upload gauges have not been refreshed for 15 minutes"
+          description: "No backpressure refresh completed in the last 15 minutes; pending_parquet_bytes, partitions_disk_bytes, wal_disk_bytes, and the seal and ingest gates reflect an old backlog."
       # The upload queue should drain within a few upload intervals. A pending
       # file older than 30 minutes means the uploader cannot keep up or is
       # blocked, and the PV keeps accumulating sealed parquet.

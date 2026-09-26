@@ -664,3 +664,27 @@ func TestPartitionResurrectOnLateInsert(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, stats.PartitionsDropped)
 }
+
+// TestJanitorLastSuccessTimestamp pins that JanitorLastSuccessMs records the
+// wall clock of the last pass that completed every step, whatever nowMs the
+// pass was given, and keeps that value while later passes fail.
+func TestJanitorLastSuccessTimestamp(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	assert.EqualValues(t, 0, store.JanitorLastSuccessMs(), "JanitorLastSuccessMs() before the first pass")
+
+	before := time.Now().UnixMilli()
+	_, err = store.JanitorPass(ctx, time.Now().Add(2*time.Hour).UnixMilli())
+	require.NoError(t, err)
+	after := time.Now().UnixMilli()
+	succeeded := store.JanitorLastSuccessMs()
+	assert.GreaterOrEqual(t, succeeded, before, "JanitorLastSuccessMs() after a pass given nowMs = now + 2h")
+	assert.LessOrEqual(t, succeeded, after, "JanitorLastSuccessMs() after a pass given nowMs = now + 2h")
+
+	require.NoError(t, store.Close())
+	_, err = store.JanitorPass(ctx, time.Now().UnixMilli())
+	require.Error(t, err, "JanitorPass on a closed store")
+	assert.Equal(t, succeeded, store.JanitorLastSuccessMs(), "JanitorLastSuccessMs() after a failed pass")
+}

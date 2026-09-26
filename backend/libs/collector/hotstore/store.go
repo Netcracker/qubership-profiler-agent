@@ -163,6 +163,13 @@ type (
 		// is transient; a sustained rate means the loop is wedged.
 		sealLoopErrors    atomic.Int64
 		janitorLoopErrors atomic.Int64
+
+		// Wall-clock Unix milliseconds of the last JanitorPass that completed
+		// every step and of the last completed refreshBackpressure; 0 until
+		// the first one. The gauges those two measure keep their last value
+		// while the producer fails, so these mark how old that value is.
+		janitorLastSuccessMs      atomic.Int64
+		backpressureLastRefreshMs atomic.Int64
 	}
 )
 
@@ -362,6 +369,14 @@ func (s *Store) PodsSize() int {
 // failed seal/janitor passes (the *_loop_errors_total seam).
 func (s *Store) SealLoopErrors() int64    { return s.sealLoopErrors.Load() }
 func (s *Store) JanitorLoopErrors() int64 { return s.janitorLoopErrors.Load() }
+
+// JanitorLastSuccessMs reports the wall-clock Unix milliseconds of the last
+// janitor pass that completed every step, or 0 if none has yet.
+func (s *Store) JanitorLastSuccessMs() int64 { return s.janitorLastSuccessMs.Load() }
+
+// BackpressureLastRefreshMs reports the wall-clock Unix milliseconds of the
+// last completed backpressure refresh, or 0 if none has yet.
+func (s *Store) BackpressureLastRefreshMs() int64 { return s.backpressureLastRefreshMs.Load() }
 
 // MemUsage reports the in-RAM pod-restart footprint as last measured by the
 // janitor's mem-budget step, next to the configured budget (№1).
