@@ -16,7 +16,7 @@ dependencies {
         // The moving version each plugin instrumentation test checks its injectors against. The
         // versions held still beside it live in plugins/*/build.gradle.kts, which Renovate ignores.
         api("com.rabbitmq:amqp-client:5.35.0")
-        api("com.zaxxer:HikariCP:7.0.2")
+        api("com.zaxxer:HikariCP:7.1.0")
         api("io.mockk:mockk:1.14.11")
         api("io.undertow:undertow-servlet:2.3.18.Final")
         api("org.jmockit:jmockit-coverage:1.23")
