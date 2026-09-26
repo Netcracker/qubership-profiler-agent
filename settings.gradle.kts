@@ -34,7 +34,7 @@ gradle.allprojects {
             dependencies {
                 classpath(platform("com.fasterxml.jackson:jackson-bom:2.22.2"))
                 constraints {
-                    classpath("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
+                    classpath("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
                 }
             }
         }
