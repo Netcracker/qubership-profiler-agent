@@ -32,7 +32,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@types/vkbeautify": "0.99.4",
-    "@vitejs/plugin-react": "6.0.3",
+    "@vitejs/plugin-react": "6.1.1",
     "@vitest/coverage-v8": "4.1.11",
     "fast-check": "4.10.2",
     "jsdom": "29.1.1",
