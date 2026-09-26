@@ -158,9 +158,14 @@ type (
 		ingestPaused        atomic.Bool
 		sealQueueDepth      atomic.Int64
 
+		// Pass counters incremented once per loop tick, before the pass runs,
+		// so a long pass is already counted; each is the denominator of the
+		// loop-error counter below it.
+		sealPasses    atomic.Int64
+		janitorPasses atomic.Int64
 		// Loop-error counters incremented at the seal/janitor pass-failed log
-		// sites (the Prometheus *_loop_errors_total seam). A single failed pass
-		// is transient; a sustained rate means the loop is wedged.
+		// sites. A single failed pass is transient; a sustained share of failed
+		// passes means the loop is wedged.
 		sealLoopErrors    atomic.Int64
 		janitorLoopErrors atomic.Int64
 	}
@@ -192,6 +197,9 @@ func Open(cfg Config) (*Store, error) {
 		return nil, err
 	}
 	cfg = cfg.Normalize()
+	if cfg.Recovery == nil {
+		cfg.Recovery = &RecoveryStats{}
+	}
 	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "pods"), 0o755); err != nil {
 		return nil, errors.Wrap(err, "create data dir")
 	}
@@ -358,10 +366,20 @@ func (s *Store) PodsSize() int {
 	return len(s.pods)
 }
 
+// RecoveryStats returns the counts of what Recover did, the same value as
+// Config.Recovery when the caller passed one.
+func (s *Store) RecoveryStats() *RecoveryStats { return s.cfg.Recovery }
+
 // SealLoopErrors and JanitorLoopErrors report the process-lifetime count of
-// failed seal/janitor passes (the *_loop_errors_total seam).
+// failed seal/janitor passes.
 func (s *Store) SealLoopErrors() int64    { return s.sealLoopErrors.Load() }
 func (s *Store) JanitorLoopErrors() int64 { return s.janitorLoopErrors.Load() }
+
+// SealPasses and JanitorPasses report the process-lifetime count of seal and
+// janitor passes RunSealLoop and RunJanitorLoop started, failed or not. Each
+// is never below its loop-error count.
+func (s *Store) SealPasses() int64    { return s.sealPasses.Load() }
+func (s *Store) JanitorPasses() int64 { return s.janitorPasses.Load() }
 
 // MemUsage reports the in-RAM pod-restart footprint as last measured by the
 // janitor's mem-budget step, next to the configured budget (№1).

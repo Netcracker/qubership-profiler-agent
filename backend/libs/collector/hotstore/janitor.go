@@ -868,6 +868,7 @@ func (s *Store) RunJanitorLoop(ctx context.Context, interval time.Duration) erro
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			s.janitorPasses.Add(1)
 			if _, err := s.JanitorPass(ctx, time.Now().UnixMilli()); err != nil && ctx.Err() == nil {
 				s.janitorLoopErrors.Add(1)
 				log.Error(ctx, err, "janitor pass failed")

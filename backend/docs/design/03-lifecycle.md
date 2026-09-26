@@ -40,6 +40,8 @@ The readiness endpoint is `GET /internal/v1/health/ready` (separate from `/inter
 
 This is the heaviest section because chunk-level reassembly (`01-write-contract.md` §4) and the dictionary cold-path lifecycle (`01-write-contract.md` §3.6) both depend on it.
 
+Every action recovery takes on the PV is counted on a `profiler_recovery_*` series: pod-restarts found and processed, pod-restarts quarantined under `recovery-failed/`, orphan parquet removed, lost pending parquet re-sealed, and call-index rows dropped by cause. The series register before recovery starts, and `profiler_recovery_failed_pod_restarts` reads `recovery-failed/` at scrape time, so it stays non-zero across restarts until a human clears the directory.
+
 ### 3.1 Mount PV and acquire exclusive lock
 
 1. Verify `/data` is mounted and writable. If not → `FATAL`.
@@ -148,6 +150,8 @@ Expected duration of 3.1–3.7 on a healthy PV: seconds to tens of seconds. Domi
 - `503 Service Unavailable { "state": "INIT"|"LOADING"|"RECOVERY"|"DRAINING"|"TERMINATING"|"FATAL", "details": "..." }` otherwise.
 
 The state name is for kubelet logs and human debugging; kubelet only cares about the HTTP code.
+
+During `RECOVERY` the details read `recovering the hot store: <processed> of <found> pod-restarts`, refreshed every 10 seconds, and the same string is logged at INFO. `/metrics` rides the internal port outside the readiness gate, so the `profiler_recovery_*` series are scrapable while recovery runs.
 
 `/internal/v1/health/live` (liveness):
 

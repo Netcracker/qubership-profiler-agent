@@ -85,25 +85,40 @@ Series names are stable — dashboards and the shipped alerts reference them; re
 | `profiler_seal_rows_total` | counter | Calls sealed into parquet rows. |
 | `profiler_seal_files_total` | counter | Parquet files produced by seal passes. |
 | `profiler_seal_truncated_rows_total{reason}` | counter | Rows sealed with a NULL blob: `dict_miss`, `disk_budget`, `idle_timeout`, `mem_pressure`. |
+| `profiler_seal_wal_bytes_read_total` | counter | `calls.wal` bytes seal passes read. |
+| `profiler_seal_passes_total` | counter | Seal passes started, failed or not; the denominator of `seal_loop_errors_total`. |
+| `profiler_seal_loop_errors_total` | counter | Failed seal passes. |
 | `profiler_upload_uploaded_files_total` | counter | Parquet files confirmed in S3. |
-| `profiler_upload_put_failures_total` | counter | Failed S3 PUT attempts (feeds the upload-failure alert). |
+| `profiler_upload_put_attempts_total{object}` | counter | S3 PUT calls, counted as each starts: `parquet`, `manifest`. |
+| `profiler_upload_put_failures_total{object,reason}` | counter | Failed S3 PUT calls; `reason` is `permanent` (a rejection retrying cannot fix) or `transient`. Divided by `put_attempts_total`, it feeds `ProfilerUploadFailures`; `reason="permanent"` feeds `ProfilerUploadRejected`. |
 | `profiler_upload_retried_puts_total` | counter | PUT attempts a retry followed. |
 | `profiler_upload_quarantined_files_total` | counter | Parquet files moved to `upload-failed/`. |
 | `profiler_upload_quarantined_objects_total` | counter | Manifest bodies parked under `upload-failed/`. |
-| `profiler_upload_manifest_puts_total` | counter | `pods/v1` manifest upserts. |
+| `profiler_upload_manifest_puts_total` | counter | Successful `pods/v1` manifest upserts. |
 | `profiler_upload_swept_segments_total` | counter | Refcount-0 segments unlinked after upload. |
+| `profiler_upload_passes_total` | counter | Upload passes started, failed or not; the denominator of `upload_loop_errors_total`. |
+| `profiler_upload_loop_errors_total` | counter | Failed upload passes. |
 | `profiler_janitor_parquet_deleted_total` | counter | Aged local parquet deleted past hot retention. |
 | `profiler_janitor_partitions_dropped_total` | counter | Call-index partitions dropped from the hot tier. |
 | `profiler_janitor_wals_purged_total` | counter | Pod-restarts whose WALs were purged. |
 | `profiler_janitor_wals_fast_purged_total` | counter | The `wals_purged_total` subset purged by the near-empty fast path (03 §3.9 step 18a). |
 | `profiler_janitor_segments_evicted_total` | counter | Segments evicted under the disk budget. |
 | `profiler_janitor_evicted_bytes_total` | counter | Bytes freed by evictions. |
+| `profiler_janitor_passes_total` | counter | Janitor passes started, failed or not; the denominator of `janitor_loop_errors_total`. |
+| `profiler_janitor_loop_errors_total` | counter | Failed janitor passes. |
 | `profiler_hotstore_segments_disk_bytes` | gauge | Segment bytes on disk (measured each janitor pass). |
 | `profiler_hotstore_segments_disk_budget_bytes` | gauge | The configured budget. |
 | `profiler_hotstore_hot_window_lag_seconds` | gauge | Age of the oldest hot-index row; sustained growth = stuck hot→cold handoff. |
-| `profiler_hotstore_quarantine_objects{kind}` | gauge | Stuck quarantined objects: `parquet`, `snapshot`. Shrinks only manually. |
+| `profiler_hotstore_quarantine_objects{kind}` | gauge | Quarantined objects: `parquet`. Shrinks when the slow re-test re-queues an entry (it returns if S3 rejects it again) and when the age/size cap drops one; an entry S3 keeps rejecting needs a human. |
 | `profiler_hotstore_quarantine_oldest_age_seconds{kind}` | gauge | Age of the oldest quarantined object. |
 | `profiler_hotstore_evicted_segment_chunk_refs` | gauge | In-RAM chunk refs pointing at evicted segments (risk B-3). |
+| `profiler_recovery_pod_restarts_found` | gauge | Pod-restart directories startup recovery found. |
+| `profiler_recovery_pod_restarts_processed` | gauge | Pod-restarts recovery has recovered or quarantined so far; equals `found` once it is done. |
+| `profiler_recovery_quarantined_pod_restarts_total` | counter | Pod-restarts recovery moved under `recovery-failed/`. |
+| `profiler_recovery_orphan_parquet_removed_total` | counter | Parquet files with no catalog row that recovery deleted. |
+| `profiler_recovery_lost_pending_parquet_total` | counter | Pending parquet missing on disk; recovery rewound the seal watermark so the calls re-seal. |
+| `profiler_recovery_dropped_index_rows_total{cause}` | counter | Call-index rows recovery dropped: `torn_wal_tail`, `quarantine`. |
+| `profiler_recovery_failed_pod_restarts` | gauge | Directories under `recovery-failed/` waiting for a human; read from the PV at scrape time, so it survives restarts. |
 | `profiler_query_fanout_replica_request_seconds{result}` | histogram | Per-replica fan-out round-trip. |
 | `profiler_query_cold_lists_total` | counter | S3 LIST requests from cold discovery. |
 | `profiler_query_partial_responses_total` | counter | Responses with `partial: true`. |
@@ -119,7 +134,7 @@ Series names are stable — dashboards and the shipped alerts reference them; re
 
 ## Alerts
 
-`files/prometheus-rules.yaml` (shipped via the PrometheusRule) carries: `ProfilerStuckQuarantine`, `ProfilerQuarantineAgeHigh`, `ProfilerDiskBudgetNearFull`, `ProfilerHotWindowLagHigh`, `ProfilerUploadFailures`. `make rules-test` runs `promtool test rules` over the same file (`tests/prometheus/rules_test.yaml`), including the forced stuck-quarantine scenario.
+`files/prometheus-rules.yaml` (shipped via the PrometheusRule) carries: `ProfilerStuckQuarantine`, `ProfilerQuarantineAgeHigh`, `ProfilerDiskBudgetNearFull`, `ProfilerHotWindowLagHigh`, `ProfilerIngestRefused`, `ProfilerUploadFailures`, `ProfilerUploadRejected`, `ProfilerLoopErrors`, `ProfilerUploadBacklogStale`, `ProfilerCompactionOversizedObject`. `make rules-test` runs `promtool test rules` over the same file (`tests/prometheus/rules_test.yaml`), including the forced stuck-quarantine scenario.
 
 ## Validation
 

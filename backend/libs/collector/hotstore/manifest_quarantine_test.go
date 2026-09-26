@@ -107,6 +107,13 @@ func TestRejectedManifestKeepsPodPendingAndRecovers(t *testing.T) {
 		"the bundle must NOT be marked complete while its identity manifest is missing")
 	assert.EqualValues(t, 1, stats.QuarantinedObjects, "the rejected manifest body is quarantined for a human")
 	assert.EqualValues(t, 1, stats.QuarantinedFiles, "the parquet is quarantined alongside it, not marked uploaded")
+	assert.EqualValues(t, 1, uploader.PutAttempts(PutObjectParquet), "PutAttempts(parquet)")
+	assert.EqualValues(t, 1, uploader.PutAttempts(PutObjectManifest), "PutAttempts(manifest)")
+	assert.EqualValues(t, 1, uploader.PutFailures(PutObjectManifest, PutFailurePermanent),
+		"the manifest rejection counts under manifest, not parquet")
+	for _, reason := range PutFailureReasons {
+		assert.Zero(t, uploader.PutFailures(PutObjectParquet, reason), "PutFailures(parquet, %s)", reason)
+	}
 
 	// The parquet_local row stays pending (uploaded_at NULL): the pod-restart is
 	// visibly pending, the WAL purge is blocked, and hot discovery still sees it.
