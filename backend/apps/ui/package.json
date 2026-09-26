@@ -37,7 +37,7 @@
     "fast-check": "4.10.2",
     "jsdom": "29.1.1",
     "msw": "2.15.0",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vite": "8.1.2",
     "vitest": "4.1.11"
   },
