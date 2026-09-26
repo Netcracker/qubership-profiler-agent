@@ -77,13 +77,7 @@ tasks.configureEach<JavaCompile> {
             // otherwise the build fails due to -Werror below
             compilerArgs.add("-Xlint:-options")
         }
-        if (!buildParameters.enableCheckerframework) {
-            compilerArgs.add("-Xlint:deprecation")
-        } else {
-            // We use checkerframework for nullability mostly, so we don't want to see deprecation warnings
-            compilerArgs.add("-Xmaxerrs")
-            compilerArgs.add("1")
-        }
+        compilerArgs.add("-Xlint:deprecation")
         if (buildParameters.failOnJavacWarning && !name.contains("Test")) {
             compilerArgs.add("-Werror")
         }
