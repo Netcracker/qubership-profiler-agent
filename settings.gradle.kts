@@ -9,7 +9,7 @@ pluginManagement {
         id("com.google.osdetector") version "1.7.3"
         kotlin("jvm") version "2.3.21"
         kotlin("kapt") version "2.3.21"
-        kotlin("plugin.spring") version "2.3.21"
+        kotlin("plugin.spring") version "2.4.20"
         id("me.champeau.jmh") version "0.7.3"
     }
 }
