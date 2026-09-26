@@ -93,6 +93,7 @@ jobs:
         with:
           client-id: ${{ vars.GH_BUMP_VERSION_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_BUMP_VERSION_APP_KEY }} # zizmor: ignore[secrets-outside-env]
+          permission-contents: write
 
       - name: Update version in gradle.properties to ${{ steps.release_version.outputs.version }}
         uses: ./.github/actions/update_version
