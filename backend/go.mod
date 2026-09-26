@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.41.0
 	github.com/testcontainers/testcontainers-go/modules/minio v0.41.0
-	go.k6.io/k6 v1.6.1
+	go.k6.io/k6 v1.8.1
 	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.31.2
@@ -37,7 +37,7 @@ require (
 	buf.build/gen/go/prometheus/prometheus/protocolbuffers/go v1.36.11-20251118093737-4105057cc7d4.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
-	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
+	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/PuerkitoBio/goquery v1.11.0 // indirect
@@ -95,16 +95,17 @@ require (
 	github.com/google/pprof v0.0.0-20251007162407-5df77e3f7d1d // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/grafana/k6-cloud-openapi-client-go v0.0.0-20260106090513-285631296b5d // indirect
-	github.com/grafana/k6build v0.5.15 // indirect
-	github.com/grafana/k6provider v0.2.0 // indirect
-	github.com/grafana/sobek v0.0.0-20260121195222-d8d9202018c5 // indirect
-	github.com/grafana/xk6-dashboard v0.7.13 // indirect
+	github.com/grafana/k6provider v0.5.0 // indirect
+	github.com/grafana/sobek v0.0.0-20260429085637-a66d4790012b // indirect
+	github.com/grafana/xk6-dashboard v0.8.1 // indirect
+	github.com/grafana/xk6-dashboard-assets v0.1.2 // indirect
 	github.com/grafana/xk6-redis v0.3.6 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/influxdata/influxdb1-client v0.0.0-20190402204710-8ff2fc3824fc // indirect
-	github.com/jhump/protoreflect v1.17.0 // indirect
+	github.com/jhump/protoreflect v1.18.0 // indirect
+	github.com/jhump/protoreflect/v2 v2.0.0-beta.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
