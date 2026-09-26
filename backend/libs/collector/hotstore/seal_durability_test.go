@@ -310,14 +310,15 @@ func TestRecoverPurgesIndexRowsPastTruncatedWal(t *testing.T) {
 	assert.Equal(t, 2, files[0].RowCount)
 }
 
-// TestSealDueSkipsPoisonedPair pins the №8 loop behaviour: one poisoned
-// (pod-restart, bucket) must not starve the others — it is skipped with a
-// metric and the pass seals everything else.
-func TestSealDueSkipsPoisonedPair(t *testing.T) {
-	ctx := context.Background()
+// openPoisonedAndHealthyPair opens a store holding two due pod-restarts: a
+// healthy one, and a poisoned one whose call index references records that no
+// longer exist anywhere (a corruption recovery did not see — recovery would
+// have purged it). It returns the healthy pod-restart.
+func openPoisonedAndHealthyPair(t *testing.T) (*Store, *PodRestart) {
+	t.Helper()
 	store, err := Open(Config{DataDir: t.TempDir()})
 	require.NoError(t, err)
-	defer func() { _ = store.Close() }()
+	t.Cleanup(func() { _ = store.Close() })
 
 	open := func(pod string) *PodRestart {
 		pr, err := store.OpenPodRestart(PodRestartKey{
@@ -334,18 +335,70 @@ func TestSealDueSkipsPoisonedPair(t *testing.T) {
 	poisoned, healthy := open("pod-poison"), open("pod-ok")
 	require.NoError(t, poisoned.Close())
 	require.NoError(t, healthy.Close())
-	// The poison: the index references records that no longer exist anywhere
-	// (a corruption recovery did not see — recovery would have purged it).
 	require.NoError(t, os.Remove(filepath.Join(poisoned.dir, "calls.wal")))
+	return store, healthy
+}
+
+// runSealLoop runs store.RunSealLoop on a 10 ms tick until condition holds,
+// then stops the loop and waits for it to return.
+func runSealLoop(t *testing.T, store *Store, condition func() bool, waitingFor string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = store.RunSealLoop(ctx, 10*time.Millisecond)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	require.Eventually(t, condition, 10*time.Second, 10*time.Millisecond,
+		"waiting for %s; SealSkippedBuckets=%d, SealLoopErrors=%d",
+		waitingFor, store.SealSkippedBuckets(), store.SealLoopErrors())
+}
+
+// TestSealDueSkipsPoisonedPair pins the №8 loop behaviour: one poisoned
+// (pod-restart, bucket) must not starve the others — it is skipped with a
+// metric and the pass seals everything else.
+func TestSealDueSkipsPoisonedPair(t *testing.T) {
+	ctx := context.Background()
+	store, healthy := openPoisonedAndHealthyPair(t)
 
 	sealed, err := store.SealDue(ctx, time.Now().UnixMilli())
-	assert.Error(t, err, "the pass reports the poisoned pair")
+	require.NoError(t, err, "a skipped pair is reported through SealSkippedBuckets, not as a failed pass")
 	assert.Equal(t, 1, sealed, "the healthy pair seals despite the poisoned one")
 	assert.EqualValues(t, 1, store.SealSkippedBuckets())
 
 	files, err := store.LocalParquet(healthy.Key)
 	require.NoError(t, err)
 	assert.Len(t, files, 1, "the healthy pod-restart's file exists")
+}
+
+// A poisoned bucket is retried and skipped on every pass, and restarting the
+// collector does not clear it, so profiler_seal_loop_errors_total (and the
+// ProfilerLoopErrors alert on it) counts only passes that failed as a whole.
+// A skip used to count as a failed pass, and one poisoned bucket fired the
+// alert within a minute.
+func TestSealLoopDoesNotCountSkippedBucketAsLoopError(t *testing.T) {
+	store, _ := openPoisonedAndHealthyPair(t)
+
+	runSealLoop(t, store, func() bool { return store.SealSkippedBuckets() >= 2 },
+		"two passes to skip the poisoned pair")
+
+	assert.EqualValues(t, 0, store.SealLoopErrors(), "SealLoopErrors after passes that only skipped a pair")
+}
+
+// The negative control for TestSealLoopDoesNotCountSkippedBucketAsLoopError:
+// a pass that cannot read its metadata still counts as a loop error.
+func TestSealLoopCountsPassFailure(t *testing.T) {
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	require.NoError(t, store.db.Close())
+
+	runSealLoop(t, store, func() bool { return store.SealLoopErrors() >= 1 },
+		"a pass over a closed metadata database to count as a loop error")
 }
 
 // TestSealReadsOnlyBucketSlices pins the №9 read pattern: sealing N buckets
