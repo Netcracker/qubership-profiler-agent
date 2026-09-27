@@ -18,7 +18,7 @@ dependencies {
     val testcontainersBom = enforcedPlatform("org.testcontainers:testcontainers-bom:2.0.5")
     testImplementation(testcontainersBom)
     testImplementation("org.testcontainers:testcontainers")
-    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
 }
 
 val demoModuleDir = rootDir.resolve("backend/examples/spring-boot-3-undertow")
