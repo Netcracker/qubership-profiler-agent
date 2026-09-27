@@ -39,7 +39,7 @@ buildParameters {
         description.set("Java version for source and target compatibility")
     }
     string("targetKotlinVersion") {
-        defaultValue.set("1.9")
+        defaultValue.set("2.0")
         mandatory.set(true)
         description.set("Kotlin version for target compatibility")
     }
