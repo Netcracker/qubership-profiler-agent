@@ -14,7 +14,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/log"
 	"github.com/Netcracker/qubership-profiler-agent/diagtools/utils"
 
-	capi "github.com/hashicorp/consul/api"
+	capi "github.com/hashicorp/consul/api/v2"
 )
 
 type ConsulCfg struct {
