@@ -24,6 +24,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// recoveryProgressInterval is how often the RECOVERY readiness details and
+// the INFO log report how many pod-restarts recovery has processed.
+const recoveryProgressInterval = 10 * time.Second
+
 // Agent-socket deadlines. The read timeout must exceed the agent's keep-alive
 // cadence so an idle-but-healthy connection is not dropped; the values mirror
 // the integration suite's.
@@ -98,7 +102,10 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 		replica = os.Getenv("HOSTNAME") // the pod name under k8s (04 §3.2)
 	}
 
+	recovery := &hotstore.RecoveryStats{}
+	metrics.RegisterRecovery(reg, recovery, cfg.DataDir)
 	gate.Set(health.StateRecovery, "recovering the hot store")
+	stopProgress := gate.TrackProgress(ctx, health.StateRecovery, recoveryProgressInterval, recovery.Progress)
 	svc, err := collector.New(ctx, collector.Options{
 		Store: hotstore.Config{
 			DataDir:               cfg.DataDir,
@@ -123,6 +130,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 			QuarantineMaxAge:         time.Duration(cfg.QuarantineMaxAge),
 			QuarantineMaxBytes:       int64(cfg.QuarantineMaxBytes),
 			UploadConcurrency:        cfg.UploadConcurrency,
+			Recovery:                 recovery,
 		},
 		Server: server.ConnectionOpts{
 			ProtocolPort:         cfg.AgentPort,
@@ -131,9 +139,13 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 		},
 		ObjectStore: collector.NewS3ObjectStore(mc, cfg.S3.PathPrefix),
 	})
+	stopProgress()
 	if err != nil {
 		return fatal("recover the hot store", err)
 	}
+	log.Info(ctx, "recovery: %d pod-restarts found, %d quarantined, %d orphan parquet removed, %d lost pending parquet re-sealing, %d index rows dropped past a torn calls.wal, %d with quarantined pod-restarts",
+		recovery.PodRestartsFound.Load(), recovery.QuarantinedPodRestarts.Load(), recovery.OrphanParquetRemoved.Load(),
+		recovery.LostPendingParquet.Load(), recovery.DroppedIndexRowsTornTail.Load(), recovery.DroppedIndexRowsQuarantine.Load())
 
 	metrics.RegisterCollect(reg, svc.Store(), svc.Uploader())
 	metrics.RegisterIngest(reg, svc.Ingest())

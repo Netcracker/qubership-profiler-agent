@@ -4,9 +4,10 @@
 groups:
   - name: profiler-backend
     rules:
-      # Quarantine only shrinks on manual intervention (01 §8): a rejected
-      # parquet file pins its bucket and every newer bucket in the hot tier
-      # (the contiguity barrier). Any sustained non-zero count needs a human.
+      # A rejected parquet file pins its bucket and every newer bucket in the
+      # hot tier (the contiguity barrier, 01 §8). The slow re-test (№2) and the
+      # age/size cap shrink the quarantine on their own, so a count that stays
+      # non-zero for 15m is one S3 keeps rejecting, and it needs a human.
       - alert: ProfilerStuckQuarantine
         expr: sum by (kind) (profiler_hotstore_quarantine_objects) > 0
         for: 15m
@@ -59,28 +60,56 @@ groups:
         annotations:
           summary: "Collector is refusing agent data — the agent drops it"
           description: "The backpressure gate answered ACK_ERROR to agent RCV_DATA; the agent drops the refused window and reconnects, so this data is lost. Check S3 upload health and PROFILER_PENDING_UPLOAD_MAX_BYTES."
+      # The share of failed S3 PUTs, parquet bodies and manifests together.
+      # The counters move as each PUT starts and fails, so a pass stuck in a
+      # long S3 outage still shows up. With no attempts the ratio is NaN and
+      # the alert stays quiet.
       - alert: ProfilerUploadFailures
-        expr: increase(profiler_upload_put_failures_total[10m]) > 0
-        for: 5m
+        expr: >-
+          sum without (object, reason) (rate(profiler_upload_put_failures_total[10m]))
+            / sum without (object) (rate(profiler_upload_put_attempts_total[10m])) > 0.1
+        for: 10m
         labels:
           severity: warning
         annotations:
           summary: "S3 uploads are failing"
-          description: "PUT attempts to S3 failed within the last 10 minutes; pending parquet stays on the PV and retries with backoff."
-      # A single failed pass is transient (the loop retries on the next tick);
-      # a sustained rate across seal/upload/janitor means a loop is wedged and
-      # the hot→cold pipeline is not making progress.
+          description: "More than 10% of S3 PUT attempts failed over the last 10 minutes; pending parquet stays on the PV and retries with backoff."
+      # A permanent rejection (a 4xx) does not heal by retrying: the object
+      # moves to upload-failed/ and waits for the slow re-test or a human.
+      - alert: ProfilerUploadRejected
+        expr: >-
+          sum without (object, reason) (increase(profiler_upload_put_failures_total{reason="permanent"}[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 rejects uploads permanently"
+          description: "S3 rejected a PUT with an error retrying cannot fix; the object went to upload-failed/. Check the bucket permissions and policy."
+      # The share of failed passes per loop. A single failed pass is transient
+      # (the loop retries on the next tick); a loop that fails more than half
+      # of its passes is wedged, whatever its check interval.
       - alert: ProfilerLoopErrors
         expr: >-
-          increase(profiler_seal_loop_errors_total[15m])
-            + increase(profiler_upload_loop_errors_total[15m])
-            + increase(profiler_janitor_loop_errors_total[15m]) > 3
+          (
+            label_replace(
+              increase(profiler_seal_loop_errors_total[15m])
+                / clamp_min(increase(profiler_seal_passes_total[15m]), 1),
+              "loop", "seal", "", "")
+            or label_replace(
+              increase(profiler_upload_loop_errors_total[15m])
+                / clamp_min(increase(profiler_upload_passes_total[15m]), 1),
+              "loop", "upload", "", "")
+            or label_replace(
+              increase(profiler_janitor_loop_errors_total[15m])
+                / clamp_min(increase(profiler_janitor_passes_total[15m]), 1),
+              "loop", "janitor", "", "")
+          ) > 0.5
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: "A collector maintenance loop keeps failing"
-          description: "The seal, upload, or janitor loop logged repeated pass failures over the last 15 minutes; the hot→cold handoff may be stalling."
+          description: "The {{ $labels.loop }} loop failed more than half of its passes over the last 15 minutes; the hot→cold handoff may be stalling."
       # The upload queue should drain within a few upload intervals. A pending
       # file older than 30 minutes means the uploader cannot keep up or is
       # blocked, and the PV keeps accumulating sealed parquet.

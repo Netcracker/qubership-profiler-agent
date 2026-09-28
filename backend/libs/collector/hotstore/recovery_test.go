@@ -54,10 +54,18 @@ func TestRecoverQuarantinesCorruptPodRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Sync())
 
-	store, err = Open(Config{DataDir: dataDir})
+	recovery := &RecoveryStats{}
+	store, err = Open(Config{DataDir: dataDir, Recovery: recovery})
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
 	require.NoError(t, store.Recover(ctx), "one broken pod-restart must not fail recovery")
+	assert.Equal(t, recoveryCounts{
+		Found: 2, Processed: 2, QuarantinedPodRestarts: 1, DroppedIndexRowsQuarantine: 1,
+	}, snapshotRecovery(recovery), "Config.Recovery after recovery")
+	assert.Same(t, recovery, store.RecoveryStats(), "Store.RecoveryStats returns Config.Recovery")
+	failed, err := CountRecoveryFailed(dataDir)
+	require.NoError(t, err)
+	assert.Equal(t, 1, failed, "CountRecoveryFailed")
 
 	_, ok := store.PodRestart(PodRestartKey{
 		Namespace: "ns", Service: "svc", PodName: "pod-corrupt", RestartTimeMs: 1_000})
@@ -108,6 +116,7 @@ func TestRecoverRemovesOrphanSealedParquet(t *testing.T) {
 	require.NoError(t, store.Recover(ctx))
 	assert.FileExists(t, catalogued, "a catalogued file survives recovery")
 	assert.NoFileExists(t, orphan, "an uncommitted seal's file is swept")
+	assert.Equal(t, recoveryCounts{OrphanParquetRemoved: 1}, snapshotRecovery(store.RecoveryStats()))
 }
 
 // TestRecoverSweepsOrphanQuarantinedParquet pins issue #824: quarantine() renames
@@ -154,6 +163,7 @@ func TestRecoverSweepsOrphanQuarantinedParquet(t *testing.T) {
 	require.NoError(t, store.Recover(ctx))
 	assert.NoFileExists(t, orphan, "an orphan with no parquet_local row is swept")
 	assert.FileExists(t, quarantined, "a legitimately quarantined file keeps its row and survives")
+	assert.Equal(t, recoveryCounts{OrphanParquetRemoved: 1}, snapshotRecovery(store.RecoveryStats()))
 }
 
 // TestRecoverReSealsLostPendingParquet pins the QA 708#2 fix: a pending (not yet
@@ -203,6 +213,9 @@ func TestRecoverReSealsLostPendingParquet(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
 	require.NoError(t, store.Recover(ctx))
+
+	assert.Equal(t, recoveryCounts{Found: 1, Processed: 1, LostPendingParquet: 1},
+		snapshotRecovery(store.RecoveryStats()))
 
 	files, err = store.LocalParquet(key)
 	require.NoError(t, err)
@@ -366,6 +379,9 @@ func TestRecoverDropsUploadedMissingParquet(t *testing.T) {
 	defer func() { _ = store.Close() }()
 	require.NoError(t, store.Recover(ctx))
 
+	assert.Equal(t, recoveryCounts{Found: 1, Processed: 1}, snapshotRecovery(store.RecoveryStats()),
+		"a file already in S3 is no loss")
+
 	files, err = store.LocalParquet(key)
 	require.NoError(t, err)
 	assert.Empty(t, files, "the uploaded-but-locally-gone row is dropped")
@@ -375,4 +391,27 @@ func TestRecoverDropsUploadedMissingParquet(t *testing.T) {
 	sealed, err = store.SealDue(ctx, dueMs)
 	require.NoError(t, err)
 	assert.Zero(t, sealed, "no re-seal for data already in the cold tier")
+}
+
+// recoveryCounts is a plain copy of RecoveryStats, so one assertion compares
+// every counter and prints the whole set on a mismatch.
+type recoveryCounts struct {
+	Found, Processed           int64
+	QuarantinedPodRestarts     int64
+	OrphanParquetRemoved       int64
+	LostPendingParquet         int64
+	DroppedIndexRowsTornTail   int64
+	DroppedIndexRowsQuarantine int64
+}
+
+func snapshotRecovery(s *RecoveryStats) recoveryCounts {
+	return recoveryCounts{
+		Found:                      s.PodRestartsFound.Load(),
+		Processed:                  s.PodRestartsProcessed.Load(),
+		QuarantinedPodRestarts:     s.QuarantinedPodRestarts.Load(),
+		OrphanParquetRemoved:       s.OrphanParquetRemoved.Load(),
+		LostPendingParquet:         s.LostPendingParquet.Load(),
+		DroppedIndexRowsTornTail:   s.DroppedIndexRowsTornTail.Load(),
+		DroppedIndexRowsQuarantine: s.DroppedIndexRowsQuarantine.Load(),
+	}
 }

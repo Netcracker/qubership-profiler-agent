@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,33 +114,104 @@ func TestQuarantineStats(t *testing.T) {
 	assert.Equal(t, janitorCallTs+minute, *stats.ParquetOldestMs, "oldest failure wins")
 }
 
-// TestPutWithRetryCountsFailures pins the FailedPuts semantics: every failed
-// attempt counts (the upload-failure-rate alert reads its rate), while
-// RetriedPuts counts only attempts a retry followed.
+// TestPutWithRetryCountsFailures pins the PUT counters: every call counts as
+// an attempt of its object kind, every failed call as a failure with its
+// reason, and RetriedPuts counts only the failed attempts a retry followed.
 func TestPutWithRetryCountsFailures(t *testing.T) {
 	store, err := Open(Config{DataDir: t.TempDir(), UploadRetryBaseDelay: time.Millisecond})
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
-	u := NewUploader(store, nil)
 
-	var stats UploadStats
-	attempts := 0
-	err = u.putWithRetry(context.Background(), "k", func() error {
-		attempts++
-		if attempts <= 2 {
-			return errors.New("transient")
-		}
-		return nil
-	}, &stats)
+	t.Run("transient failures then success", func(t *testing.T) {
+		u := NewUploader(store, nil)
+		var stats UploadStats
+		calls := 0
+		err := u.putWithRetry(context.Background(), PutObjectParquet, "k", func() error {
+			calls++
+			if calls <= 2 {
+				return errors.New("503")
+			}
+			return nil
+		}, &stats)
+		require.NoError(t, err)
+		assert.EqualValues(t, 3, u.PutAttempts(PutObjectParquet), "PutAttempts(parquet)")
+		assert.EqualValues(t, 2, u.PutFailures(PutObjectParquet, PutFailureTransient), "PutFailures(parquet, transient)")
+		assert.Zero(t, u.PutFailures(PutObjectParquet, PutFailurePermanent), "PutFailures(parquet, permanent)")
+		assert.Zero(t, u.PutAttempts(PutObjectManifest), "PutAttempts(manifest)")
+		assert.EqualValues(t, 2, stats.RetriedPuts, "RetriedPuts")
+	})
+
+	t.Run("permanent rejection", func(t *testing.T) {
+		u := NewUploader(store, nil)
+		var stats UploadStats
+		err := u.putWithRetry(context.Background(), PutObjectManifest, "k", func() error {
+			return &PermanentUploadError{Err: errors.New("403")}
+		}, &stats)
+		require.Error(t, err)
+		assert.EqualValues(t, 1, u.PutAttempts(PutObjectManifest), "PutAttempts(manifest)")
+		assert.EqualValues(t, 1, u.PutFailures(PutObjectManifest, PutFailurePermanent), "PutFailures(manifest, permanent)")
+		assert.Zero(t, u.PutFailures(PutObjectManifest, PutFailureTransient), "PutFailures(manifest, transient)")
+		assert.Zero(t, u.PutAttempts(PutObjectParquet), "PutAttempts(parquet)")
+		assert.Zero(t, stats.RetriedPuts, "no retry follows a permanent rejection")
+	})
+}
+
+// blockingObjectStore fails the first parquet PUT with a transient error and
+// blocks the second until release is closed, signalling on blocked first.
+type blockingObjectStore struct {
+	calls   atomic.Int64
+	blocked chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingObjectStore) PutFile(context.Context, string, string) error {
+	switch s.calls.Add(1) {
+	case 1:
+		return errors.New("503 slow down")
+	case 2:
+		close(s.blocked)
+		<-s.release
+	}
+	return nil
+}
+
+func (s *blockingObjectStore) PutBytes(context.Context, string, []byte) error { return nil }
+
+// TestPutCountersAreLiveDuringPass pins that the PUT counters move while a
+// pass is still running: an alert must see an S3 outage inside one long pass,
+// and CountersSnapshot moves only when the pass ends.
+func TestPutCountersAreLiveDuringPass(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir(), UploadRetryBaseDelay: time.Millisecond})
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, stats.FailedPuts)
-	assert.EqualValues(t, 2, stats.RetriedPuts)
+	defer func() { _ = store.Close() }()
+	key := PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-live", RestartTimeMs: janitorCallTs}
+	require.NoError(t, store.db.UpsertPodRestart(key, janitorCallTs))
+	seedPendingParquet(t, store, key, 0, 7)
 
-	stats = UploadStats{}
-	err = u.putWithRetry(context.Background(), "k", func() error {
-		return &PermanentUploadError{Err: errors.New("403")}
-	}, &stats)
-	require.Error(t, err)
-	assert.EqualValues(t, 1, stats.FailedPuts, "a permanent rejection is still a failed PUT")
-	assert.Zero(t, stats.RetriedPuts, "no retry follows a permanent rejection")
+	s3 := &blockingObjectStore{blocked: make(chan struct{}), release: make(chan struct{})}
+	u := NewUploader(store, s3)
+	passErr := make(chan error, 1)
+	go func() {
+		_, err := u.Pass(ctx)
+		passErr <- err
+	}()
+
+	select {
+	case <-s3.blocked:
+	case <-time.After(10 * time.Second):
+		close(s3.release)
+		t.Fatal("the second parquet PUT never started")
+	}
+	assert.EqualValues(t, 2, u.PutAttempts(PutObjectParquet), "PutAttempts(parquet) while the second PUT blocks")
+	assert.EqualValues(t, 1, u.PutFailures(PutObjectParquet, PutFailureTransient),
+		"PutFailures(parquet, transient) while the second PUT blocks")
+	assert.Equal(t, UploadStats{}, u.CountersSnapshot(), "CountersSnapshot before the pass ends")
+
+	close(s3.release)
+	require.NoError(t, <-passErr)
+	assert.EqualValues(t, 2, u.PutAttempts(PutObjectParquet), "PutAttempts(parquet) after the pass")
+	assert.EqualValues(t, 1, u.PutFailures(PutObjectParquet, PutFailureTransient), "PutFailures(parquet, transient) after the pass")
+	assert.EqualValues(t, 1, u.PutAttempts(PutObjectManifest), "PutAttempts(manifest) after the pass")
+	assert.EqualValues(t, 1, u.CountersSnapshot().UploadedFiles, "CountersSnapshot().UploadedFiles after the pass")
 }

@@ -291,6 +291,8 @@ func TestRecoverPurgesIndexRowsPastTruncatedWal(t *testing.T) {
 	rows, err = store.Calls(bucket)
 	require.NoError(t, err)
 	assert.Len(t, rows, 2, "the row whose record tore off is dropped with the tail")
+	assert.Equal(t, recoveryCounts{Found: 1, Processed: 1, DroppedIndexRowsTornTail: 1},
+		snapshotRecovery(store.RecoveryStats()))
 
 	// The bucket seals what survived; before the fix the first pass failed on
 	// the missing record and every later pass retried the same failure forever.

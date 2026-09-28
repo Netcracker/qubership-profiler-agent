@@ -118,6 +118,10 @@ type Config struct {
 	// PartitionCacheSize caps the open per-bucket SQLite handles (№24); the
 	// least-recently-used handle closes when a new bucket needs a slot.
 	PartitionCacheSize int
+	// Recovery receives the counts of what Recover does; nil means Open
+	// allocates its own. The caller passes one to register its metrics before
+	// the store exists.
+	Recovery *RecoveryStats
 }
 
 // Normalize fills unset fields with the contract defaults.
