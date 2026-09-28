@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/minio v0.44.0
-	go.k6.io/k6 v1.6.1
+	go.k6.io/k6/v2 v2.2.0
 	go.k6.io/k6/v2 v2.2.0
 	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
