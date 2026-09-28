@@ -7,7 +7,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/vdumper"
 	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
-	"go.k6.io/k6/metrics"
+	"go.k6.io/k6/v2/metrics"
 )
 
 // statsAdapter maps StatsListener callbacks of a whole fleet to k6 samples.

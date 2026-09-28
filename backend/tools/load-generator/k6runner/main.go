@@ -5,7 +5,7 @@
 package main
 
 import (
-	"go.k6.io/k6/cmd"
+	"go.k6.io/k6/v2/cmd"
 
 	_ "github.com/Netcracker/qubership-profiler-backend/tools/load-generator/go-metrics"
 	_ "github.com/Netcracker/qubership-profiler-backend/tools/load-generator/pkg/cdt"
