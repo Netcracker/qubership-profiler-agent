@@ -52,7 +52,7 @@ var (
 // Collectors returns the cdt_minio_* collectors so a caller can register them
 // on its own registry. The profiler-backend subcommands each expose a private
 // registry (never the Prometheus default), so without this seam the S3 series
-// would be invisible on their /metrics. registerMetrics still registers the
+// would be invisible on their /metrics. NewReadOnlyClient still registers the
 // same collectors on the default registry for callers that scrape it.
 func Collectors() []prometheus.Collector {
 	return []prometheus.Collector{
@@ -90,12 +90,6 @@ func RegisterMetrics(reg prometheus.Registerer) {
 		operationMinioObjectsCount.With(labels)
 		operationMinioErrorsCount.With(labels)
 	}
-}
-
-func registerMetrics() {
-	prometheus.Register(operationMinioLatencySeconds)
-	prometheus.Register(operationMinioObjectsCount)
-	prometheus.Register(operationMinioErrorsCount)
 }
 
 func ObserveOperation(seconds float64, objectsCount int, operationType string) {
