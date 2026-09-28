@@ -40,7 +40,7 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 	counter("seal", "files_total", "Parquet files produced by seal passes.",
 		func() int64 { return store.SealCountersSnapshot().Files }, nil)
 	counter("seal", "loop_errors_total",
-		"Failed seal passes (the loop logged and retried on the next tick). A sustained rate means sealing is wedged.",
+		"Seal passes that could not run because reading the metadata or refreshing backpressure failed (the loop logged and retried on the next tick). A sustained rate means sealing is wedged. A single poisoned bucket counts in profiler_seal_skipped_buckets_total instead.",
 		func() int64 { return store.SealLoopErrors() }, nil)
 	counter("seal", "lost_big_values_total",
 		"Big-parameter values a seal could not resolve because their value segment was evicted or torn (№7); each loss truncates its row with disk_budget.",
