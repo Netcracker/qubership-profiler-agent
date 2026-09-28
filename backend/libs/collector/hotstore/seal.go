@@ -263,7 +263,7 @@ func (s *Store) Seal(ctx context.Context, key PodRestartKey, bucket int64) (Seal
 		return SealResult{}, err
 	}
 	for _, f := range res.Files {
-		log.Info(ctx, "sealed %s: %d rows", f.S3Key, f.Rows)
+		log.Debug(ctx, "sealed %s: %d rows", f.S3Key, f.Rows)
 	}
 
 	s.countSeal(res)
@@ -1159,7 +1159,8 @@ func (s *Store) SealDue(ctx context.Context, nowMs int64) (int, error) {
 		return 0, nil
 	}
 	if s.sealPaused.Load() {
-		log.Warning(ctx, "seal loop paused by backpressure: %d buckets due; their calls stay in the WALs and segments", len(due))
+		// setGate logged the pause when the gate engaged; sealQueueDepth
+		// above reports the due buckets while it holds.
 		return 0, nil
 	}
 

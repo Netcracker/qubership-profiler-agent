@@ -13,6 +13,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,6 +122,39 @@ func TestJanitorMemBudgetEvictsClosedState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, stats.DictionariesUnloaded, "already-evicted state is not re-counted")
 	assert.Zero(t, stats.ChunkIndexesReleased)
+}
+
+// The mem budget logs one WARNING when a pass leaves the in-RAM state over
+// PROFILER_MEM_BUDGET and one INFO when a later pass fits it again; a pass
+// that finds the state unchanged logs nothing.
+func TestMemBudgetLogsTransitions(t *testing.T) {
+	ctx := log.SetLevel(context.Background(), log.INFO)
+	store, err := Open(Config{DataDir: t.TempDir(), MemBudgetBytes: 1})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	pr, err := store.OpenPodRestart(PodRestartKey{Namespace: "ns", Service: "svc", PodName: "pod-m", RestartTimeMs: 1})
+	require.NoError(t, err)
+	_, err = pr.AppendDictionaryWord("com.example.Service.handle")
+	require.NoError(t, err)
+	pass := func() string {
+		return log.CaptureAsString(func() {
+			_, err := store.JanitorPass(ctx, time.Now().UnixMilli())
+			require.NoError(t, err)
+		}, true)
+	}
+
+	out := pass() + pass()
+	warnings := logLines(out, "WARNING", "mem budget:")
+	if assert.Len(t, warnings, 1, "two passes over the budget; a live pod-restart is not evictable; output:\n%s", out) {
+		assert.Contains(t, warnings[0], "over PROFILER_MEM_BUDGET=1")
+	}
+
+	// Closing the pod-restart makes its dictionary evictable, so the next
+	// pass fits the budget.
+	require.NoError(t, pr.Close())
+	out = pass() + pass()
+	assert.Len(t, logLines(out, "INFO", "within PROFILER_MEM_BUDGET=1"), 1, "output:\n%s", out)
+	assert.Empty(t, logLines(out, "WARNING", "PROFILER_MEM_BUDGET"), "output:\n%s", out)
 }
 
 // TestMemBudgetKeepsUnsealedChunkIndex pins the seal guard and the §6.1

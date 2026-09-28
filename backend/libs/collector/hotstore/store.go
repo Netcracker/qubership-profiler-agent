@@ -158,6 +158,11 @@ type (
 		ingestPaused        atomic.Bool
 		sealQueueDepth      atomic.Int64
 
+		// Over-budget states of the janitor's mem and disk budgets, flipped by
+		// flipState so each budget logs only its transitions.
+		memOverBudget      atomic.Bool
+		segmentsOverBudget atomic.Bool
+
 		// Loop-error counters incremented at the seal/janitor pass-failed log
 		// sites (the Prometheus *_loop_errors_total seam). A single failed pass
 		// is transient; a sustained rate means the loop is wedged.

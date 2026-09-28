@@ -79,6 +79,27 @@ func TestRegisterCollectSeries(t *testing.T) {
 	} {
 		assert.True(t, names[want], "missing series %s", want)
 	}
+
+	// The eviction counters carry a case label, and every case is
+	// materialized at zero so a dashboard can tell data-losing evictions
+	// from safe ones before the first eviction happens.
+	cases := map[string][]string{}
+	for _, mf := range families {
+		name := mf.GetName()
+		if name != "profiler_janitor_segments_evicted_total" && name != "profiler_janitor_evicted_bytes_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "case" {
+					cases[name] = append(cases[name], l.GetValue())
+				}
+			}
+		}
+	}
+	for _, name := range []string{"profiler_janitor_segments_evicted_total", "profiler_janitor_evicted_bytes_total"} {
+		assert.ElementsMatch(t, []string{"zero_ref", "referenced", "owed_seal", "live"}, cases[name], "case labels of %s", name)
+	}
 }
 
 // TestRegisterIngestSeries pins the ingest metric names, including the
