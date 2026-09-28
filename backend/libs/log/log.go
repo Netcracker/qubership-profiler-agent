@@ -11,10 +11,7 @@ func Fatal(ctx context.Context, err error, format string, a ...any) {
 }
 
 func IsErrorEnabled(ctx context.Context) bool {
-	if ctx == nil {
-		return true
-	}
-	return ctx.Value(LevelKey) == EXTRA || ctx.Value(LevelKey) == TRACE || ctx.Value(LevelKey) == DEBUG || ctx.Value(LevelKey) == INFO || ctx.Value(LevelKey) == ERROR || ctx.Value(LevelKey) == nil
+	return enabled(ctx, ERROR)
 }
 
 func Error(ctx context.Context, err error, format string, a ...any) {
@@ -34,10 +31,7 @@ func ErrorWithoutCtx(format string, a ...any) {
 }
 
 func IsWarningEnabled(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	return ctx.Value(LevelKey) == EXTRA || ctx.Value(LevelKey) == TRACE || ctx.Value(LevelKey) == DEBUG || ctx.Value(LevelKey) == INFO || ctx.Value(LevelKey) == WARNING
+	return enabled(ctx, WARNING)
 }
 
 func Warning(ctx context.Context, format string, a ...any) {
@@ -47,10 +41,7 @@ func Warning(ctx context.Context, format string, a ...any) {
 }
 
 func IsInfoEnabled(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	return ctx.Value(LevelKey) == EXTRA || ctx.Value(LevelKey) == TRACE || ctx.Value(LevelKey) == DEBUG || ctx.Value(LevelKey) == INFO
+	return enabled(ctx, INFO)
 }
 
 func Info(ctx context.Context, format string, a ...any) {
@@ -60,10 +51,7 @@ func Info(ctx context.Context, format string, a ...any) {
 }
 
 func IsDebugEnabled(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	return ctx.Value(LevelKey) == EXTRA || ctx.Value(LevelKey) == TRACE || ctx.Value(LevelKey) == DEBUG
+	return enabled(ctx, DEBUG)
 }
 
 func Debug(ctx context.Context, format string, a ...any) {
@@ -73,10 +61,7 @@ func Debug(ctx context.Context, format string, a ...any) {
 }
 
 func IsTraceEnabled(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	return ctx.Value(LevelKey) == EXTRA || ctx.Value(LevelKey) == TRACE
+	return enabled(ctx, TRACE)
 }
 
 func Trace(ctx context.Context, format string, a ...any) {
@@ -86,10 +71,7 @@ func Trace(ctx context.Context, format string, a ...any) {
 }
 
 func IsExtraTraceEnabled(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	return ctx.Value(LevelKey) == EXTRA // only for internal debug
+	return enabled(ctx, EXTRA) // only for internal debug
 }
 
 func ExtraTrace(ctx context.Context, format string, a ...any) {

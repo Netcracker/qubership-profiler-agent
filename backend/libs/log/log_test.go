@@ -91,14 +91,21 @@ func TestError(t *testing.T) {
 	})
 	assert.Equalf(t, "[2006-01-02T01:02:03.004] [ERROR] [request_id=-] [tenant_id=--] [thread=-] [class=log/log_test.go:12] asdasdas\n", s, "invalid messages")
 	assert.True(t, IsErrorEnabled(nil))
+
+	ctx = SetLevel(baseCtx, WARNING)
+	assert.True(t, IsErrorEnabled(ctx))
+	s = CaptureAsString(func() {
+		Error(ctx, nil, "asdasdas")
+	})
+	assert.Equalf(t, "[2006-01-02T01:02:03.004] [ERROR] [request_id=-] [tenant_id=--] [thread=-] [class=log/log_test.go:12] asdasdas\n", s, "a warning level prints errors")
 }
 
 func TestWarning(t *testing.T) {
-	assert.False(t, IsWarningEnabled(baseCtx))
+	assert.True(t, IsWarningEnabled(baseCtx))
 	s := CaptureAsString(func() {
 		Warning(baseCtx, "asdasdas")
 	})
-	assert.Equalf(t, "", s, "should not be error messages")
+	assert.Equalf(t, "[2006-01-02T01:02:03.004] [WARNING] [request_id=-] [tenant_id=--] [thread=-] [class=log/log_test.go:12] asdasdas\n", s, "invalid messages")
 
 	ctx := SetLevel(baseCtx, DEBUG)
 	assert.True(t, IsWarningEnabled(ctx))
@@ -120,15 +127,15 @@ func TestWarning(t *testing.T) {
 		Warning(ctx, "asdasdas")
 	})
 	assert.Equalf(t, "", s, "invalid messages")
-	assert.False(t, IsWarningEnabled(nil))
+	assert.True(t, IsWarningEnabled(nil))
 }
 
 func TestInfo(t *testing.T) {
-	assert.False(t, IsInfoEnabled(baseCtx))
+	assert.True(t, IsInfoEnabled(baseCtx))
 	s := CaptureAsString(func() {
 		Info(baseCtx, "asdasdas")
 	})
-	assert.Equalf(t, "", s, "should not be error messages")
+	assert.Equalf(t, "[2006-01-02T01:02:03.004] [INFO] [request_id=-] [tenant_id=--] [thread=-] [class=log/log_test.go:12] asdasdas\n", s, "invalid messages")
 
 	ctx := SetLevel(baseCtx, DEBUG)
 	s = CaptureAsString(func() {
@@ -141,7 +148,7 @@ func TestInfo(t *testing.T) {
 		Info(ctx, "asdasdas")
 	})
 	assert.Equalf(t, "", s, "invalid messages")
-	assert.False(t, IsInfoEnabled(nil))
+	assert.True(t, IsInfoEnabled(nil))
 }
 
 func TestDebug(t *testing.T) {
@@ -241,4 +248,63 @@ func TestExtraTrace(t *testing.T) {
 	})
 	assert.Equalf(t, "", s, "invalid messages")
 	assert.False(t, IsExtraTraceEnabled(nil))
+}
+
+// A context prints records at its own level and at every less verbose one. A
+// context with no level, a nil context, and a context whose LevelKey holds a
+// value of another type all print at the default level, INFO.
+func TestIsEnabledMatrix(t *testing.T) {
+	predicates := []struct {
+		level     string
+		isEnabled func(context.Context) bool
+	}{
+		{"ERROR", IsErrorEnabled},
+		{"WARNING", IsWarningEnabled},
+		{"INFO", IsInfoEnabled},
+		{"DEBUG", IsDebugEnabled},
+		{"TRACE", IsTraceEnabled},
+		{"extra", IsExtraTraceEnabled},
+	}
+	contexts := []struct {
+		name string
+		ctx  context.Context
+		// want is indexed like predicates: ERROR, WARNING, INFO, DEBUG, TRACE, extra.
+		want [6]bool
+	}{
+		{"ERROR", SetLevel(baseCtx, ERROR), [6]bool{true, false, false, false, false, false}},
+		{"WARNING", SetLevel(baseCtx, WARNING), [6]bool{true, true, false, false, false, false}},
+		{"INFO", SetLevel(baseCtx, INFO), [6]bool{true, true, true, false, false, false}},
+		{"DEBUG", SetLevel(baseCtx, DEBUG), [6]bool{true, true, true, true, false, false}},
+		{"TRACE", SetLevel(baseCtx, TRACE), [6]bool{true, true, true, true, true, false}},
+		{"extra", SetLevel(baseCtx, EXTRA), [6]bool{true, true, true, true, true, true}},
+		{"no level", baseCtx, [6]bool{true, true, true, false, false, false}},
+		{"nil", nil, [6]bool{true, true, true, false, false, false}},
+		{"string DEBUG", context.WithValue(baseCtx, LevelKey, "DEBUG"), [6]bool{true, true, true, false, false, false}},
+	}
+	for _, c := range contexts {
+		for i, p := range predicates {
+			t.Run(c.name+" context, "+p.level+" record", func(t *testing.T) {
+				assert.Equal(t, c.want[i], p.isEnabled(c.ctx), "%s record enabled for %s context", p.level, c.name)
+			})
+		}
+	}
+}
+
+// A library call made with context.Background() logs at the default level,
+// INFO. Its warnings and infos used to be dropped (issue #950).
+func TestBackgroundContextLogsAtDefaultLevel(t *testing.T) {
+	s := CaptureAsString(func() {
+		Warning(context.Background(), "dropped %d rows", 3)
+	})
+	assert.Equal(t, "[2006-01-02T01:02:03.004] [WARNING] [request_id=-] [tenant_id=--] [thread=-] [class=log/log_test.go:12] dropped 3 rows\n", s, "Warning")
+
+	s = CaptureAsString(func() {
+		Info(context.Background(), "started %s", "collector")
+	})
+	assert.Equal(t, "[2006-01-02T01:02:03.004] [INFO] [request_id=-] [tenant_id=--] [thread=-] [class=log/log_test.go:12] started collector\n", s, "Info")
+
+	s = CaptureAsString(func() {
+		Debug(context.Background(), "details")
+	})
+	assert.Equal(t, "", s, "Debug")
 }
