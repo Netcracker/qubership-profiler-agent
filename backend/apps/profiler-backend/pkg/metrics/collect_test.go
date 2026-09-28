@@ -76,9 +76,45 @@ func TestRegisterCollectSeries(t *testing.T) {
 		"profiler_janitor_orphan_parquet_removed_total",
 		// The near-empty fast-path purge (03 §3.9 step 18a).
 		"profiler_janitor_wals_fast_purged_total",
+		// Freshness of the gauges the janitor and the backpressure refresh
+		// measure (issue #952).
+		"profiler_janitor_last_success_timestamp_seconds",
+		"profiler_backpressure_last_refresh_timestamp_seconds",
 	} {
 		assert.True(t, names[want], "missing series %s", want)
 	}
+}
+
+// TestHotWindowLagAbsentOnReadError pins that hot_window_lag_seconds reads 0
+// for an empty hot window and is absent when the hot index cannot be read, so
+// a failed read is not reported as an empty window. The series used to read 0
+// on a read error too, which kept ProfilerHotWindowLagHigh silent.
+func TestHotWindowLagAbsentOnReadError(t *testing.T) {
+	store, err := hotstore.Open(hotstore.Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	reg := NewRegistry()
+	RegisterCollect(reg, store, nil)
+	const name = "profiler_hotstore_hot_window_lag_seconds"
+	lag := func() []float64 {
+		families, err := reg.Gather()
+		require.NoError(t, err)
+		var values []float64
+		for _, mf := range families {
+			if mf.GetName() == name {
+				for _, m := range mf.GetMetric() {
+					values = append(values, m.GetGauge().GetValue())
+				}
+			}
+		}
+		return values
+	}
+
+	assert.Equal(t, []float64{0}, lag(), "%s with an empty hot window", name)
+
+	require.NoError(t, store.Close())
+	assert.Empty(t, lag(), "%s after the hot index was closed", name)
 }
 
 // TestRegisterIngestSeries pins the ingest metric names, including the

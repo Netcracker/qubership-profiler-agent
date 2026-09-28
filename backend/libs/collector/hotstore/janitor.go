@@ -139,7 +139,13 @@ func (s *Store) JanitorPass(ctx context.Context, nowMs int64) (JanitorStats, err
 	}
 	// Everything above can change the pending backlog (dropped partitions,
 	// dropped quarantine rows), so the №2 gates recompute last.
-	return stats, s.refreshBackpressure(ctx)
+	if err := s.refreshBackpressure(ctx); err != nil {
+		return stats, err
+	}
+	// The wall clock, not nowMs: tests drive nowMs into the future, and the
+	// exported gauge is a real timestamp.
+	s.janitorLastSuccessMs.Store(time.Now().UnixMilli())
+	return stats, nil
 }
 
 // refreshBackpressure recomputes the №2 pending backlog — sealed parquet
@@ -175,6 +181,7 @@ func (s *Store) refreshBackpressure(ctx context.Context) error {
 	s.pendingParquetBytes.Store(pending)
 	s.partitionsDiskBytes.Store(partitions)
 	s.walDiskBytes.Store(walBytes)
+	s.backpressureLastRefreshMs.Store(time.Now().UnixMilli())
 	budget := s.cfg.PendingUploadMaxBytes
 	// The seal gate reads ONLY the pending parquet share: sealing is what
 	// grows it, and the upload loop drains it independently of sealing. Were

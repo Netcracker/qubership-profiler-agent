@@ -117,40 +117,36 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 	counter("janitor", "loop_errors_total",
 		"Failed janitor passes (the loop logged and retried on the next tick). A sustained rate means retention/eviction is wedged.",
 		func() int64 { return store.JanitorLoopErrors() }, nil)
+	gauge("janitor", "last_success_timestamp_seconds",
+		"Unix time of the last janitor pass that completed every step; 0 until the first one. The gauges measured \"as of the last janitor pass\" are at least this old.",
+		func() float64 { return float64(store.JanitorLastSuccessMs()) / 1000 }, nil)
+	gauge("backpressure", "last_refresh_timestamp_seconds",
+		"Unix time of the last completed backpressure refresh; 0 until the first one. The gauges measured \"as of the last backpressure refresh\" are at least this old.",
+		func() float64 { return float64(store.BackpressureLastRefreshMs()) / 1000 }, nil)
 
 	gauge("hotstore", "segments_disk_bytes",
-		"On-disk bytes of the hot-store segment files, as of the last janitor pass.",
+		"On-disk bytes of the hot-store segment files, as of the last janitor pass; see janitor_last_success_timestamp_seconds for its age.",
 		func() float64 { bytes, _ := store.SegmentsDiskUsage(); return float64(bytes) }, nil)
 	gauge("hotstore", "segments_disk_budget_bytes",
 		"Configured segment disk budget (PROFILER_CHUNKS_STAGING_MAX_BYTES).",
 		func() float64 { _, budget := store.SegmentsDiskUsage(); return float64(budget) }, nil)
 	gauge("hotstore", "evicted_segment_chunk_refs",
-		"In-RAM chunk-index entries pointing at evicted segments (risk B-3), as of the last janitor pass.",
+		"In-RAM chunk-index entries pointing at evicted segments (risk B-3), as of the last janitor pass; see janitor_last_success_timestamp_seconds for its age.",
 		func() float64 { return float64(store.EvictedChunkRefs()) }, nil)
-	gauge("hotstore", "hot_window_lag_seconds",
-		"Age of the oldest row still in the hot index (now - hot_window_oldest_ms); 0 with an empty hot window. Sustained growth past hot retention means the hot→cold handoff is stuck.",
-		func() float64 {
-			oldest, ok, err := store.HotWindowOldestMs()
-			if err != nil || !ok {
-				return 0
-			}
-			return time.Since(time.UnixMilli(oldest)).Seconds()
-		}, nil)
-
 	gauge("hotstore", "inram_bytes",
-		"In-RAM pod-restart state (dictionaries, chunk indexes, pause mirrors), as of the last janitor mem-budget step (№1).",
+		"In-RAM pod-restart state (dictionaries, chunk indexes, pause mirrors), as of the last janitor mem-budget step (№1); see janitor_last_success_timestamp_seconds for its age.",
 		func() float64 { bytes, _ := store.MemUsage(); return float64(bytes) }, nil)
 	gauge("hotstore", "mem_budget_bytes",
 		"Configured in-RAM budget (PROFILER_MEM_BUDGET).",
 		func() float64 { _, budget := store.MemUsage(); return float64(budget) }, nil)
 	gauge("hotstore", "pending_parquet_bytes",
-		"Sealed parquet bytes not confirmed in S3 (pending + quarantined), as of the last backpressure refresh (№2).",
+		"Sealed parquet bytes not confirmed in S3 (pending + quarantined), as of the last backpressure refresh (№2); see backpressure_last_refresh_timestamp_seconds for its age.",
 		func() float64 { parquet, _, _ := store.PendingUploadUsage(); return float64(parquet) }, nil)
 	gauge("hotstore", "partitions_disk_bytes",
-		"On-disk bytes of the live call-index partitions, as of the last backpressure refresh (№2).",
+		"On-disk bytes of the live call-index partitions, as of the last backpressure refresh (№2); see backpressure_last_refresh_timestamp_seconds for its age.",
 		func() float64 { _, partitions, _ := store.PendingUploadUsage(); return float64(partitions) }, nil)
 	gauge("hotstore", "wal_disk_bytes",
-		"WAL bytes of the tracked pod-restarts, as of the last backpressure refresh — the third component of the ingest gate (finding 4).",
+		"WAL bytes of the tracked pod-restarts, as of the last backpressure refresh — the third component of the ingest gate (finding 4); see backpressure_last_refresh_timestamp_seconds for its age.",
 		func() float64 { return float64(store.WalBytes()) }, nil)
 	gauge("hotstore", "pending_budget_bytes",
 		"Configured pending-upload budget (PROFILER_PENDING_UPLOAD_MAX_BYTES): sealing pauses once pending parquet reaches half of it, ingest once the whole backlog (parquet + partitions + WALs) reaches it.",
@@ -172,6 +168,7 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 
 	reg.MustRegister(&quarantineCollector{store: store})
 	reg.MustRegister(&backlogCollector{store: store})
+	reg.MustRegister(&hotWindowCollector{store: store})
 }
 
 func boolGauge(b bool) float64 {
@@ -305,4 +302,34 @@ func (c *quarantineCollector) Collect(ch chan<- prometheus.Metric) {
 		age(stats.ParquetOldestMs), "parquet")
 	ch <- prometheus.MustNewConstMetric(quarantineSizeDesc, prometheus.GaugeValue,
 		float64(stats.ParquetCount))
+}
+
+// hotWindowCollector emits hot_window_lag_seconds, or nothing when the hot
+// index cannot be read.
+type hotWindowCollector struct {
+	store *hotstore.Store
+}
+
+var hotWindowLagDesc = prometheus.NewDesc(
+	namespace+"_hotstore_hot_window_lag_seconds",
+	"Age of the oldest row still in the hot index (now - hot_window_oldest_ms); 0 with an empty hot window. Sustained growth past hot retention means the hot→cold handoff is stuck. Absent when the hot index cannot be read.",
+	nil, nil)
+
+func (c *hotWindowCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- hotWindowLagDesc
+}
+
+func (c *hotWindowCollector) Collect(ch chan<- prometheus.Metric) {
+	oldest, ok, err := c.store.HotWindowOldestMs()
+	if err != nil {
+		// Emit nothing rather than a fake zero: a zero reads as an empty hot
+		// window and would silently clear the hot-window lag alert.
+		log.Error(context.Background(), err, "metrics: cannot read hot window")
+		return
+	}
+	lag := 0.0
+	if ok {
+		lag = time.Since(time.UnixMilli(oldest)).Seconds()
+	}
+	ch <- prometheus.MustNewConstMetric(hotWindowLagDesc, prometheus.GaugeValue, lag)
 }
