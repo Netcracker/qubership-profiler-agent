@@ -4,9 +4,8 @@ import java.io.*;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.math.BigInteger;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.util.*;
@@ -24,12 +23,12 @@ public class Bootstrap {
 
     static class PluginJarInfo {
         final String jarPath;
-        final List<String> pluginId;
+        final Set<String> pluginIds;
         final String version;
 
-        PluginJarInfo(String jarPath, List<String> pluginId, String version) {
+        PluginJarInfo(String jarPath, Set<String> pluginIds, String version) {
             this.jarPath = jarPath;
-            this.pluginId = pluginId;
+            this.pluginIds = pluginIds;
             this.version = version;
         }
     }
@@ -64,8 +63,19 @@ public class Bootstrap {
 
             return;
         }
-        addJBossModulesSystemPkg();
         Bootstrap.inst = inst;
+        try {
+            addJBossModulesSystemPkg();
+            startProfiler(agentArgs);
+        } catch (Throwable e) {
+            // libinstrument aborts the JVM on any exception leaving premain, killing the
+            // application before it runs a line of its own. Startup failures stop here instead,
+            // and the application keeps running unprofiled.
+            logger.severe("Profiler: initialization failed, the application continues without profiling", e);
+        }
+    }
+
+    private static void startProfiler(String agentArgs) {
         List<String> plugins = split(agentArgs);
         if (plugins.isEmpty()) {
             File lib = new File(DumpRootResolverAgent.PROFILER_HOME, "lib");
@@ -129,109 +139,247 @@ public class Bootstrap {
     }
 
     /**
-     * Extract Plugin-Id from JAR manifest attributes.
-     * Falls back to extracting from Entry-Points if Plugin-Id is not present.
+     * Collects every identity a JAR manifest claims for its plugin, so that two JARs shipping the
+     * same plugin can be recognized as duplicates.
+     *
+     * <p>A JAR is identified by its {@code Plugin-Id}, by the enhancer names in its
+     * {@code Entry-Points} ({@code ...EnhancerPlugin_activemq} yields {@code activemq}), and by the
+     * entry-point set as a whole. The entry-point set is what matches a JAR built before
+     * {@code Plugin-Id} existed with the release that introduced the attribute.
+     *
+     * @return every identity the manifest declares, empty when it declares no entry points
      */
-    static List<String> extractPluginId(Attributes attrs) {
+    static Set<String> extractPluginIds(Attributes attrs) {
         if (attrs == null) {
-            return Collections.emptyList();
+            return Collections.emptySet();
         }
+        String entryPoints = attrs.getValue("Entry-Points");
+        if (entryPoints == null || entryPoints.trim().isEmpty()) {
+            // Not a plugin JAR: agent.jar and boot.jar take this path.
+            return Collections.emptySet();
+        }
+        Set<String> result = new LinkedHashSet<>();
         String pluginId = attrs.getValue("Plugin-Id");
         if (pluginId != null) {
-            return Collections.singletonList(pluginId);
+            result.add(pluginId);
         }
-        // Fallback: extract from Entry-Points (EnhancerPlugin_XXX -> XXX)
         // Example: com.netcracker.profiler.instrument.enhancement.EnhancerPlugin_activemq
-        String entryPoints = attrs.getValue("Entry-Points");
-        List<String> result = new ArrayList<>();
-        if (entryPoints != null) {
-            for (String entry : entryPoints.split("\\s+")) {
-                int idx = entry.lastIndexOf("EnhancerPlugin_");
-                if (idx >= 0) {
-                    String suffix = entry.substring(idx + "EnhancerPlugin_".length());
-                    if (!suffix.isEmpty()) {
-                        result.add(suffix);
-                    }
+        String[] entries = entryPoints.trim().split("\\s+");
+        for (String entry : entries) {
+            int idx = entry.lastIndexOf("EnhancerPlugin_");
+            if (idx >= 0) {
+                String suffix = entry.substring(idx + "EnhancerPlugin_".length());
+                if (!suffix.isEmpty()) {
+                    result.add(suffix);
                 }
             }
         }
+        String[] sortedEntries = entries.clone();
+        Arrays.sort(sortedEntries);
+        result.add("entry-points:" + String.join(" ", sortedEntries));
         return result;
     }
 
     /**
-     * Read Plugin-Id and Implementation-Version from a JAR file.
+     * Reads the plugin identities and {@code Implementation-Version} from a JAR file.
+     *
+     * <p>A readable manifest that declares no entry points yields an entry with no identities: the
+     * file is not a plugin, but it is intact and safe to hand on. {@code null} is reserved for a
+     * file the loader cannot read at all, which must not be handed on -- opening it again downstream
+     * would only throw.
+     *
+     * @return {@code null} when the file has no manifest, or cannot be read
      */
     private static PluginJarInfo readPluginJarInfo(String jarPath) {
-        try (JarInputStream jis = new JarInputStream(Files.newInputStream(Paths.get(jarPath)))) {
-            Manifest man = jis.getManifest();
+        // JarFile is the reader PluginClassLoader opens the file with. Classifying through a
+        // different one would let the two disagree: JarInputStream reads a manifest out of a file
+        // truncated before its central directory, which JarFile cannot open at all, and a file that
+        // passes here only to fail there costs every plugin rather than itself.
+        try (JarFile jar = new JarFile(jarPath)) {
+            Manifest man = jar.getManifest();
             if (man == null) {
+                logger.warning("Profiler: " + jarPath + " has no manifest, the file is skipped");
                 return null;
             }
             Attributes attrs = man.getMainAttributes();
-            List<String> pluginId = extractPluginId(attrs);
-            if (pluginId.isEmpty()) {
-                return null;
-            }
             String version = attrs.getValue("Implementation-Version");
-            return new PluginJarInfo(jarPath, pluginId, version);
-        } catch (IOException e) {
-            logger.log(Level.WARNING, "Profiler: unable to read manifest from " + jarPath, e);
+            return new PluginJarInfo(jarPath, extractPluginIds(attrs), version);
+        } catch (Throwable e) {
+            // Not only IOException: a SecurityManager that denies the read, or a signature check on
+            // a signed JAR, throws SecurityException from here. Anything that escapes would cost
+            // every other plugin, which is the outcome this classification exists to prevent.
+            logger.log(Level.WARNING, "Profiler: unable to read the manifest of " + jarPath
+                    + ", the file is skipped", e);
             return null;
         }
     }
 
     /**
-     * Check for duplicate Plugin-Ids and exclude all duplicates from loading.
-     * JARs with unique Plugin-Id are loaded normally.
-     * JARs with duplicate Plugin-Id are skipped and a warning is logged.
+     * Compares {@code Implementation-Version} values so the newest copy of a duplicated plugin can
+     * be picked. Numeric segments compare numerically, a qualifier loses to the plain release it
+     * qualifies ({@code 4.0.5-SNAPSHOT} &lt; {@code 4.0.5}), and a missing version loses to any
+     * version.
+     */
+    static int compareVersions(String left, String right) {
+        if (left == null || right == null) {
+            return left == null ? (right == null ? 0 : -1) : 1;
+        }
+        String[] leftParts = left.split("[.\\-+_]");
+        String[] rightParts = right.split("[.\\-+_]");
+        for (int i = 0; i < Math.max(leftParts.length, rightParts.length); i++) {
+            String l = i < leftParts.length ? leftParts[i] : null;
+            String r = i < rightParts.length ? rightParts[i] : null;
+            if (l == null) {
+                // 4.0 < 4.0.1, but 4.0.5 > 4.0.5-SNAPSHOT
+                return isNumeric(r) ? -1 : 1;
+            }
+            if (r == null) {
+                return isNumeric(l) ? 1 : -1;
+            }
+            boolean leftNumeric = isNumeric(l);
+            boolean rightNumeric = isNumeric(r);
+            int cmp;
+            if (leftNumeric && rightNumeric) {
+                cmp = new BigInteger(l).compareTo(new BigInteger(r));
+            } else if (leftNumeric != rightNumeric) {
+                // 4.0.5.1 is newer than 4.0.5-rc1: a numeric segment outranks a qualifier, the same
+                // way a missing segment does. Comparing them as text would rank rc1 above the .1.
+                cmp = leftNumeric ? 1 : -1;
+            } else {
+                cmp = l.compareToIgnoreCase(r);
+            }
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return 0;
+    }
+
+    private static boolean isNumeric(String s) {
+        if (s.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) < '0' || s.charAt(i) > '9') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Keeps a single JAR per plugin, so that a stale copy left next to the current one cannot make
+     * the profiler load one plugin twice.
+     *
+     * <p>Loading a plugin twice gives each copy its own {@link PluginClassLoader}, and classes from
+     * one copy then fail to cast to the same-named classes of the other. The newest copy wins, and
+     * the JARs it displaces are named in a warning so the stale files can be removed. Files that
+     * carry no plugin pass through untouched; files the loader cannot read are dropped here rather
+     * than downstream, where opening them again would fail the whole agent.
      */
     private static List<String> deduplicatePlugins(List<String> plugins) {
-        // Collect info for JAR files with Plugin-Id
         Map<String, List<PluginJarInfo>> byPluginId = new LinkedHashMap<String, List<PluginJarInfo>>();
-
         List<String> result = new ArrayList<String>();
 
         for (String jarPath : plugins) {
-            PluginJarInfo info = readPluginJarInfo(jarPath);
-            if (info != null) {
-                for (String pluginId : info.pluginId) {
-                    byPluginId.computeIfAbsent(pluginId, k -> new ArrayList<>())
-                            .add(info);
-                }
-            } else if (!jarPath.endsWith(".jar")) {
-                // E.g. .class explicitly passed from the command line
+            if (!jarPath.endsWith(".jar")) {
+                // A .class explicitly passed on the command line, which loadPlugins runs directly.
                 result.add(jarPath);
+                continue;
+            }
+            PluginJarInfo info = readPluginJarInfo(jarPath);
+            if (info == null) {
+                // Unreadable, and readPluginJarInfo has already said so.
+                continue;
+            }
+            if (info.pluginIds.isEmpty()) {
+                // Intact but not a plugin: agent.jar and boot.jar take this path.
+                result.add(jarPath);
+                continue;
+            }
+            for (String pluginId : info.pluginIds) {
+                byPluginId.computeIfAbsent(pluginId, k -> new ArrayList<PluginJarInfo>())
+                        .add(info);
             }
         }
 
-        Set<String> problematicJars = new HashSet<>();
-        // Detect problematic jars: they have plugins with overlapping ids
+        // A JAR is loaded when it is the newest provider of every identity it declares, which keeps
+        // the decision consistent for a JAR that ships several plugins at once.
+        Map<String, String> displacedBy = new LinkedHashMap<String, String>();
+        // One pair of duplicated JARs normally collides on several identities at once, for example
+        // on an explicit Plugin-Id and on the entry-point set. Repeating the same advice per
+        // identity would only bury it, so each set of JARs is reported once, under the first
+        // identity it collided on. That one reads best, since entry-point identities come last.
+        Set<List<String>> reported = new HashSet<>();
         String lib = new File(DumpRootResolverAgent.PROFILER_HOME).getAbsolutePath();
         for (Map.Entry<String, List<PluginJarInfo>> entry : byPluginId.entrySet()) {
-            List<PluginJarInfo> jars = entry.getValue();
-            if (jars.size() == 1) {
-                // If the plugin is included in a single jar only, add the jar to the resulting list
-                // It might be removed later if there's an overlap with another plugin id
-                if (!problematicJars.contains(jars.get(0).jarPath)) {
-                    result.add(jars.get(0).jarPath);
+            if (entry.getValue().size() == 1) {
+                continue;
+            }
+            // The candidates arrive in File.listFiles() order, which is unspecified. Sorting first
+            // keeps the pick reproducible when the versions cannot separate the copies.
+            List<PluginJarInfo> jars = new ArrayList<PluginJarInfo>(entry.getValue());
+            Collections.sort(jars, new Comparator<PluginJarInfo>() {
+                public int compare(PluginJarInfo left, PluginJarInfo right) {
+                    return left.jarPath.compareTo(right.jarPath);
                 }
-            } else {
-                // Duplicate Plugin-Id found, skip ALL of them and log warning
-                StringBuilder sb = new StringBuilder();
-                sb.append("Profiler: Duplicate Plugin-Id '").append(entry.getKey()).append("' found in multiple JARs. ");
-                sb.append("None of them will be loaded. Please remove the duplicate JAR(s):\n");
-                for (PluginJarInfo jar : jars) {
-                    if (problematicJars.add(jar.jarPath)) {
-                        // If the jar was n
-                        result.remove(jar.jarPath);
-                    }
-                    sb.append("  - ").append(jar.jarPath.replace(lib, "$esc"));
-                    if (jar.version != null) {
-                        sb.append(" (version=").append(jar.version).append(")");
-                    }
-                    sb.append("\n");
+            });
+
+            PluginJarInfo winner = jars.get(0);
+            boolean versionsDiffer = false;
+            List<String> jarPaths = new ArrayList<String>();
+            for (PluginJarInfo jar : jars) {
+                jarPaths.add(jar.jarPath);
+                int cmp = compareVersions(jar.version, winner.version);
+                if (cmp != 0) {
+                    versionsDiffer = true;
                 }
+                if (cmp > 0) {
+                    winner = jar;
+                }
+            }
+            boolean firstReport = reported.add(jarPaths);
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("Profiler: plugin '").append(entry.getKey()).append("' is provided by several JARs. ")
+                    .append(versionsDiffer
+                            ? "Only the newest one is loaded"
+                            : "Their versions do not tell them apart, so the first one by name is loaded")
+                    .append("; remove the duplicate file(s) listed below:\n");
+            for (PluginJarInfo jar : jars) {
+                sb.append("  - ").append(jar.jarPath.replace(lib, "$esc"));
+                sb.append(" (version=").append(jar.version == null ? "unknown" : jar.version).append(")");
+                if (jar == winner) {
+                    sb.append(" -- loaded\n");
+                } else {
+                    displacedBy.put(jar.jarPath, winner.jarPath);
+                    sb.append(" -- skipped\n");
+                }
+            }
+            if (firstReport) {
                 logger.warning(sb.toString());
+            } else {
+                logger.fine(sb.toString());
+            }
+        }
+
+        for (Map.Entry<String, List<PluginJarInfo>> entry : byPluginId.entrySet()) {
+            List<PluginJarInfo> jars = entry.getValue();
+            // A displaced JAR is dropped whole, so an identity only it provided is left without a
+            // provider. Loading it for that one identity would reintroduce the duplicate the drop
+            // just resolved, so the gap is named rather than hidden. The JAR that displaced it is
+            // named too: it may well provide the same plugin under one of its other identities,
+            // and saying only "not loaded" would send the operator after the wrong file.
+            if (jars.size() == 1 && displacedBy.containsKey(jars.get(0).jarPath)) {
+                String skipped = jars.get(0).jarPath;
+                logger.warning("Profiler: nothing loaded provides plugin '" + entry.getKey()
+                        + "'. Its only provider " + skipped.replace(lib, "$esc")
+                        + " was skipped in favor of " + displacedBy.get(skipped).replace(lib, "$esc") + ".");
+            }
+            for (PluginJarInfo jar : jars) {
+                if (!displacedBy.containsKey(jar.jarPath) && !result.contains(jar.jarPath)) {
+                    result.add(jar.jarPath);
+                }
             }
         }
         return result;
@@ -260,7 +408,7 @@ public class Bootstrap {
                         info("Profiler: loading " + jarName.replace(lib, "$esc"));
                         impls.addAll(loader.startPlugin());
                     } else if (!jarName.endsWith("agent.jar") && !jarName.endsWith("boot.jar")) {
-                        info("Profiler: jar " + jarName + " was skipped since it does not contain entry points");
+                        info("Profiler: jar " + jarName + " was not loaded as a plugin");
                     }
                 } else
                     logger.warning("Profiler: unknown argument " + jarName + ". Expecting *.class or *.jar");
