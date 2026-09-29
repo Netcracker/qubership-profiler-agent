@@ -370,14 +370,13 @@ Response:
 
 ```json
 {
-  "version": 4231,
   "methods": ["com.example.Service.handle", "com.example.Service.tx", "..."],
   "params":  ["request.id", "user.tenant", "..."]
 }
 ```
 
 - `methods[i]` and `params[i]` resolve `method_id = i` and `param_id = i` references inside the blob.
-- `version` is a monotonic counter, incremented each time the dictionary grows during a live pod-restart. ETag is `(pod-restart, version)`.
+- The ETag is `(pod-restart, dictionary word count)`. A live dictionary only grows, so `If-None-Match` gets a 304 until a word is appended. The body carries no version field; the ETag alone signals freshness.
 
 > **TODO (dictionary shape):** this endpoint models `methods` and `params` as two independent id spaces (`method_id = i` into `methods`, `param_id = i` into `params`), but the agent wire uses a single shared id space. The collector writes the full word list into both arrays, so a reader resolves correctly against either. A future revision should collapse this to one `words` array indexed by id, with `method_id` / `param_id` indexing it.
 - The endpoint serves **live** pod-restarts only (TCP connection still open): `query` forwards the request to the collector replica hosting the pod-restart (via internal endpoint, §3), where the dictionary lives on local PV + RAM and may still grow. Clients revalidate with `If-None-Match`; on a no-change response 304 is returned. On growth, the full word list is returned (small enough that delta encoding is not worth the complexity).
