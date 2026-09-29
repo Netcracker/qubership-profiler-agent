@@ -69,6 +69,13 @@ func (s *Service) routes(e *echo.Echo) {
 			e.GET("/", s.handleUI, middleware.Gzip())
 			e.GET("/*", s.handleUI, middleware.Gzip())
 		} else {
+			// A sub-path build leaves the origin root unserved, so send it to
+			// the app: opening the service host lands on the UI instead of a
+			// 404. The redirect is temporary because the base is a build-time
+			// switch — a root rebuild must not fight a cached 301.
+			e.GET("/", func(c echo.Context) error {
+				return c.Redirect(http.StatusFound, s.uiPrefix+"/")
+			})
 			e.GET(s.uiPrefix, s.handleUI, middleware.Gzip())
 			e.GET(s.uiPrefix+"/*", s.handleUI, middleware.Gzip())
 		}

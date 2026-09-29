@@ -280,6 +280,11 @@ flowchart LR
 - **Serving.** `query` mounts an `embed.FS` at `/ui` on its existing router, with an SPA fallback to
   `index.html` for client-side routes. `/api/v1/*`, `/metrics`, and `/api/v1/health/*` are unchanged. One
   origin means no CORS.
+- **Base path.** The sub-path is a build-time switch: `UI_BASE_PATH` sets the Vite base, the router
+  basename follows it, and the binary reads the base back out of the built `index.html`. The image
+  builds with `/ui/`; `--build-arg UI_BASE_PATH=/` produces a root build for a deployment that owns the
+  whole origin. Under a sub-path build the app answers only below its base, and `/` redirects there —
+  `/calls` at the origin root is not a second entry point.
 - **API base.** When embedded, the UI calls `/api/v1` on its own origin. A build-time base-URL override
   keeps local development against a remote `query` working.
 - **Local development.** Vite dev server proxies `/api/v1` to a running `query` (`:8080`), or to an MSW
