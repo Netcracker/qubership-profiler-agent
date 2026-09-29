@@ -105,6 +105,12 @@ export interface ProblemDetails {
   title: string;
   status: number;
   detail?: string;
+  /**
+   * Machine-readable condition (02 §8), e.g. `cursor_rejected`. Branch on this
+   * rather than on `title` or `detail`, which are prose. Optional because a
+   * response from an older backend carries no code.
+   */
+  code?: string;
   suggested_filters?: string[];
   estimated_files?: number;
   estimated_bytes?: number;

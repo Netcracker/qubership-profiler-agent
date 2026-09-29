@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+
+	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 )
 
 // State is one 03-lifecycle.md §2 lifecycle state.
@@ -86,7 +88,17 @@ func (g *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeState(w, status, state, details)
 	default:
 		if api == nil {
-			writeState(w, http.StatusServiceUnavailable, state, details)
+			// Every non-probe route — the API and the SPA shell alike —
+			// answers the 02 §8 envelope while the handler is unmounted, so a
+			// client parses one error shape whether the service is starting up
+			// or running. The probe routes above keep the §4 state body, which
+			// a human reads in kubelet logs.
+			detail := "the service is not ready to serve requests: lifecycle state " + string(state)
+			if details != "" {
+				detail += " (" + details + ")"
+			}
+			_ = httpproblem.Write(w, httpproblem.New(http.StatusServiceUnavailable,
+				httpproblem.CodeNotReady, "service not ready", detail))
 			return
 		}
 		api.ServeHTTP(w, r)
