@@ -213,9 +213,9 @@ INIT → LOADING → READY → TERMINATING → exit
 ### 7.1 Startup
 
 1. Parse config; resolve `COLLECTOR_HEADLESS_SVC` once at boot to verify it resolves at all (warn but don't fail if it doesn't — collectors may come up later).
-2. Connect to S3 endpoint; verify bucket access. If unrecoverable → `FATAL`.
-3. Bind external API listener (`PROFILER_EXTERNAL_API_PORT`, default `8080`).
-4. Flip readiness to 200.
+2. Bind both listeners and set the gate to `LOADING`, before S3: the external API listener (`PROFILER_EXTERNAL_API_PORT`, default `8080`) and the metrics listener (`PROFILER_METRICS_PORT`, default `8081`). A probe must see `LOADING` rather than connection-refused while S3 comes up (PR 708 review #22). Bind synchronously so a port collision fails startup at once instead of hiding behind S3 retries. The metrics listener carries `/metrics` and `/debug/pprof` off the external port, so the ingress never exposes them (`04-storage-layout.md` §12).
+3. Connect to S3 endpoint; verify bucket access. If unrecoverable → `FATAL`.
+4. Flip readiness to 200 (`READY`).
 
 ### 7.2 Per-request
 
@@ -268,7 +268,8 @@ The `all` mode is documented as **dev-only**; production uses three separate k8s
 
 | Env | Default | Description |
 |---|---|---|
-| `PROFILER_EXTERNAL_API_PORT` | `8080` | HTTP listener for `/api/v1/*`. |
+| `PROFILER_EXTERNAL_API_PORT` | `8080` | HTTP listener for `/api/v1/*` and the UI. |
+| `PROFILER_METRICS_PORT` | `8081` | Separate listener for `/metrics` and `/debug/pprof`, kept off the external port so the ingress never exposes them (`04-storage-layout.md` §12). |
 | `COLLECTOR_HEADLESS_SVC` | — | Headless service DNS for collector discovery (`02-read-contract.md` §7.1). |
 | `PROFILER_SHUTDOWN_DRAIN_GRACE` | `30s` | Same semantics as `collect`. |
 
