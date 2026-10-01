@@ -149,7 +149,9 @@ A common Qubership pattern: a resolver action reads a config file in one job,
 emits a JSON array as a job output, and a downstream job consumes it as `matrix:`.
 Used in `docker-release`, `helm-charts-release`, and the `dev-docker-build-multiple-images` template.
 
-For Docker multi-image builds use `docker-config-resolver` (reads `.qubership/docker.cfg`).
+For Docker multi-image builds use `config-resolver` (reads `.qubership/docker.cfg`; falls
+back to `docker-config-resolver` — deprecated — when the pinned release does not yet contain
+`actions/config-resolver`).
 For Helm releases use `charts-values-update-action`. Do not parse config files manually with `jq` — use the appropriate resolver action.
 
 Shape:
