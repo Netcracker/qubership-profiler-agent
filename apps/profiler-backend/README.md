@@ -17,7 +17,7 @@ Every subcommand serves Prometheus `/metrics`: `collect` on the internal port
 (scrapable through LOADING/RECOVERY), `query` on the external port, `maintain`
 on `PROFILER_METRICS_PORT` in loop mode (`--run-now` exits too fast to
 scrape). The series names are a stable contract — the catalog lives in
-`charts/profiler-backend/README.md`.
+`deploy/charts/profiler-backend/README.md`.
 
 ## Quick start (docker-compose)
 

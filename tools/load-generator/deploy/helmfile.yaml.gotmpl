@@ -83,7 +83,7 @@ releases:
   # in-cluster MinIO, with pprof and the ServiceMonitors switched on.
   - name: profiler-backend
     namespace: {{ .Values.stand.namespace }}
-    chart: ../../../charts/profiler-backend
+    chart: ../../../deploy/charts/profiler-backend
     values:
       - values/profiler-backend.yaml.gotmpl
     needs:

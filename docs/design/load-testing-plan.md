@@ -111,7 +111,7 @@ both stands, so cold-read latency numbers carry a caveat: real object storage ad
 Everything reproducible from the repo, target directory `tools/load-generator/`:
 
 - `deploy/` — a helmfile that composes the stand releases: profiler backend (the existing
-  `charts/profiler-backend` chart), MinIO, qubership-monitoring-operator
+  `deploy/charts/profiler-backend` chart), MinIO, qubership-monitoring-operator
   (Prometheus/VictoriaMetrics + Grafana + node-exporter + cAdvisor) plus its CRs as a small local chart,
   k6 runner, and (for T7) chaos tooling. Helmfile `environments:` carry the local-vs-large-cluster value
   layers (storage class, PV sizes, limits, replicas); `needs:` orders operator → CRs. Helmfile covers only

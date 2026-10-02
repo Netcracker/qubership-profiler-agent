@@ -28,8 +28,8 @@ func TestDefaultMaxGroupBytes(t *testing.T) {
 func TestShippedMemoryBudgetInvariant(t *testing.T) {
 	floor := int64(MemoryBudgetMultiplier) * Config{}.Normalize().MaxGroupBytes
 	for _, path := range []string{
-		"../../deploy/values-kind.yaml",
-		"../../charts/profiler-backend/values.yaml",
+		"../../deploy/kind/values-kind.yaml",
+		"../../deploy/charts/profiler-backend/values.yaml",
 	} {
 		limit := maintainMemLimitBytes(t, path)
 		assert.GreaterOrEqualf(t, limit, floor,

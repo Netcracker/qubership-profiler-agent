@@ -1,10 +1,10 @@
-# OrbStack localdev values for charts/profiler-backend. Differences from
+# OrbStack localdev values for deploy/charts/profiler-backend. Differences from
 # kind: the agent Service is a LoadBalancer (OrbStack ships a built-in LB, so
 # the collector's TCP port gets a host-reachable IP), and images need no
 # `kind load` — OrbStack's k8s shares the host Docker daemon.
 #
 #   docker build -f apps/profiler-backend/Dockerfile -t profiler-backend:dev backend
-#   helm install profiler charts/profiler-backend -f deploy/values-orbstack.yaml
+#   helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-orbstack.yaml
 
 collector:
   replicas: 1

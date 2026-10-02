@@ -1,6 +1,6 @@
 // Package metrics wires the profiler-backend Prometheus series over the
 // snapshot seams the libs expose. Metric names are a stable contract for
-// dashboards and alerts (see charts/profiler-backend/README.md); labels stay
+// dashboards and alerts (see deploy/charts/profiler-backend/README.md); labels stay
 // low-cardinality — retention_class, truncated_reason, kind, layer, result —
 // never pod, PK, or replica.
 package metrics

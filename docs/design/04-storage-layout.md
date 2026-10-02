@@ -366,7 +366,7 @@ Operators override per-environment. Numbers are baseline for typical workloads (
 
 ## 9. Helm chart structure
 
-**Stage 1 ships a new self-contained chart, `charts/profiler-backend/`,** holding the collector StatefulSet, the query Deployment, the maintain workload, the shared ConfigMap/Secret, an optional in-cluster MinIO for dev/smoke, and the monitoring objects (ServiceMonitor / PrometheusRule). The legacy sub-charts below keep serving the Java stack untouched until their Stage 4/5 retirement — the same reasoning that placed the Go binary at `apps/profiler-backend` instead of over the legacy `apps/` paths. The table records the eventual end-state for the legacy charts, not Stage 1 work:
+**Stage 1 ships a new self-contained chart, `deploy/charts/profiler-backend/`,** holding the collector StatefulSet, the query Deployment, the maintain workload, the shared ConfigMap/Secret, an optional in-cluster MinIO for dev/smoke, and the monitoring objects (ServiceMonitor / PrometheusRule). The legacy sub-charts below keep serving the Java stack untouched until their Stage 4/5 retirement — the same reasoning that placed the Go binary at `apps/profiler-backend` instead of over the legacy `apps/` paths. The table records the eventual end-state for the legacy charts, not Stage 1 work:
 
 | Chart | Old shape | New shape (this contract) |
 |---|---|---|

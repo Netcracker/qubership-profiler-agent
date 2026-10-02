@@ -12,10 +12,8 @@ on:
       - 'apps/Makefile'
       - 'libs/**'
       - 'tools/**'
-      - 'charts/**'
       - 'deploy/**'
       - 'apps/examples/**'
-      - 'docker-transfer/**'
       - 'go.mod'
       - 'go.sum'
       - 'Makefile'
@@ -31,10 +29,8 @@ on:
       - 'apps/Makefile'
       - 'libs/**'
       - 'tools/**'
-      - 'charts/**'
       - 'deploy/**'
       - 'apps/examples/**'
-      - 'docker-transfer/**'
       - 'go.mod'
       - 'go.sum'
       - 'Makefile'
@@ -88,7 +84,7 @@ jobs:
         run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
 
       - name: Run dumps-collector Helm unit tests
-        run: helm unittest charts/dumps-collector
+        run: helm unittest deploy/charts/dumps-collector
 
 # TODO: fix Helm violations like "name is required", "apiVersion is required", ...
 #      - name: charts-build

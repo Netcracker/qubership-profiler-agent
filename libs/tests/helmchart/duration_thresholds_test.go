@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// renderChart runs `helm template` over charts/profiler-backend, skipping the
+// renderChart runs `helm template` over deploy/charts/profiler-backend, skipping the
 // test when helm is not installed (CI covers it via `make helm-lint` too).
 func renderChart(t *testing.T, extraArgs ...string) string {
 	t.Helper()
@@ -25,7 +25,7 @@ func renderChart(t *testing.T, extraArgs ...string) string {
 	if err != nil {
 		t.Skip("helm is not installed; the chart render checks run where it is")
 	}
-	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "charts", "profiler-backend"))
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "deploy", "charts", "profiler-backend"))
 	require.NoError(t, err)
 	args := append([]string{
 		"template", "render-test", chart,

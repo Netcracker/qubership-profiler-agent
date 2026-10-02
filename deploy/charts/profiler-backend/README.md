@@ -17,7 +17,7 @@ cd backend
 docker build -f apps/profiler-backend/Dockerfile -t profiler-backend:dev .
 kind create cluster --name profiler
 kind load docker-image profiler-backend:dev --name profiler
-helm install profiler charts/profiler-backend -f deploy/values-kind.yaml
+helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-kind.yaml
 kubectl rollout status statefulset/profiler-profiler-backend-collector --timeout=180s
 ```
 
@@ -31,7 +31,7 @@ OrbStack's k8s shares the host Docker daemon — no image loading step — and s
 cd backend
 docker build -f apps/profiler-backend/Dockerfile -t profiler-backend:dev .
 kubectl config use-context orbstack
-helm install profiler charts/profiler-backend -f deploy/values-orbstack.yaml
+helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-orbstack.yaml
 kubectl rollout status statefulset/profiler-profiler-backend-collector --timeout=180s
 kubectl get svc profiler-profiler-backend-collector-agent   # EXTERNAL-IP serves agent TCP :1715
 ```

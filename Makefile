@@ -12,7 +12,7 @@
 # Variables
 APPS_DIR := apps
 TOOLS_DIR := tools
-CHARTS_DIR := charts
+CHARTS_DIR := deploy/charts
 EXAMPLES_DIR := apps/examples
 DELIVERY_DIR := delivery
 
@@ -289,19 +289,19 @@ adversarial:
 #   make kind-smoke KIND_CONTEXT=orbstack KIND_SKIP_LOAD=1
 .PHONY: kind-smoke
 kind-smoke:
-	deploy/kind-smoke.sh
+	deploy/kind/kind-smoke.sh
 
 # helm template (monitoring objects ON, so the CRD manifests render too)
 # validated by kubeconform: a local binary when present, docker otherwise;
 # CRD schemas come from the datree catalog.
 .PHONY: helm-lint
 helm-lint:
-	@echo "==> helm lint charts/profiler-backend..."
-	helm lint charts/profiler-backend
+	@echo "==> helm lint deploy/charts/profiler-backend..."
+	helm lint deploy/charts/profiler-backend
 	@echo "==> Rendering with monitoring enabled and validating with kubeconform..."
 	@rm -rf .helm-render
-	helm template profiler-backend charts/profiler-backend \
-		-f deploy/values-kind.yaml \
+	helm template profiler-backend deploy/charts/profiler-backend \
+		-f deploy/kind/values-kind.yaml \
 		--set metrics.serviceMonitor.enabled=true \
 		--set metrics.prometheusRule.enabled=true \
 		--output-dir .helm-render
@@ -323,9 +323,9 @@ helm-lint:
 .PHONY: rules-test
 rules-test:
 	@if command -v promtool >/dev/null 2>&1; then \
-		promtool test rules charts/profiler-backend/tests/prometheus/rules_test.yaml; \
+		promtool test rules deploy/charts/profiler-backend/tests/prometheus/rules_test.yaml; \
 	else \
-		docker run --rm -v "$(CURDIR)/charts/profiler-backend:/chart:ro" \
+		docker run --rm -v "$(CURDIR)/deploy/charts/profiler-backend:/chart:ro" \
 			--entrypoint promtool prom/prometheus:latest \
 			test rules /chart/tests/prometheus/rules_test.yaml; \
 	fi

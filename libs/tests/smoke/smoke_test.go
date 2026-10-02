@@ -94,7 +94,7 @@ func compose(t *testing.T, args ...string) {
 // stopCollector / startCollector take the collector away out-of-band for the
 // cold phase. Default: the compose container. The SMOKE_COLLECTOR_{STOP,START}_CMD
 // hooks switch the mechanism without forking the test — the kind smoke
-// (deploy/kind-smoke.sh) scales the StatefulSet to zero instead.
+// (deploy/kind/kind-smoke.sh) scales the StatefulSet to zero instead.
 func stopCollector(t *testing.T) {
 	t.Helper()
 	if cmd := os.Getenv("SMOKE_COLLECTOR_STOP_CMD"); cmd != "" {

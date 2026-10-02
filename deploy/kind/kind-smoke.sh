@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# In-cluster smoke for charts/profiler-backend: build the image, load it into
-# kind, install the chart with deploy/values-kind.yaml, assert the S3
+# In-cluster smoke for deploy/charts/profiler-backend: build the image, load it into
+# kind, install the chart with deploy/kind/values-kind.yaml, assert the S3
 # credentials are file-mounted (never env), then run the shared Stage 1 smoke
 # (libs/tests/smoke) against port-forwarded services. The cold phase scales
 # the collector StatefulSet to zero via the SMOKE_COLLECTOR_*_CMD hooks.
 #
 # Defaults target kind (CI); for OrbStack's k8s run:
-#   KIND_CONTEXT=orbstack KIND_SKIP_LOAD=1 deploy/kind-smoke.sh
+#   KIND_CONTEXT=orbstack KIND_SKIP_LOAD=1 deploy/kind/kind-smoke.sh
 # (images come from the shared Docker daemon, so there is nothing to load).
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 CLUSTER="${KIND_CLUSTER:-profiler-smoke}"
 CONTEXT="${KIND_CONTEXT:-kind-${CLUSTER}}"
@@ -34,7 +34,7 @@ fi
 echo "==> Installing the chart (fresh: old release and PVCs removed)..."
 helm uninstall "${RELEASE}" --kube-context "${CONTEXT}" --wait 2>/dev/null || true
 "${KUBECTL[@]}" delete pvc -l "app.kubernetes.io/instance=${RELEASE}" --ignore-not-found
-helm install "${RELEASE}" charts/profiler-backend -f deploy/values-kind.yaml \
+helm install "${RELEASE}" deploy/charts/profiler-backend -f deploy/kind/values-kind.yaml \
   --kube-context "${CONTEXT}" --wait --timeout 5m
 
 echo "==> Asserting the S3 credentials are file-mounted, not env..."

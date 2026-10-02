@@ -1,0 +1,8 @@
+FROM scratch
+ARG USER_UID=1000
+
+# Helm charts shipped for deployment
+COPY deploy/charts/dumps-collector /charts/dumps-collector
+COPY deploy/charts/profiler-backend /charts/profiler-backend
+
+USER ${USER_UID}

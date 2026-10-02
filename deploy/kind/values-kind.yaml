@@ -1,8 +1,8 @@
-# kind / CI values for charts/profiler-backend: one replica of everything,
+# kind / CI values for deploy/charts/profiler-backend: one replica of everything,
 # in-cluster MinIO, fast loops so the smoke completes in minutes.
 #
 #   kind load docker-image profiler-backend:dev
-#   helm install profiler charts/profiler-backend -f deploy/values-kind.yaml
+#   helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-kind.yaml
 
 collector:
   replicas: 1
