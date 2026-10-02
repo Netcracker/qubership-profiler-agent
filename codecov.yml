@@ -74,7 +74,7 @@ fixes:
 
 ignore:
   # Maven-built demo applications, outside both the Gradle and the Go build.
-  - "examples/**"
+  - "apps/examples/**"
   - "apps/agent/profiler-ui/**"
   - "apps/agent/sample-apps/**"
   - "apps/agent/test-app/**"

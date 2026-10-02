@@ -21,7 +21,7 @@ dependencies {
     testImplementation("org.testcontainers:junit-jupiter")
 }
 
-val demoModuleDir = rootDir.resolve("examples/spring-boot-3-undertow")
+val demoModuleDir = rootDir.resolve("apps/examples/spring-boot-3-undertow")
 val demoTargetDir = demoModuleDir.resolve("target")
 
 // Build the existing Maven demo (Spring Boot 3 + Undertow + Spring Session). The demo doubles

@@ -13,7 +13,7 @@
 APPS_DIR := apps
 TOOLS_DIR := tools
 CHARTS_DIR := charts
-EXAMPLES_DIR := examples
+EXAMPLES_DIR := apps/examples
 DELIVERY_DIR := delivery
 
 # Application names (production components)

@@ -38,7 +38,7 @@ jobs:
             './**/*.md'
             --exclude-path 'apps/dumps-collector/' --exclude-path 'apps/profiler-backend/'
             --exclude-path 'apps/ui/' --exclude-path 'libs/' --exclude-path 'tools/'
-            --exclude-path 'charts/' --exclude-path 'deploy/' --exclude-path 'examples/'
+            --exclude-path 'charts/' --exclude-path 'deploy/' --exclude-path 'apps/examples/'
             --exclude-path 'docker-transfer/' --exclude-path 'docs/'
             --verbose
             --no-progress
