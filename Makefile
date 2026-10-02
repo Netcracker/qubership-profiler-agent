@@ -2,7 +2,8 @@
 # Orchestrates builds for all applications and deployment components
 
 .PHONY: help build-all clean-all test-all docker-build-all archive-all \
-	apps tools charts examples delivery \
+	apps tools charts examples delivery agent \
+	agent-build agent-test agent-clean \
 	apps-build apps-clean apps-test apps-docker apps-archive \
 	tools-build tools-clean tools-test tools-docker tools-archive \
 	charts-build charts-clean \
@@ -15,6 +16,7 @@ TOOLS_DIR := tools
 CHARTS_DIR := deploy/charts
 EXAMPLES_DIR := apps/examples
 DELIVERY_DIR := delivery
+GRADLEW ?= ./gradlew
 
 # Application names (production components)
 APPS := dumps-collector profiler-backend
@@ -28,18 +30,24 @@ help:
 	@echo "======================================"
 	@echo ""
 	@echo "Main targets:"
-	@echo "  build-all        - Build everything (apps, tools, charts, examples, delivery)"
+	@echo "  build-all        - Build everything (agent, apps, tools, charts, examples, delivery)"
 	@echo "  clean-all        - Clean all build artifacts"
 	@echo "  test-all         - Run all tests"
 	@echo "  docker-build-all - Build all Docker images"
 	@echo "  archive-all      - Create all deployment archives"
 	@echo ""
 	@echo "Component targets:"
+	@echo "  agent            - Build the Java agent (Gradle)"
 	@echo "  apps             - Build all applications"
 	@echo "  tools            - Build all tools"
 	@echo "  charts           - Build/validate Helm charts"
 	@echo "  examples         - Build example applications"
 	@echo "  delivery         - Build delivery package"
+	@echo ""
+	@echo "Java agent targets:"
+	@echo "  agent-build      - Assemble every Gradle project"
+	@echo "  agent-test       - Run Gradle checks (tests and static analysis)"
+	@echo "  agent-clean      - Clean Gradle build outputs"
 	@echo ""
 	@echo "Individual app targets:"
 	@for app in $(APPS); do \
@@ -66,15 +74,15 @@ help:
 	@echo "  help-<tool>       - Show help for specific tool (e.g., help-migration)"
 
 # Build everything
-build-all: apps-build tools-build charts-build examples-build delivery-build
+build-all: agent-build apps-build tools-build charts-build examples-build delivery-build
 	@echo "==> All components built successfully!"
 
 # Clean everything
-clean-all: apps-clean tools-clean charts-clean examples-clean delivery-clean
+clean-all: agent-clean apps-clean tools-clean charts-clean examples-clean delivery-clean
 	@echo "==> All build artifacts cleaned!"
 
 # Run all tests
-test-all: apps-test tools-test
+test-all: agent-test apps-test tools-test
 	@echo "==> All tests completed!"
 
 # Build all Docker images
@@ -84,6 +92,26 @@ docker-build-all: apps-docker tools-docker
 # Create all deployment archives
 archive-all: apps-archive tools-archive
 	@echo "==> All deployment archives created successfully!"
+
+# =============================================================================
+# JAVA AGENT TARGETS
+# =============================================================================
+
+# The Gradle build at the repository root owns everything under apps/agent/.
+# These targets only dispatch to it.
+agent: agent-build
+
+agent-build:
+	@echo "==> Building the Java agent..."
+	$(GRADLEW) assemble
+
+agent-test:
+	@echo "==> Running Java agent checks..."
+	$(GRADLEW) check
+
+agent-clean:
+	@echo "==> Cleaning Java agent build outputs..."
+	$(GRADLEW) clean
 
 # =============================================================================
 # APPS TARGETS
@@ -247,16 +275,24 @@ smoke:
 # byte-exact through dictionary words and inline param values, and that
 # dictionary ids — including one assigned to an empty word — stay aligned
 # with what the agent sent; see libs/tests/smoke_realagent and
-# ../scripts/e2e-realagent/README.md.
+# scripts/e2e-realagent/README.md.
 .PHONY: smoke-realagent
-smoke-realagent:
+smoke-realagent: smoke-realagent-build
 	@echo "==> Starting the dev stack..."
 	docker compose down -v --remove-orphans
 	docker compose up --build -d
-	@echo "==> Running the real-agent E2E test (builds the Java agent)..."
-	@status=0; go test -tags smoke_realagent -count=1 -timeout 20m -v ./libs/tests/smoke_realagent/... || status=$$?; \
+	@echo "==> Running the real-agent E2E test..."
+	@status=0; SKIP_BUILD=1 go test -tags smoke_realagent -count=1 -timeout 20m -v ./libs/tests/smoke_realagent/... || status=$$?; \
 	docker compose down -v --remove-orphans; \
 	exit $$status
+
+# The artifacts smoke-realagent runs: the installer unpacked into
+# apps/agent/installer-zip-test/build/profiler-home (the lib/ + config/ layout of
+# a deployed agent) and the adversarial test-app jar.
+.PHONY: smoke-realagent-build
+smoke-realagent-build:
+	@echo "==> Building the Java agent and the test-app jar..."
+	$(GRADLEW) --quiet :installer-zip-test:extractInstaller :test-app:jar
 
 # Real-agent v3.1.3 E2E: the regression gate for the "gc" stream compatibility
 # fix. Downloads the ACTUAL v3.1.3 Java agent release from Maven Central
