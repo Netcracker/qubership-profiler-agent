@@ -27,14 +27,18 @@
 //
 // # Run
 //
-//	cd backend
+// From the repository root:
+//
 //	docker compose up --build -d
 //	go test -tags smoke_realagent -count=1 -timeout 20m -v ./libs/tests/smoke_realagent/...
 //	docker compose down -v --remove-orphans
 //
 // or, in one shot:
 //
-//	make -C backend smoke-realagent
+//	make smoke-realagent
+//
+// The make target builds the agent with Gradle first and runs the test with
+// SKIP_BUILD=1.
 //
 // Everything here is plain Go (os/exec driving gradlew/gradlew.bat, then
 // java) — no shell script — so it runs the same way on Windows as on
@@ -140,13 +144,13 @@ func resolveTestAppJar(dir string) (string, error) {
 func buildHeadAgent(t *testing.T) (agentJar, profilerHome, testAppJar string) {
 	t.Helper()
 	root := repoRoot(t)
-	profilerHome = filepath.Join(root, "installer-zip-test", "build", "profiler-home")
+	profilerHome = filepath.Join(root, "apps", "agent", "installer-zip-test", "build", "profiler-home")
 	agentJar = filepath.Join(profilerHome, "lib", "qubership-profiler-agent.jar")
 
 	if os.Getenv("SKIP_BUILD") != "1" {
 		t.Logf("building the agent (installer zip) and the test-app jar...")
 		// extractInstaller unpacks the installer zip into
-		// installer-zip-test/build/profiler-home, which is exactly the
+		// apps/agent/installer-zip-test/build/profiler-home, which is exactly the
 		// lib/ + config/ layout a deployed agent uses.
 		cmd := gradlewCommand(root, "--quiet", ":installer-zip-test:extractInstaller", ":test-app:jar")
 		cmd.Dir = root
@@ -157,8 +161,8 @@ func buildHeadAgent(t *testing.T) (agentJar, profilerHome, testAppJar string) {
 
 	require.FileExists(t, agentJar, "run without SKIP_BUILD=1, or build it first")
 
-	jar, err := resolveTestAppJar(filepath.Join(root, "test-app", "build", "libs"))
-	require.NoError(t, err, "test-app jar must exist under test-app/build/libs")
+	jar, err := resolveTestAppJar(filepath.Join(root, "apps", "agent", "test-app", "build", "libs"))
+	require.NoError(t, err, "test-app jar must exist under apps/agent/test-app/build/libs")
 	testAppJar = jar
 	return
 }

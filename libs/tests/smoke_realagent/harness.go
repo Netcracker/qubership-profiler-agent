@@ -47,8 +47,8 @@ func repoRoot(t *testing.T) string {
 	}
 	_, self, _, ok := runtime.Caller(0)
 	require.True(t, ok, "cannot locate the test source to derive the repo root")
-	// libs/tests/smoke_realagent → backend → repo root
-	return filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(self)))))
+	// libs/tests/smoke_realagent/harness.go → repo root
+	return filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(self))))
 }
 
 func splitHostPort(addr string) (string, string, error) {

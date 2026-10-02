@@ -22,7 +22,7 @@ The existing Go smoke test (`libs/tests/smoke`) feeds the collector with bytes f
 
 | File | Role |
 | --- | --- |
-| `test-app/src/main/java/com/netcracker/profilerTest/testapp/AdversarialMain.java` | The workload. Records two synthetic calls through the `Profiler` API: Call A carries adversarial Unicode (bug A); Call B resolves an empty dictionary word first, then plain-ASCII names (bug B). |
+| `apps/agent/test-app/src/main/java/com/netcracker/profilerTest/testapp/AdversarialMain.java` | The workload. Records two synthetic calls through the `Profiler` API: Call A carries adversarial Unicode (bug A); Call B resolves an empty dictionary word first, then plain-ASCII names (bug B). |
 | `scripts/e2e-realagent/config/_config.xml` | Profiler config. Marks the test-app package `do-not-profile` so the only recorded calls are the two synthetic ones. |
 | `libs/tests/smoke_realagent/realagent_test.go` | The `//go:build smoke_realagent` test. Runs `gradlew`/`gradlew.bat` to build the agent + test-app jar (`buildHeadAgent`), runs the workload via the shared `runJavaAgent`, polls `/api/v1/calls`, fetches each call's `/tree`, and asserts the strings byte-exact. |
 | `libs/tests/smoke_realagent/harness.go` | Shared by both variants: `runJavaAgent` (the `-javaagent` invocation), `pollNamespaceCalls`, `waitReady`, `repoRoot`. |
@@ -34,16 +34,15 @@ The existing Go smoke test (`libs/tests/smoke`) feeds the collector with bytes f
 
 ### Run it
 
-From the repository root, one shot — brings the stack up, runs the test, tears the stack down:
+From the repository root, one shot. The target builds the agent and the test-app jar with Gradle, brings the stack up, runs the test with `SKIP_BUILD=1`, and tears the stack down:
 
 ```bash
-make -C backend smoke-realagent
+make smoke-realagent
 ```
 
 Or step by step, keeping the stack up for iteration:
 
 ```bash
-cd backend
 docker compose up --build -d
 go test -tags smoke_realagent -count=1 -timeout 20m -v ./libs/tests/smoke_realagent/...
 docker compose down -v --remove-orphans
@@ -121,13 +120,12 @@ The functional 14 MB+ shaded jar only exists inside the `qubership-profiler-inst
 Run it (needs Docker for the backend stack and a JRE to run the downloaded agent — no JDK or Gradle build required for this variant):
 
 ```bash
-make -C backend smoke-realagent-v313
+make smoke-realagent-v313
 ```
 
 or step by step:
 
 ```bash
-cd backend
 docker compose up --build -d
 go test -tags smoke_realagent_v313 -count=1 -timeout 20m -v ./libs/tests/smoke_realagent/...
 docker compose down -v --remove-orphans

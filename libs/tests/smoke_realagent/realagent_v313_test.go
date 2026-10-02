@@ -47,14 +47,15 @@
 //
 // # Run
 //
-//	cd backend
+// From the repository root:
+//
 //	docker compose up --build -d
 //	go test -tags smoke_realagent_v313 -count=1 -timeout 10m -v ./libs/tests/smoke_realagent/...
 //	docker compose down -v --remove-orphans
 //
 // or, in one shot:
 //
-//	make -C backend smoke-realagent-v313
+//	make smoke-realagent-v313
 package smoke_realagent
 
 import (
@@ -94,7 +95,7 @@ const v313GroupPath = "org/qubership/profiler"
 func fetchV313Agent(t *testing.T) (agentJar, profilerHome, testAppJar string) {
 	t.Helper()
 	root := repoRoot(t)
-	downloadDir := filepath.Join(root, "installer-zip-test", "build", "v313-download")
+	downloadDir := filepath.Join(root, "apps", "agent", "installer-zip-test", "build", "v313-download")
 	profilerHome = filepath.Join(downloadDir, "profiler-home")
 	agentJar = filepath.Join(profilerHome, "lib", "qubership-profiler-agent.jar")
 	testAppJar = filepath.Join(downloadDir, fmt.Sprintf("qubership-profiler-test-app-%s.jar", v313AgentVersion))
