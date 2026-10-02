@@ -3,7 +3,7 @@
 ## 🚀 One-Command Deploy
 
 ```bash
-cd apps/dumps-collector
+cd deploy/dumps-collector
 
 # 1. Deploy dumps-collector
 helmfile sync

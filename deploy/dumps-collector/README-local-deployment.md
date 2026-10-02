@@ -58,7 +58,7 @@ kubectl get storageclass  # Should show 'local-path' (default)
 ### 1. Deploy dumps-collector
 
 ```bash
-cd apps/dumps-collector
+cd deploy/dumps-collector
 
 # Deploy dumps-collector
 helmfile sync
@@ -456,7 +456,7 @@ helmfile -f helmfile.yaml -e staging sync
 ## File Structure
 
 ```text
-apps/dumps-collector/
+deploy/dumps-collector/
 ├── helmfile.yaml.gotmpl         # Main deployment configuration
 ├── values-local.yaml            # Local development values
 ├── README-local-deployment.md   # This file
