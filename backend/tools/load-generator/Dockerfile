@@ -6,7 +6,7 @@
 # the k6/x/cdt module and the go-prometheus-exporter live in this module, and
 # the traffic is fully synthetic — no captured dumps enter the image.
 
-FROM golang:1.27.0-alpine3.24@sha256:4c9fe60190a2a3350ddc51de80d0224b8a6698d12bdfc999fee45ea9d6c46dbc AS builder
+FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH
