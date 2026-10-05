@@ -14,6 +14,11 @@ COPY apps/ui/package.json apps/ui/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY apps/ui/ ./
+# The product serves the SPA under /ui (07-ui-design.md §6); the query binary
+# reads this base back out of the built index.html. Pass
+# --build-arg UI_BASE_PATH=/ for a root build.
+ARG UI_BASE_PATH=/ui/
+ENV UI_BASE_PATH=$UI_BASE_PATH
 RUN npm run build
 
 FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder

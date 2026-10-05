@@ -25,10 +25,16 @@ npm run build      # tsc + vite build into dist/
 ## Deployment
 
 `embed.go` embeds `dist/` into the query binary (`go:embed`), which serves it at `/ui` with an SPA
-fallback (07 §6). Run `npm run build` before `go build ./apps/profiler-backend` for a UI-carrying
-binary; a build without it still compiles and serves `/api/v1`, logging that `/ui` is disabled. The
-profiler-backend Dockerfile builds the bundle in a node stage, so `docker compose up --build` needs no
-host toolchain. End to end: `make query-ui` in `it-e2e/`.
+fallback (07 §6). Run `UI_BASE_PATH=/ui/ npm run build` before `go build ./apps/profiler-backend` for a
+UI-carrying binary; a build without it still compiles and serves `/api/v1`, logging that `/ui` is
+disabled. The profiler-backend Dockerfile builds the bundle in a node stage, so `docker compose up --build`
+needs no host toolchain. End to end: `make query-ui` in `it-e2e/`.
+
+`UI_BASE_PATH` is the one place the sub-path is configured: Vite bakes it into `index.html`, the router
+takes its basename from it, and the binary reads it back out to pick the serving prefix. The image
+defaults to `/ui/`; `docker build --build-arg UI_BASE_PATH=/` produces a root build for a deployment
+that owns the whole origin. Under the default the app answers only below `/ui`, and the origin root
+redirects there.
 
 ## Layout
 

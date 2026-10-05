@@ -354,6 +354,39 @@ func TestTreeAndTraceAPI(t *testing.T) {
 		assert.Equal(t, wantHot[:8], part)
 	})
 
+	t.Run("/trace: an unsatisfiable Range answers the problem envelope on both APIs", func(t *testing.T) {
+		// net/http refuses the range inside ServeContent, past the handler and
+		// the boundary mapper, so each trace endpoint has to be checked on its
+		// own: query serves its range from the whole blob it fetched, and never
+		// forwards the header to the replica.
+		for _, target := range []struct{ name, url string }{
+			{"external", api.URL + "/api/v1/calls/" + pkHot + "/trace"},
+			{"internal", hotSrv.URL + "/internal/v1/calls/" + pkHot + "/trace"},
+		} {
+			for _, rangeHeader := range []string{"garbage", "bytes=1000000-"} {
+				req, err := http.NewRequest(http.MethodGet, target.url, nil)
+				require.NoError(t, err)
+				req.Header.Set("Range", rangeHeader)
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err)
+				body, err := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				require.NoError(t, err)
+
+				where := fmt.Sprintf("%s, Range: %s, body: %s", target.name, rangeHeader, body)
+				assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, where)
+				assert.Equal(t, "application/problem+json", resp.Header.Get("Content-Type"), where)
+				var problem struct {
+					Status int    `json:"status"`
+					Code   string `json:"code"`
+				}
+				require.NoError(t, json.Unmarshal(body, &problem), where)
+				assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, problem.Status, where)
+				assert.Equal(t, "range_not_satisfiable", problem.Code, where)
+			}
+		}
+	})
+
 	t.Run("a cold pk without ts_ms is a guided 404, not a scan", func(t *testing.T) {
 		problem := getProblem(t, api, "/api/v1/calls/"+pkCold+"/tree", url.Values{}, http.StatusNotFound)
 		assert.Contains(t, problem.Detail, "ts_ms", "the detail points at the §2.2 hints")

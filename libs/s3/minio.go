@@ -8,6 +8,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type MinioClient struct {
@@ -69,7 +70,7 @@ func NewReadOnlyClient(ctx context.Context, s3Params Params) (*MinioClient, erro
 		Params: s3Params,
 	}
 
-	registerMetrics()
+	RegisterMetrics(prometheus.DefaultRegisterer)
 
 	return mc, nil
 }
