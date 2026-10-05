@@ -1,7 +1,6 @@
 package com.netcracker.monitoring.metrics;
 
-import io.prometheus.metrics.core.datapoints.Timer;
-import io.prometheus.metrics.core.metrics.Histogram;
+import io.prometheus.client.Histogram;
 import org.springframework.scheduling.annotation.Scheduled;
 
 public class HistogramService {
@@ -9,7 +8,7 @@ public class HistogramService {
     public static double value;
 
     static final Histogram requestLatency = Histogram
-            .builder()
+            .build()
             .name("requests_latency_seconds")
             .help("Request latency in seconds.")
             .register();
@@ -17,7 +16,7 @@ public class HistogramService {
     @Scheduled(fixedDelay = 2000)
     void process() {
         System.out.println("process()");
-        Timer requestTimer = requestLatency.startTimer();
+        Histogram.Timer requestTimer = requestLatency.startTimer();
         try {
             for (int i = 0; i < 10_000_000; i++) {
                 double x = i * 0.01;
