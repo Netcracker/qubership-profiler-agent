@@ -95,10 +95,16 @@ func RegisterCollect(reg prometheus.Registerer, store *hotstore.Store, uploader 
 	janitor("wals_fast_purged_total",
 		"The wals_purged_total subset purged by the near-empty fast path (03 §3.9): freed after the grace without waiting for the partition drop.",
 		func(s hotstore.JanitorStats) int64 { return s.WalsFastPurged })
-	janitor("segments_evicted_total", "Segments evicted under the disk budget (01 §4.6).",
-		func(s hotstore.JanitorStats) int64 { return s.SegmentsEvicted })
-	janitor("evicted_bytes_total", "Bytes freed by disk-budget evictions.",
-		func(s hotstore.JanitorStats) int64 { return s.EvictedBytes })
+	for _, c := range hotstore.EvictionCases {
+		c := c
+		labels := prometheus.Labels{"case": c.String()}
+		counter("janitor", "segments_evicted_total",
+			"Segments evicted under the disk budget (01 §4.6), by case. zero_ref and referenced segments belong to closed, fully sealed pod-restarts and lose nothing; owed_seal and live evictions lose data: calls that needed the segment seal truncated with disk_budget.",
+			func() int64 { return store.JanitorCountersSnapshot().SegmentsEvictedByCase[c] }, labels)
+		counter("janitor", "evicted_bytes_total",
+			"Bytes freed by disk-budget evictions, by the same case as segments_evicted_total; owed_seal and live bytes are lost data.",
+			func() int64 { return store.JanitorCountersSnapshot().EvictedBytesByCase[c] }, labels)
+	}
 	janitor("quarantine_dropped_total",
 		"Quarantined parquet files dropped by the age/size cap (№2) — bounded, logged data loss that unpins the WAL purge.",
 		func(s hotstore.JanitorStats) int64 { return s.QuarantineDropped })

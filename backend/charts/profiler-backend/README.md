@@ -96,8 +96,8 @@ Series names are stable — dashboards and the shipped alerts reference them; re
 | `profiler_janitor_partitions_dropped_total` | counter | Call-index partitions dropped from the hot tier. |
 | `profiler_janitor_wals_purged_total` | counter | Pod-restarts whose WALs were purged. |
 | `profiler_janitor_wals_fast_purged_total` | counter | The `wals_purged_total` subset purged by the near-empty fast path (03 §3.9 step 18a). |
-| `profiler_janitor_segments_evicted_total` | counter | Segments evicted under the disk budget. |
-| `profiler_janitor_evicted_bytes_total` | counter | Bytes freed by evictions. |
+| `profiler_janitor_segments_evicted_total{case}` | counter | Segments evicted under the disk budget: `zero_ref`, `referenced`, `owed_seal`, `live`. `owed_seal` and `live` evictions lose data: calls that needed the segment seal with a NULL blob and `disk_budget`. |
+| `profiler_janitor_evicted_bytes_total{case}` | counter | Bytes freed by evictions, by the same `case`. |
 | `profiler_hotstore_segments_disk_bytes` | gauge | Segment bytes on disk (measured each janitor pass). |
 | `profiler_hotstore_segments_disk_budget_bytes` | gauge | The configured budget. |
 | `profiler_hotstore_hot_window_lag_seconds` | gauge | Age of the oldest hot-index row; sustained growth = stuck hot→cold handoff. |

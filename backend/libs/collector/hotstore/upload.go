@@ -42,6 +42,12 @@ type (
 
 		mu       sync.Mutex
 		counters UploadStats
+		// failing and failingSinceMs hold the upload health that
+		// noteUploadHealth logs on transition: failing is set by the first
+		// pass whose files fail transiently and cleared by the pass that
+		// recovers. Guarded by mu.
+		failing        bool
+		failingSinceMs int64
 
 		// loopErrors counts failed upload passes at the pass-failed log site
 		// (the upload_loop_errors_total seam). Per-file PUT failures are counted
@@ -134,8 +140,9 @@ func (u *Uploader) accumulate(stats UploadStats) {
 }
 
 // Pass runs one upload round: the quarantine re-test, pending parquet files,
-// then the refcount-0 segment sweep. Per-file failures are logged and left
-// for the next pass; only a context or SQLite failure aborts the pass.
+// then the refcount-0 segment sweep. Per-file failures are counted and left
+// for the next pass, and only the transitions into and out of failing
+// uploads are logged; a context or SQLite failure aborts the pass.
 func (u *Uploader) Pass(ctx context.Context) (UploadStats, error) {
 	var stats UploadStats
 	defer func() { u.accumulate(stats) }()
@@ -143,9 +150,11 @@ func (u *Uploader) Pass(ctx context.Context) (UploadStats, error) {
 	if err := u.requeueQuarantined(ctx, &stats); err != nil {
 		return stats, err
 	}
-	if err := u.uploadPending(ctx, &stats); err != nil {
+	failures, pending, err := u.uploadPending(ctx, &stats)
+	if err != nil {
 		return stats, err
 	}
+	u.noteUploadHealth(ctx, failures, pending, stats.UploadedFiles)
 	if err := u.sweepSegments(ctx, &stats); err != nil {
 		return stats, err
 	}
@@ -177,13 +186,17 @@ func (u *Uploader) requeueQuarantined(ctx context.Context, stats *UploadStats) e
 // refresh the day's pods manifest, and only then commit uploaded_at together
 // with the refcount release — any failure before the commit leaves the row
 // pending and the next pass redoes the idempotent PUTs.
-func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) error {
+//
+// It returns the transient per-file failures of the pass and the number of
+// files pending when the pass started.
+func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) (*passFailures, int, error) {
+	failures := &passFailures{}
 	files, err := u.store.db.PendingUploads()
 	if err != nil {
-		return err
+		return failures, 0, err
 	}
 	if len(files) == 0 {
-		return nil
+		return failures, 0, nil
 	}
 	workers := u.store.cfg.UploadConcurrency
 	if workers > len(files) {
@@ -209,7 +222,7 @@ func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) error 
 				if stop || ctx.Err() != nil {
 					continue // drain the channel; the pass is already failing
 				}
-				if err := u.uploadOne(ctx, f, &local, &mu, manifestsDone); err != nil {
+				if err := u.uploadOne(ctx, f, &local, &mu, manifestsDone, failures); err != nil {
 					mu.Lock()
 					if firstErr == nil {
 						firstErr = err
@@ -227,14 +240,59 @@ func (u *Uploader) uploadPending(ctx context.Context, stats *UploadStats) error 
 	}
 	close(jobs)
 	wg.Wait()
-	return firstErr
+	return failures, len(files), firstErr
 }
 
-// uploadOne runs the §6.2 sequence for one file. A per-file failure is
-// logged and left for the next pass (nil); only a context or SQLite failure
-// comes back as an error and fails the pass.
+// passFailures collects the files of one upload pass that failed transiently
+// and stay pending: their PUT exhausted its retries, or their pods manifest
+// upsert failed. Safe for concurrent use by the upload workers.
+type passFailures struct {
+	mu    sync.Mutex
+	files int64
+	first error
+}
+
+func (p *passFailures) record(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.files++
+	if p.first == nil {
+		p.first = err
+	}
+}
+
+// noteUploadHealth logs the transitions of the upload health, once each: the
+// first pass with transient failures enters the failing state, and the first
+// pass after it that has none and either uploads a file or starts with
+// nothing pending leaves it. Every other pass logs nothing, so the log volume
+// of an S3 outage does not grow with the backlog; the failures stay counted
+// on put_failures_total. A pass whose files all went to quarantine uploads
+// nothing and leaves the state as it was.
+func (u *Uploader) noteUploadHealth(ctx context.Context, failures *passFailures, pending int, uploaded int64) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	switch {
+	case failures.files > 0 && !u.failing:
+		u.failing = true
+		u.failingSinceMs = time.Now().UnixMilli()
+		log.Error(ctx, failures.first,
+			"upload: %d of %d pending files failed to upload and stay pending; until uploads recover, "+
+				"later failures are counted on profiler_upload_put_failures_total and not logged, "+
+				"and the backlog shows on profiler_upload_backlog; first failure",
+			failures.files, pending)
+	case failures.files == 0 && u.failing && (uploaded > 0 || pending == 0):
+		u.failing = false
+		failedFor := time.Duration(time.Now().UnixMilli()-u.failingSinceMs) * time.Millisecond
+		log.Info(ctx, "upload: uploads recovered after failing for %v; this pass uploaded %d of %d pending files",
+			failedFor, uploaded, pending)
+	}
+}
+
+// uploadOne runs the §6.2 sequence for one file. A transient per-file
+// failure is recorded in failures and left for the next pass (nil); only a
+// context or SQLite failure comes back as an error and fails the pass.
 func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *UploadStats,
-	manifestMu *sync.Mutex, manifestsDone map[string]manifestOutcome) error {
+	manifestMu *sync.Mutex, manifestsDone map[string]manifestOutcome, failures *passFailures) error {
 
 	// A re-queued manifest-quarantined row already has its body in S3
 	// (body_durable_at set): skip the body PUT and re-test only the pending
@@ -259,7 +317,8 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 			if ctx.Err() != nil {
 				return err
 			}
-			log.Error(ctx, err, "upload: PUT %s failed after retries; will retry next pass", f.S3Key)
+			failures.record(err)
+			log.Debug(ctx, "upload: PUT %s failed after retries; will retry next pass: %v", f.S3Key, err)
 			return nil
 		}
 		// The body is durable now. Record it before the coupled manifest so any
@@ -281,7 +340,8 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 		// uploaded_at stays NULL, so the next pass re-runs the manifest PUT; the
 		// body is already durable (body_durable_at set above), so it is not
 		// re-PUT. Both are idempotent.
-		log.Error(ctx, mErr, "upload: pods manifest for %s failed; %s stays pending", f.PodRestart, f.S3Key)
+		failures.record(mErr)
+		log.Debug(ctx, "upload: pods manifest for %s failed; %s stays pending: %v", f.PodRestart, f.S3Key, mErr)
 		return nil
 	}
 	if outcome == manifestRejected {
@@ -305,7 +365,7 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 		return err
 	}
 	stats.UploadedFiles++
-	log.Info(ctx, "uploaded %s (%d rows)", f.S3Key, f.RowCount)
+	log.Debug(ctx, "uploaded %s (%d rows)", f.S3Key, f.RowCount)
 	return nil
 }
 
@@ -327,7 +387,7 @@ func (u *Uploader) putWithRetry(ctx context.Context, key string, put func() erro
 			return err
 		}
 		stats.RetriedPuts++
-		log.Warning(ctx, "upload: PUT %s attempt %d/%d failed, retrying in %v: %v",
+		log.Debug(ctx, "upload: PUT %s attempt %d/%d failed, retrying in %v: %v",
 			key, attempt, cfg.UploadRetryAttempts, delay, err)
 		select {
 		case <-ctx.Done():
@@ -466,7 +526,8 @@ func (u *Uploader) quarantineObject(ctx context.Context, s3Key string, body []by
 	if err := os.WriteFile(dest, body, 0o644); err != nil {
 		return errors.Wrap(err, "write quarantined object")
 	}
-	log.Error(ctx, cause, "upload: S3 rejected %s permanently; body kept at %s, retry stopped", s3Key, dest)
+	log.Warning(ctx, "upload: S3 rejected %s permanently; body kept at %s, and the slow re-test retries it every PROFILER_QUARANTINE_RETEST_INTERVAL: %v",
+		s3Key, dest, cause)
 	return nil
 }
 
@@ -517,7 +578,7 @@ func (u *Uploader) sweepSegments(ctx context.Context, stats *UploadStats) error 
 			return err
 		}
 		stats.SegmentsDeleted++
-		log.Info(ctx, "deleted segment %s/%s/%d after upload", seg.PodRestart, seg.Stream, seg.RollingSeq)
+		log.Debug(ctx, "deleted segment %s/%s/%d after upload", seg.PodRestart, seg.Stream, seg.RollingSeq)
 	}
 	return nil
 }
