@@ -5,7 +5,7 @@
 #
 # HEADED=1 opens a visible browser with slow motion.
 
-BACKEND := ../backend
+BACKEND := ../../..
 
 .PHONY: query-ui query-ui-test query-ui-up query-ui-down
 

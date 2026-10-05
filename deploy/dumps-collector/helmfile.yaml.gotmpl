@@ -10,7 +10,7 @@
 {{ $namespace := env "NAMESPACE" | default "profiler" }}
 
 # Path to charts
-{{ $dumpsCollectorChartPath := "../../charts/dumps-collector" }}
+{{ $dumpsCollectorChartPath := "../charts/dumps-collector" }}
 
 helmDefaults:
   wait: true

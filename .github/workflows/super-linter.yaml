@@ -79,7 +79,7 @@ jobs:
         # SuperLiner doesn't install JS dependencies before executing linters, so we need to do it manually
         shell: bash
         # language=bash
-        run: yarn --cwd it-e2e install --fronzen-lockfile
+        run: yarn --cwd apps/agent/it-e2e install --fronzen-lockfile
 
       - name: Lint Code Base
         uses: super-linter/super-linter@4ce20838b8ab83717e78138c5b3a1407148e0918 # v8.7.0

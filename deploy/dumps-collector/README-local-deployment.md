@@ -470,7 +470,7 @@ deploy/dumps-collector/
 
 ## Useful Resources
 
-- **dumps-collector Chart**: `../../charts/dumps-collector/`
+- **dumps-collector Chart**: `../charts/dumps-collector/`
 - **Helmfile Documentation**: <https://helmfile.readthedocs.io/>
 - **Helm Documentation**: <https://helm.sh/docs/>
 - **OrbStack Documentation**: <https://orbstack.dev/docs>
