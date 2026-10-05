@@ -14,19 +14,18 @@ changes. `-compare a.json,b.json` checks two profiles against the pass criteria.
 
 ## Procedure
 
-1. Start the dev stack: `cd backend && docker compose up --build -d` (collector on :1715).
+1. Start the dev stack: `docker compose up --build -d` from the repository root (collector on :1715).
 2. Build the agent and the workload app once:
    `./gradlew --quiet :installer-zip-test:extractInstaller :test-app:jar`.
 3. **Run A (reference)** — the real agent driving `LoadMain` (a steady programmatic workload; args:
    seconds, calls/s per thread, threads):
 
    ```bash
-   cd backend
    go run ./tools/load-generator/calibrate -listen :1717 -target localhost:1715 -out run-a.json -run-for 165s &
-   jar=$(ls ../test-app/build/libs/qubership-profiler-test-app-*.jar | grep -v sources | grep -v javadoc | tail -1)
+   jar=$(ls apps/agent/test-app/build/libs/qubership-profiler-test-app-*.jar | grep -v sources | grep -v javadoc | tail -1)
    java -Dfile.encoding=UTF-8 \
-     -javaagent:../installer-zip-test/build/profiler-home/lib/qubership-profiler-agent.jar \
-     -Dprofiler.home=../installer-zip-test/build/profiler-home \
+     -javaagent:apps/agent/installer-zip-test/build/profiler-home/lib/qubership-profiler-agent.jar \
+     -Dprofiler.home=apps/agent/installer-zip-test/build/profiler-home \
      -Dprofiler.config=tools/load-generator/calibrate/config/_config.xml \
      -DREMOTE_DUMP_HOST=localhost -DREMOTE_DUMP_PORT_PLAIN=1717 \
      -DCLOUD_NAMESPACE=load -DMICROSERVICE_NAME=load-agent \

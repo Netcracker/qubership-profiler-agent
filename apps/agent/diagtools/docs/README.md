@@ -1,6 +1,7 @@
 # Overview
 
-The `diagtools` is a CLI tool and uses the Go standard library’s flag package to implement support for subcommands in a program.
+The `diagtools` is a CLI tool and uses the Go standard library’s flag package to implement support for subcommands in a
+program.
 
 Usage of applications with subcommands takes the following form.
 
@@ -32,8 +33,8 @@ and library ones are to be used instead.
 
 2. run commands manually:
 
-   * `diagtool dump` - upload thread/top dumps for found Java application
-   * `diagtool scan *.hprof` - upload generated heap dumps
+   - `diagtool dump` - upload thread/top dumps for found Java application
+   - `diagtool scan *.hprof` - upload generated heap dumps
 
 3. to generate random heap dump:
 

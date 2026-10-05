@@ -78,7 +78,7 @@ else
 fi
 mkdir -p "${NC_DIAGNOSTIC_FOLDER}"
 
-# shellcheck disable=SC1090
+# shellcheck disable=SC1090,SC1091
 . "${NC_DIAGNOSTIC_FOLDER}/diag-lib.sh"
 
 if [ "true" = "${CONSUL_ENABLED}" ] || [ -n "${CONSUL_URL}" ] ; then
@@ -178,7 +178,7 @@ if [ "dev" = "${NC_DIAGNOSTIC_MODE}" ] ; then
     if [ "${DOWNLOAD_SUCCESSFUL}" = "true" ] ; then
       unzip "-oq" -od "${NC_DIAGNOSTIC_FOLDER}" /tmp/installer.zip && rm /tmp/installer.zip
       write_esc_log "ESC agent has been downloaded"
-      # shellcheck disable=SC1090
+      # shellcheck disable=SC1090,SC1091
       . "${NC_DIAGNOSTIC_FOLDER}/diag-bootstrap.sh" UPDATED
     else
       write_esc_log "Failed to update ESC agent in DEV profile. Agent will run with PROD profile."
