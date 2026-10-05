@@ -71,14 +71,16 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `maintain.schedule` | `0 * * * *` | CronJob mode. |
 | `retention.*TTL` | contract defaults | Per-class TTLs (01 §6.4) passed to maintain. |
 | `minio.enabled` | `false` | Dev/smoke MinIO (emptyDir storage, same credentials Secret). |
-| `metrics.serviceMonitor.enabled` | `false` | Requires the prometheus-operator CRDs. |
+| `metrics.serviceMonitor.enabled` | `false` | Requires the prometheus-operator CRDs. Also creates the query and maintain PodMonitors; see the note under [Metrics contract](#metrics-contract). |
 | `metrics.prometheusRule.enabled` | `false` | Ships `files/prometheus-rules.yaml` as a PrometheusRule. |
 
 ## Metrics contract
 
 Series names are stable — dashboards and the shipped alerts reference them; renames are breaking changes (a Go test, `pkg/metrics/collect_test.go`, pins them). Labels stay low-cardinality: `reason`, `kind`, `layer`, `result` — never pod, PK, or replica.
 
-`collect` serves `/metrics` on the internal port (`:8081`), scrapable through LOADING/RECOVERY; `query` on the external port (`:8080`); `maintain` on `PROFILER_METRICS_PORT` in deployment mode (CronJob pods exit too fast to scrape).
+`collect` serves `/metrics` on the internal port (`:8081`), scrapable through LOADING/RECOVERY; `query` on its dedicated metrics port (`PROFILER_METRICS_PORT`, default `:8081`), kept off the external port so the ingress cannot reach `/metrics` or `/debug/pprof` (reports2#15) and scraped pod-directly by a PodMonitor; `maintain` on `PROFILER_METRICS_PORT` in deployment mode (CronJob pods exit too fast to scrape).
+
+Upgrade note: `metrics.serviceMonitor.enabled` now creates a PodMonitor for `query` instead of a ServiceMonitor. Prometheus Operator treats a null `podMonitorSelector` as matching nothing, so a Prometheus that selects only ServiceMonitors stops scraping `query` after the upgrade. Set `podMonitorSelector` (and `podMonitorNamespaceSelector`, if you restrict namespaces) on that Prometheus to match the chart's PodMonitors. Qubership Monitoring Operator selects PodMonitors by default and needs no change.
 
 | Series | Type | Meaning |
 |---|---|---|

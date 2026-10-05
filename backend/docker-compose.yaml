@@ -63,6 +63,9 @@ services:
       S3_SECRET_KEY: minioadmin
     ports:
       - "8080:8080" # /api/v1
+      # Loopback only: the metrics listener stays off the external port (04 §12).
+      # Host 8082 avoids the collector's 8081.
+      - "127.0.0.1:8082:8081" # /metrics
     depends_on:
       minio:
         condition: service_healthy

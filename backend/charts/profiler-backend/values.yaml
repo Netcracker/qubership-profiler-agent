@@ -104,6 +104,10 @@ collector:
 query:
   replicas: 2
   port: 8080
+  # /metrics and /debug/pprof listen here, on a port no Service exposes and the
+  # ingress never maps (04 §12), so they stay cluster-internal. Must differ from
+  # query.port; scraped pod-directly by the query PodMonitor.
+  metricsPort: 8081
   # 03-lifecycle.md §7.3 shutdown budget.
   terminationGracePeriodSeconds: 45
   env: {}

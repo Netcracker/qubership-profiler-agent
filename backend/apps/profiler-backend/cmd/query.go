@@ -46,10 +46,11 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Bind the external port and gate before S3 (rather than after, as
+	// Bind both listeners and the gate before S3 (rather than after, as
 	// before): a probe must see LOADING instead of connection-refused while
 	// S3 is still coming up (PR 708 review #22), the same reasoning as the
-	// collector's internal port (03-lifecycle.md §2).
+	// collector's internal port (03-lifecycle.md §2). Bind synchronously so a
+	// port collision fails startup at once instead of hiding behind S3 retries.
 	gate := health.NewGate("/api/v1")
 	reg := metrics.NewRegistry()
 	// Expose the cdt_minio_* series (registered on the default registry inside
@@ -59,15 +60,30 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return pkgerrors.Wrap(err, "bind external API")
 	}
-	// query has no internal port, so /metrics rides the external one (04 §12);
-	// the ingress publishes /api/v1 only.
-	external := &http.Server{Handler: metrics.Mux(reg, metrics.InstrumentHTTP(reg, gate), cfg.PprofEnabled)}
-	serveErr := make(chan error, 1)
+	// /metrics and /debug/pprof ride a separate port, off the external listener
+	// the ingress publishes at path / (04 §12), so neither leaks past the
+	// cluster boundary.
+	metricsLn, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.MetricsPort))
+	if err != nil {
+		_ = ln.Close()
+		return pkgerrors.Wrap(err, "bind metrics")
+	}
+	extHandler, metricsHandler := metrics.QueryHandlers(reg, gate, cfg.PprofEnabled)
+	external := &http.Server{Handler: extHandler}
+	metricsSrv := &http.Server{Handler: metricsHandler}
+	serveErr := make(chan error, 2)
 	go func() { serveErr <- external.Serve(ln) }()
+	go func() { serveErr <- metricsSrv.Serve(metricsLn) }()
+
+	// closeServers stops both listeners; safe to call more than once.
+	closeServers := func() {
+		_ = external.Close()
+		_ = metricsSrv.Close()
+	}
 
 	fatal := func(stage string, err error) error {
 		gate.Set(health.StateFatal, stage+": "+err.Error())
-		_ = external.Close()
+		closeServers()
 		return pkgerrors.Wrap(err, stage)
 	}
 
@@ -133,8 +149,8 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	if len(thresholds) == 0 {
 		thresholds = model.DefaultDurationThresholds()
 	}
-	log.Info(ctx, "query ready: external API :%d, collector service %q, duration thresholds %v",
-		cfg.ExternalAPIPort, cfg.CollectorService, thresholds)
+	log.Info(ctx, "query ready: external API :%d, metrics :%d, collector service %q, duration thresholds %v",
+		cfg.ExternalAPIPort, cfg.MetricsPort, cfg.CollectorService, thresholds)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -155,6 +171,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		shCtx, shCancel := context.WithTimeout(context.Background(), inFlightGrace)
 		defer shCancel()
 		_ = external.Shutdown(shCtx)
+		_ = metricsSrv.Shutdown(shCtx)
 		cancel()
 	})
 	gr.Add(signalActor(runCtx, gate, cfg.ShutdownDrainGrace))

@@ -55,22 +55,25 @@ echo "==> Starting resilient port-forwards..."
 # A previous run's kubectl children outlive their wrapper loops and would keep
 # the localhost ports tunnelled into ANOTHER cluster — kill them first, and
 # kill children (not just the loops) on exit for the same reason.
-pkill -f "port-forward svc/${RELEASE}-" 2>/dev/null || true
+pkill -f "port-forward (svc|deploy)/${RELEASE}-" 2>/dev/null || true
 sleep 1
 PF_PIDS=()
-forward() { # service local:remote — restarts when the target pod goes away
+forward() { # resource local:remote — restarts when the target pod goes away
   while true; do
-    "${KUBECTL[@]}" port-forward "svc/$1" "$2" >/dev/null 2>&1 || true
+    "${KUBECTL[@]}" port-forward "$1" "$2" >/dev/null 2>&1 || true
     sleep 1
   done
 }
-forward "${RELEASE}-collector-agent" 1715:1715 & PF_PIDS+=($!)
-forward "${RELEASE}-collector-headless" 8081:8081 & PF_PIDS+=($!)
-forward "${RELEASE}-query" 8080:8080 & PF_PIDS+=($!)
-forward "${RELEASE}-minio" 9000:9000 & PF_PIDS+=($!)
+forward "svc/${RELEASE}-collector-agent" 1715:1715 & PF_PIDS+=($!)
+forward "svc/${RELEASE}-collector-headless" 8081:8081 & PF_PIDS+=($!)
+forward "svc/${RELEASE}-query" 8080:8080 & PF_PIDS+=($!)
+# No Service exposes the query metrics port (04 §12), so forward the Deployment.
+# Local 8082 avoids the collector's 8081 above.
+forward "deploy/${RELEASE}-query" 8082:8081 & PF_PIDS+=($!)
+forward "svc/${RELEASE}-minio" 9000:9000 & PF_PIDS+=($!)
 cleanup() {
   kill "${PF_PIDS[@]}" 2>/dev/null || true
-  pkill -f "port-forward svc/${RELEASE}-" 2>/dev/null || true
+  pkill -f "port-forward (svc|deploy)/${RELEASE}-" 2>/dev/null || true
 }
 trap cleanup EXIT
 
