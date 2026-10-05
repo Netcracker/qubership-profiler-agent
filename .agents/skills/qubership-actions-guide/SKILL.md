@@ -24,6 +24,8 @@ the relevant supporting document:
 | Cleanup (container images, Maven packages) | `cleanup.md` |
 | APM packages update | `utilities.md` |
 | Utilities (wait-for-workflow, custom-event, store-input-params) | `utilities.md` |
+| Repository config file resolution without Docker (workflow policy, custom JSON configs) | `utilities.md` |
+| JSON Schema validation (validate a JSON file against a schema, fail the pipeline on violations) | `utilities.md` |
 
 Each guide contains: clarifying questions for the user, config file schemas,
 and pipeline patterns for that domain. Read it before picking actions or
@@ -41,7 +43,8 @@ For full input/output details fetch the action README on demand (see *Pin table*
 
 | Action | Purpose |
 | --- | --- |
-| `docker-config-resolver` | Read docker config file, validate, output JSON array for matrix builds |
+| `config-resolver` | Schema-aware config resolver: docker mode by default (same output shape for valid Docker configs, stricter validation), generic flattening for any other schema |
+| `docker-config-resolver` | **Deprecated — use `config-resolver`.** Read docker config file, validate, output JSON array for matrix builds |
 | `docker-action` | Build & push multi-platform Docker images |
 
 ### Versioning & tagging
@@ -103,6 +106,7 @@ Ask only what is missing after inferring from context:
 
 | Action | Purpose |
 | --- | --- |
+| `config-resolver` | Resolve any JSON config file to flat JSON (also listed under Docker) — generic mode for non-Docker configs, e.g. workflow policy |
 | `apm-packages-update` | Run `apm update --yes` and open a PR with the changes in the current repo |
 | `ghcr-discover-repo-packages` | Discover all GHCR packages for a repo — feeds security scan, cleanup, or any step needing the image list |
 | `custom-event` | Emit `repository_dispatch` event with JSON payload |
