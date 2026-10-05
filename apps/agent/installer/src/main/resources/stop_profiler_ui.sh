@@ -4,7 +4,7 @@ PID_FILE="execution-statistics-collector/profiler_ui.pid"
 PID=0
 
 function log() {
-  echo $(date)" "$1
+  echo "$(date) $1"
 }
 
 function read_pid() {
@@ -15,14 +15,14 @@ function read_pid() {
 }
 
 function check_profiler_is_running() {
-  if [ $PID -eq 0 ]; then
+  if [ "$PID" -eq 0 ]; then
     log "ProfilerUI isn't running"
     exit
   fi
 }
 
 function stop_profiler_ui() {
-	kill $PID
+	kill "$PID"
 }
 
 function delete_pid_file() {
@@ -31,7 +31,7 @@ function delete_pid_file() {
 
 function main() {
 	log "Stopping ProfilerUI..."
-	cd $(readlink -f "$0" | xargs dirname | xargs dirname | xargs dirname)
+	cd "$(readlink -f "$0" | xargs dirname | xargs dirname | xargs dirname)" || exit 1
 	read_pid
 	check_profiler_is_running
 	stop_profiler_ui

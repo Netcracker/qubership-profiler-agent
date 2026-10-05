@@ -1,6 +1,7 @@
 # Mock Profiler Collector
 
-A Java library that provides a mock collector server for receiving and logging profiling data sent from Dumper instances. This module is useful for testing, debugging, and understanding the profiler data collection protocol.
+A Java library that provides a mock collector server for receiving and logging profiling data sent from Dumper
+instances. This module is useful for testing, debugging, and understanding the profiler data collection protocol.
 
 ## Features
 
@@ -105,18 +106,21 @@ try (MockCollectorServer mockServer = new MockCollectorServer()) {
 Main server class that accepts TCP connections from profiler agents.
 
 **Constructor:**
+
 ```java
 MockCollectorServer()  // Uses default port 1715 and backlog 50
 MockCollectorServer(int bindPort, int backlog)
 ```
 
 **Methods:**
+
 - `void start()` - Start the server asynchronously
 - `MockCollectorServer started(Duration timeout)` - Start and wait for server to be ready
 - `int getPort()` - Get the actual port the server is listening on
 - `void close()` - Gracefully shutdown the server and all connections
 
 **Properties:**
+
 - `MeterRegistry metricRegistry` - Micrometer metrics registry
 - `Counter mockConnections` - Connection counter metric
 - `ServerState state` - Current server state (IDLE, RUNNING, CLOSING)
@@ -124,6 +128,7 @@ MockCollectorServer(int bindPort, int backlog)
 ### Internal Components
 
 #### ClientConnectionHandler
+
 - Handles the protocol handshake (version negotiation)
 - Processes commands from the Dumper client:
   - `COMMAND_INIT_STREAM_V2` - Initialize a data stream
@@ -133,11 +138,13 @@ MockCollectorServer(int bindPort, int backlog)
 - Sends ACK responses back to the client
 
 #### StreamManager
+
 - Tracks active data streams by UUID handle
 - Maintains statistics for each stream
 - Maps stream names (trace, calls, xml, sql, etc.) to handles
 
 #### DataLogger
+
 - Logs received data with formatting
 - Provides data previews (hex dump or text)
 - Detects text vs binary data automatically
@@ -215,6 +222,7 @@ Data Chunk Received #1
 ## Best Practices
 
 1. **Use try-with-resources**: Always use try-with-resources to ensure proper cleanup
+
    ```java
    try (MockCollectorServer server = new MockCollectorServer()) {
        // Your test code
@@ -222,16 +230,19 @@ Data Chunk Received #1
    ```
 
 2. **Random ports for parallel tests**: Use port 0 to avoid port conflicts
+
    ```java
    MockCollectorServer server = new MockCollectorServer(0, 50);
    ```
 
 3. **Wait for startup**: Always use `started(Duration)` to ensure server is ready
+
    ```java
    server.started(Duration.ofSeconds(10));
    ```
 
 4. **Check metrics**: Use the metrics registry to verify connections
+
    ```java
    assertEquals(1.0, server.mockConnections.count());
    ```

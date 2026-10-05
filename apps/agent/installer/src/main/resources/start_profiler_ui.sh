@@ -13,7 +13,7 @@ PID=0
 PID_UP=0
 
 function log() {
-  echo $(date)" "$1
+  echo "$(date) $1"
 }
 
 function fail() {
@@ -38,7 +38,7 @@ function read_port() {
     ''|*[!0-9]*) PORT=$DEFAULT_PORT ;;
     *) ;;
   esac
-  log "ProfilerUI port="$PORT
+  log "ProfilerUI port=$PORT"
 }
 
 function count_port_opened() {
@@ -46,27 +46,27 @@ function count_port_opened() {
 }
 
 function count_pid_up() {
-  if [ $PID -gt 0 ]; then
-    PID_UP=$(ps aux | awk '{ print $2 }' | grep $PID -c)
+  if [ "$PID" -gt 0 ]; then
+    PID_UP=$(ps aux | awk '{ print $2 }' | grep "$PID" -c)
   else
     PID_UP=0
   fi
 }
 
 function check_port_is_used() {
-  if [ $PORT_OPENED -gt 0 ]; then
-    fail "Port "$PORT" is used."
+  if [ "$PORT_OPENED" -gt 0 ]; then
+    fail "Port $PORT is used."
   fi
 }
 
 function check_already_started() {
-  if [ $PID_UP -gt 0 ]; then
-    fail "Already started (PID="$PID")"
+  if [ "$PID_UP" -gt 0 ]; then
+    fail "Already started (PID=$PID)"
   fi
 }
 
 function check_up() {
-  if [ $PID_UP -eq 0 ]; then
+  if [ "$PID_UP" -eq 0 ]; then
     fail "ProfilerUI failed to start. Please check logs."
   fi
 }
@@ -74,14 +74,14 @@ function check_up() {
 function wait_port_opened() {
   timeout=15
   START_DATE=$(date +%s)
-  while [ $PORT_OPENED -eq 0 ]; do
+  while [ "$PORT_OPENED" -eq 0 ]; do
     log "Starting..."
     sleep $CHECK_STARTED_DELAY_SECONDS
     count_pid_up
     check_up
     count_port_opened
     CUR_DATE=$(date +%s)
-    let duration=$CUR_DATE-$START_DATE
+    duration=$((CUR_DATE - START_DATE))
     if [ ${duration} -gt ${timeout} ]; then
 		applications/execution-statistics-collector/stop_profiler_ui.sh
         fail "ProfilerUI failed to start. Please check logs."
@@ -95,7 +95,7 @@ function start_profiler_ui() {
 
 function main() {
   log "ProfilerUI startup script"
-  cd $(readlink -f "$0" | xargs dirname | xargs dirname | xargs dirname)
+  cd "$(readlink -f "$0" | xargs dirname | xargs dirname | xargs dirname)" || exit 1
   mkdir -p $ESC_FS_FOLDER
   read_port
   count_port_opened

@@ -30,6 +30,7 @@ graph TB
 The `MockCollectorServer` class provides a programmatic API for running a mock collector:
 
 **Core API:**
+
 ```java
 MockCollectorServer server = new MockCollectorServer(
     1715,  // port (default: ProtocolConst.PLAIN_SOCKET_PORT)
@@ -54,6 +55,7 @@ server.close();
 ```
 
 **Key Features:**
+
 - Implements `AutoCloseable` for try-with-resources support
 - Provides Micrometer metrics registry for monitoring
 - Thread-safe connection handling with executor service
@@ -65,6 +67,7 @@ server.close();
 Test method: `profilerSendsDataToMockCollector()`
 
 **Setup:**
+
 ```java
 // 1. Start mock collector server in-process
 try (MockCollectorServer mockServer = new MockCollectorServer()) {
@@ -92,6 +95,7 @@ try (MockCollectorServer mockServer = new MockCollectorServer()) {
 ```
 
 **Assertions:**
+
 - Profiler agent is enabled (check `-javaagent:` in logs)
 - Mock collector receives connection (check metrics counter)
 - Data is transmitted successfully
@@ -113,6 +117,7 @@ tasks.test {
 ```
 
 This ensures:
+
 1. Mock collector module is available on test classpath
 2. Java base image with profiler agent is built
 3. Test application JAR is created
@@ -120,16 +125,19 @@ This ensures:
 ## Running the Tests
 
 ### Run all installer tests
+
 ```bash
 ./gradlew :installer:test
 ```
 
 ### Run only the integration test
+
 ```bash
 ./gradlew :installer:test --tests "JavaBaseImageTest.profilerSendsDataToMockCollector"
 ```
 
 ### Run with verbose logging
+
 ```bash
 ./gradlew :installer:test --info
 ```
@@ -201,12 +209,15 @@ Server state: RUNNING
 **Problem**: `java.net.BindException: Address already in use`
 
 **Solutions**:
+
 - Use port 0 to let the OS assign a random available port:
+
   ```java
   MockCollectorServer server = new MockCollectorServer(0, 50);
   server.start();
   int actualPort = server.port;  // Get the assigned port
   ```
+
 - Check if another test or process is using port 1715
 - Ensure previous test properly closed the server
 
@@ -215,6 +226,7 @@ Server state: RUNNING
 **Problem**: Test fails with timeout waiting for connection
 
 **Solutions**:
+
 - Verify the host address is correct (`host.docker.internal` on Mac, bridge IP on Linux)
 - Check firewall isn't blocking the port
 - Ensure mock collector server started successfully (check `server.port` doesn't throw)
@@ -225,6 +237,7 @@ Server state: RUNNING
 **Problem**: Mock collector doesn't receive data
 
 **Solutions**:
+
 - Increase sleep time in test (currently 2 seconds)
 - Check profiled app environment variables (`REMOTE_DUMP_HOST`, `REMOTE_DUMP_PORT_PLAIN`)
 - Verify profiler agent is enabled (check logs for `-javaagent:`)
@@ -236,6 +249,7 @@ Server state: RUNNING
 **Problem**: Test passes locally but fails in CI
 
 **Solutions**:
+
 - Use `0.0.0.0` or detect the correct bridge IP for Linux CI environments
 - Check CI has sufficient memory
 - Increase timeout durations for server startup and data transmission
