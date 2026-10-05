@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"crypto/x509"
+	"fmt"
 	"os"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
@@ -49,7 +50,8 @@ func NewReadOnlyClient(ctx context.Context, s3Params Params) (*MinioClient, erro
 			}
 			tr.TLSClientConfig.RootCAs = x509.NewCertPool()
 			if ok := tr.TLSClientConfig.RootCAs.AppendCertsFromPEM(caCert); !ok {
-				log.Error(ctx, nil, "error parsing the certificate for minio")
+				err := fmt.Errorf("parse S3 CA certificate %s: no PEM certificates found", s3Params.CAFile)
+				log.Error(ctx, err, "error parsing the certificate for minio")
 				return nil, err
 			}
 		}
