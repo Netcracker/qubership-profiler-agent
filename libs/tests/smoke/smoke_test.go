@@ -60,13 +60,16 @@ func envOr(key, fallback string) string {
 }
 
 var (
-	agentAddr   = envOr("SMOKE_AGENT_ADDR", "localhost:1715")
-	queryURL    = envOr("SMOKE_QUERY_URL", "http://localhost:8080")
-	internalURL = envOr("SMOKE_INTERNAL_URL", "http://localhost:8081")
-	s3Endpoint  = envOr("SMOKE_S3_ENDPOINT", "localhost:9000")
-	s3Access    = envOr("SMOKE_S3_ACCESS_KEY", "minioadmin")
-	s3Secret    = envOr("SMOKE_S3_SECRET_KEY", "minioadmin")
-	s3Bucket    = envOr("SMOKE_S3_BUCKET", "profiler-data")
+	agentAddr = envOr("SMOKE_AGENT_ADDR", "localhost:1715")
+	queryURL  = envOr("SMOKE_QUERY_URL", "http://localhost:8080")
+	// query serves /metrics on its own listener, which no Service or ingress
+	// publishes (04 §12), so the harness forwards it separately from queryURL.
+	queryMetricsURL = envOr("SMOKE_QUERY_METRICS_URL", "http://localhost:8082")
+	internalURL     = envOr("SMOKE_INTERNAL_URL", "http://localhost:8081")
+	s3Endpoint      = envOr("SMOKE_S3_ENDPOINT", "localhost:9000")
+	s3Access        = envOr("SMOKE_S3_ACCESS_KEY", "minioadmin")
+	s3Secret        = envOr("SMOKE_S3_SECRET_KEY", "minioadmin")
+	s3Bucket        = envOr("SMOKE_S3_BUCKET", "profiler-data")
 )
 
 // timeBucket must match the collector's PROFILER_TIME_BUCKET.
@@ -190,7 +193,11 @@ func TestStage1EndToEnd(t *testing.T) {
 	// both services (the names are the dashboard/alert contract).
 	assertMetricsContain(t, internalURL+"/metrics",
 		"profiler_seal_rows_total", "profiler_hotstore_quarantine_objects")
-	assertMetricsContain(t, queryURL+"/metrics",
+	assertMetricsContain(t, queryMetricsURL+"/metrics",
+		"profiler_query_cold_lists_total", "profiler_query_fanout_replica_request_seconds")
+	// The external listener is the one the ingress maps, so it must not leak
+	// the same series (04 §12).
+	assertMetricsAbsent(t, queryURL+"/metrics",
 		"profiler_query_cold_lists_total", "profiler_query_fanout_replica_request_seconds")
 
 	// A clean close finalizes the pod-restart; its bucket still seals only
@@ -455,6 +462,21 @@ func assertMetricsContain(t *testing.T, url string, series ...string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "/metrics: %s", body)
 	for _, s := range series {
 		assert.Contains(t, string(body), s, "series %s missing from %s", s, url)
+	}
+}
+
+// assertMetricsAbsent requires that a URL does not serve the named series.
+// The status code is not checked: the external listener answers /metrics with
+// the UI catch-all, or with 404 when the UI is not embedded.
+func assertMetricsAbsent(t *testing.T, url string, series ...string) {
+	t.Helper()
+	resp, err := http.Get(url)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	for _, s := range series {
+		assert.NotContains(t, string(body), s, "series %s leaked on %s", s, url)
 	}
 }
 

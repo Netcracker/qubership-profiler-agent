@@ -1,5 +1,7 @@
 package com.netcracker.profiler.test.rules;
 
+import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.netcracker.profiler.configuration.Rule;
@@ -7,6 +9,7 @@ import com.netcracker.profiler.configuration.Rule;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
+import java.util.Collections;
 
 public class RuleTest {
 
@@ -171,4 +174,125 @@ public class RuleTest {
         assertFalse(r.matches(0, "execute([Lorg/postgresql/core/Que$ry;)V", 100, 0, 2));
     }
 
+    private static final String BASIC_CONSUME = "basicConsume(Ljava/lang/String;)Ljava/lang/String;";
+    private static final String BASIC_ACK = "basicAck(JZ)V";
+    private static final String BYTE_ARRAY_PUBLISH =
+            "basicPublish(Ljava/lang/String;Ljava/lang/String;ZZLcom/rabbitmq/client/AMQP$BasicProperties;[B)V";
+    private static final String BYTE_BUFFER_PUBLISH =
+            "basicPublish(Ljava/lang/String;Ljava/lang/String;ZZLcom/rabbitmq/client/AMQP$BasicProperties;" +
+                    "Ljava/nio/ByteBuffer;Lcom/rabbitmq/client/WriteListener;)V";
+
+    private static final String BYTE_BUFFER_PUBLISH_SIGNATURE =
+            "basicPublish(java.lang.String, java.lang.String, boolean, boolean, " +
+                    "com.rabbitmq.client.AMQP$BasicProperties, java.nio.ByteBuffer, com.rabbitmq.client.WriteListener)";
+
+    @Test
+    public void ruleWithoutStructureCriteriaMatchesAnyClass() {
+        Rule r = new Rule();
+        r.addIncludedMethod("basicPublish");
+        assertFalse(r.hasClassStructureCriteria(), "hasClassStructureCriteria of a rule that states no criterion");
+        assertTrue(r.matchesClassStructure(asList(BYTE_ARRAY_PUBLISH, BYTE_BUFFER_PUBLISH)),
+                "matchesClassStructure(byte[] and ByteBuffer publish)");
+    }
+
+    @Test
+    public void classThatDeclaresAForbiddenMethodIsRefused() {
+        Rule r = new Rule();
+        r.addForbiddenClassMethod(BYTE_BUFFER_PUBLISH_SIGNATURE);
+        assertTrue(r.hasClassStructureCriteria(), "hasClassStructureCriteria of a rule that forbids a method");
+        assertFalse(r.matchesClassStructure(asList(BYTE_ARRAY_PUBLISH, BYTE_BUFFER_PUBLISH)),
+                "matchesClassStructure(byte[] and ByteBuffer publish)");
+        assertTrue(r.matchesClassStructure(singletonList(BYTE_ARRAY_PUBLISH)),
+                "matchesClassStructure(byte[] publish alone)");
+    }
+
+    @Test
+    public void classThatLacksARequiredMethodIsRefused() {
+        Rule r = new Rule();
+        r.addRequiredClassMethod(BYTE_BUFFER_PUBLISH_SIGNATURE);
+        assertTrue(r.matchesClassStructure(asList(BYTE_ARRAY_PUBLISH, BYTE_BUFFER_PUBLISH)),
+                "matchesClassStructure(byte[] and ByteBuffer publish)");
+        assertFalse(r.matchesClassStructure(singletonList(BYTE_ARRAY_PUBLISH)),
+                "matchesClassStructure(byte[] publish alone)");
+    }
+
+    @Test
+    public void everyRequiredMethodHasToBeDeclared() {
+        Rule r = new Rule();
+        r.addRequiredClassMethod("basicPublish");
+        r.addRequiredClassMethod("basicConsume");
+        assertFalse(r.matchesClassStructure(singletonList(BYTE_ARRAY_PUBLISH)),
+                "matchesClassStructure(byte[] publish alone)");
+        assertTrue(r.matchesClassStructure(asList(BYTE_ARRAY_PUBLISH, BASIC_CONSUME)),
+                "matchesClassStructure(byte[] publish and basicConsume)");
+    }
+
+    @Test
+    public void oneForbiddenMethodOutOfSeveralIsEnoughToRefuse() {
+        Rule r = new Rule();
+        r.addForbiddenClassMethod("basicNack");
+        r.addForbiddenClassMethod("basicPublish");
+        assertFalse(r.matchesClassStructure(singletonList(BYTE_ARRAY_PUBLISH)),
+                "matchesClassStructure(byte[] publish alone)");
+        assertTrue(r.matchesClassStructure(singletonList(BASIC_ACK)), "matchesClassStructure(basicAck alone)");
+    }
+
+    /**
+     * The two criteria are independent conjuncts, so a class satisfying one and tripping the other
+     * is refused. This is the shape {@code <rule>} admits and the shipped configuration does not use.
+     */
+    @Test
+    public void aClassIsRefusedWhenItTripsTheForbiddenCriterionOfARuleWhoseRequiredOneItSatisfies() {
+        Rule r = new Rule();
+        r.addRequiredClassMethod("basicPublish");
+        r.addForbiddenClassMethod(BYTE_BUFFER_PUBLISH_SIGNATURE);
+        assertFalse(r.matchesClassStructure(asList(BYTE_ARRAY_PUBLISH, BYTE_BUFFER_PUBLISH)),
+                "matchesClassStructure(byte[] and ByteBuffer publish)");
+        assertTrue(r.matchesClassStructure(singletonList(BYTE_ARRAY_PUBLISH)),
+                "matchesClassStructure(byte[] publish alone)");
+    }
+
+    /**
+     * An interface with no methods of its own reaches the filter as an empty list, which no required
+     * pattern can match and no forbidden one can trip.
+     */
+    @Test
+    public void aClassThatDeclaresNoMethodSatisfiesOnlyTheForbiddenCriterion() {
+        Rule required = new Rule();
+        required.addRequiredClassMethod("basicPublish");
+        assertFalse(required.matchesClassStructure(Collections.<String>emptyList()),
+                "matchesClassStructure(no declared method) of a rule that requires basicPublish");
+
+        Rule forbidden = new Rule();
+        forbidden.addForbiddenClassMethod("basicPublish");
+        assertTrue(forbidden.matchesClassStructure(Collections.<String>emptyList()),
+                "matchesClassStructure(no declared method) of a rule that forbids basicPublish");
+    }
+
+    /**
+     * {@code ConfigurationReloader} retransforms a class only where the new rules differ from the
+     * loaded ones, so a criterion left out of {@link Rule#equals} survives a reload with no effect.
+     */
+    @Test
+    public void twoRulesDifferingOnlyInARequiredMethodAreNotEqual() {
+        Rule withCriterion = publishRule();
+        withCriterion.addRequiredClassMethod("basicConsume");
+        assertNotEquals(publishRule(), withCriterion,
+                "a basicPublish rule against the same rule with an if-class-declares criterion");
+    }
+
+    @Test
+    public void twoRulesDifferingOnlyInAForbiddenMethodAreNotEqual() {
+        Rule withCriterion = publishRule();
+        withCriterion.addForbiddenClassMethod(BYTE_BUFFER_PUBLISH_SIGNATURE);
+        assertNotEquals(publishRule(), withCriterion,
+                "a basicPublish rule against the same rule with an if-class-does-not-declare criterion");
+    }
+
+    private static Rule publishRule() {
+        Rule r = new Rule();
+        r.addClass("com.rabbitmq.client.impl.ChannelN");
+        r.addIncludedMethod("basicPublish");
+        return r;
+    }
 }

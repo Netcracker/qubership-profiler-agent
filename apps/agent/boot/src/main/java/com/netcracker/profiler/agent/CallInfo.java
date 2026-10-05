@@ -142,6 +142,7 @@ public class CallInfo {
      * @param con connection to check
      * @return true when the connection is up to date, false otherwise
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the point: same object as last time
     public boolean checkConnection(Connection con) {
         if (lastConnection != null && con == lastConnection.get()) return true;
         lastConnection = new WeakReference<Connection>(con);
@@ -154,6 +155,7 @@ public class CallInfo {
      * @param xid string value of the xid to check
      * @return true when stored xid is up to date, false otherwise
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the point: same object as last time
     public boolean sameXid(Xid xid) {
         if (lastXid != null && lastXid.get() == xid) return true;
         lastXid = new WeakReference<Xid>(xid);

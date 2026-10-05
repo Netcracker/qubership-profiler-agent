@@ -24,9 +24,6 @@ if (!buildParameters.skipForbiddenApis) {
 }
 
 plugins.withId("java-base") {
-    if (buildParameters.enableCheckerframework) {
-        apply(plugin = "build-logic.checkerframework")
-    }
     // Enable errorprone when executing ./gradlew style, ./gradlew :style, etc
     val styleCheckRequested = gradle.startParameter.taskNames.any {
         it == "style" || it == "styleCheck" || it == ":style" || it == ":styleCheck"

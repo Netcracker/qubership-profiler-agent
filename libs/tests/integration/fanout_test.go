@@ -154,9 +154,7 @@ func TestHotColdFanout(t *testing.T) {
 		}
 	}
 	sendStream(t, acH, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
-	require.Eventually(t, func() bool {
-		return prH.Dictionary()[sealDictCallRed] == "call.red"
-	}, 5*time.Second, 10*time.Millisecond, "dictionary must decode before the seal")
+	waitForDictionary(t, prH, sealDictWords)
 
 	resHOld, err := storeA.Seal(ctx, keyH, bucketOld)
 	require.NoError(t, err)

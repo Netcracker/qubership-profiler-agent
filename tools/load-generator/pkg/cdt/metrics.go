@@ -1,7 +1,7 @@
 package cdt
 
 import (
-	"go.k6.io/k6/metrics"
+	"go.k6.io/k6/v2/metrics"
 )
 
 // fleetMetrics holds the custom k6 series the fleet emits. Prometheus

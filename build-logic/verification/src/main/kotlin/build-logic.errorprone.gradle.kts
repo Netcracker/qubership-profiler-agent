@@ -12,14 +12,14 @@ if (!project.hasProperty("skipErrorprone")) {
     apply(plugin = "net.ltgt.errorprone")
 
     dependencies {
-        "errorprone"("com.google.errorprone:error_prone_core:2.49.0")
+        "errorprone"("com.google.errorprone:error_prone_core:2.50.0")
         "annotationProcessor"("com.google.guava:guava-beta-checker:1.0")
     }
 
     tasks.configureEach<JavaCompile> {
         if ("Test" in name) {
             // Ignore warnings in test code
-            options.errorprone.isEnabled.set(false)
+            options.errorprone.enabled.set(false)
         } else {
             options.compilerArgs.addAll(listOf("-Xmaxerrs", "10000", "-Xmaxwarns", "10000"))
             options.errorprone {

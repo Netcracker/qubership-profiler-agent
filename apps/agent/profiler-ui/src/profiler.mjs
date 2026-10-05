@@ -8,7 +8,7 @@ import 'jquery-notify/src/jquery.notify.js';
 import 'timepicker/jquery.timepicker.css';
 import 'timepicker/jquery.timepicker.js';
 import 'jquery.event.drag';
-import 'bootstrap-datepicker/dist/css/bootstrap-datepicker.standalone.css';
+import '../styles/bootstrap-datepicker.standalone.css';
 import 'bootstrap-datepicker';
 import 'datepair.js';
 import 'datepair.js/dist/jquery.datepair.js';

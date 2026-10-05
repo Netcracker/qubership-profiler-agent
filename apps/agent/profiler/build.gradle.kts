@@ -43,6 +43,10 @@ val warElements = configurations.consumable("warElements") {
     outgoing.artifact(tasks.war)
 }
 
+// Publish profiler.war to Maven repository so users can consume it
+(components["java"] as AdhocComponentWithVariants).addVariantsFromConfiguration(warElements.get()) {
+}
+
 dependencies {
     implementation(projects.warLib) {
         attributes {

@@ -6,7 +6,7 @@
 
 # The Stage 5 UI (apps/ui) builds in its own stage, so the image carries the
 # /ui assets without a node toolchain on the host (07-ui-design.md §6).
-FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS ui-builder
+FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS ui-builder
 
 WORKDIR /ui
 
@@ -16,7 +16,7 @@ RUN npm ci --no-audit --no-fund
 COPY apps/ui/ ./
 RUN npm run build
 
-FROM golang:1.26.4-alpine3.22@sha256:727cfc3c40be55cd1bc9a4a059406b28a059857e3be752aa9d09531e12c20c56 AS builder
+FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH

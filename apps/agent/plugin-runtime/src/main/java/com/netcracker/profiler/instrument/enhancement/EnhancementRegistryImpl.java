@@ -38,7 +38,7 @@ public class EnhancementRegistryImpl implements EnhancementRegistry {
             list.add(filteredEnhancer);
             return;
         }
-        if (o == filteredEnhancer) {
+        if (filteredEnhancer.equals(o)) {
             if (log.isDebugEnabled())
                 log.debug("Attempt to put the same enhancer twice for the class {}", className, new Throwable());
             else

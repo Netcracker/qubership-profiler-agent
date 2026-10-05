@@ -23,6 +23,8 @@ public class Rule implements MethodAcceptor {
     private ArrayList<String> classNamesRaw;
     private ArrayList<Pattern> methodNames;
     private ArrayList<Pattern> excludedMethods;
+    private ArrayList<Pattern> requiredClassMethods;
+    private ArrayList<Pattern> forbiddenClassMethods;
     private ArrayList<Pattern> superClasses;
     private String ifEnhancer;
     private MethodAcceptorsList editors = null;
@@ -281,6 +283,50 @@ public class Rule implements MethodAcceptor {
         excludedMethods = addMethod(excludedMethods, methodPattern);
     }
 
+    public void addRequiredClassMethod(String methodPattern) {
+        requiredClassMethods = addMethod(requiredClassMethods, methodPattern);
+    }
+
+    public void addForbiddenClassMethod(String methodPattern) {
+        forbiddenClassMethods = addMethod(forbiddenClassMethods, methodPattern);
+    }
+
+    /**
+     * Reports whether this rule asks about the methods the class declares, so the caller knows
+     * whether it has to collect them.
+     */
+    public boolean hasClassStructureCriteria() {
+        return requiredClassMethods != null || forbiddenClassMethods != null;
+    }
+
+    /**
+     * Matches the rule against the methods a class declares, each spelled as its name followed by
+     * its descriptor.
+     *
+     * <p>Every {@code if-class-declares} pattern has to match a declared method, and no
+     * {@code if-class-does-not-declare} pattern may match one. That is how one rule claims a
+     * narrow overload only on the library versions that do not declare the wider overload it
+     * delegates to.</p>
+     */
+    public boolean matchesClassStructure(Collection<String> declaredMethods) {
+        if (forbiddenClassMethods != null)
+            for (Pattern forbidden : forbiddenClassMethods)
+                if (matchesAny(forbidden, declaredMethods))
+                    return false;
+        if (requiredClassMethods != null)
+            for (Pattern required : requiredClassMethods)
+                if (!matchesAny(required, declaredMethods))
+                    return false;
+        return true;
+    }
+
+    private static boolean matchesAny(Pattern pattern, Collection<String> declaredMethods) {
+        for (String declared : declaredMethods)
+            if (pattern.matcher(declared).matches())
+                return true;
+        return false;
+    }
+
     public void addSuperclass(String superClassName) {
         superClasses = append(superClasses, superClassName);
     }
@@ -377,6 +423,20 @@ public class Rule implements MethodAcceptor {
             }
             sb.append("]");
         }
+        if (requiredClassMethods != null) {
+            sb.append(", if_class_declares:[");
+            for (Pattern methodName : requiredClassMethods) {
+                sb.append(methodName).append(',');
+            }
+            sb.append("]");
+        }
+        if (forbiddenClassMethods != null) {
+            sb.append(", if_class_does_not_declare:[");
+            for (Pattern methodName : forbiddenClassMethods) {
+                sb.append(methodName).append(',');
+            }
+            sb.append("]");
+        }
         return sb.toString();
     }
 
@@ -395,6 +455,8 @@ public class Rule implements MethodAcceptor {
         result = 31 * result + ListOfRegExps.hashCode(methodNames);
         result = 31 * result + ListOfRegExps.hashCode(excludedMethods);
         result = 31 * result + ListOfRegExps.hashCode(superClasses);
+        result = 31 * result + ListOfRegExps.hashCode(requiredClassMethods);
+        result = 31 * result + ListOfRegExps.hashCode(forbiddenClassMethods);
         result = 31 * result + (editors != null ? editors.hashCode() : 0);
         result = 31 * result + (ifEnhancer != null ? ifEnhancer.hashCode() : 0);
         result = 31 * result + methodModifiers;
@@ -425,6 +487,8 @@ public class Rule implements MethodAcceptor {
         if (ifEnhancer != null ? !ifEnhancer.equals(rule.ifEnhancer) : rule.ifEnhancer != null) return false;
         if (!ListOfRegExps.equals(methodNames, rule.methodNames)) return false;
         if (!ListOfRegExps.equals(superClasses, rule.superClasses)) return false;
+        if (!ListOfRegExps.equals(requiredClassMethods, rule.requiredClassMethods)) return false;
+        if (!ListOfRegExps.equals(forbiddenClassMethods, rule.forbiddenClassMethods)) return false;
 
         return true;
     }

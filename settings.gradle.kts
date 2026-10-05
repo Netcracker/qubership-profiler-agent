@@ -1,15 +1,15 @@
 pluginManagement {
     plugins {
-        id("com.github.vlsi.crlf") version "3.0.2"
-        id("com.github.vlsi.gettext") version "3.0.2"
-        id("com.github.vlsi.gradle-extensions") version "3.0.2"
-        id("com.github.vlsi.ide") version "3.0.2"
+        id("com.github.vlsi.crlf") version "4.0.0"
+        id("com.github.vlsi.gettext") version "4.0.0"
+        id("com.github.vlsi.gradle-extensions") version "4.0.0"
+        id("com.github.vlsi.ide") version "4.0.0"
         id("com.gradleup.shadow") version "9.6.1"
         id("com.github.node-gradle.node") version "7.1.0"
         id("com.google.osdetector") version "1.7.3"
-        kotlin("jvm") version "2.3.21"
-        kotlin("kapt") version "2.3.21"
-        kotlin("plugin.spring") version "2.3.21"
+        kotlin("jvm") version "2.4.20"
+        kotlin("kapt") version "2.4.20"
+        kotlin("plugin.spring") version "2.4.20"
         id("me.champeau.jmh") version "0.7.3"
     }
 }
@@ -32,9 +32,9 @@ gradle.allprojects {
     if (path != ":plugins" && path != ":sample-apps") {
         buildscript {
             dependencies {
-                classpath(platform("com.fasterxml.jackson:jackson-bom:2.22.1"))
+                classpath(platform("com.fasterxml.jackson:jackson-bom:2.22.2"))
                 constraints {
-                    classpath("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
+                    classpath("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
                 }
             }
         }
@@ -62,6 +62,7 @@ include("it-test")
 include("parsers")
 include("plugin-generator")
 include("plugin-runtime")
+include("plugin-testkit")
 include("profiler")
 include("profiler-ui")
 include("proto-definition")

@@ -1,6 +1,6 @@
 plugins {
     id("org.gradlex.build-parameters") version "1.4.5"
-    id("com.github.vlsi.gradle-extensions") version "3.0.2"
+    id("com.github.vlsi.gradle-extensions") version "4.0.0"
     id("build-logic.kotlin-dsl-gradle-plugin")
 }
 
@@ -39,7 +39,7 @@ buildParameters {
         description.set("Java version for source and target compatibility")
     }
     string("targetKotlinVersion") {
-        defaultValue.set("1.9")
+        defaultValue.set("2.0")
         mandatory.set(true)
         description.set("Kotlin version for target compatibility")
     }
@@ -63,10 +63,6 @@ buildParameters {
     }
     string("jdkTestImplementation") {
         description.set("Vendor-specific virtual machine implementation to use testing $projectName (see https://docs.gradle.org/8.4/userguide/toolchains.html#selecting_toolchains_by_virtual_machine_implementation)")
-    }
-    bool("enableCheckerframework") {
-        defaultValue.set(false)
-        description.set("Run CheckerFramework (nullness) verifications")
     }
     bool("enableErrorprone") {
         defaultValue.set(true)

@@ -1,0 +1,46 @@
+---
+
+# Assigns the PR author as the assignee and draws one random reviewer from .github/reviewer-lottery.yml.
+# Code owners are requested separately by GitHub through .github/CODEOWNERS.
+
+name: Reviewer Lottery
+run-name: "PR: Assigning reviewers for PR #${{ github.event.pull_request.number }}"
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+    branches:
+      - main
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  reviewer-lottery:
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Assign the PR author
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        # Outside contributors cannot be assigned, so a failure here must not block the lottery.
+        run: |
+          gh pr edit "${PR_NUMBER}" --add-assignee "${PR_AUTHOR}" ||
+            echo "::notice::Cannot assign ${PR_AUTHOR}: the author is not a collaborator of this repository."
+
+      - name: Draw a reviewer
+        uses: uesteibar/reviewer-lottery@3c9b63ea22c4d74336ea95ca4aeeab856ca2c037 # v4.0.1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}

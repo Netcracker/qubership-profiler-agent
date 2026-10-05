@@ -5,6 +5,7 @@ import java.io.StringWriter;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Objects;
 
 public class StringUtils {
     public static String truncateAndMark(String s, int len) {
@@ -36,7 +37,7 @@ public class StringUtils {
         int prev = 0; Object prevObject = a[0];
         for(int i=1; i<max; i++) {
             Object ai = a[i];
-            if (ai == prevObject || ai != null && ai.equals(prevObject))
+            if (Objects.equals(ai, prevObject))
                 continue;
 
             if (i == prev + 1)

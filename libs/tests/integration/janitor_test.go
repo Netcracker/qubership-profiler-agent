@@ -63,9 +63,7 @@ func TestJanitorHotDropZeroGap(t *testing.T) {
 	pr, ok := store.PodRestart(key)
 	require.True(t, ok)
 	sendStream(t, ac, model.StreamDictionary, 0, wire.DictionaryStream(sealDictWords))
-	require.Eventually(t, func() bool {
-		return pr.Dictionary()[sealDictCallRed] == "call.red"
-	}, 5*time.Second, 10*time.Millisecond)
+	waitForDictionary(t, pr, sealDictWords)
 	sendStream(t, ac, model.StreamTrace, 0, file1)
 	sendStream(t, ac, model.StreamCalls, 0, wire.CallsStreamRecords(baseMs, calls))
 	waitForIndexedCalls(t, store, bucket, key, 2)

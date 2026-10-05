@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
 import java.security.ProtectionDomain;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -66,6 +67,7 @@ public class ProfilingTransformer implements ClassFileTransformer {
 
             if (rules.isEmpty() && enhancers.isEmpty() && defaultMethods.isEmpty())
                 return null;
+            ClassReader cr = new ClassReader(classfileBuffer);
             ClassInfo classInfo = new ClassInfoImpl();
             classInfo.setClassName(name);
             classInfo.setProtectionDomain(protectionDomain);
@@ -84,7 +86,8 @@ public class ProfilingTransformer implements ClassFileTransformer {
                 }
             }
 
-            ClassReader cr = new ClassReader(classfileBuffer);
+            filterByClassStructure(rules, cr);
+
             final HashMap<String, MethodInstrumentationInfo> selectedRules = new HashMap<String, MethodInstrumentationInfo>();
 
             if (!rules.isEmpty()) {
@@ -150,6 +153,41 @@ public class ProfilingTransformer implements ClassFileTransformer {
             // avoid unexpected class loading
             log.warn("Unable to instrument class {}, {}", name, StringUtils.throwableToString(e));
             throw e;
+        }
+    }
+
+    /**
+     * Drops each rule whose {@code if-class-declares} or {@code if-class-does-not-declare}
+     * criterion the class does not satisfy.
+     *
+     * <p>The methods come from the class being transformed, whose bytes the caller already holds, so
+     * this loads nothing and asks the class loader nothing. The class is read a second time, without
+     * its code, only when some rule asks about its structure.</p>
+     */
+    private static void filterByClassStructure(Collection<Rule> rules, ClassReader cr) {
+        boolean asked = false;
+        for (Rule rule : rules)
+            if (rule.hasClassStructureCriteria()) {
+                asked = true;
+                break;
+            }
+        if (!asked) return;
+
+        final List<String> declaredMethods = new ArrayList<String>();
+        cr.accept(new ClassVisitor(OPCODES_VERSION) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+                declaredMethods.add(name + desc);
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        for (Iterator<Rule> it = rules.iterator(); it.hasNext(); ) {
+            Rule rule = it.next();
+            if (!rule.matchesClassStructure(declaredMethods)) {
+                log.debug("Skipping rule {} since class {} does not match its structure criteria", rule, cr.getClassName());
+                it.remove();
+            }
         }
     }
 

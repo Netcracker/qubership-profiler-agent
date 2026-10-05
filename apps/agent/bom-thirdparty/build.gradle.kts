@@ -9,29 +9,29 @@ javaPlatform {
 }
 
 dependencies {
-    api(platform("com.fasterxml.jackson:jackson-bom:2.22.1"))
+    api(platform("com.fasterxml.jackson:jackson-bom:2.22.2"))
     api(platform("org.ow2.asm:asm-bom:9.10.1"))
     api(platform("com.google.inject:guice-bom:7.0.0"))
     constraints {
-        api("at.yawk.lz4:lz4-java:1.11.1")
+        api("at.yawk.lz4:lz4-java:1.11.3")
         api("backport-util-concurrent:backport-util-concurrent:3.1")
         api("ch.qos.logback:logback-classic:1.5.35")
         api("ch.qos.logback:logback-core:1.5.35")
         api("com.github.ajalt.clikt:clikt:5.1.0")
-        api("com.google.guava:guava:33.6.0-jre")
-        api("com.google.guava:guava:33.6.0-jre")
+        api("com.google.guava:guava:33.7.1-jre")
+        api("com.google.guava:guava:33.7.1-jre")
         api("com.jcraft:jsch:0.1.55")
-        api("io.micrometer:micrometer-core:1.16.6")
+        api("io.micrometer:micrometer-core:1.17.1")
         api("jakarta.servlet:jakarta.servlet-api:6.1.0")
         api("javax:javaee-api:6.0")
         api("net.sf.trove4j:trove4j:3.0.3")
         api("net.sourceforge.argparse4j:argparse4j:0.9.0")
         api("org.apache.commons:commons-lang3:3.20.0")
         api("org.apache.httpcomponents:httpcore:4.4.16")
-        api("org.apache.tomcat.embed:tomcat-embed-core:11.0.24")
+        api("org.apache.tomcat.embed:tomcat-embed-core:11.0.26")
         api("org.apache.tomcat.embed:tomcat-embed-logging-juli:8.5.2")
         api("org.hdrhistogram:HdrHistogram:2.2.2")
-        api("org.jspecify:jspecify:1.0.0")
+        api("org.jspecify:jspecify:1.0.1")
         api("org.lz4:lz4-java") {
             version {
                 rejectAll()

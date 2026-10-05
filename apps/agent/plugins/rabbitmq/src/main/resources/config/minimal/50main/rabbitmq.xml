@@ -2,15 +2,32 @@
 <profiler-configuration>
     <enhancer>rabbitmq</enhancer>
     <ruleset if-enhancer="rabbitmq">
+        <!--
+          amqp-client 5.31 added the ByteBuffer overload and turned the byte[] one into a delegation
+          to it, so a client that carries both runs two instrumented frames for one publish. Each
+          rule below therefore claims the overload that performs the publish on the client at hand.
+        -->
         <rule>
             <class>com.rabbitmq.client.impl.ChannelN</class>
-            <method>basicPublish(java.lang.String, java.lang.String, boolean, boolean, ...)</method>
-            <execute-after type="com/rabbitmq/client/impl/ChannelN" exception="true">basicPublish$profiler(p1, p2, p6, throwable)</execute-after>
+            <if-class-does-not-declare>basicPublish(java.lang.String, java.lang.String, boolean, boolean, com.rabbitmq.client.AMQP$BasicProperties, java.nio.ByteBuffer, com.rabbitmq.client.WriteListener)</if-class-does-not-declare>
+            <method>basicPublish(java.lang.String, java.lang.String, boolean, boolean, com.rabbitmq.client.AMQP$BasicProperties, byte[])</method>
+            <execute-after type="com/rabbitmq/client/impl/ChannelN" exception="true">basicPublish$profiler(p1, p2, p5, p6, throwable)</execute-after>
+        </rule>
+        <rule>
+            <class>com.rabbitmq.client.impl.ChannelN</class>
+            <method>basicPublish(java.lang.String, java.lang.String, boolean, boolean, com.rabbitmq.client.AMQP$BasicProperties, java.nio.ByteBuffer, com.rabbitmq.client.WriteListener)</method>
+            <execute-after type="com/rabbitmq/client/impl/ChannelN" exception="true">basicPublish$profiler(p1, p2, p5, p6, throwable)</execute-after>
         </rule>
         <rule>
             <class>org.springframework.amqp.rabbit.listener.adapter.MessagingMessageListenerAdapter</class>
             <method>invokeHandler(org.springframework.amqp.core.Message, Channel, Message)</method>
             <execute-after exception="true">invokeHandler$profiler(p1, p2, p3, throwable)</execute-after>
+        </rule>
+        <!-- spring-amqp 4 takes the channel first and the AMQP messages last, as a varargs array -->
+        <rule>
+            <class>org.springframework.amqp.rabbit.listener.adapter.MessagingMessageListenerAdapter</class>
+            <method>invokeHandler(Channel, Message, boolean, org.springframework.amqp.core.Message[])</method>
+            <execute-after exception="true">invokeHandler$profiler(p1, p4, throwable)</execute-after>
         </rule>
     </ruleset>
 

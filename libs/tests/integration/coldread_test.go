@@ -323,11 +323,9 @@ func TestColdReadPath(t *testing.T) {
 	sendStream(t, acA, model.StreamCalls, 0, wire.CallsStreamRecords(baseMs, callsA))
 	waitForIndexedCalls(t, store, bucket1, keyA, 4)
 	// The dictionary decodes on its own pipeline; the seal below re-derives
-	// error_flag against it and resolves the blob methods, so it must have
-	// landed before the pass runs.
-	require.Eventually(t, func() bool {
-		return prA.Dictionary()[sealDictCallRed] == "call.red"
-	}, 5*time.Second, 10*time.Millisecond, "dictionary must decode before the seal")
+	// error_flag against it and resolves the blob methods and param names, so
+	// every word must have landed before the pass runs.
+	waitForDictionary(t, prA, sealDictWords)
 
 	resA1, err := store.Seal(ctx, keyA, bucket1)
 	require.NoError(t, err)
@@ -762,6 +760,21 @@ func waitForIndexedCalls(t *testing.T, store *hotstore.Store, bucket int64, key 
 		}
 		return n == want
 	}, 5*time.Second, 10*time.Millisecond, "bucket must index %d calls of %s", want, key)
+}
+
+// waitForDictionary waits until the pod-restart's dictionary holds every word
+// of words, at the id equal to its index. The ingest pipeline appends one word
+// per lock acquisition, so a wait on one word alone can pass while later words
+// are still in flight; a seal taken then renders their ids as "#<id>".
+func waitForDictionary(t *testing.T, pr *hotstore.PodRestart, words []string) {
+	t.Helper()
+	want := make(map[int]string, len(words))
+	for id, word := range words {
+		want[id] = word
+	}
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Equal(c, want, pr.Dictionary())
+	}, 5*time.Second, 10*time.Millisecond, "dictionary of %s must hold every fixture word", pr.Key)
 }
 
 // assertTraceBlobNotRead proves the column projection: no recorded read of

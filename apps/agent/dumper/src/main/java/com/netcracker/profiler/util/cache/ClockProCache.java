@@ -26,8 +26,7 @@ public class ClockProCache<K, V> {
         int idx = hash & (tab.length - 1);
         Entry<K, V> e;
         for (e = tab[idx]; e != null; e = e.next) {
-            final K k;
-            if (e.hash == hash && ((k = e.key) == key || key.equals(k)))
+            if (e.hash == hash && key.equals(e.key))
                 break;
         }
 

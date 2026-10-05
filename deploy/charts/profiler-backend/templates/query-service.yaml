@@ -1,5 +1,7 @@
 # External API entry point (/api/v1). Exposure beyond the cluster (Ingress,
-# Route, LB) is operator-supplied per cluster convention (04 §4, §12).
+# Route, LB) is operator-supplied per cluster convention (04 §4, §12). Only the
+# external port is exposed here; /metrics and /debug/pprof listen on the pod's
+# metrics port, which no Service carries, so the ingress cannot reach them.
 apiVersion: v1
 kind: Service
 metadata:

@@ -1,17 +1,17 @@
 # Build context: repository root
 # Usage: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector .
 
-FROM golang:1.26.4-alpine3.22@sha256:727cfc3c40be55cd1bc9a4a059406b28a059857e3be752aa9d09531e12c20c56 AS builder
+FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 
 # Multi-arch build support
 ARG TARGETOS=linux
 ARG TARGETARCH
 
 # renovate: datasource=maven depName=qubership-profiler-installer packageName=org.qubership.profiler:qubership-profiler-installer versioning=maven
-ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=3.1.6
+ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=4.0.6
 
 # renovate: datasource=maven depName=qubership-profiler-diagtools packageName=org.qubership.profiler:qubership-profiler-diagtools versioning=maven
-ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=3.1.6
+ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=4.0.6
 
 ENV INSTALLER_CLOUD="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip"
 

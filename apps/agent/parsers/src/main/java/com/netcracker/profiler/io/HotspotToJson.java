@@ -52,6 +52,7 @@ public class HotspotToJson implements JsonSerializer<Hotspot> {
         return jsonFactory.createGenerator(out);
     }
 
+    @SuppressWarnings("ReferenceEquality") // only the root instance carries start and end time
     private int walk(Hotspot out, JsonGenerator gen) throws IOException {
         int canCollapse = 0;
         gen.writeStartArray();

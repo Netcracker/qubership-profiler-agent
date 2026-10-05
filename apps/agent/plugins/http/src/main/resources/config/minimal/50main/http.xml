@@ -7,7 +7,6 @@
             <class>reactor.netty.http.server.HttpTrafficHandler</class>
             <method>channelRead</method>
             <execute-after exception="true">channelRead$profiler(p1, p2,throwable)</execute-after>
-            <start-endpoint/>
         </rule>
         <!--netty + spring.webapplicationtype=reactive-->
         <rule>

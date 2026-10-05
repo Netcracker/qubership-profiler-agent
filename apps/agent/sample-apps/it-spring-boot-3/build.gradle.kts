@@ -15,10 +15,10 @@ tasks.withType<KotlinJvmCompile>().configureEach {
 }
 
 dependencies {
-    val testcontainersBom = enforcedPlatform("org.testcontainers:testcontainers-bom:1.21.4")
+    val testcontainersBom = enforcedPlatform("org.testcontainers:testcontainers-bom:2.0.5")
     testImplementation(testcontainersBom)
     testImplementation("org.testcontainers:testcontainers")
-    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
 }
 
 val demoModuleDir = rootDir.resolve("apps/examples/spring-boot-3-undertow")

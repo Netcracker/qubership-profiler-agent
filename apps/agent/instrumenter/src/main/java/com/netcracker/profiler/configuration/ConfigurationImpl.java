@@ -670,6 +670,10 @@ public class ConfigurationImpl implements ConfigurationSPI {
                         rule.addIncludedMethod(content);
                     } else if ("exclude-method".equals(tagName)) {
                         rule.addExcludedMethod(content);
+                    } else if ("if-class-declares".equals(tagName)) {
+                        rule.addRequiredClassMethod(content);
+                    } else if ("if-class-does-not-declare".equals(tagName)) {
+                        rule.addForbiddenClassMethod(content);
                     } else if ("method-modifier".equals(tagName)) {
                         rule.methodModifier(content);
                     } else if ("do-not-profile".equals(tagName)) {
@@ -815,9 +819,12 @@ public class ConfigurationImpl implements ConfigurationSPI {
             } catch (ClassCastException ex) {
                 log.error("Unable to instantiate {}", content, ex);
             }
+            return null;
         }
         if ("when".equals(tagName))
             return new GuardedAction(parseActions(e));
+        log.warn("Ignoring unknown tag {}: it names neither a rule selector nor an action, "
+                + "so the rule around it applies as if the tag were absent", currentStack);
         return null;
     }
 
@@ -942,7 +949,13 @@ public class ConfigurationImpl implements ConfigurationSPI {
                 Rule rule = ruleList.get(j);
                 if (needRecheck && !rule.classNameMatches(className))
                     continue;
-                boolean allMethodsMatch = rule.allMethodsMatch() && !rule.hasSuperclassCriteria();
+                // A rule carrying class-structure criteria is not one that certainly applies: the
+                // criteria are answered from the bytes of the class, which the scan does not have.
+                // Counting it as unconditional would end the scan and discard the rules written
+                // after it, and would drop a conditional <do-not-profile/> before ProfileMethodAdapter
+                // can honor it.
+                boolean allMethodsMatch = rule.allMethodsMatch() && !rule.hasSuperclassCriteria()
+                        && !rule.hasClassStructureCriteria();
                 if (!allMethodsMatch || !rule.doesNotChangeClass()) {
                     if (rules == null)
                         rules = new ArrayList<Rule>();

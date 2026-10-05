@@ -62,6 +62,13 @@ val generateInjectorDir = layout.buildDirectory.dir("generated/injector")
 
 val generateInjector by tasks.registering(JavaExec::class) {
     dependsOn(injector.classesTaskName)
+    // The class directories reach the command line through an argumentProvider below, and a lambda
+    // provider declares no property, so Gradle tracks nothing from it. Without this input the task
+    // stays up to date after an injector source changes, and the plugin keeps shipping the enhancers
+    // generated from the previous version of that source.
+    inputs.files(injector.output.classesDirs)
+        .withPropertyName("injectorClasses")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     outputs.dir(generateInjectorDir)
     buildParameters.buildJdk?.let {
         javaLauncher.convention(javaToolchains.launcherFor(it))
