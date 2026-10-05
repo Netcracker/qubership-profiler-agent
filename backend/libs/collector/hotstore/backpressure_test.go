@@ -352,3 +352,31 @@ func TestUploaderPoolBoundedConcurrency(t *testing.T) {
 	assert.LessOrEqual(t, s3.maxConcurrent.Load(), int64(3), "the pool never exceeds UploadConcurrency")
 	assert.GreaterOrEqual(t, s3.maxConcurrent.Load(), int64(2), "the pool actually runs PUTs in parallel")
 }
+
+// TestBackpressureRefreshTimestamp pins that BackpressureLastRefreshMs is 0
+// until the first refresh, is set by the refresh at the end of Recover,
+// advances with each completed refresh, and keeps its value while a refresh
+// fails.
+func TestBackpressureRefreshTimestamp(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	assert.EqualValues(t, 0, store.BackpressureLastRefreshMs(), "BackpressureLastRefreshMs() before Recover")
+
+	require.NoError(t, store.Recover(ctx))
+	opened := store.BackpressureLastRefreshMs()
+	assert.NotZero(t, opened, "BackpressureLastRefreshMs() after Recover")
+
+	// The timestamp has millisecond resolution; wait for the clock to move.
+	for time.Now().UnixMilli() <= opened {
+		time.Sleep(time.Millisecond)
+	}
+	require.NoError(t, store.refreshBackpressure(ctx))
+	refreshed := store.BackpressureLastRefreshMs()
+	assert.Greater(t, refreshed, opened, "BackpressureLastRefreshMs() after a later refresh")
+
+	require.NoError(t, store.Close())
+	require.Error(t, store.refreshBackpressure(ctx), "refreshBackpressure on a closed store")
+	assert.Equal(t, refreshed, store.BackpressureLastRefreshMs(), "BackpressureLastRefreshMs() after a failed refresh")
+}
