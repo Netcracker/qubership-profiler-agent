@@ -43,20 +43,31 @@ type (
 		mu       sync.Mutex
 		counters UploadStats
 
-		// loopErrors counts failed upload passes at the pass-failed log site
-		// (the upload_loop_errors_total seam). Per-file PUT failures are counted
-		// separately by UploadStats.FailedPuts; this is a whole-pass failure.
+		// A counter an alert reads is an atomic here, updated where the event
+		// happens: UploadStats reaches CountersSnapshot only when a pass ends,
+		// and one pass over a backlog during an S3 outage can outlast any alert
+		// window.
+
+		// passes counts started upload passes, failed or not; it is the
+		// denominator of loopErrors.
+		passes atomic.Int64
+		// loopErrors counts failed upload passes at the pass-failed log site.
+		// Per-file PUT failures are counted separately by putFailures; this is
+		// a whole-pass failure.
 		loopErrors atomic.Int64
+		// putAttempts counts every PUT call by object kind, and putFailures
+		// every failed one by object kind and reason; the failure ratio is the
+		// upload-failure alerting signal.
+		putAttempts [numPutObjects]atomic.Int64
+		putFailures [numPutObjects][numPutFailureReasons]atomic.Int64
 	}
 
-	// UploadStats counts one Pass's work (and, via CountersSnapshot, the
-	// process lifetime — the Prometheus seam).
+	// UploadStats counts one Pass's bookkeeping; CountersSnapshot sums it over
+	// the process lifetime. It is published only when a pass ends, so no
+	// alert reads it (see the Uploader counters).
 	UploadStats struct {
 		UploadedFiles int64
-		// FailedPuts counts every failed PUT attempt, transient or permanent;
-		// its rate is the upload-failure alerting signal. RetriedPuts counts
-		// only the attempts a retry followed.
-		FailedPuts       int64
+		// RetriedPuts counts the failed PUT attempts a retry followed.
 		RetriedPuts      int64
 		QuarantinedFiles int64
 		// QuarantinedObjects counts manifest/snapshot quarantine ATTEMPTS, not
@@ -87,6 +98,55 @@ type (
 	}
 )
 
+// PutObject names the kind of object a PUT writes; String is its
+// Prometheus label value.
+type PutObject int
+
+const (
+	PutObjectParquet  PutObject = iota // a sealed parquet body
+	PutObjectManifest                  // a pods/v1 identity manifest
+	numPutObjects
+)
+
+// PutObjects lists every PutObject, for the metrics layer to materialize each
+// label value up front.
+var PutObjects = []PutObject{PutObjectParquet, PutObjectManifest}
+
+func (o PutObject) String() string {
+	switch o {
+	case PutObjectParquet:
+		return "parquet"
+	case PutObjectManifest:
+		return "manifest"
+	}
+	return fmt.Sprintf("PutObject(%d)", int(o))
+}
+
+// PutFailureReason classifies a failed PUT: permanent when the ObjectStore
+// wrapped the error in PermanentUploadError, transient otherwise. String is
+// its Prometheus label value.
+type PutFailureReason int
+
+const (
+	PutFailureTransient PutFailureReason = iota
+	PutFailurePermanent
+	numPutFailureReasons
+)
+
+// PutFailureReasons lists every PutFailureReason, for the metrics layer to
+// materialize each label value up front.
+var PutFailureReasons = []PutFailureReason{PutFailureTransient, PutFailurePermanent}
+
+func (r PutFailureReason) String() string {
+	switch r {
+	case PutFailureTransient:
+		return "transient"
+	case PutFailurePermanent:
+		return "permanent"
+	}
+	return fmt.Sprintf("PutFailureReason(%d)", int(r))
+}
+
 func (e *PermanentUploadError) Error() string { return "permanent upload rejection: " + e.Err.Error() }
 func (e *PermanentUploadError) Unwrap() error { return e.Err }
 
@@ -110,15 +170,28 @@ func (u *Uploader) CountersSnapshot() UploadStats {
 	return u.counters
 }
 
-// LoopErrors reports the process-lifetime count of failed upload passes (the
-// upload_loop_errors_total seam), distinct from the per-file FailedPuts.
+// LoopErrors reports the process-lifetime count of failed upload passes,
+// distinct from the per-PUT PutFailures.
 func (u *Uploader) LoopErrors() int64 { return u.loopErrors.Load() }
+
+// Passes reports the process-lifetime count of upload passes Run started,
+// failed or not. It is never below LoopErrors.
+func (u *Uploader) Passes() int64 { return u.passes.Load() }
+
+// PutAttempts reports the process-lifetime count of PUT calls for object,
+// including the one in flight.
+func (u *Uploader) PutAttempts(object PutObject) int64 { return u.putAttempts[object].Load() }
+
+// PutFailures reports the process-lifetime count of failed PUT calls for
+// object with the given reason.
+func (u *Uploader) PutFailures(object PutObject, reason PutFailureReason) int64 {
+	return u.putFailures[object][reason].Load()
+}
 
 // add merges another stats bundle in; used by the pass accumulator and by
 // the №25 upload workers merging their per-worker counts.
 func (s *UploadStats) add(o UploadStats) {
 	s.UploadedFiles += o.UploadedFiles
-	s.FailedPuts += o.FailedPuts
 	s.RetriedPuts += o.RetriedPuts
 	s.QuarantinedFiles += o.QuarantinedFiles
 	s.QuarantinedObjects += o.QuarantinedObjects
@@ -248,7 +321,7 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 			log.Warning(ctx, "upload: sealed parquet %s is missing on disk, skipping", f.Path)
 			return nil
 		}
-		err := u.putWithRetry(ctx, f.S3Key, func() error { return u.s3.PutFile(ctx, f.S3Key, f.Path) }, stats)
+		err := u.putWithRetry(ctx, PutObjectParquet, f.S3Key, func() error { return u.s3.PutFile(ctx, f.S3Key, f.Path) }, stats)
 		if IsPermanentUploadError(err) {
 			if qErr := u.quarantine(ctx, f, err, stats); qErr != nil {
 				log.Error(ctx, qErr, "upload: quarantine of %s failed; the file stays pending", f.Path)
@@ -309,20 +382,25 @@ func (u *Uploader) uploadOne(ctx context.Context, f ParquetLocalFile, stats *Upl
 	return nil
 }
 
-// putWithRetry runs one PUT with the §6.2 exponential backoff. A permanent
-// rejection returns immediately; exhausting the in-pass attempts returns the
-// last error and the file stays pending for the next pass.
-func (u *Uploader) putWithRetry(ctx context.Context, key string, put func() error, stats *UploadStats) error {
+// putWithRetry runs one PUT of object with the §6.2 exponential backoff. A
+// permanent rejection returns immediately; exhausting the in-pass attempts
+// returns the last error and the file stays pending for the next pass. Every
+// call to put counts in PutAttempts before it starts, and every failed one in
+// PutFailures as soon as it returns.
+func (u *Uploader) putWithRetry(ctx context.Context, object PutObject, key string, put func() error, stats *UploadStats) error {
 	cfg := u.store.cfg
 	delay := cfg.UploadRetryBaseDelay
 	for attempt := 1; ; attempt++ {
+		u.putAttempts[object].Add(1)
 		err := put()
-		if err != nil {
-			stats.FailedPuts++
+		if err == nil {
+			return nil
 		}
-		if err == nil || IsPermanentUploadError(err) {
+		if IsPermanentUploadError(err) {
+			u.putFailures[object][PutFailurePermanent].Add(1)
 			return err
 		}
+		u.putFailures[object][PutFailureTransient].Add(1)
 		if attempt >= cfg.UploadRetryAttempts {
 			return err
 		}
@@ -433,7 +511,7 @@ func (u *Uploader) upsertManifest(ctx context.Context, f ParquetLocalFile, done 
 	if err != nil {
 		return manifestRejected, errors.Wrap(err, "encode pods manifest")
 	}
-	if err := u.putWithRetry(ctx, s3Key, func() error { return u.s3.PutBytes(ctx, s3Key, body) }, stats); err != nil {
+	if err := u.putWithRetry(ctx, PutObjectManifest, s3Key, func() error { return u.s3.PutBytes(ctx, s3Key, body) }, stats); err != nil {
 		if !IsPermanentUploadError(err) {
 			return manifestRejected, err
 		}
@@ -544,6 +622,7 @@ func (u *Uploader) Run(ctx context.Context, interval time.Duration) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			u.passes.Add(1)
 			if _, err := u.Pass(ctx); err != nil && ctx.Err() == nil {
 				u.loopErrors.Add(1)
 				log.Error(ctx, err, "upload pass failed")
