@@ -22,61 +22,61 @@ as continuous tracing profiler.
 
 Application servers or Portals:
 
-* [Liferay](plugins/liferay)
+* [Liferay](apps/agent/plugins/liferay)
 
 Build systems:
 
 * ANT
-  * [ANT (<=1.10.1)](plugins/ant)
-  * [ANT (>=1.10.2)](plugins/ant_1102)
+  * [ANT (<=1.10.1)](apps/agent/plugins/ant)
+  * [ANT (>=1.10.2)](apps/agent/plugins/ant_1102)
 
 Databases:
 
 * DataStax Cassandra
-  * [DataStax Cassandra 3.x](plugins/cassandra)
-  * [DataStax cassandra 4.x](plugins/cassandra4)
-* [ElasticSearch](plugins/elasticsearch)
-* [MySQL JDBC](plugins/mysql)
-* [PostgeSQL JDBC](plugins/postgresql)
+  * [DataStax Cassandra 3.x](apps/agent/plugins/cassandra)
+  * [DataStax cassandra 4.x](apps/agent/plugins/cassandra4)
+* [ElasticSearch](apps/agent/plugins/elasticsearch)
+* [MySQL JDBC](apps/agent/plugins/mysql)
+* [PostgeSQL JDBC](apps/agent/plugins/postgresql)
 
 Distribution tracing:
 
-* [Brave (Zipkin agent)](plugins/brave)
-* [Jaeger](plugins/jaeger)
-* [Ocelot](plugins/ocelot)
+* [Brave (Zipkin agent)](apps/agent/plugins/brave)
+* [Jaeger](apps/agent/plugins/jaeger)
+* [Ocelot](apps/agent/plugins/ocelot)
 
 HTTP clients:
 
-* [HTTP](plugins/http)
-* [Java HTTP Client](plugins/java_http_client)
-* [Tomcat <= 9.x](plugins/tomcat_http)
-* [Tomcat >= 10.x](plugins/tomcat10_http)
-* [Undertow < 2.3](plugins/undertow_http)
-* [Undertow >= 2.3](plugins/undertow23_http)
+* [HTTP](apps/agent/plugins/http)
+* [Java HTTP Client](apps/agent/plugins/java_http_client)
+* [Tomcat <= 9.x](apps/agent/plugins/tomcat_http)
+* [Tomcat >= 10.x](apps/agent/plugins/tomcat10_http)
+* [Undertow < 2.3](apps/agent/plugins/undertow_http)
+* [Undertow >= 2.3](apps/agent/plugins/undertow23_http)
 
 Java Frameworks:
 
-* [Apache Felix](plugins/apache_felix)
-* [Equinox](plugins/equinox)
-* [Spring Framework](plugins/spring)
-  * [Spring REST](plugins/springrest)
+* [Apache Felix](apps/agent/plugins/apache_felix)
+* [Equinox](apps/agent/plugins/equinox)
+* [Spring Framework](apps/agent/plugins/spring)
+  * [Spring REST](apps/agent/plugins/springrest)
 
 Loggers:
 
-* [Log4j](plugins/log4j_enhancer)
+* [Log4j](apps/agent/plugins/log4j_enhancer)
 
 Other:
 
-* [Jackson](plugins/jackson)
-* [Quartz Scheduler](plugins/quartz)
-* [Rhino](plugins/rhino)
-* [Test](plugins/test)
+* [Jackson](apps/agent/plugins/jackson)
+* [Quartz Scheduler](apps/agent/plugins/quartz)
+* [Rhino](apps/agent/plugins/rhino)
+* [Test](apps/agent/plugins/test)
 
 Queues:
 
-* [ActiveMQ](plugins/activemq)
-* [HornetQ](plugins/hornetq)
-* [RabbitMQ](plugins/rabbitmq)
+* [ActiveMQ](apps/agent/plugins/activemq)
+* [HornetQ](apps/agent/plugins/hornetq)
+* [RabbitMQ](apps/agent/plugins/rabbitmq)
 
 ## How to build
 
@@ -99,12 +99,14 @@ git clone https://github.com/Netcracker/qubership-profiler-agent.git
 This project defines a [manual release workflow](.github/workflows/release.yaml).
 
 To trigger a release, go to the
-👉 [Actions tab → release.yaml](https://github.com/Netcracker/qubership-profiler-agent/actions/workflows/release.yaml) and run it manually.
+👉 [Actions tab → release.yaml](https://github.com/Netcracker/qubership-profiler-agent/actions/workflows/release.yaml)
+and run it manually.
 
 The release workflow uses [Release Drafter](https://github.com/release-drafter/release-drafter) to prepare
 release notes, and it uses labels to group the changes. If you need to adjust the notes, update the labels as needed.
 
 Here's the full step-by-step:
+
 1. Navigate to [Release Workflow](https://github.com/Netcracker/qubership-profiler-agent/actions/workflows/release.yaml)
 1. Click on `Run workflow`
 1. Select the branch name to be released
@@ -112,6 +114,7 @@ Here's the full step-by-step:
 1. Click on `Run workflow`
 
 The release workflow would perform the following steps:
+
 1. Check if the release tag `v...` does not exist yet, otherwise it would terminate
 1. Bump the version in `gradle.properties` to the release version (e.g., if the manually provided version differs)
 1. Build and publish the artifacts to Central Portal

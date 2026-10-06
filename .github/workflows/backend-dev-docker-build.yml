@@ -24,13 +24,35 @@ on:
     branches-ignore:
       - 'renovate/**'
     paths:
-      - 'backend/**'
+      - 'apps/dumps-collector/**'
+      - 'apps/profiler-backend/**'
+      - 'apps/ui/**'
+      - 'apps/Makefile'
+      - 'libs/**'
+      - 'tools/**'
+      - 'deploy/**'
+      - 'apps/examples/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'docker-compose.yaml'
       - '.github/workflows/backend-dev-docker-build.yml'
   pull_request:
     branches:
       - '**'
     paths:
-      - 'backend/**'
+      - 'apps/dumps-collector/**'
+      - 'apps/profiler-backend/**'
+      - 'apps/ui/**'
+      - 'apps/Makefile'
+      - 'libs/**'
+      - 'tools/**'
+      - 'deploy/**'
+      - 'apps/examples/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'docker-compose.yaml'
       - '.github/workflows/backend-dev-docker-build.yml'
 
 permissions:
@@ -45,7 +67,7 @@ jobs:
       component: ${{ steps.load_component.outputs.components }}
       platforms: ${{ steps.load_component.outputs.platforms }}
     env:
-      CONFIG_FILE: backend/.qubership/docker-build-config.cfg
+      CONFIG_FILE: .qubership/docker-build-config.cfg
     steps:
       - name: "Checkout code"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
