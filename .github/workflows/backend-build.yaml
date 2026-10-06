@@ -3,8 +3,8 @@ name: Backend Build
 
 on:
   push:
-    branches-ignore:
-      - 'renovate/**'
+    branches:
+      - main
     paths:
       - 'apps/dumps-collector/**'
       - 'apps/profiler-backend/**'
@@ -69,7 +69,7 @@ jobs:
       # Tests live in the backend-coverage job of build.yaml, where a single
       # `go test ./...` from the module root covers apps/**, libs/** and tools/**
       # and feeds the coverage profile to Codecov. This workflow stays a fast
-      # compile check on branch pushes.
+      # compile check on pull requests and on pushes to main.
 
       - name: tools-build
         # language=bash

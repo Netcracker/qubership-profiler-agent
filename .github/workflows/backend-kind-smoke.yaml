@@ -3,8 +3,8 @@ name: Backend Kind Smoke
 
 on:
   push:
-    branches-ignore:
-      - 'renovate/**'
+    branches:
+      - main
     paths:
       - 'apps/dumps-collector/**'
       - 'apps/profiler-backend/**'
