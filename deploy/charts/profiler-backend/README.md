@@ -5,24 +5,25 @@ Deploys the Go profiler backend (`docs/design/04-storage-layout.md`):
 - **collector** — StatefulSet with one RWO PVC per replica (`volumeClaimTemplates`), a governing headless Service for query fan-out, and an L4 Service for agent TCP (port 1715).
 - **query** — stateless Deployment + ClusterIP Service (`/api/v1`, port 8080).
 - **maintain** — CronJob (default) or a singleton Deployment loop.
-- **minio** (optional) — in-cluster dev MinIO for smoke runs; storage is an emptyDir.
+- **seaweedfs** (optional) — in-cluster dev S3 store for smoke runs, installed from the upstream [SeaweedFS chart](https://github.com/seaweedfs/seaweedfs/tree/master/k8s/charts/seaweedfs) as a subchart; storage is an emptyDir.
 - **monitoring** (optional) — ServiceMonitor/PodMonitor objects and a PrometheusRule with the baseline alerts.
 
 All three workloads read the S3 credentials from a Secret **mounted as a volume** (`S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE`); the values never appear in pod specs or env blocks (`01-write-contract.md` §9, `04` §6).
 
 ## Quick start (kind)
 
-Run the commands in both quick starts from the repository root.
+Run the commands in both quick starts from the repository root. `helm dependency update` downloads the SeaweedFS subchart that `Chart.yaml` pins; `helm install` fails without it.
 
 ```bash
 docker build -f apps/profiler-backend/Dockerfile -t profiler-backend:dev .
 kind create cluster --name profiler
 kind load docker-image profiler-backend:dev --name profiler
+helm dependency update deploy/charts/profiler-backend
 helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-kind.yaml
 kubectl rollout status statefulset/profiler-profiler-backend-collector --timeout=180s
 ```
 
-`make kind-smoke` automates the same flow end to end: build, load, install, wait for READY, then run the in-cluster smoke (agent emulator → collector → seal → MinIO → `query /calls` + `/tree`, a cold-only phase with the collector scaled to zero, and recovery).
+`make kind-smoke` automates the same flow end to end: build, load, install, wait for READY, then run the in-cluster smoke (agent emulator → collector → seal → SeaweedFS → `query /calls` + `/tree`, a cold-only phase with the collector scaled to zero, and recovery).
 
 ## Quick start (OrbStack)
 
@@ -31,6 +32,7 @@ OrbStack's k8s shares the host Docker daemon — no image loading step — and s
 ```bash
 docker build -f apps/profiler-backend/Dockerfile -t profiler-backend:dev .
 kubectl config use-context orbstack
+helm dependency update deploy/charts/profiler-backend
 helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-orbstack.yaml
 kubectl rollout status statefulset/profiler-profiler-backend-collector --timeout=180s
 kubectl get svc profiler-profiler-backend-collector-agent   # EXTERNAL-IP serves agent TCP :1715
@@ -50,7 +52,7 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | Key | Default | Notes |
 |---|---|---|
 | `image.registry` / `image.repository` / `image.tag` | `"" / profiler-backend / dev` | One image, one binary; the subcommand is the container arg. |
-| `s3.endpoint` | `""` | Required unless `minio.enabled`; `https://` enables TLS. |
+| `s3.endpoint` | `""` | Required unless `seaweedfs.enabled`; `https://` enables TLS. |
 | `s3.bucket` | `profiler-data` | Created by the services on first connect. |
 | `s3.auth.existingSecret` | `""` | Secret with keys `access-key` / `secret-key`; wins over the inline pair. Production should use this. |
 | `s3.auth.accessKey` / `secretKey` | `""` | Renders a chart-managed Secret — dev/smoke only. |
@@ -70,7 +72,8 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `maintain.mode` | `cronjob` | `deployment` runs the singleton loop — the only mode with `/metrics`. |
 | `maintain.schedule` | `0 * * * *` | CronJob mode. |
 | `retention.*TTL` | contract defaults | Per-class TTLs (01 §6.4) passed to maintain. |
-| `minio.enabled` | `false` | Dev/smoke MinIO (emptyDir storage, same credentials Secret). |
+| `seaweedfs.enabled` | `false` | Installs the SeaweedFS subchart as a dev/smoke S3 store: one all-in-one pod on an emptyDir. Other `seaweedfs.*` keys pass through to the subchart. |
+| `seaweedfs.s3.credentials.admin.accessKey` / `secretKey` | `""` | Must equal `s3.auth.accessKey` / `secretKey` when `seaweedfs.enabled`; the render fails on a mismatch. |
 | `metrics.serviceMonitor.enabled` | `false` | Requires the prometheus-operator CRDs. Also creates the query and maintain PodMonitors; see the note under [Metrics contract](#metrics-contract). |
 | `metrics.prometheusRule.enabled` | `false` | Ships `files/prometheus-rules.yaml` as a PrometheusRule. |
 
