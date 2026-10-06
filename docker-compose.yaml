@@ -1,21 +1,25 @@
 # Dev stack for the profiler backend (docs/design/04-storage-layout.md §11.1):
-# one collector, one query, MinIO as the S3 target. The services create the
-# bucket themselves on first connect, so MinIO needs no init container.
+# one collector, one query, SeaweedFS as the S3 target. The services create
+# the bucket themselves on first connect, so SeaweedFS needs no init container.
 #
 #   docker compose up --build -d
 #   make smoke        # end-to-end proof against this stack
 services:
-  minio:
-    image: ghcr.io/netcracker/qubership-minio:RELEASE.2026-06-26T06-18-36Z@sha256:8738ba45f08a2a8ed2f61491ffc7ff8c350ac64c20600bebcf80d3af930154ca
-    command: server /data --console-address ":9001"
+  # The image's default command, `weed mini -dir=/data`, runs the master,
+  # volume server, filer, S3 gateway, and admin UI in one process. The data
+  # directory is not a volume, so the objects die with the container.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      # The S3 gateway turns this pair into its admin identity.
+      AWS_ACCESS_KEY_ID: profiler
+      AWS_SECRET_ACCESS_KEY: profiler-secret
     ports:
-      - "9000:9000" # S3 API
-      - "9001:9001" # console
+      # Host 9000 is where the smoke tests expect S3; the gateway listens on 8333.
+      - "9000:8333" # S3 API
+      - "23646:23646" # admin UI
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8333/healthz"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -29,10 +33,10 @@ services:
     environment:
       PROFILER_DATA_DIR: /data
       STATEFULSET_ORDINAL: collector-0
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://seaweedfs:8333
       S3_BUCKET: profiler-data
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
+      S3_ACCESS_KEY: profiler
+      S3_SECRET_KEY: profiler-secret
       # Fast loops and a short drain keep the dev feedback cycle tight.
       PROFILER_SEAL_CHECK_INTERVAL: 2s
       PROFILER_UPLOAD_CHECK_INTERVAL: 2s
@@ -43,7 +47,7 @@ services:
     volumes:
       - collector-data:/data
     depends_on:
-      minio:
+      seaweedfs:
         condition: service_healthy
     stop_grace_period: 30s
 
@@ -57,17 +61,17 @@ services:
       COLLECTOR_HEADLESS_SVC: collector
       PROFILER_INTERNAL_API_PORT: "8081"
       PROFILER_SHUTDOWN_DRAIN_GRACE: 1s
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://seaweedfs:8333
       S3_BUCKET: profiler-data
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
+      S3_ACCESS_KEY: profiler
+      S3_SECRET_KEY: profiler-secret
     ports:
       - "8080:8080" # /api/v1
       # Loopback only: the metrics listener stays off the external port (04 §12).
       # Host 8082 avoids the collector's 8081.
       - "127.0.0.1:8082:8081" # /metrics
     depends_on:
-      minio:
+      seaweedfs:
         condition: service_healthy
 
 volumes:

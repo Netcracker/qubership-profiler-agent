@@ -3,7 +3,7 @@
 // Package smoke proves the Stage 1 stack end to end against the running
 // docker-compose services (docker-compose.yaml): a synthetic agent
 // feeds the collector over a real TCP socket, the seal and upload loops move
-// the aged bucket into MinIO, and the query service answers /api/v1 from the
+// the aged bucket into S3, and the query service answers /api/v1 from the
 // hot tier, then — with the collector stopped — from S3 alone.
 //
 // Run `make smoke` from the repository root, or bring the stack up yourself and run
@@ -67,8 +67,8 @@ var (
 	queryMetricsURL = envOr("SMOKE_QUERY_METRICS_URL", "http://localhost:8082")
 	internalURL     = envOr("SMOKE_INTERNAL_URL", "http://localhost:8081")
 	s3Endpoint      = envOr("SMOKE_S3_ENDPOINT", "localhost:9000")
-	s3Access        = envOr("SMOKE_S3_ACCESS_KEY", "minioadmin")
-	s3Secret        = envOr("SMOKE_S3_SECRET_KEY", "minioadmin")
+	s3Access        = envOr("SMOKE_S3_ACCESS_KEY", "profiler")
+	s3Secret        = envOr("SMOKE_S3_SECRET_KEY", "profiler-secret")
 	s3Bucket        = envOr("SMOKE_S3_BUCKET", "profiler-data")
 )
 
