@@ -11,11 +11,28 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// fetchDependencies downloads the chart's subchart archives once per test
+// binary. `helm template` refuses a chart whose Chart.yaml dependencies are
+// missing from charts/, even when the subchart is disabled, and the archives
+// are not committed. It needs network access to the subchart repository.
+var fetchDependencies = sync.OnceValues(func() ([]byte, error) {
+	chart, err := chartDir()
+	if err != nil {
+		return nil, err
+	}
+	return exec.Command("helm", "dependency", "update", chart).CombinedOutput()
+})
+
+func chartDir() (string, error) {
+	return filepath.Abs(filepath.Join("..", "..", "..", "deploy", "charts", "profiler-backend"))
+}
 
 // renderChart runs `helm template` over deploy/charts/profiler-backend, skipping the
 // test when helm is not installed (CI covers it via `make helm-lint` too).
@@ -25,8 +42,10 @@ func renderChart(t *testing.T, extraArgs ...string) string {
 	if err != nil {
 		t.Skip("helm is not installed; the chart render checks run where it is")
 	}
-	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "deploy", "charts", "profiler-backend"))
+	chart, err := chartDir()
 	require.NoError(t, err)
+	depOut, err := fetchDependencies()
+	require.NoError(t, err, "helm dependency update failed: %s", depOut)
 	args := append([]string{
 		"template", "render-test", chart,
 		"--set", "s3.endpoint=http://s3.test:9000",
