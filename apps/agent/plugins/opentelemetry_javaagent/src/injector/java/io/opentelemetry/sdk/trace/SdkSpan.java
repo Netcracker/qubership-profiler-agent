@@ -2,9 +2,12 @@ package io.opentelemetry.sdk.trace;
 
 import com.netcracker.profiler.agent.TraceIds;
 
-import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.javaagent.shaded.io.opentelemetry.api.trace.SpanContext;
 
-/** The SDK span from 1.13.0 on. */
+/**
+ * The SDK span inside the OpenTelemetry Java agent. It keeps the name it has in the SDK, and its
+ * methods return the relocated API types.
+ */
 public class SdkSpan {
 
     public native SpanContext getSpanContext();
@@ -12,14 +15,10 @@ public class SdkSpan {
     public native SpanContext getParentSpanContext();
 
     /**
-     * Records the span as soon as it exists, which covers a span the application never makes
-     * current.
-     *
-     * <p>A parent that arrived from another process is recorded too. An entry point passes the
-     * extracted context to the span builder and seldom makes it current, so this is the one place
-     * that sees it.</p>
+     * Records the span as soon as it exists, and its parent when the parent arrived from another
+     * process.
      */
-    public void recordSpan$profiler() {
+    public void recordAgentSpan$profiler() {
         SpanContext context = getSpanContext();
         if (context == null || !context.isValid()) {
             return;

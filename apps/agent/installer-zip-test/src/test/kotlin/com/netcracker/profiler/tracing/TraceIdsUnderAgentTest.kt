@@ -80,6 +80,26 @@ class TraceIdsUnderAgentTest {
     }
 
     @Test
+    fun `a span continues a propagated context without the context being made current`() {
+        val remote = SpanContext.createFromRemoteParent(
+            "0af7651916cd43dd8448eb211c80319c",
+            "b7ad6b7169203331",
+            TraceFlags.getSampled(),
+            TraceState.getDefault()
+        )
+        profiled {
+            val span = tracer.spanBuilder("server").setParent(Context.root().with(Span.wrap(remote))).startSpan()
+            try {
+                assertEquals(remote.traceId, callInfo().traceId, "traceId")
+                assertEquals(remote.spanId, callInfo().parentSpanId, "parentSpanId")
+                assertEquals(span.spanContext.spanId, callInfo().spanId, "spanId")
+            } finally {
+                span.end()
+            }
+        }
+    }
+
+    @Test
     fun `a traceparent header is recorded as the trace and the parent`() {
         profiled {
             TraceIds.recordTraceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")

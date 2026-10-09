@@ -18,6 +18,7 @@ dependencies {
         api("com.rabbitmq:amqp-client:5.36.0")
         api("com.zaxxer:HikariCP:7.1.0")
         api("io.mockk:mockk:1.14.11")
+        api("io.opentelemetry.javaagent:opentelemetry-javaagent:2.32.0")
         api("io.opentelemetry:opentelemetry-sdk-trace:1.66.0")
         api("io.undertow:undertow-servlet:2.3.26.Final")
         api("org.jmockit:jmockit-coverage:1.23")
