@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 type (

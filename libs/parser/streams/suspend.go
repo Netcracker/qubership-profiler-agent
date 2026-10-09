@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 func ReadSuspend(ctx context.Context, c *model.Chunk) (*data.Suspends, string, error) {

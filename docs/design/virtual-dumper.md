@@ -98,7 +98,7 @@ Two corrections to the `load-testing-plan.md` §3 gap table follow from the Java
 
 - **G7.** The four `calls[100ms-500ms]`/… range streams and `callsDictionary` exist only when `localDumpEnabled`
   (`Dumper.java`: `writeCallRanges`, `writeCallsDictionary`); they are absent from `remoteStreams`. The collector
-  refuses unknown streams (`libs/protocol/streams.go`), so a faithful generator sends the flat `calls` stream and
+  refuses unknown streams (`libs/wire/protocol/streams.go`), so a faithful generator sends the flat `calls` stream and
   shapes the *duration distribution* instead. The collector bins calls itself via `model.ClassifyDuration`
   (default thresholds 100 ms / 1 s / 10 s) plus the `call.red` error marker (`libs/collector/hotstore/store.go`).
 - **G8.** `posDictionary` is opened only when the server answers V3 (`Dumper.initializeCollectorClient`); the Go

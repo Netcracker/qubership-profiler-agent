@@ -3,7 +3,7 @@ package server
 import (
 	"time"
 
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 )
 
 type (

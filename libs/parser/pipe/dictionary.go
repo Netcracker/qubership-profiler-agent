@@ -2,7 +2,7 @@ package pipe
 
 import (
 	"context"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 func DictionaryPipeReader(ctx context.Context, b *PipeReader, limitPhrases int) <-chan DictionaryItem {
