@@ -28,6 +28,8 @@ dependencies {
     testImplementation("ch.qos.logback:logback-classic")
     // Runs under the agent, so the opentelemetry plugin instruments it as it would in an application
     testImplementation("io.opentelemetry:opentelemetry-sdk-trace")
+    testImplementation("io.jaegertracing:jaeger-core")
+    testImplementation("io.zipkin.brave:brave")
 }
 
 val profilerHome = layout.buildDirectory.dir("profiler-home")
