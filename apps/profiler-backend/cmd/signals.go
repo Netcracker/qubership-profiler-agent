@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/health"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 )
 
 // signalActor returns a run.Group actor implementing the 03-lifecycle.md §5.1

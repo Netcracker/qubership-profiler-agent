@@ -15,7 +15,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/tests/helpers"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"

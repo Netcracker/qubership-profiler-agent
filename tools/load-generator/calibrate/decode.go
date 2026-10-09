@@ -12,7 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 )
 
 // Profile is the JSON traffic profile of one tap run.

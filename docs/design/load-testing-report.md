@@ -107,7 +107,7 @@ Two OrbStack runs on 2026-07-16, images `profiler-backend:dev@sha256:8a7ecf…` 
 
 > Placeholder — to be filled from large-cluster runs: RAM and goroutines per idle connection, cost per tracked
 > pod-restart, where accept latency / `PROFILER_MEM_BUDGET` / the fd limit bites first, and what the failure looks
-> like to the agent (there is no accept-side connection cap today, `libs/server/services.go`). Filled by checklist
+> like to the agent (there is no accept-side connection cap today, `libs/wire/server/services.go`). Filled by checklist
 > step 2 (`specs/t3-connections.yaml`); the ramp-continuation rule and the accept-cap decision criteria are frozen
 > in the checklist's §3.
 

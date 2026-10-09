@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	appenv "github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/health"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/metrics"
 	ui "github.com/Netcracker/qubership-profiler-backend/apps/ui"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"

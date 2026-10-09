@@ -10,9 +10,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

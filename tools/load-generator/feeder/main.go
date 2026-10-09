@@ -23,10 +23,10 @@ import (
 	"syscall"
 	"time"
 
+	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/vdumper"
-	profio "github.com/Netcracker/qubership-profiler-backend/libs/io"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 )
 
 func main() {

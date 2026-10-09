@@ -72,7 +72,7 @@ Per-connection cost at each step, from `steps.jsonl` measurements:
 - goroutines: Δ`collector-goroutines` / Δ`active-connections`;
 - per pod-restart: `pod-restarts` grows with every reconnect — correlate with `inram-bytes`.
 
-**Failure shape.** There is no accept-side connection cap today (`libs/server/services.go`); expected bite points are
+**Failure shape.** There is no accept-side connection cap today (`libs/wire/server/services.go`); expected bite points are
 RAM (`PROFILER_MEM_BUDGET` pressure — watch `mem-budget` vs `inram-bytes`), the fd limit (`open-fds` against the pod's
 ulimit; exhaustion surfaces as accept errors in the collector log and climbing `tcp-connect-p95`), and accept latency
 (`session-ready-degraded` detector). Record which one fires first and what the agent side sees — that is a report

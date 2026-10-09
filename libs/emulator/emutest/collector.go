@@ -18,9 +18,9 @@ import (
 
 	"context"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	profio "github.com/Netcracker/qubership-profiler-backend/libs/io"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 )
 
 type (
@@ -173,7 +173,7 @@ func (c *Collector) acceptLoop() {
 }
 
 // handle mirrors the real server's per-connection command loop
-// (libs/server.ConnectionHandler.HandleCommand), recording instead of storing.
+// (libs/wire/server.ConnectionHandler.HandleCommand), recording instead of storing.
 func (c *Collector) handle(conn net.Conn, idx int) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(time.Minute))

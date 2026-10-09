@@ -1,7 +1,7 @@
 package integration
 
 import (
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"time"
 )
 

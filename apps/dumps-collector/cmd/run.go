@@ -6,13 +6,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	db "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client/sqlite"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/server"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
 	"github.com/Netcracker/qubership-profiler-backend/libs/cron"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/oklog/run"
 	"github.com/spf13/cobra"
@@ -220,4 +220,3 @@ func runServer(ctx context.Context, dbClient db.DumpDbClient, pvPath string, bin
 
 	return server.StartHttpServer(ctx, requestProcessor, bindAddress)
 }
-
