@@ -26,6 +26,8 @@ dependencies {
     // host application (e.g. Spring Boot) would, then checks whether the agent's plugin logger
     // still reaches that configuration.
     testImplementation("ch.qos.logback:logback-classic")
+    // Runs under the agent, so the opentelemetry plugin instruments it as it would in an application
+    testImplementation("io.opentelemetry:opentelemetry-sdk-trace")
 }
 
 val profilerHome = layout.buildDirectory.dir("profiler-home")

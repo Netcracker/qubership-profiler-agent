@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiler-configuration>
+    <enhancer>opentelemetry</enhancer>
+    <parameters>
+        <parameter name="trace.id" index="true" list="true"/>
+        <parameter name="span.id" index="true" list="false" order="800"/>
+        <parameter name="parent.span.id" index="true" list="false" order="810"/>
+    </parameters>
+    <!--
+      Every rule only reads identifiers, so none of them adds its method to the call tree. That also
+      keeps a span created outside a profiled call from starting a call of its own.
+    -->
+    <ruleset if-enhancer="opentelemetry">
+        <rule>
+            <class>io.opentelemetry.sdk.trace.SdkSpan</class>
+            <method>&lt;init&gt;</method>
+            <execute-after>recordSpan$profiler</execute-after>
+            <do-not-profile/>
+        </rule>
+        <!-- The SDK span was named RecordEventsReadableSpan up to 1.12 -->
+        <rule>
+            <class>io.opentelemetry.sdk.trace.RecordEventsReadableSpan</class>
+            <method>&lt;init&gt;</method>
+            <execute-after>recordSpan$profiler</execute-after>
+            <do-not-profile/>
+        </rule>
+        <!-- Every way to make a context current ends in the default storage, wrapped or not -->
+        <rule>
+            <class>io.opentelemetry.context.ThreadLocalContextStorage</class>
+            <method>attach(io.opentelemetry.context.Context)</method>
+            <execute-after>recordCurrentSpan$profiler(p1)</execute-after>
+            <do-not-profile/>
+        </rule>
+    </ruleset>
+</profiler-configuration>

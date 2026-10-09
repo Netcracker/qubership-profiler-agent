@@ -112,7 +112,8 @@ public class HttpServletLogUtils {
             String traceId = req.getHeader("X-B3-TraceId");
             Profiler.event(traceId, "X-B3-TraceId");
 
-            Profiler.event(req.getHeader("X-B3-SpanId"), "X-B3-SpanId");
+            String spanId = req.getHeader("X-B3-SpanId");
+            Profiler.event(spanId, "X-B3-SpanId");
             Profiler.event(req.getHeader("X-B3-ParentSpanId"), "X-B3-ParentSpanId");
 
             Profiler.event(req.getHeader("x-version"), "x-version");
@@ -159,12 +160,21 @@ public class HttpServletLogUtils {
             if (endToEndId == null && traceId != null) {
                 endToEndId = traceId;
             }
+            String b3 = req.getHeader("b3");
+            if (endToEndId == null) {
+                endToEndId = TraceIds.b3TraceId(b3);
+            }
             if (endToEndId == null && clientTransactionId != null) {
                 endToEndId = clientTransactionId;
             }
             if (endToEndId != null && endToEndId.length() > 0) {
                 callInfo.setEndToEndId(endToEndId);
             }
+            // After the end-to-end ID is settled, so that a trace ID recorded here becomes the
+            // end-to-end ID only when no header above supplied one
+            TraceIds.recordB3(traceId, spanId);
+            TraceIds.recordB3(b3);
+            TraceIds.recordTraceparent(req.getHeader("traceparent"));
         }
         {
             final String remoteAddr = request.getRemoteAddr();
