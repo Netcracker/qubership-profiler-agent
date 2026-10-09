@@ -29,6 +29,9 @@ ARG TARGETARCH
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
+# The root go.mod replaces libs/wire with the local directory, so Go needs that
+# module's go.mod to load the module graph.
+COPY libs/wire/go.mod libs/wire/go.sum libs/wire/
 RUN go mod download
 
 COPY libs/ libs/

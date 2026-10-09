@@ -3,12 +3,12 @@ package integration
 import (
 	"bytes"
 	"context"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/server"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
 	"sync"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
 )
 
 type (

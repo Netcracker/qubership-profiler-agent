@@ -1,5 +1,5 @@
 // Package collector composes the Stage 1 write path: the agent TCP listener
-// from libs/server feeding the hot store through the ingest listener. Seal
+// from libs/wire/server feeding the hot store through the ingest listener. Seal
 // loop, janitors, and the internal read API attach here in later Stage 1
 // tasks (03-lifecycle.md §3.10).
 package collector
@@ -8,10 +8,10 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotread"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/ingest"
-	"github.com/Netcracker/qubership-profiler-backend/libs/server"
 	"github.com/oklog/run"
 )
 

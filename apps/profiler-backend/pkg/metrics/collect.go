@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/ingest"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/io"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 func ReadDictionary(ctx context.Context, c *model.Chunk) (*data.Dictionary, string, error) {
