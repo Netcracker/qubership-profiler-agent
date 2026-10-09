@@ -94,6 +94,7 @@ dependencies {
     nmcpAggregation(projects.plugins.ocelot)
     nmcpAggregation(projects.plugins.opensearch)
     nmcpAggregation(projects.plugins.opentelemetry)
+    nmcpAggregation(projects.plugins.opentelemetryJavaagent)
     nmcpAggregation(projects.plugins.postgresql)
     nmcpAggregation(projects.plugins.quartz)
     nmcpAggregation(projects.plugins.rabbitmq)

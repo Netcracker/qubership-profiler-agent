@@ -31,5 +31,15 @@
             <execute-after>recordCurrentSpan$profiler(p1)</execute-after>
             <do-not-profile/>
         </rule>
+        <!--
+          The OpenTelemetry Java agent keeps its own copy of the storage in the bootstrap class
+          loader, under a relocated package
+        -->
+        <rule>
+            <class>io.opentelemetry.javaagent.shaded.io.opentelemetry.context.ThreadLocalContextStorage</class>
+            <method>attach(io.opentelemetry.javaagent.shaded.io.opentelemetry.context.Context)</method>
+            <execute-after>recordCurrentSpan$profiler(p1)</execute-after>
+            <do-not-profile/>
+        </rule>
     </ruleset>
 </profiler-configuration>
