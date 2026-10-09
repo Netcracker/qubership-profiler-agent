@@ -46,6 +46,30 @@ public final class TraceIds {
     }
 
     /**
+     * Records a span whose ID the tracer holds as a number, in the 16-character lowercase hex form
+     * that B3 and W3C Trace Context use on the wire.
+     *
+     * @param traceId the trace the span belongs to, or null to leave the trace as it is
+     * @param spanId the span
+     */
+    public static void recordSpan(String traceId, long spanId) {
+        if (Profiler.getState().sp == 0) {
+            return;
+        }
+        recordSpan(traceId, toSpanIdString(spanId));
+    }
+
+    /** Returns the ID as 16 lowercase hex characters, zero-padded on the left. */
+    static String toSpanIdString(long spanId) {
+        char[] chars = new char[16];
+        for (int i = 15; i >= 0; i--) {
+            chars[i] = Character.forDigit((int) (spanId & 0xf), 16);
+            spanId >>>= 4;
+        }
+        return new String(chars);
+    }
+
+    /**
      * Records the span of the caller that propagated its context to this process.
      *
      * @param traceId the trace the caller's span belongs to, or null to leave the trace as it is

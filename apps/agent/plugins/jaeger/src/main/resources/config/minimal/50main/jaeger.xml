@@ -3,12 +3,20 @@
     <enhancer>jaeger</enhancer>
     <parameters>
         <parameter name="trace.id" index="true" list="true"/>
+        <parameter name="span.id" index="true" list="false" order="800"/>
     </parameters>
     <ruleset if-enhancer="jaeger">
         <rule>
             <class>io.jaegertracing.internal.JaegerTracer$SpanBuilder</class>
             <method>start</method>
-            <execute-after static="true" class="io.jaegertracing.internal.JaegerSpan">logIdAfterStart$profiler(io.opentracing.Span result)</execute-after>
+            <execute-after>recordStartedSpan$profiler(io.opentracing.Span result)</execute-after>
+        </rule>
+        <!-- Activating a span only reads identifiers, so the rule adds no method to the call tree -->
+        <rule>
+            <class>io.opentracing.util.ThreadLocalScopeManager</class>
+            <method>activate(io.opentracing.Span)</method>
+            <execute-after>recordActiveSpan$profiler(p1)</execute-after>
+            <do-not-profile/>
         </rule>
     </ruleset>
 </profiler-configuration>
