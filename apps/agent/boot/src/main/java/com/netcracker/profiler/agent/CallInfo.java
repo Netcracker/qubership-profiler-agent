@@ -13,6 +13,8 @@ public class CallInfo {
     private String ncUser;
     private String endToEndId;
     private String traceId;
+    private String spanId;
+    private String parentSpanId;
     private transient boolean traceIdChanged;
     public long transactions;
     public int logWritten; // number of characters written to logfile
@@ -260,6 +262,22 @@ public class CallInfo {
 
     public boolean traceIdChanged() {
         return traceIdChanged && !(traceIdChanged = false);
+    }
+
+    public String getSpanId() {
+        return spanId;
+    }
+
+    public void setSpanId(String spanId) {
+        this.spanId = spanId;
+    }
+
+    public String getParentSpanId() {
+        return parentSpanId;
+    }
+
+    public void setParentSpanId(String parentSpanId) {
+        this.parentSpanId = parentSpanId;
     }
 
     public MediationCallInfo getMediationInfo() {

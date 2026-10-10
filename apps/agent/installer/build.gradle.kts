@@ -186,6 +186,8 @@ dependencies {
     installerZipElements(projects.plugins.mysql)
     installerZipElements(projects.plugins.ocelot)
     installerZipElements(projects.plugins.opensearch)
+    installerZipElements(projects.plugins.opentelemetry)
+    installerZipElements(projects.plugins.opentelemetryJavaagent)
     installerZipElements(projects.plugins.postgresql)
     installerZipElements(projects.plugins.quartz)
     installerZipElements(projects.plugins.rabbitmq)

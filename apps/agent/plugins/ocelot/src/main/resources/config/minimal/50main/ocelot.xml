@@ -10,10 +10,5 @@
             <method>&lt;init&gt;</method>
             <execute-after>logIdAfterStart$profiler</execute-after>
         </rule>
-        <rule>
-            <class>io.opentelemetry.sdk.trace.SdkSpan</class>
-            <method>&lt;init&gt;</method>
-            <execute-after>logIdAfterStart$profiler</execute-after>
-        </rule>
     </ruleset>
 </profiler-configuration>
