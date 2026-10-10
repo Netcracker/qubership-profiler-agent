@@ -7,7 +7,8 @@ image:
   repository: {{ .Values.profiler.image.repository }}
   tag: {{ .Values.profiler.image.tag }}
 
-minio:
+# The stand installs its own S3 target as a separate release.
+seaweedfs:
   enabled: false
 
 s3:

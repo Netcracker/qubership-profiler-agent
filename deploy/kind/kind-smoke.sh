@@ -31,6 +31,12 @@ if [[ "${CONTEXT}" == kind-* ]]; then
   fi
 fi
 
+# `update`, not `build`: `build` fails on a repository URL that was never
+# registered with `helm repo add`. Chart.yaml pins an exact version, so
+# `update` resolves the same archive and leaves Chart.lock untouched.
+echo "==> Fetching the chart dependencies..."
+helm dependency update deploy/charts/profiler-backend
+
 echo "==> Installing the chart (fresh: old release and PVCs removed)..."
 helm uninstall "${RELEASE}" --kube-context "${CONTEXT}" --wait 2>/dev/null || true
 "${KUBECTL[@]}" delete pvc -l "app.kubernetes.io/instance=${RELEASE}" --ignore-not-found
@@ -70,7 +76,8 @@ forward "svc/${RELEASE}-query" 8080:8080 & PF_PIDS+=($!)
 # No Service exposes the query metrics port (04 §12), so forward the Deployment.
 # Local 8082 avoids the collector's 8081 above.
 forward "deploy/${RELEASE}-query" 8082:8081 & PF_PIDS+=($!)
-forward "svc/${RELEASE}-minio" 9000:9000 & PF_PIDS+=($!)
+# The smoke reads S3 on localhost:9000; the SeaweedFS gateway listens on 8333.
+forward "svc/${RELEASE}-seaweedfs-all-in-one" 9000:8333 & PF_PIDS+=($!)
 cleanup() {
   kill "${PF_PIDS[@]}" 2>/dev/null || true
   pkill -f "port-forward (svc|deploy)/${RELEASE}-" 2>/dev/null || true
@@ -81,6 +88,8 @@ echo "==> Running the Stage 1 smoke against the cluster..."
 SMOKE_COLLECTOR_STOP_CMD="kubectl --context ${CONTEXT} scale statefulset/${RELEASE}-collector --replicas=0 \
   && kubectl --context ${CONTEXT} wait --for=delete pod/${RELEASE}-collector-0 --timeout=180s" \
 SMOKE_COLLECTOR_START_CMD="kubectl --context ${CONTEXT} scale statefulset/${RELEASE}-collector --replicas=1" \
+SMOKE_S3_ACCESS_KEY=profiler \
+SMOKE_S3_SECRET_KEY=profiler-secret \
 go test -tags smoke -count=1 -timeout 25m -v ./libs/tests/smoke/...
 
 echo "==> kind smoke passed"
