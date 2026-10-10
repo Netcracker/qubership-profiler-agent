@@ -11,7 +11,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )

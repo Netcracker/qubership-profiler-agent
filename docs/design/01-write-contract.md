@@ -8,7 +8,7 @@ This document defines what the new Go collector writes to local PV and to S3, an
 
 ## 1. Background: what the agent actually sends
 
-The agent opens a long-lived TCP connection to the collector and multiplexes seven named streams over it (`libs/protocol/streams.go`). Each stream is a sequence of binary chunks delivered via `COMMAND_RCV_DATA` (`libs/parser/parser.go`). This section covers what the agent **sends**; what the collector **reads from each command and writes back** (handshake reply, ack policy, `INIT_STREAM_V2` response, error teardown) is the server-side wire contract in `06-wire-protocol-server.md`.
+The agent opens a long-lived TCP connection to the collector and multiplexes seven named streams over it (`libs/wire/protocol/streams.go`). Each stream is a sequence of binary chunks delivered via `COMMAND_RCV_DATA` (`libs/parser/parser.go`). This section covers what the agent **sends**; what the collector **reads from each command and writes back** (handshake reply, ack policy, `INIT_STREAM_V2` response, error teardown) is the server-side wire contract in `06-wire-protocol-server.md`.
 
 | Stream | Contents | Cardinality |
 |---|---|---|
@@ -19,7 +19,7 @@ The agent opens a long-lived TCP connection to the collector and multiplexes sev
 | `trace` | Binary log of `methodEnter` / `methodExit` events. Children are written before their parent's close. | Many per pod-restart |
 | `sql`, `xml` | Captured payload bodies referenced from calls. | Many per pod-restart |
 
-**Legacy eighth stream: `gc`.** Agents built before v3.1.4 also register a `gc` stream (`Dumper.java`'s `gcOs`), unconditionally whenever they stream directly to a collector — regardless of whether GC-log harvesting is even enabled. v3.1.4 (commit `ac804ee3`) deleted `GCDumper` entirely and relocated GC-log collection to the Go `diagtools` sidecar, so a current agent never opens it. The collector must still accept `gc` (`model.IsKnownStream`, `libs/protocol/streams.go`) and discard its bytes: refusing an unknown stream tears down the whole pod-restart connection (`06-wire-protocol-server.md` §6), which would silently drop every other stream from a pre-3.1.4 agent, not just `gc`. There is nowhere to route these bytes in the redesigned architecture, so they are read and thrown away, not stored.
+**Legacy eighth stream: `gc`.** Agents built before v3.1.4 also register a `gc` stream (`Dumper.java`'s `gcOs`), unconditionally whenever they stream directly to a collector — regardless of whether GC-log harvesting is even enabled. v3.1.4 (commit `ac804ee3`) deleted `GCDumper` entirely and relocated GC-log collection to the Go `diagtools` sidecar, so a current agent never opens it. The collector must still accept `gc` (`model.IsKnownStream`, `libs/wire/protocol/streams.go`) and discard its bytes: refusing an unknown stream tears down the whole pod-restart connection (`06-wire-protocol-server.md` §6), which would silently drop every other stream from a pre-3.1.4 agent, not just `gc`. There is nowhere to route these bytes in the redesigned architecture, so they are read and thrown away, not stored.
 
 Important consequence: **the collector does not assemble calls.** A `Call` record arrives only when the root call has closed on the agent side. The collector's job is to demultiplex streams, persist them, and emit a parquet row per `Call`.
 

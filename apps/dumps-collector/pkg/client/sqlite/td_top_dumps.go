@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/metrics"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

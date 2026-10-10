@@ -11,7 +11,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/tests/helpers"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -244,4 +244,3 @@ func (suite *HeapDumpTestSuite) TestRemoveHeapDumps() {
 func TestHeapDumpTestSuite(t *testing.T) {
 	suite.Run(t, new(HeapDumpTestSuite))
 }
-

@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/io"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/pkg/errors"
 )
 

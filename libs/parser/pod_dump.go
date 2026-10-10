@@ -7,12 +7,12 @@ import (
 	"os"
 	"sort"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/streams"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/files"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 )
 
 type ParsedPodDump struct {

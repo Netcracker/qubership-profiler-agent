@@ -5,7 +5,7 @@ import (
 	"crypto/x509"
 	"os"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/prometheus/client_golang/prometheus"

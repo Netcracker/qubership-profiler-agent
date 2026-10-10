@@ -2,7 +2,7 @@ package io
 
 import (
 	"context"
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
 )
 
 type (

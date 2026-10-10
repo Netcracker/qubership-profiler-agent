@@ -40,11 +40,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # go.mod pins the newer toolchain of the two modules, so it
-          # builds diagtools as well.
+          # go.mod pins the newest toolchain of the three modules, so it
+          # builds diagtools and libs/wire as well.
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
+            libs/wire/go.sum
             apps/agent/diagtools/go.sum
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -53,13 +54,19 @@ jobs:
           cache: npm
           cache-dependency-path: apps/ui/package-lock.json
       # One `go test ./...` from the repository root covers apps/**, libs/** and
-      # tools/**. Legacy parser/generator tests that depend on uncommitted
+      # tools/**, except the nested modules tested below. Legacy parser/generator tests that depend on uncommitted
       # captured fixtures skip themselves on a clean checkout (see WORKFLOW.md §6).
       - name: Go tests with coverage
         # language=bash
         run: go test ./... -covermode=atomic -coverprofile=coverage.out
-      # diagtools is the repository's other Go module, with its own go.mod and
-      # no go.work, so the run above never reaches it. Zig is not needed here:
+      # libs/wire is a nested module that the root go.mod replaces with the
+      # local directory. `./...` stops at a module boundary, so it needs its own run.
+      - name: libs/wire tests with coverage
+        working-directory: libs/wire
+        # language=bash
+        run: go test ./... -covermode=atomic -coverprofile=coverage.out
+      # diagtools is another Go module, with its own go.mod and
+      # no go.work, so the root run never reaches it either. Zig is not needed here:
       # it is the cross-compiling C toolchain from apps/agent/diagtools/Makefile, and these
       # tests build for the host.
       - name: diagtools tests with coverage
@@ -82,7 +89,7 @@ jobs:
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # zizmor: ignore[secrets-outside-env]
-          files: coverage.out,apps/agent/diagtools/coverage.out
+          files: coverage.out,libs/wire/coverage.out,apps/agent/diagtools/coverage.out
           flags: go
           disable_search: true
           fail_ci_if_error: true

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

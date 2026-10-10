@@ -1,8 +1,8 @@
 package emulator
 
 import (
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/io"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	"github.com/pkg/errors"
 )
 

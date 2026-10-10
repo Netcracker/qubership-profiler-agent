@@ -22,7 +22,7 @@ In order to make it quicker to develop, developer can use symlink instead of usi
 1. Checkout latest version of `profiler-common`
 2. Replace full name in all Golang source files and `go.mod`:
 
-   Replace `github.com/Netcracker/qubership-profiler-backend/libs/common` to `profiler-common`
+   Replace `github.com/Netcracker/qubership-profiler-agent/libs/wire/common` to `profiler-common`
 
 3. Create symlink for the folder in dependant repositories:
    * Linux: `ln -s /mnt/c/workspace/profiler-common  /mnt/c/workspace/project/profiler-common`
@@ -52,7 +52,7 @@ In order to make it quicker to develop, developer can use symlink instead of usi
 1. Checkout latest version of `profiler-protocol`
 2. Replace full name in all Golang source files and `go.mod`:
 
-   Replace `github.com/Netcracker/qubership-profiler-backend/libs/protocol` to `profiler-protocol`
+   Replace `github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol` to `profiler-protocol`
 
 3. Create symlink for the folder in dependant repositories:
    * Linux: `ln -s /mnt/c/workspace/profiler-protocol /mnt/c/workspace/project/profiler-protocol`
