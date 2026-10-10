@@ -81,6 +81,8 @@ echo "==> Running the Stage 1 smoke against the cluster..."
 SMOKE_COLLECTOR_STOP_CMD="kubectl --context ${CONTEXT} scale statefulset/${RELEASE}-collector --replicas=0 \
   && kubectl --context ${CONTEXT} wait --for=delete pod/${RELEASE}-collector-0 --timeout=180s" \
 SMOKE_COLLECTOR_START_CMD="kubectl --context ${CONTEXT} scale statefulset/${RELEASE}-collector --replicas=1" \
+SMOKE_S3_ACCESS_KEY=minioadmin \
+SMOKE_S3_SECRET_KEY=minioadmin \
 go test -tags smoke -count=1 -timeout 25m -v ./libs/tests/smoke/...
 
 echo "==> kind smoke passed"

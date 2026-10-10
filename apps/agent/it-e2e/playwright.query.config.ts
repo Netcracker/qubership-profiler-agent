@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 // E2E for the new embedded UI (apps/ui) served by the query service
 // at /ui. The stack is external: `make query-ui` brings up the dev compose
-// (MinIO + collector + query), seeds it with tools/ui-seed, runs
+// (SeaweedFS + collector + query), seeds it with tools/ui-seed, runs
 // this suite, and tears the stack down. QUERY_URL points at a custom stack.
 
 const baseURL = process.env.QUERY_URL ?? 'http://127.0.0.1:8080';
