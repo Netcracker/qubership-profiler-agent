@@ -38,6 +38,15 @@ func chartDir() (string, error) {
 // test when helm is not installed (CI covers it via `make helm-lint` too).
 func renderChart(t *testing.T, extraArgs ...string) string {
 	t.Helper()
+	out, err := renderChartE(t, extraArgs...)
+	require.NoError(t, err, "helm template failed: %s", out)
+	return out
+}
+
+// renderChartE is renderChart for the cases that expect the render to fail: it
+// returns helm's combined output and its error instead of failing the test.
+func renderChartE(t *testing.T, extraArgs ...string) (string, error) {
+	t.Helper()
 	helm, err := exec.LookPath("helm")
 	if err != nil {
 		t.Skip("helm is not installed; the chart render checks run where it is")
@@ -53,8 +62,7 @@ func renderChart(t *testing.T, extraArgs ...string) string {
 		"--set", "s3.auth.secretKey=test",
 	}, extraArgs...)
 	out, err := exec.Command(helm, args...).CombinedOutput()
-	require.NoError(t, err, "helm template failed: %s", out)
-	return string(out)
+	return string(out), err
 }
 
 // TestDurationThresholdsRenderIntoBothWorkloads pins finding 9: the one

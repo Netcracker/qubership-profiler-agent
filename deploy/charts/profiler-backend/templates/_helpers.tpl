@@ -51,12 +51,22 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
-Name of the Service in front of the SeaweedFS subchart's S3 gateway. Mirrors
-the subchart's own seaweedfs.fullname and seaweedfs.componentName helpers,
-which are out of reach here because they read the subchart's .Chart and
-.Values. Keep the two in sync when the dependency version changes.
+Host and port of the Service in front of the SeaweedFS subchart's S3 gateway.
+The subchart runs the gateway in one of three places, and each has its own
+Service and port key:
+
+  - the all-in-one pod (allInOne.enabled and allInOne.s3.enabled): the
+    all-in-one Service on allInOne.s3.port, or s3.port when that is unset;
+  - a standalone gateway (s3.enabled): the s3 Service on s3.port;
+  - the filer (filer.s3.enabled): the s3 Service on filer.s3.port.
+
+The order matches the subchart's templates: all-in-one-service.yml and
+s3-service.yaml. The name mirrors the subchart's seaweedfs.fullname and
+seaweedfs.componentName helpers, which are out of reach here because they read
+the subchart's .Chart and .Values. Keep all of it in sync when the dependency
+version changes.
 */}}
-{{- define "profiler-backend.seaweedfsS3Service" -}}
+{{- define "profiler-backend.seaweedfsS3Address" -}}
 {{- $sw := .Values.seaweedfs -}}
 {{- $fullname := "" -}}
 {{- if $sw.fullnameOverride -}}
@@ -69,8 +79,19 @@ which are out of reach here because they read the subchart's .Chart and
 {{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
-{{- $suffix := ternary "all-in-one" "s3" (dig "allInOne" "enabled" false $sw) -}}
-{{- printf "%s-%s" ($fullname | trunc (int (sub 62 (len $suffix))) | trimSuffix "-") $suffix -}}
+{{- $standalonePort := dig "s3" "port" 8333 $sw -}}
+{{- $suffix := "s3" -}}
+{{- $port := $standalonePort -}}
+{{- if and (dig "allInOne" "enabled" false $sw) (dig "allInOne" "s3" "enabled" false $sw) -}}
+{{- $suffix = "all-in-one" -}}
+{{- $port = dig "allInOne" "s3" "port" "" $sw | default $standalonePort -}}
+{{- else if dig "s3" "enabled" false $sw -}}
+{{- else if dig "filer" "s3" "enabled" false $sw -}}
+{{- $port = dig "filer" "s3" "port" 8333 $sw -}}
+{{- else -}}
+{{- fail "seaweedfs.enabled is set, but the subchart runs no S3 gateway: enable seaweedfs.allInOne.s3, seaweedfs.s3, or seaweedfs.filer.s3, or set s3.endpoint" -}}
+{{- end -}}
+{{- printf "%s-%s:%v" ($fullname | trunc (int (sub 62 (len $suffix))) | trimSuffix "-") $suffix $port -}}
 {{- end -}}
 
 {{/* Effective S3 endpoint: explicit value, or the SeaweedFS subchart */}}
@@ -78,8 +99,7 @@ which are out of reach here because they read the subchart's .Chart and
 {{- if .Values.s3.endpoint -}}
 {{- .Values.s3.endpoint -}}
 {{- else if .Values.seaweedfs.enabled -}}
-{{- $port := dig "allInOne" "s3" "port" "" .Values.seaweedfs | default (dig "s3" "port" 8333 .Values.seaweedfs) -}}
-{{- printf "http://%s:%v" (include "profiler-backend.seaweedfsS3Service" .) $port -}}
+{{- printf "http://%s" (include "profiler-backend.seaweedfsS3Address" .) -}}
 {{- else -}}
 {{- fail "set s3.endpoint, or install the dev SeaweedFS subchart with seaweedfs.enabled=true" -}}
 {{- end -}}
