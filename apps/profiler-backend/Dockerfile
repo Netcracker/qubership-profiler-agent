@@ -6,7 +6,7 @@
 
 # The Stage 5 UI (apps/ui) builds in its own stage, so the image carries the
 # /ui assets without a node toolchain on the host (07-ui-design.md §6).
-FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS ui-builder
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS ui-builder
 
 WORKDIR /ui
 
