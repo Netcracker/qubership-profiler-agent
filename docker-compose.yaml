@@ -17,7 +17,9 @@ services:
     ports:
       # Host 9000 is where the smoke tests expect S3; the gateway listens on 8333.
       - "9000:8333" # S3 API
-      - "23646:23646" # admin UI
+      # Loopback only: the admin UI has no login, and anyone who reaches it can
+      # change S3 keys and delete buckets.
+      - "127.0.0.1:23646:23646" # admin UI
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8333/healthz"]
       interval: 2s
