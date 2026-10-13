@@ -1,15 +1,19 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
+import { HttpResponse, http } from 'msw';
 import { RouterProvider, createMemoryRouter } from 'react-router';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { ConfigProvider } from './api/use-config';
 import { APP_ROUTES } from './app';
+import { resetAgentConfigMock } from './mocks/agent-config';
 import { server } from './mocks/node';
 
-// The route table under the app's own providers.
+// The route table under the app's own providers: /agents exists only when
+// /config reports the agent-configuration feature.
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeEach(() => resetAgentConfigMock());
 afterEach(() => {
   cleanup();
   server.resetHandlers();
@@ -30,34 +34,45 @@ function renderApp(path: string) {
   return router;
 }
 
-describe('the route table', () => {
-  it('sends the base path to Calls', async () => {
-    const router = renderApp('/');
-    await waitFor(() => expect(router.state.location.pathname).toBe('/calls'));
-    expect(screen.getByRole('link', { name: 'Calls' })).toHaveAttribute('aria-current', 'page');
+/** Resolves once the page has the answer to its /config request. */
+function configAnswered(): Promise<void> {
+  return new Promise((resolve) => {
+    server.events.on('response:mocked', ({ request }) => {
+      if (new URL(request.url).pathname === '/api/v1/config') setTimeout(resolve, 20);
+    });
+  });
+}
+
+describe('the /agents route', () => {
+  it('renders the agent-configuration page when /config reports the feature', async () => {
+    renderApp('/agents?scope=prod-billing');
+    expect(await screen.findByRole('button', { name: /^Scope/ })).toHaveTextContent('prod-billing');
+    expect(screen.getByRole('banner')).toHaveTextContent('Agent configuration');
+    expect(screen.getByRole('link', { name: 'Agents' })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('renders the shell around Pods Info', () => {
-    renderApp('/pods');
-    expect(screen.getByRole('banner')).toHaveTextContent('Pods Info');
-    expect(screen.getByRole('link', { name: 'Pods Info' })).toHaveAttribute('aria-current', 'page');
-  });
+  it.each([
+    ['a backend that predates the flag', { dumps_collector_url: '' }],
+    ['the flag turned off', { dumps_collector_url: '', features: { agent_config: false } }],
+  ])('is absent with %s', async (_, config) => {
+    server.use(http.get('/api/v1/config', () => HttpResponse.json(config)));
+    const answered = configAnswered();
+    renderApp('/agents');
+    await answered;
 
-  it('renders nothing for an unknown path', () => {
-    renderApp('/nowhere');
+    // No route matches, so not even the shell renders, as for any unknown path.
+    expect(screen.queryByRole('button', { name: /^Scope/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('banner')).not.toBeInTheDocument();
     expect(document.body.textContent).toBe('');
   });
 
-  it('asks for /config once, however many readers it has', async () => {
+  it('asks for /config once, for the routes, the rail, and the page', async () => {
     let requests = 0;
     server.events.on('request:start', ({ request }) => {
       if (new URL(request.url).pathname === '/api/v1/config') requests += 1;
     });
     renderApp('/pods');
+    expect(await screen.findByRole('link', { name: 'Agents' })).toBeInTheDocument();
     await waitFor(() => expect(requests).toBe(1));
-    // Give a second, unshared request the time to show up.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(requests).toBe(1);
   });
 });

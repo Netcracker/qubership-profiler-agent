@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_DURATION_MIN_MS,
+  EMPTY_AGENTS_SEARCH,
   EMPTY_CALLS_SEARCH,
+  agentsSearchToParams,
   callsSearchToParams,
   freezeWindow,
   hasRelativeWindow,
+  parseAgentsSearch,
   parseCallsSearch,
   parseTreeSearch,
   treeHref,
@@ -115,6 +118,27 @@ describe('tree search state', () => {
     expect(parseTreeSearch(new URLSearchParams('retention_class=nope'))).toEqual({
       tsMs: null,
       retentionClass: null,
+    });
+  });
+});
+
+describe('agents search state', () => {
+  it('round-trips a service scope and a tab, with the slash percent-encoded', () => {
+    const state = { scope: 'prod-orders/order-processing', tab: 'agents' } as const;
+    const sp = agentsSearchToParams(state);
+    expect(sp.toString()).toBe('scope=prod-orders%2Forder-processing&tab=agents');
+    expect(parseAgentsSearch(sp)).toEqual(state);
+  });
+
+  it('defaults to the Default scope and the Settings tab, and keeps that URL clean', () => {
+    expect(parseAgentsSearch(new URLSearchParams())).toEqual(EMPTY_AGENTS_SEARCH);
+    expect(agentsSearchToParams(EMPTY_AGENTS_SEARCH).toString()).toBe('');
+  });
+
+  it('falls back to the Settings tab for an unknown tab', () => {
+    expect(parseAgentsSearch(new URLSearchParams('scope=prod-billing&tab=history'))).toEqual({
+      scope: 'prod-billing',
+      tab: 'settings',
     });
   });
 });
