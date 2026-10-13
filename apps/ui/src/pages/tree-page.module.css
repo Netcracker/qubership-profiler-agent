@@ -88,6 +88,10 @@
   font-weight: 500;
 }
 
+.chipMuted {
+  opacity: 0.8;
+}
+
 .headerRight {
   display: flex;
   align-items: center;
@@ -124,6 +128,24 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* Sets the link-outs apart from the page's own actions. */
+.toolbarDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--pf-color-border);
+}
+
+/* Wraps a disabled link button and takes the hover and the focus for its tooltip. */
+.disabledLink {
+  display: inline-flex;
+  border-radius: 6px;
+  cursor: not-allowed;
+}
+
+.disabledLink > button {
+  pointer-events: none;
 }
 
 .toolbarRow {
