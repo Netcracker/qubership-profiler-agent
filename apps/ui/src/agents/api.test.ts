@@ -32,6 +32,7 @@ describe('features.agent_config', () => {
   });
 
   it('defaults to off when the backend omits it', async () => {
+    configWith(undefined);
     expect(isAgentConfigEnabled(await fetchConfig())).toBe(false);
 
     configWith({});

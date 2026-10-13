@@ -1,9 +1,10 @@
-import { HttpResponse, delay, http } from 'msw';
+import { HttpResponse, http } from 'msw';
 
 import { parsePkPath } from '../api/pk';
 import { isRetentionClass } from '../api/types';
-import type { ProblemDetails } from '../api/types';
 import { encodeTree } from '../msgpack/encode';
+import { agentConfigHandlers } from './agent-config';
+import { badRequest, pace, problem } from './respond';
 import { HOT_WINDOW_MS, callsPage, findCall, podsInRange, treeForCall } from './synthetic';
 import type { CallsQueryShape, Position } from './synthetic';
 
@@ -16,21 +17,6 @@ export const WIDE_RANGE_LIMIT_MS = 6 * 60 * 60 * 1000;
 export const CURSOR_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
-
-function problem(p: ProblemDetails): Response {
-  return HttpResponse.json(p, {
-    status: p.status,
-    headers: { 'Content-Type': 'application/problem+json' },
-  });
-}
-
-const badRequest = (detail: string): Response =>
-  problem({ type: 'about:blank', title: 'invalid request', status: 400, detail });
-
-// Human pacing in the browser; instant under vitest.
-async function pace(): Promise<void> {
-  if (import.meta.env.MODE !== 'test') await delay(120 + Math.random() * 200);
-}
 
 // --- Window and filter parsing (mirrors model.ParseWindow / ParseCallsQuery) ---
 
@@ -198,8 +184,14 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
 export const handlers = [
   http.get('/api/v1/config', async () => {
     await pace();
-    return HttpResponse.json({ dumps_collector_url: 'https://dumps-collector-petclinic.example.com' });
+    return HttpResponse.json({
+      dumps_collector_url: 'https://dumps-collector-petclinic.example.com',
+      // No backend sets the flag yet; the mock serves the draft API it gates.
+      features: { agent_config: true },
+    });
   }),
+
+  ...agentConfigHandlers,
 
   http.get('/api/v1/pods', async ({ request }) => {
     await pace();
