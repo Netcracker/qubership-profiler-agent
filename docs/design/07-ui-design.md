@@ -368,3 +368,7 @@ classified by effort in [`08-ui-backend-requirements.md`](08-ui-backend-requirem
 - [x] **Bundled Inter and JetBrains Mono at a 13 px base, reversing "typography left out of the theme"** — local
   `woff2` files, because the embedded UI must not fetch from another host. D6 stands: the redesign stays on plain
   AntD 6 — accepted (2026-10-13).
+- [x] **A fourth tree tab, Flame graph, reversing "one indented tree in v1"** — the tree page has the fixed tabs
+  Call Tree, Flame graph, Hotspots, and Parameters, drawn as line tabs, and the open one is in the URL as `tab`
+  (§3.2 and §6 of `09`). The flame graph is a client-side transform of the same merged model, so it needs no
+  backend change — accepted (2026-10-13).

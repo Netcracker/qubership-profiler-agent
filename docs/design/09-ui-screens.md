@@ -122,19 +122,36 @@ not lose the list.
 
 ### 3.1 Context header
 
-Replaces the top bar. Shows the breadcrumb (`service / pod`), the call identity chip (`time · duration`), the
-`trace_id` chip, and the deep-link-out buttons (`Open trace · Tempo`, `Logs · Grafana`). The links are the
-correlation seam — provisioned, wiring deferred (07 §3.4).
+The tree route has no navigation rail, and this header replaces the shell's. From left to right:
+
+| Element | Content |
+|---------|---------|
+| Back arrow | A link to Calls. An exported copy has no Calls screen and leaves the arrow out. |
+| Product name | `Profiler`. |
+| Identity | `namespace / service / pod`, with the pod name at full strength. |
+| Endpoint chip | `METHOD /path`, from the root call's `web.method` and `web.url` params. Absent when the call has none. |
+| Start time chip | The call's start in the display time zone. Its tooltip names the retention class. |
+| Duration chip | The call's total duration. |
+| Offline chip | `offline copy`, in an exported copy only. |
+| Theme switch | At the far right (§1). |
+
+The trace ID chip and the link-out buttons (`Open trace`, `Logs`) are the correlation seam — provisioned, wiring
+deferred (07 §3.4). The buttons belong to the toolbar (§3.2), after `Download HTML`.
 
 ### 3.2 Tabs and toolbar
 
-Tabs: **Call Tree**, **Hotspots**, **Parameters**. The old Database and Gantt tabs are dropped.
+Four fixed tabs, drawn as line tabs: **Call Tree**, **Flame graph** (§3.6), **Hotspots**, **Parameters**. The old
+Database and Gantt tabs are dropped. The open fixed tab is in the URL as `tab` (§6), so a shared link reopens it.
 
-Toolbar: tree search, `Adjust duration`, `Setup categories`, `Download`.
+The `Incoming` / `Outgoing` / `Find usages` / `Local hotspots` results open as derived-view tabs after the fixed
+ones, each with a close button. A derived tab holds the recipe `(op, method, category)` and re-derives from the
+current model, so it follows Adjust and Setup edits. Derived tabs are client-side state only: they persist through
+the 10b HTML export (07 §5.3), not the URL. Closing the active one returns to the fixed tab that the URL names.
 
-The `Incoming` / `Outgoing` / `Find usages` / `Local hotspots` results open as derived-view tabs that hold the
-recipe `(op, method, category)` and re-derive from the current model, so they follow Adjust and Setup edits.
-Tab state is client-side only; it persists through the 10b HTML export (07 §5.3), not the URL.
+The toolbar sits at the right end of the tab bar: `Adjust duration`, `Setup categories`, `Download HTML`. The slot
+between `Setup categories` and `Download HTML` is reserved for `Explain` and stays empty until the assistant ships.
+Without a tree (loading, cold call, error) there are no tabs; the toolbar then has a row of its own, with its
+buttons disabled. The tree search belongs to the Call Tree tab, not to the toolbar.
 
 ### 3.3 Tree rows
 
@@ -207,9 +224,13 @@ needs a choice.
 |--------|------|---------------------|
 | Calls | `/ui/calls` | `from`, `to` (Unix ms); `pod` (repeatable `ns/svc/pod`); `service` (repeatable); `duration_min_ms`; `error_only`; `retention_class` (repeatable); `q` (method / `$param`) |
 | Pods Info | `/ui/pods` | `from`, `to`; `service` (repeatable) |
-| Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints |
+| Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints; `tab` (`tree`, `flame`, `hotspots`, `params`) |
 
 The `cursor` is never in the URL — it is transient scroll state and expires (07 §3.2).
+
+On the tree route, `tab` names the open fixed tab. The default, `tree`, is left out of the URL, and a missing or
+unknown value opens Call Tree. A tab switch replaces the history entry, so Back leaves the page instead of stepping
+through tabs. Derived tabs never enter the URL (§3.2).
 
 ## 7. Non-goals for v1
 
