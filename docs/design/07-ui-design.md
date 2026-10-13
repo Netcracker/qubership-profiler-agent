@@ -245,6 +245,14 @@ The rest of the old operation set to preserve (`profiler.mjs`, `user-guide.md` Â
   open, `main.tsx` reads `window.__PROFILER_RESTORE__`, re-decodes the embedded bytes, and boots into the
   tree. Method *indexes* (not words) are stable because the export carries the exact wire the server sent.
   This replaces the old server-baked download; xlsx and stackcollapse/flamegraph export stay deferred.
+  - *Tabs.* The copy has all four fixed tabs, the flame graph included, and reopens on the tab that was
+    active. It has no link buttons, because it has no backend to ask for the templates.
+  - *Theme.* The payload records the theme active at export time, and the copy opens in it, whatever the
+    reader's browser prefers. Opening the file stores nothing; the theme switch in the copy still works.
+  - *Fonts.* A font URL does not load from a file on disk, so the export inlines the Latin subsets of Inter
+    and JetBrains Mono as `data:` URLs and drops the `@font-face` rules of the other subsets. Text in another
+    script falls back to the system fonts at the end of the font stacks. The two subsets add about 120 KB;
+    all 13 would add about 410 KB to every export.
 
 Open-in-IDE is dropped for the in-cluster UI (it needs a local IDE bridge).
 
