@@ -130,11 +130,14 @@ The tree route has no navigation rail, and this header replaces the shell's. Fro
 | Endpoint chip | `METHOD /path`, from the root call's `web.method` and `web.url` params. Absent when the call has none. |
 | Start time chip | The call's start in the display time zone. Its tooltip names the retention class. |
 | Duration chip | The call's total duration. |
+| Trace chip | `trace` and the first 12 characters of the call's trace ID, with the full ID in the tooltip. A call without one shows `not traced`. |
 | Offline chip | `offline copy`, in an exported copy only. |
 | Theme switch | At the far right (§1). |
 
-The trace ID chip and the link-out buttons (`Open trace`, `Logs`) are the correlation seam — provisioned, wiring
-deferred (07 §3.4). The buttons belong to the toolbar (§3.2), after `Download HTML`.
+The trace ID is a param of the call. The agent records it as `trace.id` (the Jaeger and OpenTelemetry plugins),
+`brave.trace_id` (the Brave plugin), or `X-B3-TraceId` (the incoming header). The UI reads the root call's params
+first. A tracer that starts its span a few frames down records the ID there, so the UI then takes the first ID it
+meets in the tree.
 
 ### 3.2 Tabs and toolbar
 
@@ -150,6 +153,19 @@ The toolbar sits at the right end of the tab bar: `Adjust duration`, `Setup cate
 between `Setup categories` and `Download HTML` is reserved for `Explain` and stays empty until the assistant ships.
 Without a tree (loading, cold call, error) there are no tabs; the toolbar then has a row of its own, with its
 buttons disabled. The tree search belongs to the Call Tree tab, not to the toolbar.
+
+**Link buttons** follow `Download HTML`, after a divider: one per entry of `links` in `/api/v1/config`, in the
+operator's order, with the entry's label (02 §2.8). The UI fills the template with the call's trace ID, its pod
+identity, and its window: `from_ms` is the call's start and `to_ms` is the start plus the duration. Each value is
+encoded as `encodeURIComponent` does. A button opens its link in a new tab.
+
+| Case | Button |
+|------|--------|
+| The deployment configures no links | Absent, along with the divider. |
+| The call has a value for every placeholder of the template | Enabled. |
+| The template uses a placeholder the call has no value for, typically `{trace_id}` on an untraced call | Shown disabled, with the reason in a tooltip. |
+
+An exported copy has no backend to ask for the templates and shows no link buttons.
 
 ### 3.3 Tree rows
 
