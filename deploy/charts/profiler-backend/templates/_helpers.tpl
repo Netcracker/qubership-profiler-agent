@@ -57,8 +57,17 @@ Service and port key:
 
   - the all-in-one pod (allInOne.enabled and allInOne.s3.enabled): the
     all-in-one Service on allInOne.s3.port, or s3.port when that is unset;
-  - a standalone gateway (s3.enabled): the s3 Service on s3.port;
-  - the filer (filer.s3.enabled): the s3 Service on filer.s3.port.
+  - a standalone gateway (filer.enabled and s3.enabled): the s3 Service on
+    s3.port;
+  - the filer (filer.enabled and filer.s3.enabled): the s3 Service on
+    filer.s3.port.
+
+Both s3 Service modes need filer.enabled, which the subchart does not check:
+the standalone gateway reaches its filer through the filer-client Service,
+and the filer-hosted one runs in the filer pod, and both exist only with
+filer.enabled.
+The helper checks only that link; whether the filer reaches a master is the
+subchart's configuration (master.enabled or global.seaweedfs.masterServer).
 
 The order matches the subchart's templates: all-in-one-service.yml and
 s3-service.yaml. The name mirrors the subchart's seaweedfs.fullname and
@@ -85,11 +94,11 @@ version changes.
 {{- if and (dig "allInOne" "enabled" false $sw) (dig "allInOne" "s3" "enabled" false $sw) -}}
 {{- $suffix = "all-in-one" -}}
 {{- $port = dig "allInOne" "s3" "port" "" $sw | default $standalonePort -}}
-{{- else if dig "s3" "enabled" false $sw -}}
-{{- else if dig "filer" "s3" "enabled" false $sw -}}
+{{- else if and (dig "filer" "enabled" false $sw) (dig "s3" "enabled" false $sw) -}}
+{{- else if and (dig "filer" "enabled" false $sw) (dig "filer" "s3" "enabled" false $sw) -}}
 {{- $port = dig "filer" "s3" "port" 8333 $sw -}}
 {{- else -}}
-{{- fail "seaweedfs.enabled is set, but the subchart runs no S3 gateway: enable seaweedfs.allInOne.s3, seaweedfs.s3, or seaweedfs.filer.s3, or set s3.endpoint" -}}
+{{- fail "seaweedfs.enabled is set, but the subchart runs no S3 gateway: enable seaweedfs.allInOne.s3, or seaweedfs.filer with seaweedfs.s3 or seaweedfs.filer.s3, or set s3.endpoint" -}}
 {{- end -}}
 {{- printf "%s-%s:%v" ($fullname | trunc (int (sub 62 (len $suffix))) | trimSuffix "-") $suffix $port -}}
 {{- end -}}
