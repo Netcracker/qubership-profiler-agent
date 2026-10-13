@@ -442,8 +442,12 @@ A template may use these placeholders, each any number of times:
 | `{pod}` | Name of the pod that served the call. |
 
 **The client expands the templates.** It replaces each placeholder with the URL-encoded value (percent-encoding, as
-`encodeURIComponent` does) and opens the result. The server never sees the expanded URL. A client that has no value
-for a placeholder of a template, such as `{trace_id}` on a call that carries no trace ID, does not offer that link.
+`encodeURIComponent` does) and opens the result. The server never sees the expanded URL.
+
+**A link without a value stays visible.** A client that has no value for a placeholder of a template, such as
+`{trace_id}` on a call that carries no trace ID, shows that link disabled and states the reason, for example in a
+tooltip. It does not hide the link: the reader then sees that the deployment has a trace link and that this call is
+the exception. A link is absent only when the deployment configures no entry for it.
 
 **The server validates at startup.** `query` refuses to start when an entry has an empty `label`, a `kind` other
 than `trace` or `logs`, a placeholder outside the table above, an unmatched brace, or a `url_template` that is not
