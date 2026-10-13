@@ -1,20 +1,78 @@
-/* Brand palette values that have no antd semantic token, kept next to
-   profiler-theme.ts so the whole palette lives in one place. The rest of the
-   palette is the token map in that file. */
+/* The redesign palette as CSS variables. The first group repeats the values
+   that profiler-theme.ts hands to antd, for markup outside an antd component
+   (`--ant-*` variables exist only under one). The rest are colors antd has no
+   token for. */
 :root {
-  /* Mid step of the duration heat ramp, between colorWarning and colorError
-     (APIHUB deprecated-orange). Used by durationHeat in calls/format.ts. */
+  --pf-font-sans: 'Inter Variable', Inter, 'Segoe UI', system-ui, sans-serif;
+  --pf-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --pf-color-ground: #f5f5fa;
+  --pf-color-surface: #ffffff;
+  --pf-color-border: #d5dce3;
+  --pf-color-border-soft: #e6ebf1;
+  --pf-color-text: #353c4e;
+  --pf-color-dim: #626d82;
+  --pf-color-faint: #8f9eb4;
+  --pf-color-accent: #0068ff;
+  --pf-color-accent-text: #005dcf;
+  --pf-color-ok: #00a356;
+  --pf-color-warn: #b8760c;
+  --pf-color-crit: #d10049;
+
+  /* Surfaces and states. */
+  --pf-color-surface2: #edf1f5;
+  --pf-color-accent-soft: #d6edff;
+  --pf-color-veil: rgba(46, 58, 82, 0.09);
+  --pf-color-header: #0068ff;
+  --pf-color-warn-bg: #fff4d6;
+  --pf-color-crit-bg: #ffe3e9;
+  --pf-shadow: 0 4px 12px rgba(0, 0, 0, 0.16), 0 12px 32px rgba(0, 0, 0, 0.12);
+
+  /* Mid step of the duration heat ramp, between colorWarning and colorError.
+     Used by durationHeat in calls/format.ts. */
   --pf-color-heat-mid: #ef9206;
 
-  /* Darker draft-chip blue for processing tags: colorInfo (#61AAF2) is too pale
-     on the light info background, so tag text uses this instead. */
+  /* Histogram and share bars. */
+  --pf-color-bar: #0068ff;
+  --pf-color-bar-soft: rgba(0, 104, 255, 0.22);
+  --pf-color-bar-err: #d10049;
+
+  /* Tags. Processing tags (sql, duration, SQL param keys) take the darker blue
+     for their text; see the rule below. */
+  --pf-color-tag-err-bg: #ffe3e9;
+  --pf-color-tag-info-bg: #d6edff;
   --pf-color-tag-info-text: #004eae;
+
+  /* Call tree: search-match mark, connector lines, and SQL syntax colors. */
+  --pf-color-mark: #ffea9f;
+  --pf-color-guide: #b4bfcf;
+  --pf-color-syntax-keyword: #005dcf;
+  --pf-color-syntax-number: #00874a;
 }
 
-/* Processing tags (sql, duration, SQL param keys) inherit colorInfo for their
-   text, which reads faintly on the pale info fill. Swap in the darker brand
-   blue. antd's own rule carries specificity 0,4,0, so `!important` is the clean
-   way to win without matching its brittle internal class chain. */
+/* antd styles its own components from the tokens; this covers the page around
+   them and any markup that is not an antd component. */
+body {
+  font-family: var(--pf-font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--pf-color-text);
+  background: var(--pf-color-ground);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers and identifiers: fixed-width digits so columns of durations, counts,
+   and timestamps line up. */
+.pf-mono {
+  font-family: var(--pf-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* Processing tags inherit colorInfo for their text, which reads faintly on the
+   pale info fill. Swap in the darker brand blue. antd's own rule carries
+   specificity 0,4,0, so `!important` is the clean way to win without matching
+   its brittle internal class chain. */
 .ant-tag-processing {
   color: var(--pf-color-tag-info-text) !important;
 }
