@@ -1,6 +1,5 @@
 package io.opentelemetry.javaagent.shaded.io.opentelemetry.context;
 
-import com.netcracker.profiler.agent.Profiler;
 import com.netcracker.profiler.agent.TraceIds;
 
 import io.opentelemetry.javaagent.shaded.io.opentelemetry.api.trace.Span;
@@ -19,21 +18,55 @@ public class ThreadLocalContextStorage {
      * the application's own {@code ThreadLocalContextStorage} does.
      */
     public void recordCurrentSpan$profiler(Context toAttach) {
-        if (toAttach == null || Profiler.getState().sp == 0) {
+        if (toAttach == null) {
+            // attach leaves the current context alone
             return;
         }
-        Span span = Span.fromContextOrNull(toAttach);
-        if (span == null) {
-            return;
-        }
-        SpanContext context = span.getSpanContext();
-        if (context == null || !context.isValid()) {
-            return;
-        }
-        if (context.isRemote()) {
-            TraceIds.recordRemoteParent(context.getTraceId(), context.getSpanId());
+        SpanContext context = validSpanContext$profiler(toAttach);
+        if (context == null) {
+            TraceIds.recordCurrentSpan(null, null, false);
         } else {
-            TraceIds.recordSpan(context.getTraceId(), context.getSpanId());
+            TraceIds.recordCurrentSpan(context.getTraceId(), context.getSpanId(), context.isRemote());
+        }
+    }
+
+    /**
+     * Reports the span of the context that closing a scope has just restored on this thread, as
+     * the hook on the application's own {@code ThreadLocalContextStorage} does.
+     */
+    public void restoreCurrentSpan$profiler() {
+        SpanContext context = validSpanContext$profiler(Context.current());
+        if (context == null) {
+            TraceIds.restoreCurrentSpan(null, null, false);
+        } else {
+            TraceIds.restoreCurrentSpan(context.getTraceId(), context.getSpanId(), context.isRemote());
+        }
+    }
+
+    private static SpanContext validSpanContext$profiler(Context context) {
+        Span span = Span.fromContextOrNull(context);
+        if (span == null) {
+            return null;
+        }
+        SpanContext spanContext = span.getSpanContext();
+        return spanContext == null || !spanContext.isValid() ? null : spanContext;
+    }
+
+    /** The scope that {@code attach} returns from 1.22.0 on. Earlier releases return a lambda. */
+    @SuppressWarnings("UnusedNestedClass")
+    static class ScopeImpl {
+        /**
+         * Reports the span of the context that closing this scope has just restored. It repeats
+         * the hook of the enclosing class, which is injected only where the lambda exists.
+         */
+        public void restoreCurrentSpan$profiler() {
+            Span span = Span.fromContextOrNull(Context.current());
+            SpanContext context = span == null ? null : span.getSpanContext();
+            if (context == null || !context.isValid()) {
+                TraceIds.restoreCurrentSpan(null, null, false);
+            } else {
+                TraceIds.restoreCurrentSpan(context.getTraceId(), context.getSpanId(), context.isRemote());
+            }
         }
     }
 }

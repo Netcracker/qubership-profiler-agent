@@ -16,6 +16,8 @@ public class CallInfo {
     private String spanId;
     private String parentSpanId;
     private transient boolean traceIdChanged;
+    /** Set once the call has recorded the span that was current when it started. See {@link TraceIds}. */
+    transient boolean spanAtCallStartRecorded;
     public long transactions;
     public int logWritten; // number of characters written to logfile
     public int logGenerated; // number of characters passed to .log calls

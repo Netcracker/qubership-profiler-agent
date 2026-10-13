@@ -11,6 +11,7 @@ import io.opentelemetry.context.Context
 import io.opentelemetry.sdk.trace.SdkTracerProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 /**
@@ -31,6 +32,18 @@ class TraceIdsUnderAgentTest {
     }
 
     private fun callInfo(): CallInfo = Profiler.getState().callInfo
+
+    /**
+     * Runs a profiled call that touches no tracer and returns its `CallInfo` once the call is over.
+     *
+     * A span that was current before the call started is recorded no later than the end of the
+     * call, so the IDs are read afterward. The event keeps the call from being dropped as too
+     * short to log.
+     */
+    private fun finishedCall(): CallInfo = profiled {
+        Profiler.event("value", "test.param")
+        callInfo()
+    }
 
     @Test
     fun `a span created in a profiled call is recorded without being made current`() {
@@ -96,6 +109,96 @@ class TraceIdsUnderAgentTest {
             } finally {
                 span.end()
             }
+        }
+    }
+
+    @Test
+    fun `a context made current before the call starts is recorded as the parent`() {
+        val remote = SpanContext.createFromRemoteParent(
+            "5b8aa5a2d2c872e8321cf37308d69df2",
+            "051581bf3cb55c13",
+            TraceFlags.getSampled(),
+            TraceState.getDefault()
+        )
+        var call: CallInfo? = null
+        Context.root().with(Span.wrap(remote)).wrap(Runnable { call = finishedCall() }).run()
+        assertEquals(remote.traceId, call?.traceId, "traceId")
+        assertEquals(remote.spanId, call?.parentSpanId, "parentSpanId")
+        assertNull(call?.spanId, "spanId")
+        assertEquals(remote.traceId, call?.endToEndId, "endToEndId")
+    }
+
+    @Test
+    fun `a span made current before the call starts is recorded`() {
+        val span = tracer.spanBuilder("handed over").startSpan()
+        try {
+            var call: CallInfo? = null
+            Context.root().with(span).wrap(Runnable { call = finishedCall() }).run()
+            assertEquals(span.spanContext.traceId, call?.traceId, "traceId")
+            assertEquals(span.spanContext.spanId, call?.spanId, "spanId")
+        } finally {
+            span.end()
+        }
+    }
+
+    @Test
+    fun `every call that starts while a span stays current records it`() {
+        val span = tracer.spanBuilder("handed over").startSpan()
+        try {
+            span.makeCurrent().use {
+                finishedCall()
+                assertEquals(span.spanContext.spanId, finishedCall().spanId, "spanId of the second call")
+            }
+        } finally {
+            span.end()
+        }
+    }
+
+    @Test
+    fun `a span whose scope closed before the call started is not recorded`() {
+        val span = tracer.spanBuilder("closed").startSpan()
+        try {
+            span.makeCurrent().close()
+            val call = finishedCall()
+            assertNull(call.traceId, "traceId")
+            assertNull(call.spanId, "spanId")
+        } finally {
+            span.end()
+        }
+    }
+
+    @Test
+    fun `closing an inner scope before the call starts leaves the outer span`() {
+        val outer = tracer.spanBuilder("outer").startSpan()
+        val inner = tracer.spanBuilder("inner").startSpan()
+        try {
+            outer.makeCurrent().use {
+                inner.makeCurrent().close()
+                assertEquals(outer.spanContext.spanId, finishedCall().spanId, "spanId")
+            }
+        } finally {
+            inner.end()
+            outer.end()
+        }
+    }
+
+    @Test
+    fun `a span created in the call follows the span the call started under`() {
+        val outer = tracer.spanBuilder("outer").startSpan()
+        try {
+            outer.makeCurrent().use {
+                profiled {
+                    val child = tracer.spanBuilder("child").startSpan()
+                    try {
+                        assertEquals(child.spanContext.spanId, callInfo().spanId, "spanId")
+                        assertEquals(outer.spanContext.traceId, callInfo().traceId, "traceId")
+                    } finally {
+                        child.end()
+                    }
+                }
+            }
+        } finally {
+            outer.end()
         }
     }
 
