@@ -120,4 +120,11 @@ class TraceIdsTest {
         assertNull(TraceIds.b3TraceId(header))
         assertNull(TraceIds.b3SpanId(header))
     }
+
+    @Test
+    fun `a numeric span ID is rendered as 16 hex characters`() {
+        assertEquals("00f067aa0ba902b7", TraceIds.toSpanIdString(0x00f067aa0ba902b7L))
+        assertEquals("0000000000000001", TraceIds.toSpanIdString(1L))
+        assertEquals("ffffffffffffffff", TraceIds.toSpanIdString(-1L))
+    }
 }

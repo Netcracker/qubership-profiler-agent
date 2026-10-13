@@ -1,7 +1,7 @@
 package brave;
 
-import com.netcracker.profiler.agent.CallInfo;
 import com.netcracker.profiler.agent.Profiler;
+import com.netcracker.profiler.agent.TraceIds;
 
 import brave.propagation.TraceContext;
 
@@ -12,18 +12,14 @@ public abstract class RealSpan extends Span {
         if (context == null) {
             return;
         }
-        if (!context.sampled()) {
+        // The decision is null while it is deferred, and such a span is skipped like an unsampled one
+        if (!Boolean.TRUE.equals(context.sampled())) {
             return;
         }
         String traceId = context.traceIdString();
-
-        // Populate end-to-end
-        CallInfo callInfo = Profiler.getState().callInfo;
-        String endToEndId = callInfo.getEndToEndId();
-        if (endToEndId == null) {
-            callInfo.setEndToEndId(traceId);
-        }
-        callInfo.setTraceId(traceId);
+        // The names every tracer plugin shares. The brave.* parameters below predate them and stay
+        // for the searches that already use them.
+        TraceIds.recordSpan(traceId, context.spanId());
 
         Profiler.event(traceId, "brave.trace_id");
 

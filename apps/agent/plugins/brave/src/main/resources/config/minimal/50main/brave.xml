@@ -2,6 +2,8 @@
 <profiler-configuration>
     <enhancer>brave</enhancer>
     <parameters>
+        <parameter name="trace.id" index="true" list="true"/>
+        <parameter name="span.id" index="true" list="false" order="800"/>
         <parameter name="brave.trace_id" index="true" list="false"/>
         <parameter name="brave.span_id" index="true" list="false" order="800"/>
         <parameter name="brave.parent_id" index="true" list="false" order="810"/>
@@ -16,6 +18,24 @@
             <class>brave.RealSpan</class>
             <method>tag(String, String)</method>
             <execute-after>logTag$profiler(p1, p2)</execute-after>
+        </rule>
+        <!--
+          Making a context current only reads identifiers, so neither rule adds its method to the
+          call tree. The default implementation declares newScope itself before Brave 5.2.0 and
+          inherits it from ThreadLocalCurrentTraceContext from then on.
+        -->
+        <rule>
+            <class>brave.propagation.ThreadLocalCurrentTraceContext</class>
+            <method>newScope(brave.propagation.TraceContext)</method>
+            <execute-after>recordCurrentSpan$profiler(p1)</execute-after>
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>brave.propagation.CurrentTraceContext$Default</class>
+            <if-class-declares>newScope(brave.propagation.TraceContext)</if-class-declares>
+            <method>newScope(brave.propagation.TraceContext)</method>
+            <execute-after>recordCurrentSpan$profiler(p1)</execute-after>
+            <do-not-profile/>
         </rule>
     </ruleset>
     <rule>

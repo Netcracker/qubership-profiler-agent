@@ -17,10 +17,12 @@ dependencies {
         // versions held still beside it live in plugins/*/build.gradle.kts, which Renovate ignores.
         api("com.rabbitmq:amqp-client:5.36.0")
         api("com.zaxxer:HikariCP:7.1.0")
+        api("io.jaegertracing:jaeger-core:1.8.1")
         api("io.mockk:mockk:1.14.11")
         api("io.opentelemetry.javaagent:opentelemetry-javaagent:2.32.0")
         api("io.opentelemetry:opentelemetry-sdk-trace:1.66.0")
         api("io.undertow:undertow-servlet:2.3.26.Final")
+        api("io.zipkin.brave:brave:6.3.1")
         api("org.jmockit:jmockit-coverage:1.23")
         api("org.jmockit:jmockit:1.50")
         api("org.mockito:mockito-core:5.23.0")
