@@ -1,8 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { App as AntdApp } from 'antd';
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { App as AntdApp, ConfigProvider } from 'antd';
+import { HttpResponse, http } from 'msw';
 import { RouterProvider, createMemoryRouter } from 'react-router';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fetchAgentConfig, saveAgentConfig } from '../agents/api';
 import { AGENT_APPLY_DELAY_MS, resetAgentConfigMock } from '../mocks/agent-config';
 import { server } from '../mocks/node';
 import { AgentsPage } from './agents-page';
@@ -12,6 +14,10 @@ import { AgentsPage } from './agents-page';
 // Date only: timers stay real and the page polls on a short interval.
 
 const POLL_MS = 20;
+
+// The default second is too short for a page that loads three resources when
+// the whole suite runs at once.
+configure({ asyncUtilTimeout: 5000 });
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
@@ -36,9 +42,13 @@ function renderAgentsPage(path: string) {
     { initialEntries: [path] },
   );
   render(
-    <AntdApp>
-      <RouterProvider router={router} />
-    </AntdApp>,
+    // Without motion a closed dialog or popover leaves the DOM at once, not
+    // after an animation that jsdom never finishes.
+    <ConfigProvider theme={{ token: { motion: false } }}>
+      <AntdApp>
+        <RouterProvider router={router} />
+      </AntdApp>
+    </ConfigProvider>,
   );
   return router;
 }
@@ -50,6 +60,14 @@ function countAgentRequests(): () => number {
     if (new URL(request.url).pathname.endsWith('/agents')) count += 1;
   });
   return () => count;
+}
+
+// Found by the title text: antd gives every generated id the same value under
+// test, so a dialog's accessible name can resolve to another element.
+async function findDialog(title: string): Promise<HTMLElement> {
+  const dialog = (await screen.findByText(title)).closest('[role="dialog"]');
+  if (!(dialog instanceof HTMLElement)) throw new Error(`${title} is not in a dialog`);
+  return dialog;
 }
 
 const scopeButton = (): HTMLElement => screen.getByRole('button', { name: /^Scope/ });
@@ -178,20 +196,6 @@ describe('Settings tab', () => {
     expect(within(await card('Profiling')).getByRole('switch')).not.toBeChecked();
     expect(within(await card('Packages')).getByText('com.acme.**')).toBeInTheDocument();
   });
-
-  it('starts another scope from its own config, without the edits made before', async () => {
-    renderAgentsPage('/agents?scope=prod-billing');
-    fireEvent.click(within(await card('Profiling')).getByRole('switch'));
-    expect(within(await card('Profiling')).getByRole('switch')).not.toBeChecked();
-
-    fireEvent.click(option(await openScopeList(), 'billing-core'));
-    await waitFor(() => expect(scopeButton()).toHaveTextContent('prod-billing / billing-core'));
-    expect(within(await card('Profiling')).getByRole('switch')).toBeChecked();
-
-    fireEvent.click(option(await openScopeList(), 'prod-billing'));
-    await waitFor(() => expect(scopeButton()).toHaveTextContent(/prod-billing$/));
-    expect(within(await card('Profiling')).getByRole('switch')).toBeChecked();
-  });
 });
 
 describe('Agents tab', () => {
@@ -239,5 +243,257 @@ describe('Agents tab', () => {
     expect(await screen.findByText('billing-core-8b6d5c7f9-h4wsm')).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, POLL_MS * 10));
     expect(requests()).toBe(1);
+  });
+});
+
+/** Records the requests that change a config: the method, the path, and the JSON body. */
+function recordWrites(): { method: string; path: string; body: unknown }[] {
+  const writes: { method: string; path: string; body: unknown }[] = [];
+  server.events.on('request:start', async ({ request }) => {
+    if (request.method !== 'PUT' && request.method !== 'DELETE') return;
+    const text = await request.clone().text();
+    writes.push({
+      method: request.method,
+      path: decodeURIComponent(new URL(request.url).pathname),
+      body: text === '' ? null : JSON.parse(text),
+    });
+  });
+  return writes;
+}
+
+/** Flips "Record calls", the smallest edit there is. */
+async function toggleRecording(): Promise<void> {
+  fireEvent.click(within(await screen.findByRole('group', { name: 'Profiling' })).getByRole('switch'));
+}
+
+const applyBar = (): HTMLElement | null => screen.queryByRole('region', { name: 'Unsaved changes' });
+
+describe('applying changes', () => {
+  it('shows the bar on the first change and hides it on Discard', async () => {
+    renderAgentsPage('/agents?scope=prod-billing');
+    await screen.findByRole('group', { name: 'Profiling' });
+    expect(applyBar()).not.toBeInTheDocument();
+
+    await toggleRecording();
+    expect(applyBar()).toHaveTextContent('You have unsaved changes.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(applyBar()).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Profiling' })).getByRole('switch')).toBeChecked();
+  });
+
+  it('hides the bar when the change is undone by hand', async () => {
+    renderAgentsPage('/agents?scope=prod-billing');
+    await toggleRecording();
+    expect(applyBar()).toBeInTheDocument();
+    await toggleRecording();
+    expect(applyBar()).not.toBeInTheDocument();
+  });
+
+  it('counts the agents that can pull the config, not the unmanaged ones', async () => {
+    // staging-orders has two agents, and one of them cannot pull config.
+    renderAgentsPage('/agents?scope=staging-orders');
+    await screen.findByRole('tab', { name: 'Agents (2)' });
+    await toggleRecording();
+    expect(screen.getByRole('button', { name: 'Apply to 1 agent' })).toBeInTheDocument();
+  });
+
+  it('sends the revision the page loaded and then shows the agents', async () => {
+    const writes = recordWrites();
+    const router = renderAgentsPage('/agents?scope=prod-orders%2Forder-processing');
+    expect(await screen.findByText('revision 14')).toBeInTheDocument();
+    await screen.findByRole('tab', { name: 'Agents (3)' });
+    await toggleRecording();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 3 agents' }));
+
+    await waitFor(() => expect(router.state.location.search).toBe('?scope=prod-orders%2Forder-processing&tab=agents'));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({
+      method: 'PUT',
+      path: '/api/v1/agent-config/prod-orders/order-processing',
+      body: { expected_revision: 14, settings: { enabled: false } },
+    });
+    expect(await screen.findByText('revision 15')).toBeInTheDocument();
+    await waitFor(() => expect(applyBar()).not.toBeInTheDocument());
+    // Every managed agent of the scope was handed the new revision.
+    await waitFor(() => expect(screen.getByText('3 pending')).toBeInTheDocument());
+    expect((await screen.findAllByText('14 → 15')).length).toBeGreaterThan(0);
+  });
+
+  it('gives an inheriting scope its own config on apply', async () => {
+    const writes = recordWrites();
+    renderAgentsPage('/agents?scope=prod-orders%2Forder-api-gateway');
+    expect(await screen.findByText(/This scope has no config of its own/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use inherited config' })).not.toBeInTheDocument();
+    await screen.findByRole('tab', { name: 'Agents (2)' });
+
+    await toggleRecording();
+    expect(applyBar()).toHaveTextContent('Applying gives this scope its own config, as a new revision.');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 2 agents' }));
+
+    await waitFor(() => expect(screen.queryByText(/This scope has no config of its own/)).not.toBeInTheDocument());
+    // The save went to the scope itself, against the revision of the inherited config.
+    expect(writes[0]).toMatchObject({
+      method: 'PUT',
+      path: '/api/v1/agent-config/prod-orders/order-api-gateway',
+      body: { expected_revision: 14 },
+    });
+    expect(screen.getByText('revision 15')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use inherited config' })).toBeInTheDocument();
+    expect(option(await openScopeList(), 'order-api-gateway')).toHaveTextContent('own config');
+  });
+
+  it('deletes the own config of a scope on "Use inherited config"', async () => {
+    const writes = recordWrites();
+    const router = renderAgentsPage('/agents?scope=prod-orders%2Forder-processing');
+    fireEvent.click(await screen.findByRole('button', { name: 'Use inherited config' }));
+    expect(await screen.findByText(/Its agents get the config of Default\./)).toBeInTheDocument();
+    expect(writes).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete own config' }));
+
+    const banner = await screen.findByText(/This scope has no config of its own/);
+    expect(within(banner).getByText('Default')).toBeInTheDocument();
+    expect(writes).toEqual([
+      { method: 'DELETE', path: '/api/v1/agent-config/prod-orders/order-processing', body: null },
+    ]);
+    expect(screen.queryByRole('button', { name: 'Use inherited config' })).not.toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.search).toContain('tab=agents'));
+  });
+
+  it('offers no way back to an inherited config on Default', async () => {
+    renderAgentsPage('/agents');
+    expect(await screen.findByText('revision 14')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use inherited config' })).not.toBeInTheDocument();
+  });
+
+  it('says that someone else saved first, and reloads or keeps the edits', async () => {
+    const scope = 'prod-billing';
+    renderAgentsPage(`/agents?scope=${scope}`);
+    await screen.findByRole('tab', { name: 'Agents (4)' });
+    await toggleRecording();
+
+    // Someone else saves the scope while this page holds revision 14.
+    const theirs = await fetchAgentConfig(scope);
+    await saveAgentConfig(scope, {
+      expected_revision: theirs.revision,
+      settings: { ...theirs.settings, min_duration_ms: 77 },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 4 agents' }));
+    const dialog = await findDialog('Someone else saved this scope first');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(applyBar()).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Profiling' })).getByRole('switch')).not.toBeChecked();
+    expect(screen.getByText('revision 14')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 4 agents' }));
+    fireEvent.click(
+      within(await findDialog('Someone else saved this scope first')).getByRole('button', {
+        name: 'Reload',
+      }),
+    );
+
+    expect(await screen.findByText('revision 15')).toBeInTheDocument();
+    expect(applyBar()).not.toBeInTheDocument();
+    const profiling = screen.getByRole('group', { name: 'Profiling' });
+    expect(within(profiling).getByRole('switch')).toBeChecked();
+    expect(within(profiling).getByRole('spinbutton')).toHaveValue('77');
+  });
+
+  it('reports a save that fails for another reason and keeps the edits', async () => {
+    server.use(http.put('/api/v1/agent-config/:scope', () => new HttpResponse(null, { status: 503 })));
+    renderAgentsPage('/agents?scope=prod-billing');
+    await toggleRecording();
+    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
+
+    expect(await screen.findByText(/^Could not apply the changes: 503/)).toBeInTheDocument();
+    expect(applyBar()).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('leaving with unsaved changes', () => {
+  const leaveDialog = (): Promise<HTMLElement> => findDialog('Discard unsaved changes?');
+
+  it('asks before opening another scope, and stays on "Keep editing"', async () => {
+    const router = renderAgentsPage('/agents?scope=prod-billing');
+    await toggleRecording();
+
+    fireEvent.click(option(await openScopeList(), 'billing-core'));
+    fireEvent.click(within(await leaveDialog()).getByRole('button', { name: 'Keep editing' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(router.state.location.search).toBe('?scope=prod-billing');
+    expect(applyBar()).toBeInTheDocument();
+  });
+
+  it('opens the other scope and drops the edits on "Discard changes"', async () => {
+    const router = renderAgentsPage('/agents?scope=prod-billing');
+    await toggleRecording();
+
+    fireEvent.click(option(await openScopeList(), 'billing-core'));
+    fireEvent.click(within(await leaveDialog()).getByRole('button', { name: 'Discard changes' }));
+
+    await waitFor(() => expect(router.state.location.search).toBe('?scope=prod-billing%2Fbilling-core'));
+    expect(applyBar()).not.toBeInTheDocument();
+    expect(within(await screen.findByRole('group', { name: 'Profiling' })).getByRole('switch')).toBeChecked();
+
+    // The dropped edits do not come back with the scope they were made in.
+    fireEvent.click(option(await openScopeList(), 'prod-billing'));
+    await waitFor(() => expect(router.state.location.search).toBe('?scope=prod-billing'));
+    expect(within(await screen.findByRole('group', { name: 'Profiling' })).getByRole('switch')).toBeChecked();
+    expect(applyBar()).not.toBeInTheDocument();
+  });
+
+  it('asks before leaving for another screen', async () => {
+    const router = renderAgentsPage('/agents?scope=prod-billing');
+    await toggleRecording();
+
+    void router.navigate('/calls');
+    const dialog = await leaveDialog();
+    expect(screen.queryByText('Calls screen')).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Discard changes' }));
+    expect(await screen.findByText('Calls screen')).toBeInTheDocument();
+  });
+
+  it('switches tabs without asking and keeps the edits', async () => {
+    const router = renderAgentsPage('/agents?scope=prod-billing');
+    await toggleRecording();
+
+    fireEvent.click(screen.getByRole('tab', { name: /^Agents/ }));
+    await waitFor(() => expect(router.state.location.search).toBe('?scope=prod-billing&tab=agents'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(applyBar()).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(within(await screen.findByRole('group', { name: 'Profiling' })).getByRole('switch')).not.toBeChecked();
+  });
+
+  it('leaves without asking when nothing changed', async () => {
+    const router = renderAgentsPage('/agents?scope=prod-billing');
+    await screen.findByRole('group', { name: 'Profiling' });
+    void router.navigate('/calls');
+    expect(await screen.findByText('Calls screen')).toBeInTheDocument();
+  });
+
+  it('asks the browser to confirm closing the tab only while there are edits', async () => {
+    renderAgentsPage('/agents?scope=prod-billing');
+    await screen.findByRole('group', { name: 'Profiling' });
+    const closeTab = (): boolean => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    expect(closeTab()).toBe(false);
+    await toggleRecording();
+    expect(closeTab()).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(closeTab()).toBe(false);
   });
 });

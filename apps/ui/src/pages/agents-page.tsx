@@ -1,10 +1,11 @@
-import { Alert, Button, Layout, Skeleton, Tabs } from 'antd';
+import { Alert, Button, Layout, Modal, Popconfirm, Skeleton, Tabs } from 'antd';
 import { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { AgentsTable } from '../agents/agents-table';
+import { ApplyBar } from '../agents/apply-bar';
 import { fetchAgentConfigAgents, fetchAgentConfigScopes } from '../agents/api';
-import { STATUS_LABELS, countByStatus, scopeLabel, worstStatus } from '../agents/scope';
+import { STATUS_LABELS, countByStatus, inheritedOwner, scopeLabel, worstStatus } from '../agents/scope';
 import { ScopePicker } from '../agents/scope-picker';
 import { SettingsCards } from '../agents/settings-cards';
 import { StatusDot } from '../agents/status-dot';
@@ -12,6 +13,7 @@ import { AGENT_STATUSES, DEFAULT_SCOPE } from '../agents/types';
 import type { AgentConfigScopeId } from '../agents/types';
 import { useConfigEditor } from '../agents/use-config-editor';
 import { useLoadable } from '../agents/use-loadable';
+import { useUnsavedGuard } from '../agents/use-unsaved-guard';
 import { agentsSearchToParams, parseAgentsSearch } from '../url/search-params';
 import type { AgentsTab } from '../url/search-params';
 import styles from './agents-page.module.css';
@@ -74,6 +76,25 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
   const openTab = (next: AgentsTab): void => setSearchParams(agentsSearchToParams({ scope, tab: next }));
 
   const loaded = config.kind === 'ready' ? config.data : null;
+  const hasOwnConfig = loaded !== null && loaded.owner === loaded.scope;
+  const fallback = inheritedOwner(scopes.state.kind === 'ready' ? scopes.state.data.scopes : [], scope);
+  // An agent that cannot pull config does not get the revision, so it is not counted.
+  const managedAgents = agentRows === null ? null : agentRows.filter((agent) => agent.status !== 'unsupported').length;
+
+  const guard = useUnsavedGuard(editor.dirty);
+
+  // A save or a delete hands the agents a new revision: show them picking it up.
+  const showRollout = (): void => {
+    refetchAgents();
+    refetchScopes();
+    openTab('agents');
+  };
+  const apply = async (): Promise<void> => {
+    if (await editor.apply()) showRollout();
+  };
+  const revertToInherited = async (): Promise<void> => {
+    if (await editor.revertToInherited()) showRollout();
+  };
 
   return (
     <Layout.Content className={styles.page}>
@@ -95,6 +116,22 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
               </span>
             ))}
             {loaded === null ? null : <span className={`pf-mono ${styles.dim}`}>revision {loaded.revision}</span>}
+            {hasOwnConfig && fallback !== null ? (
+              <Popconfirm
+                title="Use the inherited config?"
+                description={
+                  <>
+                    This deletes the config of {scopeLabel(scope)}. Its agents get the config of{' '}
+                    {scopeLabel(fallback)}.{editor.dirty ? ' Your unsaved changes are discarded.' : ''}
+                  </>
+                }
+                okText="Delete own config"
+                cancelText="Cancel"
+                onConfirm={revertToInherited}
+              >
+                <Button disabled={editor.saving}>Use inherited config</Button>
+              </Popconfirm>
+            ) : null}
           </div>
         </div>
 
@@ -104,6 +141,9 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
         {config.kind === 'error' ? (
           <LoadError what={`the config of ${scopeLabel(scope)}`} message={config.message} onRetry={editor.reload} />
         ) : null}
+        {editor.error === null ? null : (
+          <Alert type="error" showIcon closable title={editor.error} onClose={editor.clearError} />
+        )}
 
         {loaded !== null && loaded.owner !== loaded.scope ? (
           <div className={styles.inherited}>
@@ -148,7 +188,49 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
             },
           ]}
         />
+
+        {editor.dirty ? (
+          <ApplyBar
+            createsOwnConfig={!hasOwnConfig}
+            managedAgents={managedAgents}
+            saving={editor.saving}
+            onDiscard={editor.discard}
+            onApply={apply}
+          />
+        ) : null}
       </div>
+
+      <Modal
+        open={editor.conflict}
+        title="Someone else saved this scope first"
+        destroyOnHidden
+        closable={false}
+        mask={{ closable: false }}
+        footer={[
+          <Button key="keep" onClick={editor.dismissConflict}>
+            Keep editing
+          </Button>,
+          <Button key="reload" type="primary" onClick={editor.reload}>
+            Reload
+          </Button>,
+        ]}
+      >
+        The config of {scopeLabel(scope)} changed after you opened it, so your changes were not applied. Reload shows
+        the saved config and discards your changes. Keep editing leaves them on the page, but they cannot be applied
+        until you reload.
+      </Modal>
+
+      <Modal
+        open={guard.state === 'blocked'}
+        destroyOnHidden
+        title="Discard unsaved changes?"
+        okText="Discard changes"
+        cancelText="Keep editing"
+        onOk={() => guard.proceed?.()}
+        onCancel={() => guard.reset?.()}
+      >
+        The changes to {scopeLabel(scope)} are not applied. Leaving discards them.
+      </Modal>
     </Layout.Content>
   );
 }
