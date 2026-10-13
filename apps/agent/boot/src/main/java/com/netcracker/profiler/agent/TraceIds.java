@@ -9,7 +9,9 @@ package com.netcracker.profiler.agent;
  * for the call.</p>
  *
  * <p>Nothing is recorded outside a profiled call, because there is no call to attach the events
- * to.</p>
+ * to. The span that is current on the thread is the exception: a tracer makes it current before
+ * the call starts whenever it hands a context to another thread, so it is remembered in
+ * {@link LocalState}, and each call on the thread records the span it started under.</p>
  */
 public final class TraceIds {
     public static final String TRACE_ID = "trace.id";
@@ -37,12 +39,8 @@ public final class TraceIds {
         if (state.sp == 0) {
             return;
         }
-        CallInfo callInfo = state.callInfo;
-        recordTraceId(callInfo, traceId);
-        if (spanId != null && !spanId.equals(callInfo.getSpanId())) {
-            callInfo.setSpanId(spanId);
-            Profiler.event(spanId, SPAN_ID);
-        }
+        recordSpanAtCallStart(state);
+        recordSpan(state, traceId, spanId);
     }
 
     /**
@@ -56,11 +54,101 @@ public final class TraceIds {
         if (state.sp == 0) {
             return;
         }
+        recordSpanAtCallStart(state);
+        recordRemoteParent(state, traceId, parentSpanId);
+    }
+
+    /**
+     * Records the span that has just become current on this thread, and remembers it for the calls
+     * that start while it stays current.
+     *
+     * <p>A tracer that reports through this method must report every scope it closes through
+     * {@link #restoreCurrentSpan}. Otherwise the span outlives its scope here, and a later call on
+     * the thread records a trace it does not belong to.</p>
+     *
+     * @param traceId the trace the span belongs to, or null when no span is current anymore
+     * @param spanId the span, or null when no span is current anymore
+     * @param remote true when the span arrived from another process, so it is the parent of the
+     *     work on this thread, not a span that runs here
+     */
+    public static void recordCurrentSpan(String traceId, String spanId, boolean remote) {
+        LocalState state = Profiler.getState();
+        replaceCurrentSpan(state, traceId, spanId, remote);
+        if (state.sp != 0) {
+            recordCurrentSpan(state);
+        }
+    }
+
+    /**
+     * Remembers the span that is current on this thread again after a scope was closed. The span
+     * is not recorded for the call in progress: the call keeps the last span that became current
+     * in it.
+     *
+     * @param traceId the trace the span belongs to, or null when no span is current anymore
+     * @param spanId the span, or null when no span is current anymore
+     * @param remote true when the span arrived from another process
+     */
+    public static void restoreCurrentSpan(String traceId, String spanId, boolean remote) {
+        replaceCurrentSpan(Profiler.getState(), traceId, spanId, remote);
+    }
+
+    private static void replaceCurrentSpan(LocalState state, String traceId, String spanId, boolean remote) {
+        if (state.sp != 0) {
+            // The call started under the span that is about to be forgotten
+            recordSpanAtCallStart(state);
+        }
+        state.currentTraceId = traceId;
+        state.currentSpanId = spanId;
+        state.currentSpanRemote = remote;
+    }
+
+    /**
+     * Records the span that was current when the call started, unless the call has recorded it
+     * already.
+     *
+     * <p>Nothing announces the start of a call, so the span is recorded on the first of: another
+     * identifier is recorded, the current span changes, the call finishes. The remembered span
+     * changes only through {@link #replaceCurrentSpan}, which calls this method first, so the span
+     * is still the one the call started under.</p>
+     *
+     * <p>Waiting also keeps a call that is too short to be logged from being logged only because
+     * a span was current.</p>
+     */
+    static void recordSpanAtCallStart(LocalState state) {
         CallInfo callInfo = state.callInfo;
-        recordTraceId(callInfo, traceId);
+        if (callInfo.spanAtCallStartRecorded) {
+            return;
+        }
+        callInfo.spanAtCallStartRecorded = true;
+        recordCurrentSpan(state);
+    }
+
+    private static void recordCurrentSpan(LocalState state) {
+        if (state.currentTraceId == null) {
+            return;
+        }
+        if (state.currentSpanRemote) {
+            recordRemoteParent(state, state.currentTraceId, state.currentSpanId);
+        } else {
+            recordSpan(state, state.currentTraceId, state.currentSpanId);
+        }
+    }
+
+    private static void recordSpan(LocalState state, String traceId, String spanId) {
+        CallInfo callInfo = state.callInfo;
+        recordTraceId(state, traceId);
+        if (spanId != null && !spanId.equals(callInfo.getSpanId())) {
+            callInfo.setSpanId(spanId);
+            event(state, spanId, SPAN_ID);
+        }
+    }
+
+    private static void recordRemoteParent(LocalState state, String traceId, String parentSpanId) {
+        CallInfo callInfo = state.callInfo;
+        recordTraceId(state, traceId);
         if (parentSpanId != null && !parentSpanId.equals(callInfo.getParentSpanId())) {
             callInfo.setParentSpanId(parentSpanId);
-            Profiler.event(parentSpanId, PARENT_SPAN_ID);
+            event(state, parentSpanId, PARENT_SPAN_ID);
         }
     }
 
@@ -258,16 +346,28 @@ public final class TraceIds {
         return false;
     }
 
-    private static void recordTraceId(CallInfo callInfo, String traceId) {
+    private static void recordTraceId(LocalState state, String traceId) {
         if (traceId == null) {
             return;
         }
+        CallInfo callInfo = state.callInfo;
         if (callInfo.getEndToEndId() == null) {
             callInfo.setEndToEndId(traceId);
         }
         callInfo.setTraceId(traceId);
         if (callInfo.traceIdChanged()) {
-            Profiler.event(traceId, TRACE_ID);
+            event(state, traceId, TRACE_ID);
+        }
+    }
+
+    private static void event(LocalState state, String value, String name) {
+        int tagId = DumperConstants.DATA_TAG_RECORD | ProfilerData.resolveTag(name);
+        if (state.sp == 0) {
+            // The call is finishing. LocalState ignores events at this point, so the event goes
+            // to the buffer directly, as the CallInfo of the call does.
+            state.buffer.event(value, tagId);
+        } else {
+            state.event(value, tagId);
         }
     }
 }

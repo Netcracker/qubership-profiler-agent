@@ -32,6 +32,22 @@
             <do-not-profile/>
         </rule>
         <!--
+          Closing a scope restores the previous context without calling attach. The scope is a lambda
+          in attach up to 1.21 and the nested ScopeImpl from 1.22.0 on.
+        -->
+        <rule>
+            <class>io.opentelemetry.context.ThreadLocalContextStorage</class>
+            <method>lambda$attach$0</method>
+            <execute-after>restoreCurrentSpan$profiler()</execute-after>
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>io.opentelemetry.context.ThreadLocalContextStorage$ScopeImpl</class>
+            <method>close()</method>
+            <execute-after>restoreCurrentSpan$profiler()</execute-after>
+            <do-not-profile/>
+        </rule>
+        <!--
           The OpenTelemetry Java agent keeps its own copy of the storage in the bootstrap class
           loader, under a relocated package
         -->
@@ -39,6 +55,21 @@
             <class>io.opentelemetry.javaagent.shaded.io.opentelemetry.context.ThreadLocalContextStorage</class>
             <method>attach(io.opentelemetry.javaagent.shaded.io.opentelemetry.context.Context)</method>
             <execute-after>recordCurrentSpan$profiler(p1)</execute-after>
+            <do-not-profile/>
+        </rule>
+        <!--
+          The scope of the relocated storage, in both of its forms
+        -->
+        <rule>
+            <class>io.opentelemetry.javaagent.shaded.io.opentelemetry.context.ThreadLocalContextStorage</class>
+            <method>lambda$attach$0</method>
+            <execute-after>restoreCurrentSpan$profiler()</execute-after>
+            <do-not-profile/>
+        </rule>
+        <rule>
+            <class>io.opentelemetry.javaagent.shaded.io.opentelemetry.context.ThreadLocalContextStorage$ScopeImpl</class>
+            <method>close()</method>
+            <execute-after>restoreCurrentSpan$profiler()</execute-after>
             <do-not-profile/>
         </rule>
     </ruleset>
