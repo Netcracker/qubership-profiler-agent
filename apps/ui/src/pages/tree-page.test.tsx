@@ -195,6 +195,35 @@ describe('TreePage', () => {
     expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('shares the selection between the Call Tree and the Flame graph tabs', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    const rootLabel = await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    // Select the root row in the tree; its block is selected in the flame graph.
+    fireEvent.click(rootLabel.closest('[role="button"]')!);
+    fireEvent.click(screen.getByRole('tab', { name: 'Flame graph' }));
+    expect(screen.getByTestId('search').textContent).toContain('tab=flame');
+    const rootBlock = await screen.findByRole('button', { name: /^CoyoteAdapter\.service · / });
+    expect(rootBlock).toHaveAttribute('aria-pressed', 'true');
+
+    // Select another block; back in the tree its row is selected and the root's is not.
+    const blocks = screen.getAllByRole('button', { name: / of the call · self / });
+    const other = blocks.find((b) => b !== rootBlock && !/^(CoyoteAdapter|.*Filter)/.test(b.getAttribute('aria-label')!))!;
+    const otherName = other.getAttribute('aria-label')!.split(' · ')[0]!;
+    fireEvent.click(other);
+    expect(other).toHaveAttribute('aria-pressed', 'true');
+    expect(rootBlock).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Call Tree' }));
+    const selectedRows = document.querySelectorAll('[role="button"][aria-pressed="true"]');
+    const selectedInTree = [...selectedRows].filter((el) => el.tagName === 'SPAN');
+    expect(selectedInTree).toHaveLength(1);
+    expect(selectedInTree[0]!.textContent).toContain(otherName);
+    // No strip of operations appears beside the search field on either tab.
+    expect(screen.queryByRole('button', { name: 'Incoming calls' })).toBeNull();
+  });
+
   it('shows the cold-call state for a bare PK outside the hot window', async () => {
     const to = Date.now() - 2 * 60 * 60 * 1000;
     const call = firstCall((c) => c.truncated_reason === null, to);
