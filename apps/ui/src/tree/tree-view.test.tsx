@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,9 +7,10 @@ import { buildTreeModel } from './model';
 import { TreeView } from './tree-view';
 import styles from './tree-view.module.css';
 
-// Row layout of the redesigned tree row (old treeNode2html order):
-// [toggle] [direction/operations menu] [bar][number] … Class.method(args),
-// with the package hidden yet copyable in front of the visible label.
+// Row layout of the redesigned tree row (09 §3.3):
+// [caret] [operations menu] total (self) ×calls package.Class.method(args)
+// [chain badge] [category badge] … [share bar] share,
+// with the package dimmed in front of the class and part of the copied text.
 
 const METHODS = [
   'void org.apache.catalina.connector.CoyoteAdapter.service(Request,Response) (CoyoteAdapter.java:340) [catalina.jar]',
@@ -47,37 +48,96 @@ function wire(): TreeWire {
 describe('TreeView row layout', () => {
   afterEach(cleanup);
 
-  it('shows the bare Class.method label and keeps the package copyable', () => {
+  it('dims the package in front of the Class.method label and keeps it copyable', () => {
     render(<TreeView model={buildTreeModel(wire())} />);
     const label = screen.getByTitle(METHODS[1]!);
-    // Selecting the row copies the qualified name…
+    // Selecting the row copies the qualified name.
     expect(label.textContent).toBe('com.acme.orders.CheckoutFlow.placeOrder(Cart)');
-    // …but the package span is invisible (the pkgPrefix class sets font-size 0,
-    // never display:none, so it stays selectable).
     const pkg = label.querySelector('span');
     expect(pkg?.textContent).toBe('com.acme.orders.');
-    expect(pkg?.className).toContain(styles.pkgPrefix);
+    expect(pkg?.className).toContain(styles.pkg);
   });
 
   it('puts an accessible operations menu left of the label', () => {
     render(<TreeView model={buildTreeModel(wire())} />);
     const label = screen.getByTitle(METHODS[1]!);
-    const row = label.closest('div')!;
-    const buttons = row.querySelectorAll('button');
-    expect(buttons[1]!.title).toBe('Operations');
-    expect(buttons[1]!.getAttribute('aria-label')).toBe('Open node operations');
-    expect(buttons[1]!.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The fixed-width bar slot is gone: the bar hugs the duration number.
-    for (const span of row.querySelectorAll('span')) {
-      expect(span.style.width).not.toBe('62px');
-    }
+    const menu = within(label.closest('div')!).getByTitle('Operations');
+    expect(menu.getAttribute('aria-label')).toBe('Open node operations');
+    expect(menu.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the three core operations on top of the row menu and offers no AI entry', async () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    const items = (await screen.findAllByRole('menuitem')).map((el) => el.textContent);
+    expect(items).toEqual([
+      'Incoming calls',
+      'Outgoing calls',
+      'Get stacktrace',
+      'Find usages',
+      'Local hotspots',
+      'Adjust duration',
+      'Add category',
+      'Mark red',
+    ]);
+  });
+
+  it('prints total (self) ×calls in front of the label, with the count always shown', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    const row = screen.getByTitle(METHODS[1]!).closest('div')!;
+    expect(row.textContent).toContain('600ms (600ms) ×1');
+  });
+
+  it('highlights the numbers that stand out, with no switch to turn it off', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    // The child takes 60% of the call, all of it self time: a bold total and a red self time.
+    const row = screen.getByTitle(METHODS[1]!).closest('div')!;
+    expect(within(row).getByText('600ms').className).toContain(styles.totalBold);
+    expect(within(row).getByText('(600ms)').className).toContain(styles.heatCrit);
+    expect(within(row).getByText('×1').className).not.toContain(styles.heatWarn);
+    expect(screen.queryByRole('switch', { name: /highlight/i })).toBeNull();
+  });
+
+  it('draws the share bar in two parts and prints the share', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    // The root: 100% of the call, 40% of it in the method itself.
+    const rootRow = screen.getByTitle(METHODS[0]!).closest('div')!;
+    const bar = within(rootRow).getByTitle('100% of the call, 40% in the method itself');
+    const [self, children] = bar.querySelectorAll('span');
+    expect(self!.style.width).toBe('40px');
+    expect(children!.style.width).toBe('60px');
+    expect(rootRow.textContent).toMatch(/100%$/);
+  });
+
+  it('selects a row from its label and clears the selection on a second click', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    const label = screen.getByTitle(METHODS[1]!);
+    expect(label).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(label);
+    expect(screen.getByTitle(METHODS[1]!)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTitle(METHODS[1]!).closest('div')!.className).toContain(styles.rowSelected);
+    // Selecting a row adds no strip of operations beside the search field.
+    expect(screen.queryByRole('button', { name: 'Incoming calls' })).toBeNull();
+    fireEvent.keyDown(screen.getByTitle(METHODS[1]!), { key: 'Enter' });
+    expect(screen.getByTitle(METHODS[1]!)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('reports the selection to the page when the page owns it', () => {
+    const onSelect = vi.fn();
+    const model = buildTreeModel(wire());
+    render(<TreeView model={model} selectedId={model.root.id} onSelect={onSelect} />);
+    expect(screen.getByTitle(METHODS[0]!)).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByTitle(METHODS[1]!));
+    expect(onSelect).toHaveBeenCalledWith(model.root.children[0]!.id);
+    fireEvent.click(screen.getByTitle(METHODS[0]!));
+    expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 
   it('notes the bottom-up view in the operations menu label on caller trees', () => {
     render(<TreeView model={buildTreeModel(wire())} direction="bottom-up" />);
     const label = screen.getByTitle(METHODS[1]!);
-    const buttons = label.closest('div')!.querySelectorAll('button');
-    expect(buttons[1]!.getAttribute('aria-label')).toBe('Open node operations (bottom-up view)');
+    const menu = within(label.closest('div')!).getByTitle('Operations');
+    expect(menu.getAttribute('aria-label')).toBe('Open node operations (bottom-up view)');
   });
 
   it('shows the Ctrl stats in an overlay without remounting the hovered row', () => {
@@ -166,8 +226,7 @@ describe('TreeView pass-through chains', () => {
   it('reveal → fold restores the original visible-row set', () => {
     render(<TreeView model={buildTreeModel(chainWire())} />);
     // FilterA skips through FilterB and FilterC to Business, the chain end.
-    const reveal = screen.getByText(/⤵/);
-    expect(reveal.textContent).toBe('⤵3');
+    const reveal = screen.getByText('+3');
     const before = visibleLabels();
     expect(before.some((l) => l.includes('FilterB.pass'))).toBe(false);
     expect(before.some((l) => l.includes('LeafX.run'))).toBe(true);
@@ -177,12 +236,12 @@ describe('TreeView pass-through chains', () => {
     expect(revealed.some((l) => l.includes('FilterB.pass'))).toBe(true);
     expect(revealed.some((l) => l.includes('FilterC.pass'))).toBe(true);
     expect(revealed.some((l) => l.includes('Business.work'))).toBe(true);
-    expect(screen.queryByText(/⤵/)).toBeNull();
+    expect(screen.queryByText('+3')).toBeNull();
 
     // Every revealed chain node offers a fold; the head's restores it all.
-    fireEvent.click(screen.getAllByText(/⤴/).find((el) => el.textContent === '⤴3')!);
+    fireEvent.click(screen.getByText('−3'));
     expect(visibleLabels()).toEqual(before);
-    expect(screen.getByText(/⤵/).textContent).toBe('⤵3');
+    expect(screen.getByText('+3')).toBeInTheDocument();
   });
 });
 

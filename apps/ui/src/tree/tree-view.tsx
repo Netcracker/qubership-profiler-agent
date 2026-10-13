@@ -1,5 +1,5 @@
-import { EyeOutlined, MoreOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography, theme } from 'antd';
+import { EyeOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -11,6 +11,8 @@ import { totalExecutions } from './model';
 import type { TreeModel, TreeNode } from './model';
 import { detectLanguage, InlineHighlight, ParamValueModal } from './param-value-viewer';
 import type { ParamValueTarget } from './param-value-viewer';
+import { formatShare, rowHighlight, shareBar, shareOf } from './row-metrics';
+import type { Heat } from './row-metrics';
 import { searchTree } from './search';
 import { stacktraceText } from './stacktrace';
 import { VirtualList } from './virtual-list';
@@ -23,7 +25,9 @@ import styles from './tree-view.module.css';
 // Ctrl+hover stats, and the per-row operations (stacktrace and mark-red now;
 // the transform-backed operations land with 5.3).
 
-const ROW_HEIGHT = 26;
+const ROW_HEIGHT = 28;
+/** Indent of one tree level, in pixels. */
+const LEVEL_WIDTH = 18;
 /** Size guard (07 §5.4): bound the auto-expansion, never freeze the tab. */
 export const ROW_BUDGET = 20_000;
 
@@ -131,11 +135,35 @@ interface TreeViewProps {
   initialExpanded?: ReadonlySet<number>;
   /** Builds a `notComputed` node's children right before it expands. */
   computeChildren?: (node: TreeNode) => void;
+  /**
+   * The selected node's id, when the page owns the selection and shares it
+   * with another view. Left out, the tree keeps a selection of its own.
+   */
+  selectedId?: number | null;
+  onSelect?: (id: number | null) => void;
 }
 
-export function TreeView({ model, direction = 'top-down', onCapped, ops, initialExpanded, computeChildren }: TreeViewProps) {
+const HEAT_CLASS: Record<Heat, string | undefined> = {
+  none: undefined,
+  warn: styles.heatWarn,
+  crit: styles.heatCrit,
+};
+
+function classNames(...names: (string | false | undefined)[]): string {
+  return names.filter(Boolean).join(' ');
+}
+
+export function TreeView({
+  model,
+  direction = 'top-down',
+  onCapped,
+  ops,
+  initialExpanded,
+  computeChildren,
+  selectedId: sharedSelectedId,
+  onSelect,
+}: TreeViewProps) {
   const { message } = App.useApp();
-  const { token } = theme.useToken();
   const dict = useMethodDict(model);
   const [containerRef, height] = useElementHeight<HTMLDivElement>(480);
   const ctrlHeld = useCtrlHeld();
@@ -162,6 +190,15 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
   const [hoverNode, setHoverNode] = useState<TreeNode | null>(null);
   const [stacktrace, setStacktrace] = useState<string | null>(null);
   const [paramValue, setParamValue] = useState<ParamValueTarget | null>(null);
+  const [ownSelectedId, setOwnSelectedId] = useState<number | null>(null);
+  const selectedId = sharedSelectedId !== undefined ? sharedSelectedId : ownSelectedId;
+
+  const toggleSelected = (node: TreeNode): void => {
+    // The label stays selectable text. A drag that ends on it is a copy in
+    // progress, not a click on the row.
+    if ((window.getSelection()?.toString() ?? '') !== '') return;
+    (onSelect ?? setOwnSelectedId)(selectedId === node.id ? null : node.id);
+  };
 
   const search = useMemo(() => searchTree(model, query), [model, query]);
 
@@ -244,47 +281,67 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
     });
   };
 
-  const scale = model.root.durationMs > 0 ? 60 / model.root.durationMs : 0;
+  const rootDurationMs = model.root.durationMs;
 
   const renderNodeRow = (row: NodeRow): ReactNode => {
     const { node } = row;
     const info = dict.info(node.methodIdx);
-    const barWidth = Math.min(60, node.durationMs * scale);
     const isMatch = search !== null && search.matched.has(node.id);
-    const content = (
+    const isSelected = selectedId === node.id;
+    // Always on, with no switch: the numbers that stand out in this call (09 §3.3).
+    const highlight = rowHighlight(node, rootDurationMs);
+    const bar = shareBar(node, rootDurationMs);
+    const totalShare = formatShare(shareOf(node.durationMs, rootDurationMs));
+    const selfShare = formatShare(shareOf(node.selfDurationMs, rootDurationMs));
+    const calls = node.selfExecutions;
+    // The badge marks where a category starts; the nodes below inherit it.
+    const ownCategory = node.category !== undefined && node.category !== node.parent?.category ? node.category : null;
+    return (
       <div
-        className={styles.row}
-        style={{
-          paddingLeft: row.depth * 16,
-          background: marked.has(node.id) ? token.colorErrorBg : isMatch ? token.colorWarningBg : node.category?.color,
-        }}
+        className={classNames(
+          styles.row,
+          isSelected && styles.rowSelected,
+          marked.has(node.id) && styles.rowMarked,
+          search !== null && !isMatch && styles.rowDim,
+        )}
+        style={{ paddingLeft: 8 + row.depth * LEVEL_WIDTH }}
         onMouseEnter={() => setHoverNode(node)}
         onMouseLeave={() => setHoverNode((cur) => (cur?.id === node.id ? null : cur))}
       >
-        <Button
-          size="small"
-          type="text"
-          className={styles.iconBtn}
-          disabled={!row.hasChildren}
-          aria-label={row.hasChildren ? (row.expanded ? 'Collapse node' : 'Expand node') : undefined}
-          aria-hidden={row.hasChildren ? undefined : true}
-          onClick={() => toggleNode(row)}
-        >
-          {row.hasChildren ? (row.expanded ? '−' : '+') : '·'}
-        </Button>
+        {row.hasChildren ? (
+          <button
+            type="button"
+            className={styles.iconBtn}
+            aria-label={row.expanded ? 'Collapse node' : 'Expand node'}
+            aria-expanded={row.expanded}
+            onClick={() => toggleNode(row)}
+          >
+            <svg
+              className={classNames(styles.icon, !row.expanded && styles.caretClosed)}
+              width="10"
+              height="10"
+              viewBox="0 0 12 12"
+              aria-hidden="true"
+            >
+              <path d="M2.5 4.5 6 8l3.5-3.5" />
+            </svg>
+          </button>
+        ) : (
+          <span className={styles.iconSlot} />
+        )}
         <Dropdown
           trigger={['click']}
           menu={{
             items: [
-              { key: 'stacktrace', label: 'Get stacktrace' },
-              { key: 'mark', label: marked.has(node.id) ? 'Unmark red' : 'Mark red' },
-              { type: 'divider' },
               { key: 'incoming', label: 'Incoming calls', disabled: ops === undefined },
               { key: 'outgoing', label: 'Outgoing calls', disabled: ops === undefined },
+              { key: 'stacktrace', label: 'Get stacktrace' },
+              { type: 'divider' },
               { key: 'usages', label: 'Find usages', disabled: ops === undefined },
               { key: 'local', label: 'Local hotspots', disabled: ops === undefined },
               { key: 'adjust', label: 'Adjust duration', disabled: ops === undefined },
               { key: 'category', label: 'Add category', disabled: ops === undefined },
+              { key: 'mark', label: marked.has(node.id) ? 'Unmark red' : 'Mark red' },
             ],
             onClick: ({ key }) => {
               if (key === 'stacktrace') {
@@ -309,65 +366,99 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
         >
           {/* A kebab icon reads as an actions menu; the old UI's direction
               arrow alone was easy to mistake for a tree marker (PR 708
-              review #19). Left of the bar, so it never scrolls away. */}
-          <Button
-            size="small"
-            type="text"
+              review #19). Left of the numbers, so it never scrolls away. */}
+          <button
+            type="button"
             title="Operations"
             aria-label={`Open node operations${direction === 'bottom-up' ? ' (bottom-up view)' : ''}`}
-            className={styles.iconBtnMuted}
+            aria-haspopup="menu"
+            className={styles.iconBtn}
           >
-            <MoreOutlined />
-          </Button>
+            <svg className={styles.icon} width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M6 2.5v.01M6 6v.01M6 9.5v.01" strokeWidth="2" />
+            </svg>
+          </button>
         </Dropdown>
-        {row.skippedLevels > 0 ? (
-          <Tag
-            className={styles.chainTag}
-            title={`${row.skippedLevels} pass-through level${row.skippedLevels > 1 ? 's' : ''} skipped — click to reveal`}
-            onClick={() => revealChain(row)}
+        <span className={`pf-mono ${styles.numbers}`}>
+          <span className={highlight.totalBold ? styles.totalBold : styles.total}>{formatDurationMs(node.durationMs)}</span>{' '}
+          <span
+            className={classNames(styles.dimNumber, HEAT_CLASS[highlight.self])}
+            title={`${selfShare} of the call is spent in this method itself`}
           >
-            ⤵{row.skippedLevels}
-          </Tag>
-        ) : node.collapseLevels > 0 && revealedChains.has(node.id) && search === null ? (
-          <Tag
-            className={styles.chainTag}
-            title={`${node.collapseLevels} pass-through level${node.collapseLevels > 1 ? 's' : ''} revealed — click to fold back`}
-            onClick={() => collapseChain(row)}
+            ({formatDurationMs(node.selfDurationMs)})
+          </span>{' '}
+          <span
+            className={classNames(styles.dimNumber, HEAT_CLASS[highlight.calls])}
+            title={
+              highlight.calls === 'none'
+                ? `Called ${formatCount(calls)} time${calls === 1 ? '' : 's'}`
+                : `Called ${formatCount(calls)} times from one place. Check for a loop that could be one batch call.`
+            }
           >
-            ⤴{node.collapseLevels}
-          </Tag>
-        ) : null}
-        {barWidth >= 0.6 ? (
-          <span className={styles.durationBar} style={{ width: barWidth }} />
-        ) : null}
-        <Typography.Text className={styles.tabularNums}>
-          {formatDurationMs(node.durationMs)} ({formatDurationMs(node.selfDurationMs)})
-        </Typography.Text>
-        {node.suspensionMs > 0 ? (
-          <Typography.Text type="secondary" title="suspension total (self)">
-            ⏸ {formatDurationMs(node.suspensionMs)} ({formatDurationMs(node.selfSuspensionMs)})
-          </Typography.Text>
-        ) : null}
-        {node.selfExecutions !== 1 || node.childExecutions > 0 ? (
-          <Typography.Text type="secondary" title={`invocations: ${node.selfExecutions} direct, ${totalExecutions(node)} total`}>
-            ×{formatCount(node.selfExecutions)}
-          </Typography.Text>
-        ) : null}
-        <Typography.Text ellipsis className={styles.methodName} title={info.original}>
+            ×{formatCount(calls)}
+          </span>
+        </span>
+        {/* A span, not a button: the text of a button cannot be selected, and
+            copying the qualified name off a row is what the package is there for. */}
+        <span
+          role="button"
+          tabIndex={0}
+          aria-pressed={isSelected}
+          className={styles.signature}
+          title={info.original}
+          onClick={() => toggleSelected(node)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            toggleSelected(node);
+          }}
+        >
           {info.bareSignature === '' ? (
-            info.original
+            <span className={classNames(isMatch && styles.match)}>{info.original}</span>
           ) : (
             <>
-              {/* font-size:0 hides the package yet keeps it selectable, so
-                  copying the row yields the qualified name (old span.p). */}
-              <span className={styles.pkgPrefix}>{info.packagePrefix}</span>
-              {info.bareSignature}
+              <span className={styles.pkg}>{info.packagePrefix}</span>
+              <span className={classNames(isMatch && styles.match, highlight.self !== 'none' && styles.nameHot)}>
+                {info.bareSignature}
+              </span>
             </>
           )}
-        </Typography.Text>
+        </span>
+        {row.skippedLevels > 0 ? (
+          <button
+            type="button"
+            className={classNames(styles.badge, styles.chainBadge)}
+            title={`${row.skippedLevels} pass-through level${row.skippedLevels > 1 ? 's are' : ' is'} skipped under this method. Click to show ${row.skippedLevels > 1 ? 'them' : 'it'}.`}
+            onClick={() => revealChain(row)}
+          >
+            +{row.skippedLevels}
+          </button>
+        ) : node.collapseLevels > 0 && revealedChains.has(node.id) && search === null ? (
+          <button
+            type="button"
+            className={classNames(styles.badge, styles.chainBadge)}
+            title={`${node.collapseLevels} pass-through level${node.collapseLevels > 1 ? 's are' : ' is'} shown under this method. Click to skip ${node.collapseLevels > 1 ? 'them' : 'it'} again.`}
+            onClick={() => collapseChain(row)}
+          >
+            −{node.collapseLevels}
+          </button>
+        ) : null}
+        {ownCategory !== null ? (
+          <span className={styles.badge} style={{ background: ownCategory.color }}>
+            {ownCategory.name}
+          </span>
+        ) : null}
+        <span className={styles.spacer} />
+        <span
+          className={styles.shareBar}
+          title={`${totalShare} of the call, ${selfShare} in the method itself`}
+        >
+          <span className={styles.shareSelf} style={{ width: bar.selfWidth }} />
+          <span className={styles.shareChildren} style={{ width: bar.childrenWidth }} />
+        </span>
+        <span className={`pf-mono ${styles.percent}`}>{totalShare}</span>
       </div>
     );
-    return content;
   };
 
   const renderParamRow = (row: ParamRow): ReactNode => {
@@ -375,7 +466,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
     const isOther = row.group.value === '::other';
     const language = isOther ? null : detectLanguage(key, row.group.value);
     return (
-      <div className={`${styles.row} ${styles.paramRow}`} style={{ paddingLeft: row.depth * 16 + 8 }}>
+      <div className={`${styles.row} ${styles.paramRow}`} style={{ paddingLeft: 8 + row.depth * LEVEL_WIDTH }}>
         <Button
           size="small"
           type="text"
@@ -387,7 +478,7 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
         </Button>
         {/* Duration and invocations sit left of the value, the way the old
             renderSimpleTag laid tags out (duration, count, then the value). */}
-        <Typography.Text type="secondary" className={styles.tabularNums}>
+        <Typography.Text type="secondary" className="pf-mono">
           {formatDurationMs(row.group.durationMs)} ×{formatCount(row.group.executions)}
         </Typography.Text>
         <Tag className={styles.tagFlush}>{key}</Tag>
@@ -439,6 +530,10 @@ export function TreeView({ model, direction = 'top-down', onCapped, ops, initial
       {search !== null && search.matchCount === 0 ? (
         <Alert type="info" showIcon title="Nothing in the tree matches the search." />
       ) : null}
+      <div className={styles.listHeader}>
+        <span className={styles.listHeaderMain}>Total (self) ×calls · Method</span>
+        <span>Share of the call</span>
+      </div>
       <div ref={containerRef} className={styles.listContainer}>
         <VirtualList
           items={rows}
