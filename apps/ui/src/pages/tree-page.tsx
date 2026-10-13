@@ -29,6 +29,7 @@ import type { SerializedTab } from '../export/restore';
 import type { TreeWire } from '../msgpack/tree-wire';
 import type { TreeState } from '../tree/use-tree';
 import { formatCount, formatDurationMs, formatTs } from '../calls/format';
+import { getThemeMode } from '../ui/theme-mode';
 import { useZone } from '../ui/timezone';
 import { FlameView } from '../tree/flame-view';
 import { HotspotsView } from '../tree/hotspots-view';
@@ -360,6 +361,7 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
         tabs: opTabs.map((t): SerializedTab => ({ op: t.op, methodIdx: t.methodIdx, category: t.category, nodeId: t.nodeId })),
         // Derived tabs get new keys on restore (`r<index>`), so the active one is saved by position.
         activeTab: isTreeTab(activeTab) ? activeTab : `r${opTabs.findIndex((t) => t.key === activeTab)}`,
+        theme: getThemeMode(),
       });
       downloadHtml(html, `profiler-tree-${pkToPath(pk).replace(/[^\w.-]+/g, '_')}.html`);
     } catch (e) {
