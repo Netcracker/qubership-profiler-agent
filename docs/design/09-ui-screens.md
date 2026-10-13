@@ -153,15 +153,30 @@ buttons disabled. The tree search belongs to the Call Tree tab, not to the toolb
 
 ### 3.3 Tree rows
 
-Each row is a merged node (08 R5–R7):
+Each row is a merged node (08 R5–R7), 28 px high. From left to right:
 
 | Part | Content |
 |------|---------|
-| Caret | Expand / collapse. Expanding **skips degenerate chains** — a pass-through chain opens in one click to the next node that spends time or branches (07 §5.4). |
-| Duration bar | Proportional to the node's share. |
-| Metrics | `total (self)` duration, `inv`, `×N` direct executions, child `calls` — every metric as self and total. |
-| Signature | `Class.method(args)`; `source:line` and `jar` parse from the method string on Ctrl+hover. |
-| Category | A color spanning the tagged subtree, plus a badge (§3.5). |
+| Caret | Expand / collapse. Expanding **skips degenerate chains** — a pass-through chain opens in one click to the next node that spends time or branches (07 §5.4). A leaf has an empty slot instead. |
+| Three dots | The row's operations menu (§3.4). |
+| Numbers | `total (self) ×calls`: the node's total duration, its self duration, and its direct executions. The suspension pair and the total executions are in the Ctrl+hover stats. |
+| Signature | `package.Class.method(args)`, with the package dimmed. Clicking it selects the row; the text stays selectable, so the qualified name can be copied. `source:line` and `jar` parse from the method string on Ctrl+hover. |
+| Chain badge | `+N` on a node that skips `N` pass-through levels; clicking it shows them. A revealed chain shows `−N`, which skips them again. |
+| Category badge | The category name on the node where the category starts (§3.5). The nodes below inherit the category without a badge. |
+| Share bar | 100 px for the whole call. The solid part is the node's self time and the light part is time in its children. Hidden on a narrow viewport. |
+| Share | The node's total as a percentage of the call. |
+
+**Highlighting is always on**; there is no switch for it. The thresholds are shares of this call, never absolute
+times, because 4 s is normal for one call and a disaster for another:
+
+| Number | Orange | Red | Bold |
+|--------|--------|-----|------|
+| Self time | from 10% of the call | from 25% of the call | with either color |
+| Call count | from 10 | from 100 | with either color |
+| Total | — | — | from 50% of the call |
+
+The method name is bold when its self time is colored. A search match gets a yellow mark on the name, and the rows
+that do not match are dimmed in place. `Mark red` tints the whole row.
 
 **Params under a node** are a mini-tree, not flat values (08 R11): metadata rows (`node.name`, `java.thread`,
 `memory.allocated`, …) and aggregated `sql` groups — top shapes by time plus an `::other` bucket, similar SQL
@@ -170,15 +185,15 @@ Parameters tab.
 
 ### 3.4 Per-node operations
 
-The three core operations — **Incoming calls**, **Outgoing calls**, **Get stacktrace** — sit directly on the
-selected row or toolbar; a row kebab (`⋮`, on hover) holds the rest: **Find usages**, **Local hotspots**,
-**Adjust duration**, **Add category**, **Mark red**. Ctrl+hover on a node shows the stats popover: self and
-total duration and suspension, invocations, average, `source jar`, and `line`.
+Every operation is in the row's three-dot menu: **Incoming calls**, **Outgoing calls**, and **Get stacktrace**
+first, then **Find usages**, **Local hotspots**, **Adjust duration**, **Add category**, and **Mark red**. Selecting
+a row adds no buttons anywhere: there is no strip of operations beside the search field. Ctrl+hover on a node shows
+the stats popover: self and total duration and suspension, invocations, average, `source jar`, and `line`.
 
 ### 3.5 Hotspots and categories
 
 **Setup categories** tags a method by pattern; the category propagates down its whole subtree (a child tag
-overrides) and colors it. **Hotspots** is a flat self-time profile; when categories are set it groups by
+overrides). The tree shows it as a badge where it starts, in one of six theme colors. **Hotspots** is a flat self-time profile; when categories are set it groups by
 category first, then flat-profiles within — so a business operation's share of time and its SQL read directly
 (07 §5.3).
 
