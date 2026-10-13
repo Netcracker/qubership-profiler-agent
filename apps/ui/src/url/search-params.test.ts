@@ -130,6 +130,7 @@ describe('tree search state', () => {
   });
 
   it('falls back to Call Tree on an unknown tab', () => {
+    expect(parseTreeSearch(new URLSearchParams('tab=flame')).tab).toBe('flame');
     expect(parseTreeSearch(new URLSearchParams('tab=gantt')).tab).toBe('tree');
     expect(parseTreeSearch(new URLSearchParams('tab=')).tab).toBe('tree');
     // A derived tab key is browser state; one that leaks into a link is ignored.

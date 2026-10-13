@@ -64,6 +64,10 @@ export function TreeHelp() {
       <Item term="Ctrl + hover">
         Shows the method&apos;s full stats: durations, suspension, invocations, averages, source file, and jar.
       </Item>
+      <Item term="Flame graph tab">
+        The same tree as blocks. Width is the share of the call, and a method&apos;s callees sit under it. A row you
+        select here is selected there too.
+      </Item>
     </div>
   );
 }

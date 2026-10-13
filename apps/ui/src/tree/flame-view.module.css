@@ -1,0 +1,113 @@
+.flame {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+
+/* The readout and the legend. */
+.infoRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  min-height: 20px;
+}
+
+.readout {
+  flex: 1 1 300px;
+  font-size: 12px;
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pf-color-dim);
+  font-size: 12px;
+}
+
+/* A category sets its own fill inline; this is the fill of "No category". */
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--pf-color-bar-soft);
+}
+
+.zoomRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 12px;
+}
+
+/* Reads as a link, and is a button: it changes the view and goes nowhere. */
+.reset {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pf-color-accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.reset:hover {
+  text-decoration: underline;
+}
+
+/* A deep call scrolls here, so the caption under the graph stays in view. */
+.scroller {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Blocks are positioned in it; its height is computed and stays inline. */
+.graph {
+  position: relative;
+}
+
+/* left, width, top, and a category's fill are computed and stay inline. The
+   border in the surface color is the gap between neighbors. */
+.block {
+  position: absolute;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--pf-color-surface);
+  border-radius: 3px;
+  background: var(--pf-color-bar-soft);
+  color: var(--pf-color-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.block:hover {
+  filter: brightness(0.94);
+}
+
+.block:focus-visible {
+  outline: 2px solid var(--pf-color-accent);
+  outline-offset: -2px;
+}
+
+.blockSelected {
+  box-shadow: inset 0 0 0 2px var(--pf-color-accent);
+}
+
+.label {
+  margin-left: 6px;
+}
+
+.caption {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--pf-color-dim);
+}

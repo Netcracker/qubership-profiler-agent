@@ -143,7 +143,7 @@ export function callsSearchToParams(state: CallsSearchState): URLSearchParams {
 }
 
 /** The fixed tabs of the tree page, in display order. The first one is the default. */
-export const TREE_TABS = ['tree', 'hotspots', 'params'] as const;
+export const TREE_TABS = ['tree', 'flame', 'hotspots', 'params'] as const;
 
 export type TreeTab = (typeof TREE_TABS)[number];
 

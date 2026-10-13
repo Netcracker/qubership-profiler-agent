@@ -13,6 +13,7 @@ import type { TreeWire } from '../msgpack/tree-wire';
 import type { TreeState } from '../tree/use-tree';
 import { formatCount, formatDurationMs, formatTs } from '../calls/format';
 import { useZone } from '../ui/timezone';
+import { FlameView } from '../tree/flame-view';
 import { HotspotsView } from '../tree/hotspots-view';
 import { parseMethod } from '../tree/method-info';
 import { buildTreeModel, findNodeById } from '../tree/model';
@@ -34,7 +35,7 @@ import { ThemeSwitch } from '../shell/theme-switch';
 import styles from './tree-page.module.css';
 
 // Call Tree route (09 §3): the context header, the fixed tabs Call Tree ·
-// Hotspots · Parameters with the toolbar beside them, the per-node operations
+// Flame graph · Hotspots · Parameters with the toolbar beside them, the per-node operations
 // backed by the 5.3 transforms, and the Adjust duration / Setup categories
 // configs. The model rebuilds from the decoded wire on every config change, so
 // the transforms stay pure and re-applicable.
@@ -180,6 +181,9 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
     setSearchParams((prev) => withTreeTab(prev, key), { replace: true });
   };
   const [paramValue, setParamValue] = useState<ParamValueTarget | null>(null);
+  // One selection for the Call Tree and the Flame graph tabs, by node id. The
+  // id survives a model rebuild, so it also survives Adjust and Setup edits.
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
   const nextTabId = useRef(1);
 
@@ -490,7 +494,22 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
                   label: 'Call Tree',
                   children: (
                     <div className={styles.tabPane}>
-                      <TreeView model={model} onCapped={setCapped} ops={ops} />
+                      <TreeView
+                        model={model}
+                        onCapped={setCapped}
+                        ops={ops}
+                        selectedId={selectedId}
+                        onSelect={setSelectedId}
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  key: 'flame',
+                  label: 'Flame graph',
+                  children: (
+                    <div className={styles.tabPane}>
+                      <FlameView model={model} selectedId={selectedId} onSelect={setSelectedId} />
                     </div>
                   ),
                 },

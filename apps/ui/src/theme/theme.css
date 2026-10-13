@@ -57,6 +57,15 @@
   --pf-color-cat-4: rgba(184, 118, 12, 0.24);
   --pf-color-cat-5: rgba(209, 0, 73, 0.16);
   --pf-color-cat-6: rgba(0, 163, 86, 0.2);
+
+  /* Flame graph blocks: the same hues as the badges, stronger. A block without
+     a category takes --pf-color-bar-soft. */
+  --pf-color-flame-1: rgba(0, 104, 255, 0.3);
+  --pf-color-flame-2: rgba(124, 92, 255, 0.38);
+  --pf-color-flame-3: rgba(14, 157, 148, 0.38);
+  --pf-color-flame-4: rgba(184, 118, 12, 0.4);
+  --pf-color-flame-5: rgba(209, 0, 73, 0.3);
+  --pf-color-flame-6: rgba(0, 163, 86, 0.36);
 }
 
 :root[data-theme='dark'] {
@@ -102,6 +111,13 @@
   --pf-color-cat-4: rgba(255, 176, 46, 0.24);
   --pf-color-cat-5: rgba(255, 107, 120, 0.24);
   --pf-color-cat-6: rgba(63, 208, 127, 0.24);
+
+  --pf-color-flame-1: rgba(77, 155, 255, 0.4);
+  --pf-color-flame-2: rgba(150, 125, 255, 0.46);
+  --pf-color-flame-3: rgba(46, 196, 182, 0.42);
+  --pf-color-flame-4: rgba(255, 176, 46, 0.4);
+  --pf-color-flame-5: rgba(255, 107, 120, 0.4);
+  --pf-color-flame-6: rgba(63, 208, 127, 0.4);
 }
 
 /* antd styles its own components from the tokens; this covers the page around

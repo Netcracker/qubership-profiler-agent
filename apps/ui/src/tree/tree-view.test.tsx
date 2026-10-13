@@ -269,6 +269,31 @@ describe('TreeView pass-through chains', () => {
     };
   }
 
+  it('opens the way to a selection made in another view, through a skipped chain', () => {
+    const model = buildTreeModel(chainWire());
+    // FilterB is inside the chain that the root skips, so it has no row yet.
+    const filterB = model.root.children[0]!.children[0]!;
+    expect(model.methods[filterB.methodIdx]).toContain('FilterB');
+    const view = render(<TreeView model={model} selectedId={null} onSelect={() => undefined} />);
+    expect(screen.queryByTitle(CHAIN_METHODS[2]!)).toBeNull();
+
+    view.rerender(<TreeView model={model} selectedId={filterB.id} onSelect={() => undefined} />);
+    expect(screen.getByTitle(CHAIN_METHODS[2]!)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens a collapsed branch for a selection made in another view', () => {
+    const model = buildTreeModel(chainWire());
+    const business = model.root.children[0]!.children[0]!.children[0]!.children[0]!;
+    const leafY = business.children.find((c) => model.methods[c.methodIdx]!.includes('LeafY'))!;
+    const view = render(<TreeView model={model} selectedId={null} onSelect={() => undefined} />);
+    // Fold the root, so nothing under it has a row.
+    fireEvent.click(within(screen.getByTitle(CHAIN_METHODS[0]!).closest('div')!).getByLabelText('Collapse node'));
+    expect(screen.queryByTitle(CHAIN_METHODS[6]!)).toBeNull();
+
+    view.rerender(<TreeView model={model} selectedId={leafY.id} onSelect={() => undefined} />);
+    expect(screen.getByTitle(CHAIN_METHODS[6]!)).toHaveAttribute('aria-pressed', 'true');
+  });
+
   const visibleLabels = (): string[] =>
     [...document.querySelectorAll('[title$=".jar]"]')].map((el) => el.textContent ?? '');
 

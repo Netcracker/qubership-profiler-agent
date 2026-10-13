@@ -9,7 +9,7 @@ import { setTreePref, useTreePrefs } from '../ui/tree-prefs';
 import { useElementHeight } from '../ui/use-element-height';
 import { parseMethod } from './method-info';
 import type { MethodInfo } from './method-info';
-import { totalExecutions } from './model';
+import { chainEnd, findNodeById, totalExecutions } from './model';
 import type { TreeModel, TreeNode } from './model';
 import { detectLanguage, InlineHighlight, ParamValueModal } from './param-value-viewer';
 import type { ParamValueTarget } from './param-value-viewer';
@@ -209,6 +209,32 @@ export function TreeView({
     (onSelect ?? setOwnSelectedId)(selectedId === node.id ? null : node.id);
   };
 
+  // A selection made in another view (the flame graph) can sit under a closed
+  // node or inside a skipped chain. Open the way to it, so the row exists when
+  // this tab shows next. A row selected here is on screen already, and both
+  // updates are then no-ops.
+  useEffect(() => {
+    if (sharedSelectedId === undefined || sharedSelectedId === null) return;
+    const target = findNodeById(model.root, sharedSelectedId);
+    if (target === null) return;
+    const ancestors: TreeNode[] = [];
+    for (let n = target.parent; n !== null; n = n.parent) ancestors.push(n);
+    const path = new Set<TreeNode>([target, ...ancestors]);
+    // A chain head shows the children of its chain end. It hides the target
+    // when the target is the end itself or branches off before it.
+    const hiding = ancestors.filter((a) => {
+      if (a.collapseLevels === 0) return false;
+      const end = chainEnd(a, a.collapseLevels);
+      return end === target || !path.has(end);
+    });
+    setExpanded((prev) =>
+      ancestors.every((a) => prev.has(a.id)) ? prev : new Set([...prev, ...ancestors.map((a) => a.id)]),
+    );
+    setRevealedChains((prev) =>
+      hiding.every((a) => prev.has(a.id)) ? prev : new Set([...prev, ...hiding.map((a) => a.id)]),
+    );
+  }, [model, sharedSelectedId]);
+
   const search = useMemo(() => searchTree(model, query), [model, query]);
 
   const rows = useMemo(() => {
@@ -219,6 +245,18 @@ export function TreeView({
       search !== null,
     );
   }, [model, expanded, revealedChains, expandedParams, search]);
+
+  // Only a shared selection asks for a scroll: one made in this tab is under the pointer.
+  const ensureVisible = useMemo(
+    () =>
+      sharedSelectedId === undefined || sharedSelectedId === null
+        ? undefined
+        : {
+            key: sharedSelectedId,
+            index: rows.findIndex((r) => r.kind === 'node' && r.node.id === sharedSelectedId),
+          },
+    [rows, sharedSelectedId],
+  );
 
   const toggleNode = (row: NodeRow): void => {
     // Lazy children (hotspots): build them before the expansion walks them.
@@ -591,6 +629,7 @@ export function TreeView({
           height={height}
           itemKey={(row: TreeRow) => (row.kind === 'node' ? `n${row.node.id}` : row.pathKey)}
           renderRow={(row) => (row.kind === 'node' ? renderNodeRow(row) : renderParamRow(row))}
+          ensureVisible={ensureVisible}
         />
       </div>
       {/* The stats float in their own layer instead of wrapping the row in a
