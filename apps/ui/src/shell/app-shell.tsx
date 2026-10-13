@@ -2,6 +2,7 @@ import { Layout, Menu, Typography } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import styles from './app-shell.module.css';
+import { ThemeSwitch } from './theme-switch';
 
 const NAV_ITEMS = [
   { key: '/calls', label: 'Calls' },
@@ -36,6 +37,7 @@ export function AppShell() {
           onClick={({ key }) => void navigate({ pathname: key, search: location.search })}
           className={styles.menu}
         />
+        <ThemeSwitch />
       </Layout.Header>
       <Outlet />
     </Layout>

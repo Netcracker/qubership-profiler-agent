@@ -90,7 +90,7 @@
   background: var(--ant-color-bg-elevated);
   border: 1px solid var(--ant-color-border);
   border-radius: 8px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--pf-shadow);
   padding: 12px;
   pointer-events: none;
 }

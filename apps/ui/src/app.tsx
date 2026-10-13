@@ -1,11 +1,11 @@
-import { App as AntdApp, ConfigProvider } from 'antd';
+import { App as AntdApp } from 'antd';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 
 import { CallsPage } from './pages/calls-page';
 import { PodsPage } from './pages/pods-page';
 import { TreePage } from './pages/tree-page';
 import { AppShell } from './shell/app-shell';
-import { profilerTheme } from './theme/profiler-theme';
+import { ThemeProvider } from './theme/theme-provider';
 
 // The router base follows the build-time base (vite base → BASE_URL, 07 §6),
 // so '/' and '/ui' are one config switch: '/' yields no basename.
@@ -17,7 +17,7 @@ const basename = import.meta.env.BASE_URL.replace(/\/+$/, '') || undefined;
  */
 export function App() {
   return (
-    <ConfigProvider theme={profilerTheme}>
+    <ThemeProvider>
       <AntdApp>
         <BrowserRouter basename={basename}>
           <Routes>
@@ -30,6 +30,6 @@ export function App() {
           </Routes>
         </BrowserRouter>
       </AntdApp>
-    </ConfigProvider>
+    </ThemeProvider>
   );
 }
