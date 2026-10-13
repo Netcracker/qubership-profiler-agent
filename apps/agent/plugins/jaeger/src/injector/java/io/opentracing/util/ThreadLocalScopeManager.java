@@ -26,6 +26,12 @@ public class ThreadLocalScopeManager {
         if (context == null) {
             return;
         }
-        TraceIds.recordSpan(context.toTraceId(), context.toSpanId());
+        String traceId = context.toTraceId();
+        String spanId = context.toSpanId();
+        // A no-op span has a context, and both of its IDs are empty
+        if (traceId == null || traceId.isEmpty() || spanId == null || spanId.isEmpty()) {
+            return;
+        }
+        TraceIds.recordSpan(traceId, spanId);
     }
 }
