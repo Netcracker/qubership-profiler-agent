@@ -1,14 +1,16 @@
-import { Alert, Button, Layout, Tabs } from 'antd';
+import { Alert, Button, Layout, Skeleton, Tabs } from 'antd';
 import { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { AgentsTable } from '../agents/agents-table';
-import { fetchAgentConfig, fetchAgentConfigAgents, fetchAgentConfigScopes } from '../agents/api';
+import { fetchAgentConfigAgents, fetchAgentConfigScopes } from '../agents/api';
 import { STATUS_LABELS, countByStatus, scopeLabel, worstStatus } from '../agents/scope';
 import { ScopePicker } from '../agents/scope-picker';
+import { SettingsCards } from '../agents/settings-cards';
 import { StatusDot } from '../agents/status-dot';
 import { AGENT_STATUSES, DEFAULT_SCOPE } from '../agents/types';
 import type { AgentConfigScopeId } from '../agents/types';
+import { useConfigEditor } from '../agents/use-config-editor';
 import { useLoadable } from '../agents/use-loadable';
 import { agentsSearchToParams, parseAgentsSearch } from '../url/search-params';
 import type { AgentsTab } from '../url/search-params';
@@ -46,7 +48,8 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
   const { scope, tab } = search;
 
   const scopes = useLoadable('scopes', fetchAgentConfigScopes);
-  const config = useLoadable(`config:${scope}`, (signal) => fetchAgentConfig(scope, signal));
+  const editor = useConfigEditor(scope);
+  const config = editor.config;
   const agents = useLoadable(`agents:${scope}`, (signal) => fetchAgentConfigAgents(scope, signal));
 
   const agentRows = agents.state.kind === 'ready' ? agents.state.data.agents : null;
@@ -70,7 +73,7 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
   const openScope = (next: AgentConfigScopeId): void => setSearchParams(agentsSearchToParams({ scope: next, tab }));
   const openTab = (next: AgentsTab): void => setSearchParams(agentsSearchToParams({ scope, tab: next }));
 
-  const loaded = config.state.kind === 'ready' ? config.state.data : null;
+  const loaded = config.kind === 'ready' ? config.data : null;
 
   return (
     <Layout.Content className={styles.page}>
@@ -98,12 +101,8 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
         {scopes.state.kind === 'error' ? (
           <LoadError what="the scopes" message={scopes.state.message} onRetry={scopes.refetch} />
         ) : null}
-        {config.state.kind === 'error' ? (
-          <LoadError
-            what={`the config of ${scopeLabel(scope)}`}
-            message={config.state.message}
-            onRetry={config.refetch}
-          />
+        {config.kind === 'error' ? (
+          <LoadError what={`the config of ${scopeLabel(scope)}`} message={config.message} onRetry={editor.reload} />
         ) : null}
 
         {loaded !== null && loaded.owner !== loaded.scope ? (
@@ -115,9 +114,27 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
 
         <Tabs
           activeKey={tab}
+          // A hidden tab would keep working: Raw config renders the XML again on every settings edit.
+          destroyOnHidden
           onChange={(key) => openTab(key as AgentsTab)}
           items={[
-            { key: 'settings', label: 'Settings' },
+            {
+              key: 'settings',
+              label: 'Settings',
+              children:
+                loaded === null || editor.settings === null ? (
+                  config.kind === 'loading' ? (
+                    <Skeleton active />
+                  ) : null
+                ) : (
+                  <SettingsCards
+                    settings={editor.settings}
+                    availablePlugins={loaded.available_plugins}
+                    startup={loaded.startup}
+                    onChange={editor.editSettings}
+                  />
+                ),
+            },
             { key: 'raw', label: 'Raw config' },
             {
               key: 'agents',

@@ -159,6 +159,41 @@ describe('tabs', () => {
   });
 });
 
+describe('Settings tab', () => {
+  const card = (title: string): Promise<HTMLElement> => screen.findByRole('group', { name: title });
+
+  it('shows the settings of a scope with its own config', async () => {
+    renderAgentsPage('/agents?scope=prod-orders%2Forder-processing');
+    const packages = await card('Packages');
+    expect(within(packages).getByText('com.acme.orders.**')).toBeInTheDocument();
+    expect(within(packages).getByText('com.acme.orders.generated.**')).toBeInTheDocument();
+    expect(within(await card('Call parameters')).getByText('order.id')).toBeInTheDocument();
+    expect(within(await card('Plugins')).getByText(/8 of 22 are on\.$/)).toBeInTheDocument();
+    expect(within(await card('Set at startup')).getByText('profiler-collector.profiler:1715')).toBeInTheDocument();
+  });
+
+  it('shows an inheriting scope the settings of the scope it inherits from', async () => {
+    renderAgentsPage('/agents?scope=staging-orders%2Forder-processing');
+    // staging-orders turns recording off, and its services inherit that.
+    expect(within(await card('Profiling')).getByRole('switch')).not.toBeChecked();
+    expect(within(await card('Packages')).getByText('com.acme.**')).toBeInTheDocument();
+  });
+
+  it('starts another scope from its own config, without the edits made before', async () => {
+    renderAgentsPage('/agents?scope=prod-billing');
+    fireEvent.click(within(await card('Profiling')).getByRole('switch'));
+    expect(within(await card('Profiling')).getByRole('switch')).not.toBeChecked();
+
+    fireEvent.click(option(await openScopeList(), 'billing-core'));
+    await waitFor(() => expect(scopeButton()).toHaveTextContent('prod-billing / billing-core'));
+    expect(within(await card('Profiling')).getByRole('switch')).toBeChecked();
+
+    fireEvent.click(option(await openScopeList(), 'prod-billing'));
+    await waitFor(() => expect(scopeButton()).toHaveTextContent(/prod-billing$/));
+    expect(within(await card('Profiling')).getByRole('switch')).toBeChecked();
+  });
+});
+
 describe('Agents tab', () => {
   it('lists the agents of the scope with their revision, status, and detail', async () => {
     renderAgentsPage('/agents?scope=prod-orders%2Forder-processing&tab=agents');
