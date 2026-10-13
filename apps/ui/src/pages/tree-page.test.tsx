@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
+import { http, HttpResponse } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -222,6 +223,62 @@ describe('TreePage', () => {
     expect(selectedInTree[0]!.textContent).toContain(otherName);
     // No strip of operations appears beside the search field on either tab.
     expect(screen.queryByRole('button', { name: 'Incoming calls' })).toBeNull();
+  });
+
+  it('shows the trace chip and expands the configured links for a traced call', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['trace.id'] !== undefined, Date.now());
+    const traceId = call.params['trace.id']![0]!;
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByTitle(`trace_id ${traceId}`).textContent).toBe(`trace ${traceId.slice(0, 12)}…`);
+    expect(screen.queryByText('not traced')).toBeNull();
+
+    const trace = await screen.findByRole('link', { name: /Open trace · Tempo/ });
+    expect(trace).toHaveAttribute('href', `https://grafana.example.com/explore?trace=${traceId}`);
+    expect(trace).toHaveAttribute('target', '_blank');
+    expect(trace).toHaveAttribute('rel', 'noopener noreferrer');
+
+    const logs = screen.getByRole('link', { name: /Logs · Grafana/ });
+    const url = new URL(logs.getAttribute('href')!);
+    expect(url.searchParams.get('namespace')).toBe(call.pk.pod_namespace);
+    expect(url.searchParams.get('pod')).toBe(call.pk.pod_name);
+    expect(url.searchParams.get('from')).toBe(String(call.ts_ms));
+    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms));
+
+    // The links come after the page's own actions.
+    const download = screen.getByRole('button', { name: /Download HTML/ });
+    expect(download.compareDocumentPosition(trace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('disables a link that needs a trace ID on an untraced call and says why', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['trace.id'] === undefined, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByText('not traced')).toBeInTheDocument();
+    // The logs template uses no trace ID, so that link still works.
+    expect(await screen.findByRole('link', { name: /Logs · Grafana/ })).toBeInTheDocument();
+    // The trace button stays in place, as a disabled button with no href to follow.
+    const trace = screen.getByRole('button', { name: /Open trace · Tempo/ });
+    expect(trace).toBeDisabled();
+    expect(screen.queryByRole('link', { name: /Open trace · Tempo/ })).toBeNull();
+
+    // A disabled button fires no pointer events; its wrapper takes them for the tooltip.
+    fireEvent.mouseEnter(trace.parentElement!);
+    expect(await screen.findByText('Unavailable: this call carries no trace ID')).toBeInTheDocument();
+  });
+
+  it('shows no link buttons when the deployment configures none', async () => {
+    server.use(http.get('/api/v1/config', () => HttpResponse.json({ dumps_collector_url: '' })));
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    // Give the config request time to settle before asserting an absence.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.queryByText(/Open trace/)).toBeNull();
+    expect(screen.queryByText(/Logs · Grafana/)).toBeNull();
+    expect(screen.getByRole('button', { name: /Download HTML/ })).toBeEnabled();
   });
 
   it('shows the cold-call state for a bare PK outside the hot window', async () => {

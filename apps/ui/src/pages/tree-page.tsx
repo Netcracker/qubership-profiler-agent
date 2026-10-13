@@ -1,11 +1,28 @@
-import { CloseOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons';
-import { App, Alert, Button, Empty, Input, Layout, Modal, Result, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
+import { CloseOutlined, DownloadOutlined, ExportOutlined, EyeOutlined } from '@ant-design/icons';
+import {
+  App,
+  Alert,
+  Button,
+  Empty,
+  Input,
+  Layout,
+  Modal,
+  Result,
+  Space,
+  Spin,
+  Table,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 
 import { httpTitleFromNodeParams } from '../api/http-title';
 import { parsePkPath, pkToPath } from '../api/pk';
 import type { CallPK, RetentionClass } from '../api/types';
+import { useConfig } from '../api/use-config';
 import { buildExportHtml, downloadHtml } from '../export/build-export';
 import { bytesToBase64, RESTORE_VERSION } from '../export/restore';
 import type { SerializedTab } from '../export/restore';
@@ -15,6 +32,7 @@ import { formatCount, formatDurationMs, formatTs } from '../calls/format';
 import { useZone } from '../ui/timezone';
 import { FlameView } from '../tree/flame-view';
 import { HotspotsView } from '../tree/hotspots-view';
+import { callLinks, findTraceId } from '../tree/links';
 import { parseMethod } from '../tree/method-info';
 import { buildTreeModel, findNodeById } from '../tree/model';
 import type { TreeModel, TreeNode } from '../tree/model';
@@ -218,6 +236,24 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
     [model],
   );
 
+  // The call's trace ID (null when it was not traced) and the link-outs that
+  // /config offers (02 §2.8). An exported copy has no backend to ask for them.
+  const configState = useConfig(restore === undefined);
+  const traceId = useMemo(() => (model === null ? null : findTraceId(model)), [model]);
+  const links = useMemo(() => {
+    const configured = configState.kind === 'ready' ? (configState.config.links ?? []) : [];
+    if (model === null || pk === null || configured.length === 0) return [];
+    return callLinks(configured, {
+      trace_id: traceId,
+      // The call's window: its start, which travels as the ts_ms hint, plus its duration.
+      from_ms: tsMs === null ? null : String(tsMs),
+      to_ms: tsMs === null ? null : String(tsMs + model.root.durationMs),
+      namespace: pk.pod_namespace,
+      service: pk.pod_service,
+      pod: pk.pod_name,
+    });
+  }, [configState, model, pk, traceId, tsMs]);
+
   const openOpTab = (op: OpTabSpec['op'], methodIdx: number, category?: string, nodeId?: number): void => {
     const key = `z${nextTabId.current++}`;
     setOpTabs((prev) => [...prev, { key, op, methodIdx, category, nodeId }]);
@@ -369,6 +405,28 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
           Download HTML
         </Button>
       ) : null}
+      {links.length > 0 ? <span className={styles.toolbarDivider} /> : null}
+      {links.map((link, i) =>
+        link.url !== null ? (
+          <Tooltip key={i} title="Opens in a new tab">
+            <Button href={link.url} target="_blank" rel="noopener noreferrer" icon={<ExportOutlined />} iconPlacement="end">
+              {link.label}
+            </Button>
+          </Tooltip>
+        ) : (
+          // A link the call has no value for stays in place, disabled, and says
+          // why (02 §2.8): hidden, it would look like a deployment without one.
+          // A disabled button fires no pointer events, so the wrapper carries the
+          // tooltip, and its tab stop lets the keyboard reach the reason too.
+          <Tooltip key={i} title={link.reason}>
+            <span className={styles.disabledLink} tabIndex={0}>
+              <Button disabled icon={<ExportOutlined />} iconPlacement="end">
+                {link.label}
+              </Button>
+            </span>
+          </Tooltip>
+        ),
+      )}
     </div>
   );
 
@@ -408,6 +466,18 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
             {formatDurationMs(model.root.durationMs)}
           </span>
         ) : null}
+        {model === null ? null : traceId !== null ? (
+          <span className={`${styles.chip} pf-mono`} title={`trace_id ${traceId}`}>
+            trace {traceId.length > 12 ? `${traceId.slice(0, 12)}…` : traceId}
+          </span>
+        ) : (
+          <span
+            className={`${styles.chip} ${styles.chipMuted}`}
+            title="This call carries no trace ID, so the links that need one are unavailable."
+          >
+            not traced
+          </span>
+        )}
         {restore !== undefined ? <span className={styles.chip}>offline copy</span> : null}
         <div className={styles.headerRight}>
           <ThemeSwitch />
