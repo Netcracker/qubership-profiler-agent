@@ -217,9 +217,27 @@ category first, then flat-profiles within — so a business operation's share of
 
 ### 3.6 Rendering
 
-Virtualised over the flattened visible nodes; lazy expansion; degenerate-chain collapse; a size guard against
-a pathological blob (07 §5.4). One indented tree in v1 — flame/icicle is deferred and, if built, must apply
-the same degenerate-frame skipping.
+**Call Tree.** Virtualised over the flattened visible nodes; lazy expansion; degenerate-chain collapse; a size guard
+against a pathological blob (07 §5.4).
+
+**Flame graph.** The same merged model as blocks, laid out by a client-side transform
+(`tree/transforms/flame.ts`): one block per node, placed under its parent, with its offset and width as shares of
+the call. Children follow the model's order, from the parent's left edge, so the part of a block with nothing under
+it is the method's self time.
+
+| Element | Behavior |
+|---------|----------|
+| Block | 26 px high on a 28 px row. It shows `Class.method · duration` when it is at least 40 px wide; its tooltip and accessible name always carry the method, the duration, the share of the call, the self time, and the call count. |
+| Color | By category, in the stronger variant of the badge color (§3.5). A block without a category takes the share bar's light color. The legend lists the categories on screen and `No category`. |
+| Readout | A line above the graph with the numbers of the hovered or focused block, else of the selected one. |
+| Selection | A click selects a block, and a second click clears it. The selection is shared with the Call Tree tab: the tree opens the way to the selected row, through closed nodes and skipped chains, and scrolls to it. Selecting adds no buttons. |
+| Zoom | A double click, or Shift+Enter on a focused block, re-roots the graph on that block. A `Reset to the whole call` link returns. Shares stay shares of the whole call. |
+| Culling | A block under one pixel wide is not drawn, and neither is anything under it. Its space stays reserved, so its siblings do not move. This bounds a row at one block per pixel. |
+
+The flame graph does not skip pass-through chains: a chain is a stack of equally wide blocks, which reads at a
+glance and costs one block per level. Blocks are DOM buttons, not a canvas, so focus, tooltips, and theming come
+from the browser. Measured on synthetic trees at 1200 px: a 2,062-node tree draws 286 blocks, and a 20,000-node
+tree, the row budget, draws 777. A canvas renderer is the fallback if a real tree proves this too slow.
 
 ## 4. Pods Info
 
