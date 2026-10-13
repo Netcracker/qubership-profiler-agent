@@ -50,6 +50,44 @@
   --pf-color-syntax-number: #00874a;
 }
 
+:root[data-theme='dark'] {
+  --pf-color-ground: #171b24;
+  --pf-color-surface: #1e232e;
+  --pf-color-border: #333b4a;
+  --pf-color-border-soft: #2a313e;
+  --pf-color-text: #e6e9ef;
+  --pf-color-dim: #a4aec1;
+  --pf-color-faint: #7d879b;
+  --pf-color-accent: #4d9bff;
+  --pf-color-accent-text: #6fb0ff;
+  --pf-color-ok: #3fd07f;
+  --pf-color-warn: #ffb02e;
+  --pf-color-crit: #ff6b78;
+
+  --pf-color-surface2: #262c39;
+  --pf-color-accent-soft: #1c2b45;
+  --pf-color-veil: rgba(255, 255, 255, 0.07);
+  --pf-color-header: #005dcf;
+  --pf-color-warn-bg: #3a2f14;
+  --pf-color-crit-bg: #45202a;
+  --pf-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+
+  --pf-color-heat-mid: #ffb02e;
+
+  --pf-color-bar: #3d8bf2;
+  --pf-color-bar-soft: rgba(61, 139, 242, 0.28);
+  --pf-color-bar-err: #f25567;
+
+  --pf-color-tag-err-bg: #45202a;
+  --pf-color-tag-info-bg: #1c2b45;
+  --pf-color-tag-info-text: #9cc8ff;
+
+  --pf-color-mark: #5a4a12;
+  --pf-color-guide: #4d586b;
+  --pf-color-syntax-keyword: #6fb0ff;
+  --pf-color-syntax-number: #6fdc9c;
+}
+
 /* antd styles its own components from the tokens; this covers the page around
    them and any markup that is not an antd component. */
 body {
@@ -75,4 +113,34 @@ body {
    its brittle internal class chain. */
 .ant-tag-processing {
   color: var(--pf-color-tag-info-text) !important;
+}
+
+/* highlight.js ships one stylesheet per theme, and param-value-viewer.tsx
+   imports the light one (github.css). Its colors are too dark for the dark
+   surfaces, so the dark theme recolors the token classes that the SQL, XML,
+   and JSON grammars emit. */
+:root[data-theme='dark'] .hljs {
+  color: var(--pf-color-text);
+}
+
+:root[data-theme='dark'] .hljs-keyword,
+:root[data-theme='dark'] .hljs-type,
+:root[data-theme='dark'] .hljs-built_in,
+:root[data-theme='dark'] .hljs-name,
+:root[data-theme='dark'] .hljs-attr,
+:root[data-theme='dark'] .hljs-attribute,
+:root[data-theme='dark'] .hljs-operator {
+  color: var(--pf-color-syntax-keyword);
+}
+
+:root[data-theme='dark'] .hljs-number,
+:root[data-theme='dark'] .hljs-literal,
+:root[data-theme='dark'] .hljs-string,
+:root[data-theme='dark'] .hljs-meta,
+:root[data-theme='dark'] .hljs-variable {
+  color: var(--pf-color-syntax-number);
+}
+
+:root[data-theme='dark'] .hljs-comment {
+  color: var(--pf-color-faint);
 }

@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { theme } from 'antd';
 import { describe, expect, it } from 'vitest';
 
-import { FONT_MONO, FONT_SANS, lightPalette, profilerTheme } from './profiler-theme';
+import { FONT_MONO, FONT_SANS, darkPalette, lightPalette, profilerThemes } from './profiler-theme';
 import type { Palette } from './profiler-theme';
 
 // Read from disk: vitest does not process plain CSS, so an import yields nothing.
@@ -33,33 +34,61 @@ function expectCssMatches(selector: string, palette: Palette): void {
   }
 }
 
-describe('profilerTheme', () => {
+describe('profilerThemes', () => {
   it('maps the light palette onto antd tokens', () => {
-    expect(profilerTheme).toMatchInlineSnapshot(`
+    expect(profilerThemes.light.algorithm).toBe(theme.defaultAlgorithm);
+    expect(profilerThemes.light.components).toEqual({});
+    expect(profilerThemes.light.token).toMatchInlineSnapshot(`
       {
-        "cssVar": {},
-        "token": {
-          "borderRadius": 6,
-          "colorBgBase": "#ffffff",
-          "colorBgContainer": "#ffffff",
-          "colorBgElevated": "#ffffff",
-          "colorBgLayout": "#f5f5fa",
-          "colorBorder": "#d5dce3",
-          "colorBorderSecondary": "#e6ebf1",
-          "colorError": "#d10049",
-          "colorInfo": "#0068ff",
-          "colorLink": "#005dcf",
-          "colorPrimary": "#0068ff",
-          "colorSuccess": "#00a356",
-          "colorText": "#353c4e",
-          "colorTextBase": "#353c4e",
-          "colorTextSecondary": "#626d82",
-          "colorTextTertiary": "#8f9eb4",
-          "colorWarning": "#b8760c",
-          "fontFamily": "'Inter Variable', Inter, 'Segoe UI', system-ui, sans-serif",
-          "fontFamilyCode": "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace",
-          "fontSize": 13,
-        },
+        "borderRadius": 6,
+        "colorBgBase": "#ffffff",
+        "colorBgContainer": "#ffffff",
+        "colorBgElevated": "#ffffff",
+        "colorBgLayout": "#f5f5fa",
+        "colorBorder": "#d5dce3",
+        "colorBorderSecondary": "#e6ebf1",
+        "colorError": "#d10049",
+        "colorInfo": "#0068ff",
+        "colorLink": "#005dcf",
+        "colorPrimary": "#0068ff",
+        "colorSuccess": "#00a356",
+        "colorText": "#353c4e",
+        "colorTextBase": "#353c4e",
+        "colorTextSecondary": "#626d82",
+        "colorTextTertiary": "#8f9eb4",
+        "colorWarning": "#b8760c",
+        "fontFamily": "'Inter Variable', Inter, 'Segoe UI', system-ui, sans-serif",
+        "fontFamilyCode": "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace",
+        "fontSize": 13,
+      }
+    `);
+  });
+
+  it('maps the dark palette onto antd tokens under the dark algorithm', () => {
+    expect(profilerThemes.dark.algorithm).toBe(theme.darkAlgorithm);
+    expect(profilerThemes.dark.components).toEqual({ Button: { primaryColor: '#0b1220' } });
+    expect(profilerThemes.dark.token).toMatchInlineSnapshot(`
+      {
+        "borderRadius": 6,
+        "colorBgBase": "#1e232e",
+        "colorBgContainer": "#1e232e",
+        "colorBgElevated": "#1e232e",
+        "colorBgLayout": "#171b24",
+        "colorBorder": "#333b4a",
+        "colorBorderSecondary": "#2a313e",
+        "colorError": "#ff6b78",
+        "colorInfo": "#4d9bff",
+        "colorLink": "#6fb0ff",
+        "colorPrimary": "#4d9bff",
+        "colorSuccess": "#3fd07f",
+        "colorText": "#e6e9ef",
+        "colorTextBase": "#e6e9ef",
+        "colorTextSecondary": "#a4aec1",
+        "colorTextTertiary": "#7d879b",
+        "colorWarning": "#ffb02e",
+        "fontFamily": "'Inter Variable', Inter, 'Segoe UI', system-ui, sans-serif",
+        "fontFamilyCode": "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace",
+        "fontSize": 13,
       }
     `);
   });
@@ -68,6 +97,15 @@ describe('profilerTheme', () => {
 describe('theme.css', () => {
   it('repeats the light palette under :root', () => {
     expectCssMatches(':root', lightPalette);
+  });
+
+  it("repeats the dark palette under :root[data-theme='dark']", () => {
+    expectCssMatches(":root[data-theme='dark']", darkPalette);
+  });
+
+  it('gives every color variable a dark value', () => {
+    const light = [...declarations(':root').keys()].filter((name) => !name.startsWith('--pf-font-'));
+    expect([...declarations(":root[data-theme='dark']").keys()].sort()).toEqual(light.sort());
   });
 
   it('declares the same font stacks as the antd tokens', () => {
