@@ -54,7 +54,7 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `image.registry` / `image.repository` / `image.tag` | `"" / profiler-backend / dev` | One image, one binary; the subcommand is the container arg. |
 | `s3.endpoint` | `""` | Required unless `seaweedfs.enabled`; `https://` enables TLS. |
 | `s3.bucket` | `profiler-data` | Created by the services on first connect. |
-| `s3.auth.existingSecret` | `""` | Secret with keys `access-key` / `secret-key`; wins over the inline pair. Production should use this. |
+| `s3.auth.existingSecret` | `""` | Secret with keys `access-key` / `secret-key`; wins over the inline pair. Production should use this. With `seaweedfs.enabled`, point `seaweedfs.s3.credentials.admin.existingSecret` at the same Secret. |
 | `s3.auth.accessKey` / `secretKey` | `""` | Renders a chart-managed Secret — dev/smoke only. |
 | `s3.auth.mountPath` | `/etc/profiler/s3` | Where every workload mounts the Secret. |
 | `s3.tls.caCert` | `""` | PEM CA bundle for a private/internal CA on the S3 endpoint. Renders a chart-managed Secret — dev/smoke only. |
@@ -74,6 +74,7 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `retention.*TTL` | contract defaults | Per-class TTLs (01 §6.4) passed to maintain. |
 | `seaweedfs.enabled` | `false` | Installs the SeaweedFS subchart as a dev/smoke S3 store: one all-in-one pod on an emptyDir. Other `seaweedfs.*` keys pass through to the subchart. |
 | `seaweedfs.s3.credentials.admin.accessKey` / `secretKey` | `""` | Must equal `s3.auth.accessKey` / `secretKey` when `seaweedfs.enabled`; the render fails on a mismatch. |
+| `seaweedfs.s3.credentials.admin.existingSecret` | `""` | Secret SeaweedFS reads its admin key pair from, instead of the inline pair. With `s3.auth.existingSecret`, set it to the same Secret together with `seaweedfs.s3.credentials.admin.accessKeyKey: access-key` and `secretKeyKey: secret-key`. The chart does not compare the two Secrets: if they hold different pairs, SeaweedFS rejects every profiler request. |
 | `metrics.serviceMonitor.enabled` | `false` | Requires the prometheus-operator CRDs. Also creates the query and maintain PodMonitors; see the note under [Metrics contract](#metrics-contract). |
 | `metrics.prometheusRule.enabled` | `false` | Ships `files/prometheus-rules.yaml` as a PrometheusRule. |
 
