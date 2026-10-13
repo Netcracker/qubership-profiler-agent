@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { BROWSER_ZONE } from '../controls/time-range';
 import { server } from '../mocks/node';
+import { AppShell } from '../shell/app-shell';
 import { setZone } from '../ui/timezone';
 import { PodsPage } from './pods-page';
 
@@ -36,6 +37,23 @@ describe('PodsPage', () => {
     expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Filter services')).toBeInTheDocument();
     expect(screen.getByText('Pick a period and Apply to see pods.')).toBeInTheDocument();
+  });
+
+  it('puts the time range in the shell header and keeps Apply in the page', () => {
+    render(
+      <MemoryRouter initialEntries={['/pods']}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="/pods" element={<PodsPage />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+    const header = screen.getByRole('banner');
+    expect(within(header).getByRole('button', { name: 'Time range' })).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Zoom out time range' })).toBeInTheDocument();
+    expect(within(header).queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument();
   });
 
   it('loads the pods table after picking a period and applying', async () => {
