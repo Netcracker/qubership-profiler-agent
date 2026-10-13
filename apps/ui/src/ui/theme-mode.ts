@@ -61,6 +61,18 @@ export function setThemeMode(mode: ThemeMode): void {
   if (changed) publish();
 }
 
+/**
+ * Use a mode for this page load without storing it. An exported copy opens in
+ * the theme it was saved in, whatever the browser prefers or an earlier page
+ * stored. The switch still works afterwards, and stores as usual.
+ */
+export function pinThemeMode(mode: ThemeMode): void {
+  const changed = mode !== getThemeMode();
+  override = mode;
+  if (changed) publish();
+  else stamp();
+}
+
 export function toggleThemeMode(): void {
   setThemeMode(getThemeMode() === 'dark' ? 'light' : 'dark');
 }

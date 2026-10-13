@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getThemeMode, setThemeMode, syncThemeMode, toggleThemeMode } from './theme-mode';
+import { getThemeMode, pinThemeMode, setThemeMode, syncThemeMode, toggleThemeMode } from './theme-mode';
 
 const STORAGE_KEY = 'profiler.theme';
 
@@ -75,5 +75,23 @@ describe('theme mode', () => {
     setThemeMode('dark');
     expect(document.documentElement.dataset['theme']).toBe('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
+  });
+
+  it('pins a mode for the page load without storing it', () => {
+    stageSystem(false);
+    localStorage.setItem(STORAGE_KEY, 'light');
+    syncThemeMode();
+
+    pinThemeMode('dark');
+    expect(getThemeMode()).toBe('dark');
+    expect(document.documentElement.dataset['theme']).toBe('dark');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('light');
+
+    // The switch works from the pinned mode and stores the choice as usual.
+    toggleThemeMode();
+    expect(getThemeMode()).toBe('light');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('light');
+    toggleThemeMode();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('dark');
   });
 });

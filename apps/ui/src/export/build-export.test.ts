@@ -24,6 +24,36 @@ function stubFetch(index: string, js = APP_JS, css = '.hljs{color:red}'): void {
   );
 }
 
+const FONT_CSS = [
+  "@font-face{font-family:'Inter Variable';src:url(/ui/assets/inter-cyrillic-wght-normal-AAAA.woff2) format('woff2-variations');unicode-range:U+0301,U+0400-045F}",
+  "@font-face{font-family:'Inter Variable';src:url(/ui/assets/inter-latin-wght-normal-BBBB.woff2) format('woff2-variations');unicode-range:U+0000-00FF,U+0131}",
+  "@font-face{font-family:'JetBrains Mono Variable';src:url(\"/ui/assets/jetbrains-mono-latin-wght-normal-CCCC.woff2\") format('woff2-variations');unicode-range:U+00??,U+2000-206F}",
+  'body{font-family:var(--pf-font-sans)}',
+].join('');
+
+/** A stub that serves the index, a stylesheet with fonts, the bundle, and font bytes; `missing` answers 404. */
+function stubFetchWithFonts(missing: string[] = []): string[] {
+  const fetched: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      const u = String(url);
+      fetched.push(u);
+      if (missing.some((m) => u.includes(m))) return { ok: false, status: 404, statusText: 'Not Found' } as Response;
+      const body = u.endsWith('index.html') ? INDEX : u.endsWith('.css') ? FONT_CSS : APP_JS;
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => body,
+        // Three bytes per font, named after the file, so each data: URL is recognizable.
+        arrayBuffer: async () => new TextEncoder().encode(u.includes('jetbrains') ? 'JBM' : 'INT').buffer,
+      } as Response;
+    }),
+  );
+  return fetched;
+}
+
 function payload(overrides: Partial<RestorePayload> = {}): RestorePayload {
   return {
     v: RESTORE_VERSION,
@@ -53,6 +83,38 @@ describe('buildExportHtml', () => {
     expect(html).not.toContain(APP_JS);
     expect(html).toContain('window.__PROFILER_RESTORE__ =');
     expect(html).toContain('ns:svc:pod:1:2:3:0');
+  });
+
+  it('inlines the Latin fonts and drops the other subsets, so no font URL is left', async () => {
+    const fetched = stubFetchWithFonts();
+    const html = await buildExportHtml(payload());
+
+    // btoa('INT') and btoa('JBM'): both Latin faces carry their bytes.
+    expect(html).toContain("src:url(data:font/woff2;base64,SU5U) format('woff2-variations')");
+    expect(html).toContain('src:url("data:font/woff2;base64,SkJN") format(\'woff2-variations\')');
+    // The Cyrillic face is gone, and it was never downloaded.
+    expect(html).not.toContain('cyrillic');
+    expect(fetched.some((u) => u.includes('cyrillic'))).toBe(false);
+    // Nothing in the file points at a font on a server.
+    expect(html).not.toContain('.woff2)');
+    expect(html).not.toContain('/ui/assets/');
+    // The rest of the stylesheet is untouched.
+    expect(html).toContain('body{font-family:var(--pf-font-sans)}');
+  });
+
+  it('drops a font it cannot fetch and leaves the system fallback to it', async () => {
+    stubFetchWithFonts(['jetbrains-mono-latin']);
+    const html = await buildExportHtml(payload());
+    expect(html).toContain('data:font/woff2;base64,SU5U');
+    expect(html).not.toContain('JetBrains Mono Variable');
+    expect(html).not.toContain('.woff2');
+  });
+
+  it('carries the theme of the exporting page in the payload', async () => {
+    stubFetch(INDEX);
+    const html = await buildExportHtml(payload({ theme: 'dark', activeTab: 'flame' }));
+    expect(html).toContain('"theme":"dark"');
+    expect(html).toContain('"activeTab":"flame"');
   });
 
   it("escapes '<' in the embedded payload so it cannot open a tag", async () => {
