@@ -1,0 +1,55 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.title {
+  flex: 1 1 200px;
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pf-color-ok);
+}
+
+.dot[data-edited='true'] {
+  background: var(--pf-color-warn);
+}
+
+.help {
+  margin-top: -6px;
+  color: var(--pf-color-dim);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.xml {
+  height: 560px;
+  resize: vertical;
+  padding: 12px;
+  background: var(--pf-color-ground);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre;
+  tab-size: 4;
+}

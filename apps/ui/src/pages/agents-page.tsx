@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router';
 
 import { AgentsTable } from '../agents/agents-table';
 import { ApplyBar } from '../agents/apply-bar';
+import { RawConfig } from '../agents/raw-config';
 import { fetchAgentConfigAgents, fetchAgentConfigScopes } from '../agents/api';
 import { STATUS_LABELS, countByStatus, inheritedOwner, scopeLabel, worstStatus } from '../agents/scope';
 import { ScopePicker } from '../agents/scope-picker';
@@ -167,15 +168,41 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
                     <Skeleton active />
                   ) : null
                 ) : (
-                  <SettingsCards
+                  <div className={styles.settings}>
+                    {editor.rawXml === null ? null : (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        title="The raw config was edited by hand and overrides these settings."
+                        action={<Button onClick={editor.discardRawXml}>Discard raw edits</Button>}
+                      />
+                    )}
+                    <SettingsCards
+                      settings={editor.settings}
+                      availablePlugins={loaded.available_plugins}
+                      startup={loaded.startup}
+                      onChange={editor.editSettings}
+                    />
+                  </div>
+                ),
+            },
+            {
+              key: 'raw',
+              label: 'Raw config',
+              children:
+                editor.settings === null ? (
+                  config.kind === 'loading' ? (
+                    <Skeleton active />
+                  ) : null
+                ) : (
+                  <RawConfig
                     settings={editor.settings}
-                    availablePlugins={loaded.available_plugins}
-                    startup={loaded.startup}
-                    onChange={editor.editSettings}
+                    rawXml={editor.rawXml}
+                    onEdit={editor.editRawXml}
+                    onDiscardRaw={editor.discardRawXml}
                   />
                 ),
             },
-            { key: 'raw', label: 'Raw config' },
             {
               key: 'agents',
               label: agentRows === null ? 'Agents' : `Agents (${agentRows.length})`,
