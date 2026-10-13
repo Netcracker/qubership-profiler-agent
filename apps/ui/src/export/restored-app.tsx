@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router';
 
 import { parsePkPath } from '../api/pk';
 import { isRetentionClass } from '../api/types';
+import { isTreeTab } from '../url/search-params';
 import { decodeTree } from '../msgpack/decode';
 import { TreePage } from '../pages/tree-page';
 import { ThemeProvider } from '../theme/theme-provider';
@@ -22,7 +23,8 @@ export function RestoredApp({ payload }: { payload: RestorePayload }) {
   return (
     <ThemeProvider>
       <AntdApp>
-        <MemoryRouter>
+        {/* The page reads its fixed tab from the URL, so the saved one is handed over as one. */}
+        <MemoryRouter initialEntries={[isTreeTab(payload.activeTab) ? `/?tab=${payload.activeTab}` : '/']}>
           <TreePage
             restore={{
               wire,

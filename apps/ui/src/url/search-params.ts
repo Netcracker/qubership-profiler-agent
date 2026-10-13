@@ -142,22 +142,43 @@ export function callsSearchToParams(state: CallsSearchState): URLSearchParams {
   return sp;
 }
 
-/** /ui/tree/:pk query hints (02 §2.2 cold lookup). */
+/** The fixed tabs of the tree page, in display order. The first one is the default. */
+export const TREE_TABS = ['tree', 'hotspots', 'params'] as const;
+
+export type TreeTab = (typeof TREE_TABS)[number];
+
+export function isTreeTab(s: string): s is TreeTab {
+  return (TREE_TABS as readonly string[]).includes(s);
+}
+
+/** /ui/tree/:pk query state: the cold-lookup hints (02 §2.2) and the open fixed tab (09 §6). */
 export interface TreeSearchState {
   tsMs: number | null;
   retentionClass: RetentionClass | null;
+  /** A missing or unknown `tab` opens Call Tree. Derived tabs are browser state and never get here. */
+  tab: TreeTab;
 }
 
 export function parseTreeSearch(sp: URLSearchParams): TreeSearchState {
   const classRaw = sp.get('retention_class');
+  const tabRaw = sp.get('tab');
   return {
     tsMs: parseMs(sp.get('ts_ms')),
     retentionClass: classRaw !== null && isRetentionClass(classRaw) ? classRaw : null,
+    tab: tabRaw !== null && isTreeTab(tabRaw) ? tabRaw : 'tree',
   };
 }
 
+/** Sets `tab` in a copy of the tree query string. The default tab is left out, so a plain link stays short. */
+export function withTreeTab(sp: URLSearchParams, tab: TreeTab): URLSearchParams {
+  const next = new URLSearchParams(sp);
+  if (tab === 'tree') next.delete('tab');
+  else next.set('tab', tab);
+  return next;
+}
+
 /** Builds the {base}tree/:pk href a calls row opens in a new tab (09 §2.3); base is the build-time UI base. */
-export function treeHref(pkPath: string, tsMs: number, retentionClass: RetentionClass): string {
-  const sp = new URLSearchParams({ ts_ms: String(tsMs), retention_class: retentionClass });
+export function treeHref(pkPath: string, tsMs: number, retentionClass: RetentionClass, tab: TreeTab = 'tree'): string {
+  const sp = withTreeTab(new URLSearchParams({ ts_ms: String(tsMs), retention_class: retentionClass }), tab);
   return `${import.meta.env.BASE_URL}tree/${encodeURIComponent(pkPath)}?${sp.toString()}`;
 }
