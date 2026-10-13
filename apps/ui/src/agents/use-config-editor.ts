@@ -9,6 +9,8 @@ import type { Loadable } from './use-loadable';
 interface Edits {
   scope: AgentConfigScopeId;
   settings?: AgentConfigSettings;
+  /** The hand-edited XML, or null once the hand edits are discarded. */
+  rawXml?: string | null;
 }
 
 export interface ConfigEditor {
@@ -18,9 +20,18 @@ export interface ConfigEditor {
   reload: () => void;
   /** The loaded settings with the edits on top; null until the config loads. */
   settings: AgentConfigSettings | null;
+  /**
+   * The hand-edited XML that overrides the settings: the saved one, or the
+   * unsaved edit on top of it. Null while the XML is generated from the settings.
+   */
+  rawXml: string | null;
   /** Whether an apply would change what the server has. */
   dirty: boolean;
   editSettings: (next: AgentConfigSettings) => void;
+  /** Takes a hand edit of the XML, which from then on overrides the settings. */
+  editRawXml: (xml: string) => void;
+  /** Returns to the XML generated from the settings. */
+  discardRawXml: () => void;
   /** Drops the edits and shows the loaded config again. */
   discard: () => void;
   /** True while an apply or a return to the inherited config is on its way. */
@@ -67,14 +78,17 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
 
   const loaded = config.kind === 'ready' ? config.data : null;
   const settings = loaded === null ? null : (edits.settings ?? loaded.settings);
+  const rawXml = loaded === null ? null : edits.rawXml === undefined ? loaded.raw_xml : edits.rawXml;
   // Both sides come from the same object shape, so the key order matches and
   // an edit that is undone compares equal again.
   const dirty =
     loaded !== null &&
-    edits.settings !== undefined &&
-    JSON.stringify(edits.settings) !== JSON.stringify(loaded.settings);
+    ((edits.settings !== undefined && JSON.stringify(edits.settings) !== JSON.stringify(loaded.settings)) ||
+      rawXml !== loaded.raw_xml);
 
   const editSettings = useCallback((next: AgentConfigSettings) => setStored({ ...edits, settings: next }), [edits]);
+  const editRawXml = useCallback((xml: string) => setStored({ ...edits, rawXml: xml }), [edits]);
+  const discardRawXml = useCallback(() => setStored({ ...edits, rawXml: null }), [edits]);
   const discard = useCallback(() => setStored({ scope }), [scope]);
   const reload = useCallback(() => {
     setStored({ scope });
@@ -88,8 +102,8 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
     setSaving(true);
     setError(null);
     try {
-      // raw_xml travels unchanged: leaving it out would return the scope to generated XML.
-      set(await saveAgentConfig(scope, { expected_revision: loaded.revision, settings, raw_xml: loaded.raw_xml }));
+      // Null returns the scope to the XML generated from the settings.
+      set(await saveAgentConfig(scope, { expected_revision: loaded.revision, settings, raw_xml: rawXml }));
       setStored({ scope });
       return true;
     } catch (e) {
@@ -120,8 +134,11 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
     config,
     reload,
     settings,
+    rawXml,
     dirty,
     editSettings,
+    editRawXml,
+    discardRawXml,
     discard,
     saving,
     error,

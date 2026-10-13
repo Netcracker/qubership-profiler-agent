@@ -4,7 +4,8 @@ import { HttpResponse, http } from 'msw';
 import { RouterProvider, createMemoryRouter } from 'react-router';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchAgentConfig, saveAgentConfig } from '../agents/api';
+import { fetchAgentConfig, renderAgentConfig, saveAgentConfig } from '../agents/api';
+import type { AgentConfigSettings } from '../agents/types';
 import { AGENT_APPLY_DELAY_MS, resetAgentConfigMock } from '../mocks/agent-config';
 import { server } from '../mocks/node';
 import { AgentsPage } from './agents-page';
@@ -495,5 +496,138 @@ describe('leaving with unsaved changes', () => {
     expect(closeTab()).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     expect(closeTab()).toBe(false);
+  });
+});
+
+describe('Raw config tab', () => {
+  const SCOPE = 'prod-billing';
+  const HAND_XML = '<profiler-configuration>\n    <!-- written by hand -->\n</profiler-configuration>';
+
+  const xmlArea = (): Promise<HTMLElement> => screen.findByRole('textbox', { name: 'Raw config XML' });
+
+  /** What the server renders from the settings in effect for the scope. */
+  async function generatedXml(change: Partial<AgentConfigSettings> = {}): Promise<string> {
+    const { settings } = await fetchAgentConfig(SCOPE);
+    return renderAgentConfig({ ...settings, ...change });
+  }
+
+  async function openTab(name: string | RegExp): Promise<void> {
+    fireEvent.click(screen.getByRole('tab', { name }));
+    await waitFor(() => expect(screen.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true'));
+  }
+
+  it('shows the XML that the server renders from the settings', async () => {
+    const expected = await generatedXml();
+    renderAgentsPage(`/agents?scope=${SCOPE}&tab=raw`);
+
+    await waitFor(async () => expect(await xmlArea()).toHaveValue(expected));
+    expect(screen.getByText('Generated from Settings')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Discard raw edits' })).not.toBeInTheDocument();
+    expect(applyBar()).not.toBeInTheDocument();
+  });
+
+  it('renders the unsaved settings, not only the saved ones', async () => {
+    const expected = await generatedXml({ enabled: false });
+    renderAgentsPage(`/agents?scope=${SCOPE}`);
+    await toggleRecording();
+
+    await openTab('Raw config');
+    await waitFor(async () => expect(await xmlArea()).toHaveValue(expected));
+    expect(expected).toContain('name="profiler.enabled" value="false"');
+  });
+
+  it('reports a render that fails and renders again on Retry', async () => {
+    const expected = await generatedXml();
+    server.use(
+      http.post('/api/v1/agent-config/render', () => new HttpResponse(null, { status: 503 }), { once: true }),
+    );
+    renderAgentsPage(`/agents?scope=${SCOPE}&tab=raw`);
+
+    expect(await screen.findByText('Could not generate the XML')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(async () => expect(await xmlArea()).toHaveValue(expected));
+    expect(screen.queryByText('Could not generate the XML')).not.toBeInTheDocument();
+  });
+
+  it('makes a hand edit the override, says so on Settings, and saves it as raw_xml', async () => {
+    const writes = recordWrites();
+    const generated = await generatedXml();
+    renderAgentsPage(`/agents?scope=${SCOPE}&tab=raw`);
+    await waitFor(async () => expect(await xmlArea()).toHaveValue(generated));
+    await screen.findByRole('tab', { name: 'Agents (4)' });
+
+    fireEvent.change(await xmlArea(), { target: { value: HAND_XML } });
+    expect(screen.getByText('Edited by hand')).toBeInTheDocument();
+    expect(await xmlArea()).toHaveValue(HAND_XML);
+    expect(applyBar()).toBeInTheDocument();
+
+    await openTab('Settings');
+    expect(
+      await screen.findByText('The raw config was edited by hand and overrides these settings.'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 4 agents' }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({ method: 'PUT', body: { expected_revision: 14, raw_xml: HAND_XML } });
+
+    // The saved override comes back from the server and still reads as a hand edit.
+    await waitFor(() => expect(applyBar()).not.toBeInTheDocument());
+    await openTab('Raw config');
+    expect(await xmlArea()).toHaveValue(HAND_XML);
+    expect(screen.getByText('Edited by hand')).toBeInTheDocument();
+    expect((await fetchAgentConfig(SCOPE)).raw_xml).toBe(HAND_XML);
+  });
+
+  it('returns to the generated XML when the unsaved hand edit is discarded', async () => {
+    const generated = await generatedXml();
+    renderAgentsPage(`/agents?scope=${SCOPE}&tab=raw`);
+    await waitFor(async () => expect(await xmlArea()).toHaveValue(generated));
+
+    fireEvent.change(await xmlArea(), { target: { value: HAND_XML } });
+    fireEvent.click(screen.getByRole('button', { name: 'Discard raw edits' }));
+
+    await waitFor(async () => expect(await xmlArea()).toHaveValue(generated));
+    expect(screen.getByText('Generated from Settings')).toBeInTheDocument();
+    // Nothing was saved, so nothing is left to apply.
+    expect(applyBar()).not.toBeInTheDocument();
+  });
+
+  it('discards a saved override from the Settings banner and saves raw_xml as null', async () => {
+    const saved = await fetchAgentConfig(SCOPE);
+    await saveAgentConfig(SCOPE, { expected_revision: saved.revision, settings: saved.settings, raw_xml: HAND_XML });
+    const generated = await generatedXml();
+    const writes = recordWrites();
+
+    renderAgentsPage(`/agents?scope=${SCOPE}`);
+    const banner = await screen.findByText('The raw config was edited by hand and overrides these settings.');
+    expect(applyBar()).not.toBeInTheDocument();
+
+    const alert = banner.closest('[role="alert"]');
+    if (!(alert instanceof HTMLElement)) throw new Error('the banner is not an alert');
+    fireEvent.click(within(alert).getByRole('button', { name: 'Discard raw edits' }));
+    expect(screen.queryByText('The raw config was edited by hand and overrides these settings.')).toBeNull();
+    expect(applyBar()).toBeInTheDocument();
+
+    await openTab('Raw config');
+    await waitFor(async () => expect(await xmlArea()).toHaveValue(generated));
+
+    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({ method: 'PUT', body: { raw_xml: null } });
+    await waitFor(async () => expect((await fetchAgentConfig(SCOPE)).raw_xml).toBeNull());
+  });
+
+  it('asks for no render while the XML is hand-edited', async () => {
+    const saved = await fetchAgentConfig(SCOPE);
+    await saveAgentConfig(SCOPE, { expected_revision: saved.revision, settings: saved.settings, raw_xml: HAND_XML });
+    let renders = 0;
+    server.events.on('request:start', ({ request }) => {
+      if (new URL(request.url).pathname.endsWith('/render')) renders += 1;
+    });
+
+    renderAgentsPage(`/agents?scope=${SCOPE}&tab=raw`);
+    expect(await xmlArea()).toHaveValue(HAND_XML);
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 5));
+    expect(renders).toBe(0);
   });
 });

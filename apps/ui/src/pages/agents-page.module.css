@@ -49,3 +49,9 @@
 .inherited strong {
   font-weight: 500;
 }
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
