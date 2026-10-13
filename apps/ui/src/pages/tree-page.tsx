@@ -1,7 +1,7 @@
-import { DownloadOutlined, EyeOutlined } from '@ant-design/icons';
+import { CloseOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons';
 import { App, Alert, Button, Empty, Input, Layout, Modal, Result, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import { useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 
 import { httpTitleFromNodeParams } from '../api/http-title';
 import { parsePkPath, pkToPath } from '../api/pk';
@@ -29,14 +29,15 @@ import { findUsages, incomingCalls, localHotspots, outgoingCalls } from '../tree
 import { TreeView } from '../tree/tree-view';
 import type { TreeDirection, TreeViewOps } from '../tree/tree-view';
 import { useTree } from '../tree/use-tree';
-import { parseTreeSearch } from '../url/search-params';
+import { isTreeTab, parseTreeSearch, withTreeTab } from '../url/search-params';
 import { ThemeSwitch } from '../shell/theme-switch';
 import styles from './tree-page.module.css';
 
-// Call Tree route (09 §3): tabs Call Tree · Hotspots · Parameters, the
-// per-node operations backed by the 5.3 transforms, and the Adjust duration
-// / Setup categories configs. The model rebuilds from the decoded wire on
-// every config change, so the transforms stay pure and re-applicable.
+// Call Tree route (09 §3): the context header, the fixed tabs Call Tree ·
+// Hotspots · Parameters with the toolbar beside them, the per-node operations
+// backed by the 5.3 transforms, and the Adjust duration / Setup categories
+// configs. The model rebuilds from the decoded wire on every config change, so
+// the transforms stay pure and re-applicable.
 
 /**
  * A derived view lives as a closeable tab (old dynamic_tabs). The tab holds
@@ -127,7 +128,7 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
   const { message } = App.useApp();
   const zone = useZone();
   const { pk: pkRaw } = useParams<{ pk: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const routedHints = parseTreeSearch(searchParams);
 
   let pk: CallPK | null;
@@ -164,7 +165,20 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
   const [opTabs, setOpTabs] = useState<OpTabSpec[]>(() =>
     (restore?.tabs ?? []).map((t, i) => ({ key: `r${i}`, ...t })),
   );
-  const [activeTab, setActiveTab] = useState(restore?.activeTab ?? 'tree');
+  // The fixed tab lives in the URL (09 §6). A derived tab is browser state: it
+  // holds a recipe that no link can carry, so it shadows the URL's tab while
+  // it is open and active.
+  const [derivedTab, setDerivedTab] = useState<string | null>(restore?.activeTab ?? null);
+  const activeTab = derivedTab !== null && opTabs.some((t) => t.key === derivedTab) ? derivedTab : routedHints.tab;
+  const selectTab = (key: string): void => {
+    if (!isTreeTab(key)) {
+      setDerivedTab(key);
+      return;
+    }
+    setDerivedTab(null);
+    // Replace, not push: a tab switch is not a step the Back button should undo.
+    setSearchParams((prev) => withTreeTab(prev, key), { replace: true });
+  };
   const [paramValue, setParamValue] = useState<ParamValueTarget | null>(null);
   const [exporting, setExporting] = useState(false);
   const nextTabId = useRef(1);
@@ -203,12 +217,13 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
   const openOpTab = (op: OpTabSpec['op'], methodIdx: number, category?: string, nodeId?: number): void => {
     const key = `z${nextTabId.current++}`;
     setOpTabs((prev) => [...prev, { key, op, methodIdx, category, nodeId }]);
-    setActiveTab(key);
+    setDerivedTab(key);
   };
 
   const closeOpTab = (key: string): void => {
     setOpTabs((prev) => prev.filter((t) => t.key !== key));
-    setActiveTab((cur) => (cur === key ? 'tree' : cur));
+    // Closing the active derived tab returns to the fixed tab the URL names.
+    setDerivedTab((cur) => (cur === key ? null : cur));
   };
 
   const ops: TreeViewOps = {
@@ -303,7 +318,8 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
         adjustText,
         categoryText,
         tabs: opTabs.map((t): SerializedTab => ({ op: t.op, methodIdx: t.methodIdx, category: t.category, nodeId: t.nodeId })),
-        activeTab,
+        // Derived tabs get new keys on restore (`r<index>`), so the active one is saved by position.
+        activeTab: isTreeTab(activeTab) ? activeTab : `r${opTabs.findIndex((t) => t.key === activeTab)}`,
       });
       downloadHtml(html, `profiler-tree-${pkToPath(pk).replace(/[^\w.-]+/g, '_')}.html`);
     } catch (e) {
@@ -313,68 +329,88 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
     }
   };
 
+  const identity = `${pk.pod_namespace} / ${pk.pod_service} / ${pk.pod_name}`;
+
+  // The toolbar sits at the right end of the tab bar. Without a tree there are
+  // no tabs, so it renders on a row of its own, with its buttons disabled.
+  const toolbar = (
+    <div className={styles.toolbar}>
+      <Button
+        disabled={model === null}
+        title={model === null ? 'No tree loaded yet, so there is nothing to adjust' : undefined}
+        onClick={() => setAdjustModal(adjustText)}
+      >
+        Adjust duration
+      </Button>
+      <Button
+        disabled={model === null}
+        title={model === null ? 'No tree loaded yet, so there is nothing to categorize' : undefined}
+        onClick={() => setCategoryModal(categoryText)}
+      >
+        Setup categories
+      </Button>
+      {/* Reserved for "Explain" (the assistant is deferred). It goes here, before "Download HTML". */}
+      {restore === undefined ? (
+        <Button
+          icon={<DownloadOutlined />}
+          loading={exporting}
+          disabled={model === null}
+          title={
+            model === null
+              ? 'No tree loaded yet, so there is nothing to download'
+              : 'Download a self-contained HTML copy that reopens offline'
+          }
+          onClick={() => void handleExport()}
+        >
+          Download HTML
+        </Button>
+      ) : null}
+    </div>
+  );
+
   return (
     <Layout className={styles.layout}>
-      <Layout.Header className={styles.header}>
-        <Space wrap className={styles.headerLeft}>
-          <Typography.Title
-            level={5}
-            title={`${pk.pod_namespace} / ${pk.pod_service} / ${pk.pod_name}`}
-            className={styles.headerTitle}
+      <header className={styles.header}>
+        {/* An exported copy has no Calls screen to go back to. */}
+        {restore === undefined ? (
+          <Link to="/calls" className={styles.back} title="Back to Calls" aria-label="Back to Calls">
+            <svg className={styles.backIcon} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M9.5 3.5 5 8l4.5 4.5" />
+            </svg>
+          </Link>
+        ) : null}
+        <div className={styles.product}>Profiler</div>
+        <div className={styles.identity} title={identity}>
+          <span className={styles.identityScope}>
+            {pk.pod_namespace} / {pk.pod_service} /{' '}
+          </span>
+          {pk.pod_name}
+        </div>
+        {httpContext !== null ? (
+          <span className={`${styles.chip} pf-mono`} title="From the root call's web.method and web.url parameters">
+            {httpContext}
+          </span>
+        ) : null}
+        {tsMs !== null ? (
+          <span
+            className={`${styles.chip} pf-mono`}
+            title={retentionClass !== null ? `Start time. Retention class: ${retentionClass}` : 'Start time'}
           >
-            {pk.pod_namespace} / {pk.pod_service} / {pk.pod_name}
-          </Typography.Title>
-          {httpContext !== null ? (
-            <Tag color="success" title="From the root call's web.method/web.url params">
-              {httpContext}
-            </Tag>
-          ) : null}
-          {tsMs !== null ? <Tag>{formatTs(tsMs, zone)}</Tag> : null}
-          {model !== null ? <Tag color="processing">{formatDurationMs(model.root.durationMs)}</Tag> : null}
-          {retentionClass !== null ? <Tag>{retentionClass}</Tag> : null}
-          {restore !== undefined ? <Tag color="warning">offline copy</Tag> : null}
-        </Space>
-        {/* flex '0 1 auto' + minWidth 0 lets this group shrink below its
-            one-row width so `wrap` can wrap the buttons; '0 0 auto' pinned it
-            to max-content and pushed Raw trace off a narrow viewport
-            (PR 708 review #9). */}
-        <Space wrap className={styles.headerRight}>
-          <Button
-            size="small"
-            disabled={model === null}
-            title={model === null ? 'No tree loaded yet — nothing to adjust' : undefined}
-            onClick={() => setAdjustModal(adjustText)}
-          >
-            Adjust duration
-          </Button>
-          <Button
-            size="small"
-            disabled={model === null}
-            title={model === null ? 'No tree loaded yet — nothing to categorize' : undefined}
-            onClick={() => setCategoryModal(categoryText)}
-          >
-            Setup categories
-          </Button>
-          {restore === undefined ? (
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              loading={exporting}
-              disabled={model === null}
-              title={
-                model === null
-                  ? 'No tree loaded yet — nothing to download'
-                  : 'Download a self-contained HTML copy that reopens offline'
-              }
-              onClick={() => void handleExport()}
-            >
-              Download HTML
-            </Button>
-          ) : null}
+            {formatTs(tsMs, zone)}
+          </span>
+        ) : null}
+        {model !== null ? (
+          <span className={`${styles.chip} ${styles.chipStrong} pf-mono`} title="Duration">
+            {formatDurationMs(model.root.durationMs)}
+          </span>
+        ) : null}
+        {restore !== undefined ? <span className={styles.chip}>offline copy</span> : null}
+        <div className={styles.headerRight}>
           <ThemeSwitch />
-        </Space>
-      </Layout.Header>
+        </div>
+      </header>
       <Layout.Content className={styles.content}>
+        {model === null ? <div className={styles.toolbarRow}>{toolbar}</div> : null}
         {state.kind === 'loading' ? (
           <div className={styles.centerBox}>
             <Spin description="Fetching and decoding the call tree." />
@@ -445,18 +481,13 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
             </Space>
             <Tabs
               className={styles.tabs}
-              type="editable-card"
-              hideAdd
               activeKey={activeTab}
-              onChange={setActiveTab}
-              onEdit={(key, action) => {
-                if (action === 'remove' && typeof key === 'string') closeOpTab(key);
-              }}
+              onChange={selectTab}
+              tabBarExtraContent={toolbar}
               items={[
                 {
                   key: 'tree',
                   label: 'Call Tree',
-                  closable: false,
                   children: (
                     <div className={styles.tabPane}>
                       <TreeView model={model} onCapped={setCapped} ops={ops} />
@@ -466,7 +497,6 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
                 {
                   key: 'hotspots',
                   label: 'Hotspots',
-                  closable: false,
                   children: (
                     <div className={styles.tabPane}>
                       <HotspotsView model={model} profiles={profiles} />
@@ -476,7 +506,6 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
                 {
                   key: 'params',
                   label: 'Parameters',
-                  closable: false,
                   children: (
                     <Table
                       size="small"
@@ -546,7 +575,25 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
                 },
                 ...opViews.map((v) => ({
                   key: v.spec.key,
-                  label: <span title={v.fullTitle}>{v.label}</span>,
+                  // Line tabs have no close control of their own (antd draws one on card tabs only).
+                  label: (
+                    <span className={styles.derivedTab}>
+                      <span title={v.fullTitle}>{v.label}</span>
+                      <button
+                        type="button"
+                        className={styles.tabClose}
+                        title="Close tab"
+                        aria-label="Close tab"
+                        onClick={(e) => {
+                          // Without this the click also selects the tab that is going away.
+                          e.stopPropagation();
+                          closeOpTab(v.spec.key);
+                        }}
+                      >
+                        <CloseOutlined />
+                      </button>
+                    </span>
+                  ),
                   children: hasNoOccurrences(v.derived.root) ? (
                     <Empty description="The method does not occur in this tree." />
                   ) : v.profiles !== null ? (

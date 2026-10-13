@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { pkToPath } from '../api/pk';
@@ -77,12 +77,22 @@ function renderTreePage(path: string) {
   return render(
     <AntdApp>
       <MemoryRouter initialEntries={[path]}>
+        <SearchProbe />
         <Routes>
           <Route path="/tree/:pk" element={<TreePage />} />
         </Routes>
       </MemoryRouter>
     </AntdApp>,
   );
+}
+
+/** Publishes the router's query string, so a test can read what the page wrote to the URL. */
+function SearchProbe() {
+  return <span data-testid="search">{useLocation().search}</span>;
+}
+
+function treePath(call: CallJSON, extra = ''): string {
+  return `/tree/${encodeURIComponent(pkToPath(call.pk))}?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}${extra}`;
 }
 
 describe('TreePage', () => {
@@ -123,9 +133,66 @@ describe('TreePage', () => {
     expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
 
     // Closing the incoming tab keeps the outgoing one open.
-    fireEvent.click(incomingTab.closest('.ant-tabs-tab')!.querySelector('.ant-tabs-tab-remove')!);
+    fireEvent.click(incomingTab.querySelector('button[aria-label="Close tab"]')!);
     expect(screen.queryByRole('tab', { name: /Incoming · CoyoteAdapter\.service/ })).toBeNull();
     expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
+  });
+
+  it('shows the call identity and its chips in the header', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['web.url'] !== undefined, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByRole('link', { name: 'Back to Calls' })).toHaveAttribute('href', '/calls');
+    const identity = `${call.pk.pod_namespace} / ${call.pk.pod_service} / ${call.pk.pod_name}`;
+    expect(screen.getByTitle(identity).textContent).toBe(identity);
+    expect(screen.getByTitle("From the root call's web.method and web.url parameters").textContent).toMatch(
+      /^(GET|POST) \//,
+    );
+    // The retention class moved from a tag of its own to the time chip's tooltip.
+    expect(screen.getByTitle(`Start time. Retention class: ${call.retention_class}`)).toBeInTheDocument();
+    expect(screen.getByTitle('Duration')).toBeInTheDocument();
+    expect(screen.queryByText(call.retention_class)).toBeNull();
+  });
+
+  it('opens the fixed tab the URL names', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call, '&tab=params'));
+    // The Call Tree pane is not mounted until its tab opens, so wait for the tab bar.
+    const paramsTab = await screen.findByRole('tab', { name: 'Parameters' }, { timeout: 5000 });
+    expect(paramsTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('falls back to Call Tree on an unknown tab', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call, '&tab=gantt'));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('writes a fixed tab to the URL and keeps a derived tab out of it', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    const hints = `?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}`;
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Hotspots' }));
+    expect(screen.getByTestId('search').textContent).toBe(`${hints}&tab=hotspots`);
+    expect(screen.getByRole('tab', { name: 'Hotspots' })).toHaveAttribute('aria-selected', 'true');
+
+    // A derived tab is browser state: it becomes active, and the URL still names Hotspots.
+    fireEvent.click(screen.getByRole('tab', { name: 'Call Tree' }));
+    expect(screen.getByTestId('search').textContent).toBe(hints);
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    fireEvent.click(await screen.findByText('Outgoing calls'));
+    const outgoingTab = await screen.findByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ });
+    expect(outgoingTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('search').textContent).toBe(hints);
+
+    // Closing it returns to the fixed tab of the URL.
+    fireEvent.click(outgoingTab.querySelector('button[aria-label="Close tab"]')!);
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('shows the cold-call state for a bare PK outside the hot window', async () => {

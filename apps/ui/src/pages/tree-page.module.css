@@ -10,40 +10,89 @@
   height: 100vh;
 }
 
-/* Descendant selector beats antd's `.ant-layout-header` defaults (height,
-   padding, colour). */
-.layout .header {
+/* The context header (09 §3.1). It wraps on a narrow viewport, so it sets a
+   minimum height. Its text is white in both themes: the header color is a blue
+   in each. */
+.header {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: var(--ant-color-text-light-solid);
-  height: auto;
-  min-height: 64px;
-  padding-top: 12px;
-  padding-bottom: 12px;
+  gap: 6px 12px;
+  min-height: 40px;
+  padding: 4px 8px;
+  background: var(--pf-color-header);
+  color: #fff;
 }
 
-.headerLeft {
+.back {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #fff;
+}
+
+.back:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.back:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
+.backIcon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.product {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* min-width lets a long pod name shrink to an ellipsis instead of pushing the chips out. */
+.identity {
   min-width: 0;
-  flex: 1 1 auto;
-}
-
-/* Descendant selector beats antd's `h5.ant-typography` default margin/colour. */
-.header .headerTitle {
-  margin: 0;
-  color: var(--ant-color-text-light-solid);
-  max-width: min(60vw, 520px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.identityScope {
+  opacity: 0.78;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chipStrong {
+  font-weight: 500;
+}
+
 .headerRight {
-  flex: 0 1 auto;
-  min-width: 0;
-  justify-content: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .content {
@@ -66,6 +115,42 @@
 .tabs {
   flex: 1;
   min-height: 0;
+}
+
+/* The toolbar: the right end of the tab bar, or a row of its own without tabs. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.toolbarRow {
+  padding: 4px 0 8px;
+}
+
+.derivedTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tabClose {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pf-color-faint);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.tabClose:hover {
+  background: var(--pf-color-veil);
+  color: var(--pf-color-text);
 }
 
 .tabPane {
