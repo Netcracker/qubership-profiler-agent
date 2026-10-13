@@ -1,9 +1,11 @@
 import { EyeOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Dropdown, Input, Modal, Space, Tag, Typography } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Dropdown, Input, Modal, Popover, Switch, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { formatCount, formatDurationMs } from '../calls/format';
+import { setTreePref, useTreePrefs } from '../ui/tree-prefs';
 import { useElementHeight } from '../ui/use-element-height';
 import { parseMethod } from './method-info';
 import type { MethodInfo } from './method-info';
@@ -15,8 +17,9 @@ import { formatShare, rowHighlight, shareBar, shareOf } from './row-metrics';
 import type { Heat } from './row-metrics';
 import { searchTree } from './search';
 import { stacktraceText } from './stacktrace';
+import { TreeHelp } from './tree-help';
 import { VirtualList } from './virtual-list';
-import { buildRows, expandLarge, initialExpansion } from './visible-rows';
+import { buildRows, expandLarge, guideCells, initialExpansion } from './visible-rows';
 import type { NodeRow, ParamRow, TreeRow } from './visible-rows';
 import styles from './tree-view.module.css';
 
@@ -26,8 +29,13 @@ import styles from './tree-view.module.css';
 // the transform-backed operations land with 5.3).
 
 const ROW_HEIGHT = 28;
-/** Indent of one tree level, in pixels. */
-const LEVEL_WIDTH = 18;
+
+const GUIDE_CLASS = {
+  none: undefined,
+  pass: styles.guidePass,
+  tee: styles.guideTee,
+  end: styles.guideEnd,
+};
 /** Size guard (07 §5.4): bound the auto-expansion, never freeze the tab. */
 export const ROW_BUDGET = 20_000;
 
@@ -167,6 +175,7 @@ export function TreeView({
   const dict = useMethodDict(model);
   const [containerRef, height] = useElementHeight<HTMLDivElement>(480);
   const ctrlHeld = useCtrlHeld();
+  const prefs = useTreePrefs();
 
   const initial = useMemo(
     () =>
@@ -283,6 +292,15 @@ export function TreeView({
 
   const rootDurationMs = model.root.durationMs;
 
+  /** The indent of a row. The cells keep their width with the lines switched off. */
+  const renderGuides = (row: TreeRow): ReactNode => (
+    <span className={styles.guides}>
+      {guideCells(row).map((cell, i) => (
+        <span key={i} className={classNames(styles.guide, prefs.treeLines && GUIDE_CLASS[cell])} />
+      ))}
+    </span>
+  );
+
   const renderNodeRow = (row: NodeRow): ReactNode => {
     const { node } = row;
     const info = dict.info(node.methodIdx);
@@ -304,10 +322,10 @@ export function TreeView({
           marked.has(node.id) && styles.rowMarked,
           search !== null && !isMatch && styles.rowDim,
         )}
-        style={{ paddingLeft: 8 + row.depth * LEVEL_WIDTH }}
         onMouseEnter={() => setHoverNode(node)}
         onMouseLeave={() => setHoverNode((cur) => (cur?.id === node.id ? null : cur))}
       >
+        {renderGuides(row)}
         {row.hasChildren ? (
           <button
             type="button"
@@ -466,31 +484,43 @@ export function TreeView({
     const isOther = row.group.value === '::other';
     const language = isOther ? null : detectLanguage(key, row.group.value);
     return (
-      <div className={`${styles.row} ${styles.paramRow}`} style={{ paddingLeft: 8 + row.depth * LEVEL_WIDTH }}>
-        <Button
-          size="small"
-          type="text"
-          className={styles.iconBtn}
-          disabled={!row.hasChildren}
-          onClick={() => toggleParam(row)}
-        >
-          {row.hasChildren ? (row.expanded ? '−' : '+') : '·'}
-        </Button>
+      <div className={`${styles.row} ${styles.paramRow}`}>
+        {renderGuides(row)}
+        {/* A parameter has no operations; the two slots keep it under its method's numbers. */}
+        {row.hasChildren ? (
+          <button
+            type="button"
+            className={styles.iconBtn}
+            aria-label={row.expanded ? 'Collapse parameter' : 'Expand parameter'}
+            aria-expanded={row.expanded}
+            onClick={() => toggleParam(row)}
+          >
+            <svg
+              className={classNames(styles.icon, !row.expanded && styles.caretClosed)}
+              width="10"
+              height="10"
+              viewBox="0 0 12 12"
+              aria-hidden="true"
+            >
+              <path d="M2.5 4.5 6 8l3.5-3.5" />
+            </svg>
+          </button>
+        ) : (
+          <span className={styles.iconSlot} />
+        )}
+        <span className={styles.iconSlot} />
         {/* Duration and invocations sit left of the value, the way the old
             renderSimpleTag laid tags out (duration, count, then the value). */}
-        <Typography.Text type="secondary" className="pf-mono">
+        <span className={`pf-mono ${styles.numbers}`}>
           {formatDurationMs(row.group.durationMs)} ×{formatCount(row.group.executions)}
-        </Typography.Text>
-        <Tag className={styles.tagFlush}>{key}</Tag>
-        <Typography.Text
-          type={isOther ? 'secondary' : undefined}
-          italic={isOther}
-          ellipsis={language === null}
-          className={styles.paramValue}
+        </span>
+        <span className={`pf-mono ${styles.badge} ${styles.keyBadge}`}>{key}</span>
+        <span
+          className={classNames('pf-mono', styles.paramValue, isOther && styles.paramOther)}
           title={row.group.value}
         >
           {language === null ? row.group.value : <InlineHighlight language={language} value={row.group.value} />}
-        </Typography.Text>
+        </span>
         {row.group.unresolved === true ? <Tag color="warning">unresolved</Tag> : null}
         {!isOther ? (
           <Button
@@ -509,7 +539,7 @@ export function TreeView({
 
   return (
     <div className={styles.treeView}>
-      <Space>
+      <div className={styles.toolbar}>
         <Input.Search
           placeholder="Search in the tree"
           allowClear
@@ -520,13 +550,33 @@ export function TreeView({
             if (e.target.value === '') setQuery('');
           }}
         />
-        {search !== null ? (
-          <Typography.Text type="secondary">
-            {search.matchCount} match{search.matchCount === 1 ? '' : 'es'}
-          </Typography.Text>
-        ) : null}
-        <Typography.Text type="secondary">Ctrl+hover a row for its stats.</Typography.Text>
-      </Space>
+        <Typography.Text type="secondary">
+          {search !== null
+            ? `${search.matchCount} match${search.matchCount === 1 ? '' : 'es'}`
+            : 'Ctrl+hover a row for its stats.'}
+        </Typography.Text>
+        <span className={`${styles.legend} ${styles.toolbarEnd}`}>
+          <span className={`${styles.swatch} ${styles.shareSelf}`} />
+          Self time
+        </span>
+        <span className={styles.legend}>
+          <span className={`${styles.swatch} ${styles.shareChildren}`} />
+          Time in children
+        </span>
+        <label className={styles.switchLabel} title="Draw connectors from a method to the methods it calls">
+          <Switch size="small" checked={prefs.treeLines} onChange={(on) => setTreePref('treeLines', on)} />
+          Tree lines
+        </label>
+        <label className={styles.switchLabel} title="Draw a line between rows">
+          <Switch size="small" checked={prefs.rowLines} onChange={(on) => setTreePref('rowLines', on)} />
+          Row lines
+        </label>
+        <Popover trigger="click" placement="bottomRight" content={<TreeHelp />}>
+          <Button size="small" icon={<QuestionCircleOutlined />} title="How to read this page">
+            Help
+          </Button>
+        </Popover>
+      </div>
       {search !== null && search.matchCount === 0 ? (
         <Alert type="info" showIcon title="Nothing in the tree matches the search." />
       ) : null}
@@ -534,7 +584,7 @@ export function TreeView({
         <span className={styles.listHeaderMain}>Total (self) ×calls · Method</span>
         <span>Share of the call</span>
       </div>
-      <div ref={containerRef} className={styles.listContainer}>
+      <div ref={containerRef} className={classNames(styles.listContainer, !prefs.rowLines && styles.noRowLines)}>
         <VirtualList
           items={rows}
           rowHeight={ROW_HEIGHT}

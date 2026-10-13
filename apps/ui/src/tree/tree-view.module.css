@@ -5,9 +5,43 @@
   height: 100%;
 }
 
+/* The tab's own controls: search, the bar's legend, the two switches, and Help. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
 /* `ch` tracks the font: room for ~40 characters of query text. */
 .searchInput {
   width: 40ch;
+}
+
+/* Pushes the legend and what follows it to the right end. */
+.toolbarEnd {
+  margin-left: auto;
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pf-color-dim);
+  font-size: 12px;
+}
+
+.swatch {
+  width: 18px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.switchLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
 }
 
 .listContainer {
@@ -36,8 +70,10 @@
   text-overflow: ellipsis;
 }
 
-/* Shared row layout for node and param rows; the indent stays inline. */
+/* Shared row layout for node and param rows. border-box, so the row line is
+   inside the 28 px and a connector cell spans the row exactly. */
 .row {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -46,6 +82,53 @@
   padding-right: 12px;
   white-space: nowrap;
   border-bottom: 1px solid var(--pf-color-border-soft);
+}
+
+/* "Row lines" off. The border stays, transparent, so no row changes height. */
+.noRowLines .row {
+  border-bottom-color: transparent;
+}
+
+/* The connector column: one cell per tree level. The negative margin takes
+   back the row's gap, so an elbow ends right at the caret. */
+.guides {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  padding-left: 8px;
+  margin-right: -8px;
+}
+
+.guide {
+  position: relative;
+  width: 18px;
+  height: 28px;
+  flex: none;
+}
+
+/* A line that runs past the row, to a sibling further down. */
+.guidePass::before,
+.guideTee::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--pf-color-guide);
+}
+
+/* The rounded elbow into the row. */
+.guideTee::after,
+.guideEnd::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  width: 10px;
+  height: 14px;
+  border-left: 1px solid var(--pf-color-guide);
+  border-bottom: 1px solid var(--pf-color-guide);
+  border-bottom-left-radius: 7px;
 }
 
 .row:hover {
@@ -117,17 +200,13 @@
   transform: rotate(-90deg);
 }
 
-/* Param rows still use the antd buttons. */
+/* "View full value" on a param row, an antd button. */
 .iconBtnMuted {
   width: 22px;
   min-width: 22px;
   height: 22px;
   padding: 0;
   color: var(--ant-color-text-tertiary);
-}
-
-.tagFlush {
-  margin-inline-end: 0;
 }
 
 /* `total (self) ×calls`. */
@@ -231,9 +310,26 @@
   font-size: 12px;
 }
 
+.keyBadge {
+  background: var(--pf-color-surface2);
+  color: var(--pf-color-dim);
+}
+
+/* `pre`, so the spacing of a SQL text survives; the full value is in the viewer. */
 .paramValue {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  font-size: 12px;
+  color: var(--pf-color-text);
+}
+
+/* The `::other` bucket is a remainder, not a value. */
+.paramOther {
+  color: var(--pf-color-dim);
+  font-style: italic;
 }
 
 /* The bar is the first thing to go on a narrow viewport. */
