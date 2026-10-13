@@ -97,6 +97,11 @@ export interface PodsResponse {
  */
 export interface ConfigResponse {
   dumps_collector_url: string;
+  /** Optional screens. A backend that predates a flag omits it, which means off. */
+  features?: {
+    /** The agent-configuration page and its draft API (agents/types.ts). */
+    agent_config?: boolean;
+  };
 }
 
 /** RFC 7807 body with the §2.3.2 wide-query guard extensions (02 §8). */
