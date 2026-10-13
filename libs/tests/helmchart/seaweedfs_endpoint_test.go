@@ -105,6 +105,17 @@ func TestSeaweedfsEndpointMatchesGatewayService(t *testing.T) {
 			port: "8333",
 		},
 		{
+			name: "standalone gateway wins over a filer-hosted one",
+			args: append([]string{
+				"--set", "seaweedfs.s3.enabled=true",
+				"--set", "seaweedfs.s3.port=9444",
+				"--set", "seaweedfs.filer.s3.enabled=true",
+				"--set", "seaweedfs.filer.s3.port=9555",
+			}, perComponent...),
+			host: "render-test-seaweedfs-s3",
+			port: "9444",
+		},
+		{
 			name: "filer-hosted gateway",
 			args: append([]string{
 				"--set", "seaweedfs.filer.s3.enabled=true",
