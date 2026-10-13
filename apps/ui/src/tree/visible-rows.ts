@@ -12,6 +12,10 @@ import type { TreeModel, TreeNode } from './model';
 //   explicitly revealed;
 // - params render as rows before children, one row per aggregated group
 //   (::other last, as the server ordered them), binds nested one level down.
+//
+// Each row also carries what the connector lines need (09 §3.3): a line runs
+// from a method down to each method it calls, and a parameter row has no line
+// of its own, because a parameter is not a call.
 
 export interface NodeRow {
   kind: 'node';
@@ -21,6 +25,14 @@ export interface NodeRow {
   skippedLevels: number;
   hasChildren: boolean;
   expanded: boolean;
+  /**
+   * One flag per level between the root and this row's parent: whether the
+   * ancestor at that level has more siblings below, so its line keeps running
+   * past this row. Shared by all rows under one parent; do not mutate.
+   */
+  trail: readonly boolean[];
+  /** The last child of its parent: its connector ends here instead of running on. */
+  last: boolean;
 }
 
 export interface ParamRow {
@@ -33,9 +45,36 @@ export interface ParamRow {
   depth: number;
   hasChildren: boolean;
   expanded: boolean;
+  /** Same as NodeRow.trail, for the levels above the method that owns the parameter. */
+  trail: readonly boolean[];
+  /** The owning method shows child calls below its parameters, so their line passes this row. */
+  passBy: boolean;
 }
 
 export type TreeRow = NodeRow | ParamRow;
+
+/**
+ * One 18 px cell of the connector column: nothing, a vertical line passing by,
+ * a branch to this row with the line running on, or the last branch.
+ */
+export type GuideCell = 'none' | 'pass' | 'tee' | 'end';
+
+/**
+ * The connector cells of a row, left to right; their count is the row's depth.
+ * Computed per rendered row, so the 20,000-row list holds one short array per
+ * parent, not one per row.
+ */
+export function guideCells(row: TreeRow): GuideCell[] {
+  const cells: GuideCell[] = row.trail.map((runsOn) => (runsOn ? 'pass' : 'none'));
+  if (row.kind === 'node') {
+    if (row.depth > 0) cells.push(row.last ? 'end' : 'tee');
+    return cells;
+  }
+  cells.push(row.passBy ? 'pass' : 'none');
+  // A bind sits one level under its SQL; that level has no line.
+  while (cells.length < row.depth) cells.push('none');
+  return cells;
+}
 
 export interface ExpansionState {
   /** Node ids whose children (and params) are visible. */
@@ -97,6 +136,8 @@ function paramRows(
   prefix: string,
   state: ExpansionState,
   out: TreeRow[],
+  trail: readonly boolean[],
+  passBy: boolean,
 ): void {
   for (const param of params) {
     for (let i = 0; i < param.groups.length; i++) {
@@ -104,9 +145,9 @@ function paramRows(
       const pathKey = `${prefix}.p${param.paramIdx}g${i}`;
       const hasChildren = group.params !== undefined && group.params.length > 0;
       const expanded = hasChildren && state.expandedParams.has(pathKey);
-      out.push({ kind: 'param', pathKey, keyIdx: param.paramIdx, group, depth, hasChildren, expanded });
+      out.push({ kind: 'param', pathKey, keyIdx: param.paramIdx, group, depth, hasChildren, expanded, trail, passBy });
       if (expanded && group.params !== undefined) {
-        paramRows(group.params, depth + 1, pathKey, state, out);
+        paramRows(group.params, depth + 1, pathKey, state, out, trail, passBy);
       }
     }
   }
@@ -118,16 +159,19 @@ function paramRows(
  */
 export function buildRows(model: TreeModel, state: ExpansionState, searchActive = false): TreeRow[] {
   const out: TreeRow[] = [];
-  const visit = (x: TreeNode, depth: number): void => {
+  const visit = (x: TreeNode, depth: number, trail: readonly boolean[], last: boolean): void => {
     const skippedLevels = searchActive || state.revealedChains.has(x.id) ? 0 : x.collapseLevels;
     const display = chainEnd(x, skippedLevels);
     const hasChildren = display.children.length > 0 || x.params.length > 0 || x.notComputed === true;
     const expanded = state.expanded.has(x.id);
-    out.push({ kind: 'node', node: x, depth, skippedLevels, hasChildren, expanded });
+    out.push({ kind: 'node', node: x, depth, skippedLevels, hasChildren, expanded, trail, last });
     if (!expanded) return;
-    paramRows(x.params, depth + 1, `n${x.id}`, state, out);
-    for (const child of display.children) visit(child, depth + 1);
+    // The root has no connector of its own, so its children start the trail.
+    const childTrail = depth === 0 ? trail : [...trail, !last];
+    const children = display.children;
+    paramRows(x.params, depth + 1, `n${x.id}`, state, out, childTrail, children.length > 0);
+    children.forEach((child, i) => visit(child, depth + 1, childTrail, i === children.length - 1));
   };
-  visit(model.root, 0);
+  visit(model.root, 0, [], true);
   return out;
 }

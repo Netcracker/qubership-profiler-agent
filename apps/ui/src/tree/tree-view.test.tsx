@@ -3,6 +3,7 @@ import { App as AntdApp } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TreeNodeWire, TreeWire } from '../msgpack/tree-wire';
+import { syncTreePrefs } from '../ui/tree-prefs';
 import { buildTreeModel } from './model';
 import { TreeView } from './tree-view';
 import styles from './tree-view.module.css';
@@ -144,16 +145,64 @@ describe('TreeView row layout', () => {
     render(<TreeView model={buildTreeModel(wire())} />);
     const row = screen.getByTitle(METHODS[1]!).closest('div')!;
     fireEvent.mouseEnter(row);
-    expect(screen.queryByText('Self time')).toBeNull();
+    expect(screen.queryByText('Total suspension')).toBeNull();
 
     fireEvent.keyDown(window, { key: 'Control' });
-    expect(screen.getByText('Self time')).toBeInTheDocument();
+    expect(screen.getByText('Total suspension')).toBeInTheDocument();
     // A Popover wrap would reparent the row and clear the text selection;
     // the overlay must leave the row element itself untouched.
     expect(screen.getByTitle(METHODS[1]!).closest('div')).toBe(row);
 
     fireEvent.keyUp(window, { key: 'Control' });
-    expect(screen.queryByText('Self time')).toBeNull();
+    expect(screen.queryByText('Total suspension')).toBeNull();
+  });
+});
+
+describe('TreeView display switches and help', () => {
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+    syncTreePrefs();
+  });
+
+  const childRow = (): HTMLElement => screen.getByTitle(METHODS[1]!).closest('div')!;
+
+  it('draws the connector of a child and drops it with "Tree lines" off', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    // The only child is the last one: an elbow that ends at the row.
+    expect(childRow().querySelector(`.${styles.guideEnd}`)).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('switch', { name: /Tree lines/ }));
+    expect(childRow().querySelector(`.${styles.guideEnd}`)).toBeNull();
+    // The cell stays, so the row keeps its indent.
+    expect(childRow().querySelectorAll(`.${styles.guide}`)).toHaveLength(1);
+  });
+
+  it('keeps both switches across a remount', () => {
+    const first = render(<TreeView model={buildTreeModel(wire())} />);
+    expect(screen.getByRole('switch', { name: /Tree lines/ })).toBeChecked();
+    expect(screen.getByRole('switch', { name: /Row lines/ })).toBeChecked();
+    fireEvent.click(screen.getByRole('switch', { name: /Row lines/ }));
+    expect(childRow().closest(`.${styles.noRowLines}`)).not.toBeNull();
+    first.unmount();
+
+    // A new page load reads the stored value.
+    syncTreePrefs();
+    render(<TreeView model={buildTreeModel(wire())} />);
+    expect(screen.getByRole('switch', { name: /Row lines/ })).not.toBeChecked();
+    expect(screen.getByRole('switch', { name: /Tree lines/ })).toBeChecked();
+    expect(childRow().closest(`.${styles.noRowLines}`)).not.toBeNull();
+  });
+
+  it('explains the row, the colors, and the badges in the Help popover', async () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    expect(screen.queryByText('How to read the call tree')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Help/ }));
+    expect(await screen.findByText('How to read the call tree')).toBeInTheDocument();
+    // The thresholds come from the same constants as the highlighting.
+    expect(screen.getByText(/Self time is orange from 10% of the call and red from 25%/)).toBeInTheDocument();
+    expect(screen.getByText(/A call count is orange from 10 and red from 100/)).toBeInTheDocument();
+    expect(screen.getByText('Ctrl + hover')).toBeInTheDocument();
   });
 });
 
