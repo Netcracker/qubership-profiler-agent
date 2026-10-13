@@ -41,10 +41,11 @@ redirects there.
 | Path | Contents |
 |------|----------|
 | `src/api/` | Wire types mirroring `libs/query/model/wire.go`, PK path codec, typed fetch |
+| `src/agents/` | Draft agent-configuration API (wire types, typed calls; the mock is its only implementation) and the parts of the `/ui/agents` page |
 | `src/msgpack/` | Hand-written decoder for the `/tree` merged-v1 envelope (02 §2.5), mirror encoder for tests/mock |
 | `src/url/` | URL-as-state: parse/serialize the 09 §6 query scheme |
 | `src/mocks/` | MSW handlers + deterministic synthetic dataset; the mock mirrors the backend's RFC 7807 bodies |
-| `src/shell/`, `src/pages/` | App shell and the three routes: `/ui/calls`, `/ui/pods`, `/ui/tree/:pk` |
+| `src/shell/`, `src/pages/` | App shell and the routes: `/ui/calls`, `/ui/pods`, `/ui/tree/:pk`, and `/ui/agents` when `/api/v1/config` reports `features.agent_config` |
 
 ## Decisions
 

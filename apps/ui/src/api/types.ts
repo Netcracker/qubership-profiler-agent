@@ -103,6 +103,11 @@ export interface ConfigResponse {
    * as an empty list.
    */
   links?: ConfigLink[];
+  /** Optional screens. A backend that predates a flag omits it, which means off. */
+  features?: {
+    /** The agent-configuration page and its draft API (agents/types.ts). */
+    agent_config?: boolean;
+  };
 }
 
 /** One `links` entry of GET /config: a button label and a URL template the client expands (02 §2.8). */

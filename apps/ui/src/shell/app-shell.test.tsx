@@ -1,7 +1,9 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { server } from '../mocks/node';
 import { AppShell } from './app-shell';
 import { HeaderSlot } from './header-slot';
 
@@ -10,10 +12,21 @@ import { HeaderSlot } from './header-slot';
 
 const RAIL_KEY = 'profiler.navRail.collapsed';
 
+/** Answers /config the way a backend without the agent-configuration feature does. */
+function withoutAgentConfig(): void {
+  server.use(http.get('/api/v1/config', () => HttpResponse.json({ dumps_collector_url: '' })));
+}
+
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+// The mock reports the feature. Most cases here are about the two screens every
+// deployment has, so they start without it.
+beforeEach(() => withoutAgentConfig());
 afterEach(() => {
   cleanup();
+  server.resetHandlers();
   localStorage.clear();
 });
+afterAll(() => server.close());
 
 /** A stand-in screen that shows where the router is and fills the header slot. */
 function StubScreen({ name }: { name: string }) {
@@ -35,6 +48,7 @@ function renderShell(path: string) {
         <Route element={<AppShell />}>
           <Route path="/calls" element={<StubScreen name="Calls" />} />
           <Route path="/pods" element={<StubScreen name="Pods" />} />
+          <Route path="/agents" element={<StubScreen name="Agents" />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -75,6 +89,48 @@ describe('AppShell', () => {
 
     fireEvent.click(screen.getByRole('link', { name: 'Calls' }));
     expect(screen.getByTestId('location')).toHaveTextContent(`/calls${search}`);
+  });
+});
+
+describe('the Agents screen', () => {
+  it('is in the rail once /config reports the feature', async () => {
+    server.resetHandlers();
+    renderShell('/calls');
+    const rail = screen.getByRole('navigation', { name: 'Screens' });
+    expect(await within(rail).findByRole('link', { name: 'Agents' })).toBeInTheDocument();
+    expect(within(rail).getAllByRole('link')).toHaveLength(3);
+  });
+
+  it('stays out of the rail when /config fails', async () => {
+    let answered = false;
+    server.use(
+      http.get('/api/v1/config', () => {
+        answered = true;
+        return new HttpResponse(null, { status: 500 });
+      }),
+    );
+    renderShell('/calls');
+    await waitFor(() => expect(answered).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole('link', { name: 'Agents' })).not.toBeInTheDocument();
+  });
+
+  it('is named "Agent configuration" in the header', async () => {
+    server.resetHandlers();
+    renderShell('/agents');
+    expect(await within(screen.getByRole('banner')).findByText('Agent configuration')).toBeInTheDocument();
+  });
+
+  it('has its own search string, and Calls gets its own back', async () => {
+    server.resetHandlers();
+    const search = '?from=now-3h&to=now';
+    renderShell(`/calls${search}`);
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Agents' }));
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/agents$/);
+
+    fireEvent.click(screen.getByRole('link', { name: 'Pods Info' }));
+    expect(screen.getByTestId('location')).toHaveTextContent(`/pods${search}`);
   });
 });
 

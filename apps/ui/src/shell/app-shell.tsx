@@ -4,7 +4,7 @@ import { Outlet, useLocation } from 'react-router';
 
 import styles from './app-shell.module.css';
 import { HeaderSlotContext } from './header-slot';
-import { NavRail, SCREENS } from './nav-rail';
+import { NavRail, useScreens } from './nav-rail';
 import { ThemeSwitch } from './theme-switch';
 
 /**
@@ -17,7 +17,7 @@ export function AppShell() {
   const location = useLocation();
   // State, not a ref: the screen must render again once the slot element exists.
   const [slot, setSlot] = useState<HTMLElement | null>(null);
-  const screen = SCREENS.find((item) => location.pathname.startsWith(item.path));
+  const screen = useScreens().find((item) => location.pathname.startsWith(item.path));
 
   return (
     // height (not minHeight): the data screens clamp to the viewport so the
@@ -28,7 +28,7 @@ export function AppShell() {
           <path d="M4 19V9M9 19V5M14 19v-7M19 19v-11" />
         </svg>
         <div className={styles.product}>Profiler</div>
-        {screen === undefined ? null : <div className={styles.screen}>{screen.label}</div>}
+        {screen === undefined ? null : <div className={styles.screen}>{screen.title ?? screen.label}</div>}
         <div className={styles.controls}>
           <div ref={setSlot} className={styles.slot} />
           <span className={styles.divider} />

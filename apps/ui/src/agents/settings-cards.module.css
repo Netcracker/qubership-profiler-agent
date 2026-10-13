@@ -1,0 +1,172 @@
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Two cards side by side that stack on a narrow screen. */
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The read-only card sits back from the ones that take input. */
+.muted {
+  background: var(--pf-color-surface2);
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.help {
+  margin-top: -6px;
+  color: var(--pf-color-dim);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.strong {
+  font-weight: 500;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.number {
+  width: 72px;
+}
+
+.short {
+  width: 96px;
+}
+
+.restart {
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--pf-color-warn-bg);
+  color: var(--pf-color-warn);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+}
+
+.column {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.columnHead {
+  display: flex;
+  font-weight: 500;
+}
+
+/* Lines up with the number field and the remove button of a row below. */
+.sizeHead {
+  width: 108px;
+  font-weight: 400;
+  color: var(--pf-color-dim);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--pf-color-border-soft);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.addRow {
+  display: flex;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.cross {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.plugins {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 16px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.link {
+  padding: 0;
+}
+
+.startup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 24px;
+  margin: 0;
+}
+
+.startupItem {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.startupItem dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source {
+  color: var(--pf-color-dim);
+  font-size: 11px;
+}

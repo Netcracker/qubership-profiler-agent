@@ -1,0 +1,15 @@
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail {
+  color: var(--pf-color-dim);
+}
+
+.help {
+  color: var(--pf-color-dim);
+  font-size: 12px;
+  line-height: 18px;
+}
