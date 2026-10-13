@@ -182,8 +182,26 @@ that do not match are dimmed in place. `Mark red` tints the whole row.
 
 **Params under a node** are a mini-tree, not flat values (08 R11): metadata rows (`node.name`, `java.thread`,
 `memory.allocated`, …) and aggregated `sql` groups — top shapes by time plus an `::other` bucket, similar SQL
-grouped by a normalized signature, binds nested under their SQL. Rendered inline and summarized in the
-Parameters tab.
+grouped by a normalized signature, binds nested under their SQL. Each one is a row under its method, before the
+method's child calls: `time ×count`, the key as a badge, and the value, with SQL, XML, and JSON values colored. The
+row truncates a long value, and a button opens the full one. The Parameters tab summarizes them.
+
+**Connectors.** A rounded line runs from a method down to each method it calls. A parameter row has no line of its
+own, because a parameter is not a call; only the line to the child calls passes it. `visible-rows.ts` records, per
+row, which ancestor lines run past it, and the row turns that into one 18 px cell per level.
+
+**The tab's controls**, above the rows:
+
+| Control | Behavior |
+|---------|----------|
+| Search | Filters by method, numbers, and parameter text (`tree/search.ts`). Beside it: the match count, or the Ctrl+hover hint. |
+| Legend | The two parts of the share bar: self time, and time in children. |
+| Tree lines | Switch, on by default. Off hides the connectors and keeps the indent. |
+| Row lines | Switch, on by default. Off hides the line between rows. |
+| Help | A popover that takes one example row apart and explains the colors, the bar, the badges, parameter rows, the three-dot menu, and Ctrl+hover. |
+
+The two switches are stored in `localStorage`. They are a reader's taste and not part of a view, so they are not in
+the URL, and one choice holds for every call and every tab.
 
 ### 3.4 Per-node operations
 
