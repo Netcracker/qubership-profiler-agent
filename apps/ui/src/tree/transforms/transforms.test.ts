@@ -265,7 +265,7 @@ describe('setup categories', () => {
     const serviceB = model.root.children.find((c) => c.methodIdx === 3)!;
     expect(serviceA.category?.name).toBe('narrow');
     expect(serviceB.category?.name).toBe('broad');
-    expect(serviceA.category?.color).toMatch(/^hsl\(/);
+    expect(serviceA.category?.color).toMatch(/^var\(--pf-color-cat-[1-6]\)$/);
   });
 
   it('flags a line with no pattern', () => {

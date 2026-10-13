@@ -104,7 +104,7 @@ describe('TreePage', () => {
     // The synthetic tree always roots at CoyoteAdapter.service.
     expect(await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 })).toBeInTheDocument();
     // The degenerate entry chain is skipped: reveal badges are present.
-    expect((await screen.findAllByText(/⤵/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/^\+\d+$/)).length).toBeGreaterThan(0);
     // A loaded tree makes the header actions usable again, including the
     // self-contained HTML export.
     expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeEnabled();
