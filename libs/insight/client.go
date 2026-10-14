@@ -93,6 +93,17 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out
 	return c.getOnce(ctx, path, query, out)
 }
 
+// getBytes fetches BasePath+path and returns a 200 body as is, for the
+// MessagePack /tree. Errors and the budget retry are as in getJSON.
+func (c *Client) getBytes(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	var raw rawBody
+	err := c.getJSON(ctx, path, query, &raw)
+	return raw, err
+}
+
+// rawBody keeps a response body undecoded.
+type rawBody []byte
+
 func (c *Client) getOnce(ctx context.Context, path string, query url.Values, out any) error {
 	target := c.baseURL + BasePath + path
 	if len(query) > 0 {
@@ -121,6 +132,10 @@ func (c *Client) getOnce(ctx context.Context, path string, query url.Values, out
 	}
 	if resp.StatusCode != http.StatusOK {
 		return decodeProblem(resp, body)
+	}
+	if raw, ok := out.(*rawBody); ok {
+		*raw = body
+		return nil
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return errors.Wrapf(err, "decode the response of GET %s", BasePath+path)
