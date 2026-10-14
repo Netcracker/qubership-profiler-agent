@@ -1,4 +1,4 @@
-import { CloseOutlined, DownloadOutlined, ExportOutlined, EyeOutlined } from '@ant-design/icons';
+import { CloseOutlined, DownloadOutlined, ExportOutlined, EyeOutlined, FieldTimeOutlined, TagsOutlined } from '@ant-design/icons';
 import {
   App,
   Alert,
@@ -378,6 +378,7 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
   const toolbar = (
     <div className={styles.toolbar}>
       <Button
+        icon={<FieldTimeOutlined />}
         disabled={model === null}
         title={model === null ? 'No tree loaded yet, so there is nothing to adjust' : undefined}
         onClick={() => setAdjustModal(adjustText)}
@@ -385,6 +386,7 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
         Adjust duration
       </Button>
       <Button
+        icon={<TagsOutlined />}
         disabled={model === null}
         title={model === null ? 'No tree loaded yet, so there is nothing to categorize' : undefined}
         onClick={() => setCategoryModal(categoryText)}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { http, HttpResponse } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
@@ -108,9 +108,17 @@ describe('TreePage', () => {
     expect((await screen.findAllByText(/^\+\d+$/)).length).toBeGreaterThan(0);
     // A loaded tree makes the header actions usable again, including the
     // self-contained HTML export.
-    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Adjust duration/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Setup categories/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Download HTML/ })).toBeEnabled();
+    // Each toolbar button carries an icon, the way Download HTML always did.
+    for (const [name, icon] of [
+      [/Adjust duration/, 'field-time'],
+      [/Setup categories/, 'tags'],
+      [/Download HTML/, 'download'],
+    ] as const) {
+      expect(within(screen.getByRole('button', { name })).getByRole('img', { name: icon })).toBeInTheDocument();
+    }
   });
 
   it('keeps derived views as closeable tabs', async () => {
@@ -291,8 +299,8 @@ describe('TreePage', () => {
     expect(screen.getByText(/Reopen the call from its row/)).toBeInTheDocument();
     // No tree model exists to adjust/categorize or to export — the header
     // actions must not look usable (PR 708 review #20).
-    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Adjust duration/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Setup categories/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Download HTML/ })).toBeDisabled();
   });
 
