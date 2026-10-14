@@ -88,6 +88,26 @@ export async function getJson<T>(path: string, params?: QueryParams, signal?: Ab
   return (await res.json()) as T;
 }
 
+/** Sends a request that changes state. `body` travels as JSON, and the response is parsed as JSON. */
+export async function sendJson<T>(
+  method: 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body === undefined ? null : JSON.stringify(body),
+    signal: signal ?? null,
+  });
+  if (!res.ok) throw await toApiError(res);
+  return (await res.json()) as T;
+}
+
 export async function getBinary(
   path: string,
   accept: string,
