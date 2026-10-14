@@ -105,6 +105,10 @@ changed. While the draft differs from the applied query, a hint says "Filters ch
 the results." Only the applied state reaches the URL and `/calls`. A time range change and a row shortcut apply at
 once.
 
+The filter bar, "Sort by", the duration chips, the switch labels, and "Run query" share one control height, 32 px
+(`apps/ui/src/calls/control-height.ts`), so the two rows line up in both themes. A bar with more tokens than fit on
+one line grows by whole token lines.
+
 ### 2.3 Calls table
 
 | Group | Columns |

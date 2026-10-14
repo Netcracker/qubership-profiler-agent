@@ -1,4 +1,4 @@
-import { Alert, Button, Empty, Layout, Space, Typography, message } from 'antd';
+import { Alert, Button, ConfigProvider, Empty, Layout, Space, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -16,6 +16,7 @@ import { CallsTable } from '../calls/calls-table';
 import { loadColumnPrefs, saveColumnPrefs } from '../calls/column-prefs';
 import type { ColumnPrefs } from '../calls/column-prefs';
 import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
+import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
 import { isIdleMethod } from '../calls/idle-tags';
 import { QueryControls, SortBy } from '../calls/query-controls';
@@ -170,31 +171,34 @@ export function CallsPage() {
             onCommitRange={commitRange}
           />
         </HeaderSlot>
-        <div className={styles.controls}>
-          <div className={styles.barRow}>
-            <div className={styles.bar}>
-              <FilterBar
-                conditions={draft.conditions}
-                onChange={(conditions) => setDraft({ ...draft, conditions })}
-                supported={unsupportedReason}
-                tokenReason={tokenReason}
-                values={values}
-                onRun={run}
-              />
+        {/* One control height for the bar, "Sort by", the chips, the switches, and "Run query". */}
+        <ConfigProvider theme={CONTROL_THEME}>
+          <div className={styles.controls} style={CONTROL_HEIGHT_STYLE}>
+            <div className={styles.barRow}>
+              <div className={styles.bar}>
+                <FilterBar
+                  conditions={draft.conditions}
+                  onChange={(conditions) => setDraft({ ...draft, conditions })}
+                  supported={unsupportedReason}
+                  tokenReason={tokenReason}
+                  values={values}
+                  onRun={run}
+                />
+              </div>
+              <SortBy value={search.order} />
             </div>
-            <SortBy value={search.order} />
+            <QueryControls
+              conditions={draft.conditions}
+              onConditionsChange={(conditions) => setDraft({ ...draft, conditions })}
+              hideSystem={draft.hideSystem}
+              onHideSystemChange={(hideSystem) => setDraft({ ...draft, hideSystem })}
+              dirty={dirty}
+              running={state.kind === 'loading'}
+              disabled={search.fromMs === null || search.toMs === null}
+              onRun={run}
+            />
           </div>
-          <QueryControls
-            conditions={draft.conditions}
-            onConditionsChange={(conditions) => setDraft({ ...draft, conditions })}
-            hideSystem={draft.hideSystem}
-            onHideSystemChange={(hideSystem) => setDraft({ ...draft, hideSystem })}
-            dirty={dirty}
-            running={state.kind === 'loading'}
-            disabled={search.fromMs === null || search.toMs === null}
-            onRun={run}
-          />
-        </div>
+        </ConfigProvider>
         <Space orientation="vertical" className={styles.fullWidth} size={8}>
           {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={applyConditions} /> : null}
           {state.kind === 'too-wide' ? (
