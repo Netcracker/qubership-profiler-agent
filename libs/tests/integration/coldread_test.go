@@ -588,7 +588,7 @@ func TestColdReadPath(t *testing.T) {
 		// as an attacker would, since the contract defers HMAC signing. Its
 		// frozen query spans far past PROFILER_WIDE_RANGE_LIMIT, so page 1 would
 		// have rejected it; the guard must re-run on the cursor page too.
-		token := fmt.Sprintf(`{"v":1,"q":{"from":0,"to":%d},"pos":{"ts_ms":0,"pk":{}},"iat":%d}`,
+		token := fmt.Sprintf(`{"v":2,"q":{"from":["0"],"to":["%d"]},"pos":{"ts_ms":0,"pk":{}},"iat":%d}`,
 			int64(9999999999999), time.Now().UnixMilli())
 		forged := base64.RawURLEncoding.EncodeToString([]byte(token))
 

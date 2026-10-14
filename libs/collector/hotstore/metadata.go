@@ -2,6 +2,7 @@ package hotstore
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1139,31 +1140,39 @@ func (m *metaDb) MinTsMs(bucket int64) (*int64, error) {
 // callsQueryWhere renders the SQL-pushable predicates of q (№15): the ts
 // window, the duration bounds, the error flag, the retention classes, and
 // the pod filter (pod_restart is "<pod_id>/<restartMs>", so a pod matches by
-// prefix). The method filter stays in Go — it matches the
+// prefix), each from the conditions' narrowed views. Every other condition,
+// the method filter among them, stays in Go — it matches the
 // dictionary-resolved name, which SQL does not have.
 func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
 	where := "ts_ms >= ? AND ts_ms < ?"
 	args := []any{fromMs, toMs}
-	if q.DurationMinMs > 0 {
+	minMs, maxMs := q.DurationBounds()
+	if minMs > 0 {
 		where += " AND duration_ms >= ?"
-		args = append(args, q.DurationMinMs)
+		args = append(args, minMs)
 	}
-	if q.DurationMaxMs > 0 {
+	if maxMs < math.MaxInt64 {
 		where += " AND duration_ms <= ?"
-		args = append(args, q.DurationMaxMs)
+		args = append(args, maxMs)
 	}
-	if q.ErrorOnly {
+	if q.ErrorRequired() {
 		where += " AND error_flag = 1"
 	}
-	if len(q.RetentionClasses) > 0 {
-		where += " AND retention_class IN (?" + strings.Repeat(",?", len(q.RetentionClasses)-1) + ")"
-		for _, c := range q.RetentionClasses {
+	if classes, ok := q.RetentionClassSet(); ok {
+		if len(classes) == 0 {
+			return where + " AND 0", args
+		}
+		where += " AND retention_class IN (?" + strings.Repeat(",?", len(classes)-1) + ")"
+		for _, c := range classes {
 			args = append(args, c)
 		}
 	}
-	if len(q.Pods) > 0 {
-		parts := make([]string, len(q.Pods))
-		for i, p := range q.Pods {
+	if tuples, ok := q.PodTuples(); ok {
+		if len(tuples) == 0 {
+			return where + " AND 0", args
+		}
+		parts := make([]string, len(tuples))
+		for i, p := range tuples {
 			parts[i] = `pod_restart LIKE ? ESCAPE '\'`
 			args = append(args, escapeLikePrefix(p)+"/%")
 		}

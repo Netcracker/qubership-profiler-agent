@@ -1,6 +1,7 @@
 package model
 
 import (
+	"math"
 	"net/url"
 	"sort"
 	"strconv"
@@ -172,10 +173,10 @@ func ParsePodRestartPath(s string) (PodTuple, error) {
 	return PodTuple{Namespace: parts[0], Service: parts[1], Pod: parts[2], RestartTimeMs: ms}, nil
 }
 
-// ParseCallsQuery validates the §2.3 filter parameters. It is shared by the
-// external /api/v1/calls and the internal /internal/v1/calls, which takes the
-// same params (02 §3). The second return is an empty string on success and
-// the 400 detail otherwise.
+// ParseCallsQuery validates the §2.3 filter parameters and turns them into
+// conditions (§2.3.3). It is shared by the external /api/v1/calls and the
+// internal /internal/v1/calls, which takes the same params (02 §3). The second
+// return is an empty string on success and the 400 detail otherwise.
 func ParseCallsQuery(params url.Values) (CallsQuery, string) {
 	var q CallsQuery
 	fromMs, toMs, errDetail := ParseWindow(params)
@@ -183,26 +184,39 @@ func ParseCallsQuery(params url.Values) (CallsQuery, string) {
 		return q, errDetail
 	}
 	q.FromMs, q.ToMs = fromMs, toMs
-	q.Pods = append(q.Pods, params["pod"]...)
-	for _, p := range q.Pods {
-		if strings.Count(p, "/") != 2 {
-			return q, "pod must be <namespace>/<service>/<pod>: " + p
-		}
-	}
-	q.Method = params.Get("method")
-	for _, class := range params["retention_class"] {
-		if !IsRetentionClass(class) {
-			return q, "unknown retention_class: " + class
-		}
-		q.RetentionClasses = append(q.RetentionClasses, class)
-	}
-	for name, dst := range map[string]*int32{"duration_min_ms": &q.DurationMinMs, "duration_max_ms": &q.DurationMaxMs} {
-		if raw := params.Get(name); raw != "" {
-			v, err := strconv.ParseInt(raw, 10, 32)
-			if err != nil || v < 0 {
-				return q, name + " must be a non-negative integer"
+	if pods := params["pod"]; len(pods) > 0 {
+		for _, p := range pods {
+			if strings.Count(p, "/") != 2 {
+				return q, "pod must be <namespace>/<service>/<pod>: " + p
 			}
-			*dst = int32(v)
+		}
+		q.Filters = append(q.Filters, PodTuplesCondition(pods...))
+	}
+	if method := params.Get("method"); method != "" {
+		q.Filters = append(q.Filters, MethodContainsCondition(method))
+	}
+	if classes := params["retention_class"]; len(classes) > 0 {
+		for _, class := range classes {
+			if !IsRetentionClass(class) {
+				return q, "unknown retention_class: " + class
+			}
+		}
+		q.Filters = append(q.Filters, RetentionClassCondition(classes...))
+	}
+	for _, bound := range []struct {
+		name string
+		op   Op
+	}{{"duration_min_ms", OpGe}, {"duration_max_ms", OpLe}} {
+		raw := params.Get(bound.name)
+		if raw == "" {
+			continue
+		}
+		v, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || v < 0 {
+			return q, bound.name + " must be a non-negative integer"
+		}
+		if v > 0 { // 0 means "no bound"
+			q.Filters = append(q.Filters, DurationCondition(bound.op, v))
 		}
 	}
 	if raw := params.Get("error_only"); raw != "" {
@@ -210,7 +224,12 @@ func ParseCallsQuery(params url.Values) (CallsQuery, string) {
 		if err != nil {
 			return q, "error_only must be a boolean"
 		}
-		q.ErrorOnly = v
+		if v {
+			q.Filters = append(q.Filters, ErrorCondition(true))
+		}
+	}
+	if _, err := q.Matcher(); err != nil {
+		return q, err.Error()
 	}
 	return q, ""
 }
@@ -235,31 +254,64 @@ func ParseWindow(params url.Values) (int64, int64, string) {
 	return fromMs, toMs, ""
 }
 
-// Values inverts ParseCallsQuery for the fan-out client: the internal
-// /internal/v1/calls takes the same parameters as /api/v1/calls (02 §3).
+// Values renders the query as parameters of the internal
+// /internal/v1/calls, which takes the same parameters as /api/v1/calls
+// (02 §3). The parameters select a superset of the query's rows, not always
+// the exact set: a collector filters what it can push down, and query
+// re-checks every hot row with the full Matcher.
 func (q CallsQuery) Values() url.Values {
 	v := url.Values{}
 	v.Set("from", strconv.FormatInt(q.FromMs, 10))
 	v.Set("to", strconv.FormatInt(q.ToMs, 10))
-	for _, p := range q.Pods {
-		v.Add("pod", p)
+	if tuples, ok := q.PodTuples(); ok && len(tuples) > 0 {
+		v["pod"] = tuples
 	}
-	if q.Method != "" {
-		v.Set("method", q.Method)
+	for _, c := range q.Filters {
+		if c.Field == "method" && c.Op == OpMatch && len(c.Values) == 1 {
+			if text, ok := regexLiteral(c.Values[0]); ok && text != "" {
+				v.Set("method", text)
+				break
+			}
+		}
 	}
-	if q.DurationMinMs > 0 {
-		v.Set("duration_min_ms", strconv.FormatInt(int64(q.DurationMinMs), 10))
+	minMs, maxMs := q.DurationBounds()
+	if minMs > 0 && minMs <= math.MaxInt32 {
+		v.Set("duration_min_ms", strconv.FormatInt(minMs, 10))
 	}
-	if q.DurationMaxMs > 0 {
-		v.Set("duration_max_ms", strconv.FormatInt(int64(q.DurationMaxMs), 10))
+	if maxMs >= 1 && maxMs <= math.MaxInt32 { // 0 would mean "no bound"
+		v.Set("duration_max_ms", strconv.FormatInt(maxMs, 10))
 	}
-	if q.ErrorOnly {
+	if q.ErrorRequired() {
 		v.Set("error_only", "true")
 	}
-	for _, class := range q.RetentionClasses {
-		v.Add("retention_class", class)
+	if classes, ok := q.RetentionClassSet(); ok && len(classes) > 0 {
+		v["retention_class"] = classes
 	}
 	return v
+}
+
+// regexLiteral returns the text a pattern matches when it has no
+// regular-expression syntax other than escaped syntax characters, as
+// regexp.QuoteMeta writes it.
+func regexLiteral(pattern string) (string, bool) {
+	const special = `\.+*?()|[]{}^$`
+	var out strings.Builder
+	for i := 0; i < len(pattern); i++ {
+		ch := pattern[i]
+		if ch == '\\' {
+			if i+1 == len(pattern) || !strings.ContainsRune(special, rune(pattern[i+1])) {
+				return "", false
+			}
+			out.WriteByte(pattern[i+1])
+			i++
+			continue
+		}
+		if strings.ContainsRune(special, rune(ch)) {
+			return "", false
+		}
+		out.WriteByte(ch)
+	}
+	return out.String(), true
 }
 
 // UnionPods merges pod entries from several sources into the §2.7 union: one

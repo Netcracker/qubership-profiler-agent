@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func pk(pod string, restart int64, file, off, rec int32) PK {
@@ -66,16 +67,20 @@ func TestMatchAppliesRowPredicates(t *testing.T) {
 		PK: pk("pod-1", 1, 0, 0, 0), TsMs: 150, DurationMs: 500,
 		Method: "com.example.Db.query", ErrorFlag: false, RetentionClass: RetentionNormalClean,
 	}
-	base := CallsQuery{FromMs: 100, ToMs: 200}
-	assert.True(t, base.Match(r))
-	assert.False(t, CallsQuery{FromMs: 151, ToMs: 200}.Match(r), "ts below from")
-	assert.False(t, CallsQuery{FromMs: 100, ToMs: 150}.Match(r), "to is exclusive")
-	assert.True(t, CallsQuery{FromMs: 100, ToMs: 200, Method: "Db.query"}.Match(r), "substring match")
-	assert.False(t, CallsQuery{FromMs: 100, ToMs: 200, Method: "Http"}.Match(r))
-	assert.True(t, CallsQuery{FromMs: 100, ToMs: 200, Pods: []string{"ns/svc/pod-1"}}.Match(r))
-	assert.False(t, CallsQuery{FromMs: 100, ToMs: 200, Pods: []string{"ns/svc/other"}}.Match(r))
-	assert.False(t, CallsQuery{FromMs: 100, ToMs: 200, DurationMinMs: 501}.Match(r))
-	assert.False(t, CallsQuery{FromMs: 100, ToMs: 200, DurationMaxMs: 499}.Match(r))
-	assert.False(t, CallsQuery{FromMs: 100, ToMs: 200, ErrorOnly: true}.Match(r))
-	assert.False(t, CallsQuery{FromMs: 100, ToMs: 200, RetentionClasses: []string{RetentionAnyError}}.Match(r))
+	match := func(q CallsQuery) bool {
+		m, err := q.Matcher()
+		require.NoError(t, err)
+		return m.Match(&r)
+	}
+	assert.True(t, match(CallsQuery{FromMs: 100, ToMs: 200}))
+	assert.False(t, match(CallsQuery{FromMs: 151, ToMs: 200}), "ts below from")
+	assert.False(t, match(CallsQuery{FromMs: 100, ToMs: 150}), "to is exclusive")
+	assert.True(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{MethodContainsCondition("Db.query")}}), "substring match")
+	assert.False(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{MethodContainsCondition("Http")}}))
+	assert.True(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{PodTuplesCondition("ns/svc/pod-1")}}))
+	assert.False(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{PodTuplesCondition("ns/svc/other")}}))
+	assert.False(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{DurationCondition(OpGe, 501)}}))
+	assert.False(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{DurationCondition(OpLe, 499)}}))
+	assert.False(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{ErrorCondition(true)}}))
+	assert.False(t, match(CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{RetentionClassCondition(RetentionAnyError)}}))
 }
