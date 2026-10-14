@@ -1,0 +1,31 @@
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--pf-color-text);
+}
+
+.run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.sort {
+  min-width: 170px;
+}
+
+.sortIcon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
