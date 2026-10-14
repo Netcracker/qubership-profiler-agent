@@ -60,11 +60,12 @@ type ExplainResult struct {
 
 // PathNode is one node of the reduced tree. Times are in milliseconds.
 type PathNode struct {
-	Method     string `json:"method"`
-	TotalMs    int64  `json:"total_ms"`
-	SelfMs     int64  `json:"self_ms"`
-	SuspendMs  int64  `json:"suspend_ms,omitempty"`
-	Executions int64  `json:"executions"`
+	Method    string `json:"method"`
+	TotalMs   int64  `json:"total_ms"`
+	SelfMs    int64  `json:"self_ms"`
+	SuspendMs int64  `json:"suspend_ms,omitempty"`
+	// Executions is how often the method ran at this place in the tree.
+	Executions int64 `json:"executions"`
 	// Skipped counts the pass-through frames collapsed above this node.
 	Skipped int `json:"skipped,omitempty"`
 	// Hidden counts the children cut by the threshold or the node budget,
@@ -223,7 +224,9 @@ func passThrough(n *calltree.Node) *calltree.Node {
 			dominant = ch
 		}
 	}
-	if dominant.Executions != n.Executions {
+	// Executions counts the whole subtree (02 §2.5.3); the per-node count is
+	// what tells a pass-through from a loop.
+	if dominant.SelfExecutions != n.SelfExecutions {
 		return nil
 	}
 	if float64(n.DurationMs-dominant.DurationMs) > passThroughShare*float64(n.DurationMs) {
@@ -263,7 +266,7 @@ func hotPath(root *calltree.Node, method func(*calltree.Node) string, o reduceOp
 	newPath := func(n *calltree.Node, skipped int) *PathNode {
 		return &PathNode{
 			Method: method(n), TotalMs: n.DurationMs, SelfMs: n.SelfDurationMs,
-			SuspendMs: n.SuspensionMs, Executions: n.Executions, Skipped: skipped,
+			SuspendMs: n.SuspensionMs, Executions: n.SelfExecutions, Skipped: skipped,
 		}
 	}
 	top, skipped := collapse(root)

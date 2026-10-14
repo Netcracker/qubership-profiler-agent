@@ -13,7 +13,8 @@ import (
 )
 
 // treeBuilder makes call trees in memory. Every node runs once unless the
-// test says otherwise; self time is total minus the children's totals.
+// test says otherwise; self time is total minus the children's totals, and
+// executions count the subtree, as calltree builds them (02 §2.5.3).
 type treeBuilder struct{ methods []string }
 
 func (b *treeBuilder) node(method string, totalMs int64, children ...*calltree.Node) *calltree.Node {
@@ -27,14 +28,23 @@ func (b *treeBuilder) node(method string, totalMs int64, children ...*calltree.N
 		idx = len(b.methods)
 		b.methods = append(b.methods, method)
 	}
-	self := totalMs
+	self, executions := totalMs, int64(1)
 	for _, ch := range children {
 		self -= ch.DurationMs
+		executions += ch.Executions
 	}
 	return &calltree.Node{
 		MethodIdx: idx, DurationMs: totalMs, SelfDurationMs: self,
-		Executions: 1, SelfExecutions: 1, Children: children,
+		Executions: executions, SelfExecutions: 1, Children: children,
 	}
+}
+
+// loop marks a node as run n times under its parent; the parents built after
+// it count the extra executions.
+func loop(n *calltree.Node, times int64) *calltree.Node {
+	n.Executions += times - n.SelfExecutions
+	n.SelfExecutions = times
+	return n
 }
 
 // roundTrip encodes and decodes the tree, so the tests read what /tree serves.
@@ -65,6 +75,7 @@ func TestReduceCollapsesADeepPassThroughChain(t *testing.T) {
 	require.Len(t, path.Children, 2)
 	assert.Equal(t, "a.Repo.load()", path.Children[0].Method, "slowest first, method shortened")
 	assert.Equal(t, int64(60), path.Children[0].TotalMs)
+	assert.Equal(t, int64(1), path.Executions, "a node shows its own executions, not its subtree's")
 	assert.Equal(t, 1, path.Hidden, "a.Log.write is under 5%")
 	assert.Equal(t, int64(2), path.HiddenMs)
 	require.Len(t, res.Notes, 1)
@@ -73,9 +84,8 @@ func TestReduceCollapsesADeepPassThroughChain(t *testing.T) {
 
 func TestReduceDoesNotCollapseAFanOutOrANodeWithParams(t *testing.T) {
 	b := &treeBuilder{}
-	child := b.node("a.Repo.load", 95)
-	child.Executions = 10 // the parent loops: executions differ, not a pass-through
-	root := b.node("a.Service.handle", 100, child)
+	// The parent loops: the child runs 10 times per parent call, not a pass-through.
+	root := b.node("a.Service.handle", 100, loop(b.node("a.Repo.load", 95), 10))
 	res := reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
 	assert.Equal(t, "a.Service.handle", res.HotPath.Method)
 	assert.Zero(t, res.HotPath.Skipped)
