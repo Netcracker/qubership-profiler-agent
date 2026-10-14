@@ -71,12 +71,13 @@ Query parameters:
 |---|---|---|
 | `from` | int64 (Unix ms) | Required. Inclusive lower bound on `ts_ms`. |
 | `to` | int64 (Unix ms) | Required. Exclusive upper bound on `ts_ms`. |
-| `pod` | string (repeatable) | Optional. `namespace/service/pod`. |
-| `method` | string | Optional substring/prefix match on the `method` column. |
-| `duration_min_ms` | int32 | Optional. |
-| `duration_max_ms` | int32 | Optional. |
-| `error_only` | bool | Optional. Maps to `error_flag = true`. |
-| `retention_class` | string (repeatable) | Optional. `short_clean` / `normal_clean` / `long_clean` / `any_error` / `corrupted`. |
+| `filter` | string (repeatable) | Optional. One condition per value, such as `service=billing` or `duration>2s`; a call matches when it meets every condition (§2.3.3). |
+| `pod` | string (repeatable) | Optional. `namespace/service/pod`. Shorthand for conditions (§2.3.3). |
+| `method` | string | Optional substring match on the `method` column. Shorthand for a condition (§2.3.3). |
+| `duration_min_ms` | int32 | Optional. Shorthand for `duration>=<n>ms`. |
+| `duration_max_ms` | int32 | Optional. Shorthand for `duration<=<n>ms`. |
+| `error_only` | bool | Optional. Maps to `error_flag = true`. Shorthand for `error=true`. |
+| `retention_class` | string (repeatable) | Optional. `short_clean` / `normal_clean` / `long_clean` / `any_error` / `corrupted`. Shorthand for `retention_class in <values>`. |
 | `cursor` | string | Opaque cursor from previous page's `next_cursor`. |
 | `limit` | int | Page size. Default 100, max 1000. |
 
@@ -145,7 +146,7 @@ reason the §6.3 dedup prefers the cold copy.
 - the last-emitted position `(ts_ms, pk)`,
 - an issue timestamp, for the TTL below.
 
-The query is frozen at the first page so the window does not drift as wall-clock time and the hot window advance. On pages 2..N the client re-sends only the `cursor`; if it also re-sends filter parameters, they must match the frozen query or the request is rejected with `400`. Freezing `to` is what keeps the upper bound stable — otherwise each page re-evaluates `now` and the result set shifts under the reader.
+The query is frozen at the first page so the window does not drift as wall-clock time and the hot window advance. On pages 2..N the client re-sends only the `cursor`; if it also re-sends filter parameters, they must match the frozen query or the request is rejected with `400`. Re-sent conditions (§2.3.3) match when they are the same set in canonical text form, in any order and from either the `filter` parameter or its legacy shorthand. Freezing `to` is what keeps the upper bound stable — otherwise each page re-evaluates `now` and the result set shifts under the reader.
 
 **Fan-out and merge.** One global position is enough; no per-source continuation state is kept. For each page `query` re-issues the full fan-out (every hot replica plus the cold LIST), each source seeks past the cursor position and returns up to `limit` rows, and `query` runs a k-way merge, dedups by PK, then truncates to `limit`. Dedup runs before the truncation and before `next_cursor` is computed, so an overlap-window duplicate neither consumes a page slot nor strands the cursor between its two copies. Deep pagination costs one fan-out per page and re-scans cold parquet (no secondary index, §5.4); a stateful scroll cursor is deferred until profiling shows this is too slow.
 
@@ -163,12 +164,12 @@ A `/calls` query over a wide window with no file-pruning filter is the one shape
 
 **Narrowing filters.** A filter exempts a query from the guard only if it actually prunes the *set of files discovered*, not the rows read within them:
 
-- `pod` — resolves to a pod-restart's file set;
-- `retention_class` — selects key prefixes (§5.1), unless it names every class, which prunes nothing;
-- `duration_min_ms` — prunes to the classes that can hold a call that long, by the tier table of `01-write-contract.md` §6.4: `≥ 1000` lists `long_clean`, `huge_clean`, and the error classes, which carry calls of any duration. A value below the first tier bound (for example `duration_min_ms=1`) prunes no class and does **not** exempt;
-- `error_only` — prunes to `any_error` and `corrupted`.
+- `pod` — resolves to a pod-restart's file set. A `namespace`, `service`, or `pod` condition with `=` or `in` (§2.3.3) counts as `pod`;
+- `retention_class` — selects key prefixes (§5.1), unless it names every class, which prunes nothing. Applies to a `retention_class` condition with `=` or `in`;
+- `duration_min_ms` — prunes to the classes that can hold a call that long, by the tier table of `01-write-contract.md` §6.4: `≥ 1000` lists `long_clean`, `huge_clean`, and the error classes, which carry calls of any duration. A value below the first tier bound (for example `duration_min_ms=1`) prunes no class and does **not** exempt. The lower bound of a `duration` condition (`>`, `>=`, or `between`) counts the same way;
+- `error_only` — prunes to `any_error` and `corrupted`. Applies to `error=true`.
 
-The exemption check runs the same class derivation discovery uses, so a filter that would leave the LIST plan untouched never buys an exemption. `method` and `params` do **not** exempt: they filter rows inside already-listed files (§5.4), so they cut the result, not the scan.
+The exemption check runs the same class derivation discovery uses, so a filter that would leave the LIST plan untouched never buys an exemption. `method` and `params` do **not** exempt: they filter rows inside already-listed files (§5.4), so they cut the result, not the scan. The same holds for every other condition of §2.3.3: `class`, `endpoint`, `trace_id`, `request_id`, an upper bound on `duration`, `error=false`, and every negation and regular expression.
 
 **Layer 1 — span.** If `to - from > PROFILER_WIDE_RANGE_LIMIT` (default `6h`) and none of the narrowing filters above is present, reject with `400`. This layer needs no I/O, so it stops the pathological wide-open query before the discovery LIST that layer 2 depends on — a multi-day range is itself thousands of serial LIST round-trips (§5.5). A `pod` filter exempts the query from `PROFILER_WIDE_RANGE_LIMIT` but not from every bound: `pod` prunes rows inside already-listed files, not the discovery LIST prefixes (§5.1), so cold discovery still walks every hour prefix in the window. A pod-filtered `/calls` window is therefore capped at `PROFILER_MAX_PODS_RANGE` (§2.7) — the same span bound `/pods` uses — and is rejected here, before the LIST fans out across the interval, when it exceeds that cap.
 
@@ -188,6 +189,138 @@ expansion included — and sheds load with `503` when concurrent demand exceeds 
 The rejection body (§8) carries the estimate and a per-class byte breakdown, so the caller sees which axis dominates — usually `short_clean` — and which filter would cut it.
 
 **Evaluated on every page.** The guard runs on page 1 against the parsed query and on pages 2..N against the query frozen in the cursor (§2.3.1). Until the cursor is HMAC-signed it is client-forgeable, so re-checking is the only thing that stops a hand-minted cursor from smuggling a wide query straight into cold discovery. Re-checking does not penalize honest pagination: a cursor `query` minted for a query that already cleared page 1 carries the same window, so the span layer re-passes, and a later page's cold window is bounded by the dynamic cutoff (§4.3) — its discovered file set is a subset of page 1's, so the cost estimate cannot grow past the page-1 verdict.
+
+### 2.3.3 Filter conditions
+
+A condition is a field, an operator, and a value. The `filter` parameter carries one condition per value, and a call
+matches a query when it meets every condition. The UI's filter bar, its permalinks, the `profiler` CLI's `--filter`
+flag, and the MCP tools carry the same conditions in the same text form, so a filter reads the same in all of them.
+`/stats` takes the same conditions.
+
+**Text form.**
+
+```text
+<field><op><value>          op: = != =~ !~ > >= < <=      duration>100ms, namespace=prod-orders
+<field> in <v1>,<v2>        also "not in"                 service in billing,orders
+<field> between <a>..<b>    duration only, inclusive      duration between 100ms..2s
+```
+
+- A field name matches `[A-Za-z_][A-Za-z0-9_.-]*`, so it holds no whitespace and no operator character.
+- The value is the rest of the condition after the operator, with surrounding whitespace removed. Values are not
+  quoted, and a value cannot begin or end with whitespace.
+- Whitespace around a symbol operator is accepted and dropped. The canonical form has none, except that a value
+  beginning with `=` or `~` keeps one space after the operator: `pod= ~x` is "pod equals `~x`", and `pod=~x` is a
+  regular-expression match.
+- In an `in` or `not in` list, `\,` is a literal comma and `\\` a literal backslash. Any other character stands for
+  itself. A list ending in a lone backslash is invalid.
+- In a URL, a condition is percent-encoded like any other query value: `filter=duration%3E100ms`.
+- A duration is a number with the unit `ms` or `s`, and a bare number is seconds: `500ms`, `1.5s`, and `2` are valid.
+  A duration is rounded to whole milliseconds.
+- `None` and `Any` are special values for fields a call can lack (params, `trace_id`, `request_id`, `endpoint`). They
+  go with `=` and `!=` only: `trace_id=None` matches a call without a trace ID, and `trace_id=Any` a call with one.
+
+**Fields.**
+
+| Field | Source | Operators |
+|---|---|---|
+| `duration` | `duration_ms` | `>`, `>=`, `<`, `<=`, `between` |
+| `namespace`, `service`, `pod` | The PK's `pod_namespace`, `pod_service`, `pod_name` | `=`, `!=`, `=~`, `!~`, `in`, `not in` |
+| `method` | `method` | `=`, `!=`, `=~`, `!~` |
+| `class` | Derived from `method`, below | `=`, `!=`, `=~`, `!~`, `in`, `not in` |
+| `endpoint` | Derived from the `web.method` and `web.url` params, below | `=`, `!=`, `=~`, `!~`, `in`, `not in` |
+| `error` | `error_flag`; the value is `true` or `false` | `=` |
+| `retention_class` | The object key's class (§5.1) | `=`, `!=`, `in`, `not in` |
+| `trace_id` | The `trace.id` param | `=`, `!=`, `=~` |
+| `request_id` | The `x-request-id` param | `=`, `!=`, `=~` |
+| Any other name | The call param of that name, such as `user.tenant` | `=`, `!=`, `=~`, `!~`, `in`, `not in` |
+
+A name in the table always means the field. A call param that shares a name with a field, such as a param named
+`duration`, cannot be filtered on.
+
+`trace_id` reads the shared name the agent's tracer plugins write (`trace.id`). The raw propagation headers the agent
+also records, such as `X-B3-TraceId`, stay reachable as plain params.
+
+`class` is the declaring class of the root method. Take the `method` text before its first `(`, then its last
+whitespace-separated word, which is the qualified method name; the class is that name up to its last `.`. For
+`void com.example.OrderService.place(long) (OrderService.java) [orders.jar]` the class is `com.example.OrderService`.
+
+`endpoint` is `<web.method> <path>`, for example `GET /orders/{id}`. `<path>` is the path of the `web.url` value, with
+the scheme, the authority, and any query string removed. Each path segment that is all digits, a UUID, or 16 or more
+hex digits is replaced by `{id}`, which keeps the number of distinct endpoints small enough to group by. A call
+without `web.url` has no endpoint. A call with `web.url` and no `web.method` has the path alone.
+
+**Matching.**
+
+- `=` compares the whole value, case-sensitively. `in` matches when any listed value would match with `=`.
+- `=~` matches when the RE2 regular expression matches anywhere in the value (it is not anchored).
+- `>`, `>=`, `<`, `<=`, and `between` compare durations in milliseconds.
+- `!=`, `not in`, and `!~` are the negation of `=`, `in`, and `=~`. A negative condition on a field the call lacks
+  therefore matches: `trace_id!=abc` matches a call without a trace ID.
+- A param with several values matches a positive condition when any of its values matches, and a negative one when
+  none of them does. A param recorded with no value counts as absent.
+
+**Legacy parameters.** The parameters of §2.3 that predate `filter` are shorthand, and a query may mix them with
+`filter`:
+
+| Parameter | Conditions |
+|---|---|
+| `pod=<ns>/<svc>/<pod>` | One condition that the call's `(namespace, service, pod)` is one of the listed tuples. Repeating `pod` adds tuples to the same condition. The text form has no syntax for it. |
+| `method=<text>` | `method=~<text>` with every regular-expression character of `<text>` escaped, which is a substring match |
+| `duration_min_ms=<n>` | `duration>=<n>ms` |
+| `duration_max_ms=<n>` | `duration<=<n>ms` |
+| `error_only=true` | `error=true` |
+| `retention_class=<c>` (repeatable) | `retention_class in <c1>,<c2>` |
+
+**Errors.** A condition that does not parse, a field that does not take the operator, a value of the wrong type (a
+duration that does not parse, an `error` value other than `true` or `false`, an unknown retention class), a `between`
+range whose start is after its end, and `None` or `Any` on a field every call has all answer `400` with
+`code: invalid_request` and a detail that quotes the condition.
+
+### 2.3.4 Filter stages and capabilities
+
+The filter model is specified in full above, and `query` implements it in two stages. A condition the running build
+does not implement answers `400` with `code: invalid_request` and a detail that names the field and the operator,
+such as "`!=` on `service` is not implemented". A client can tell such an answer from a typo only by the detail, so it
+reads `filter_capabilities` instead of probing.
+
+| Stage | Operators and fields |
+|---|---|
+| A | `duration` with `>`, `>=`, `<`, `<=`, `between`; `namespace`, `service`, `pod`, and `retention_class` with `=` and `in`; `error` with `=`; `trace_id`, `request_id`, and params with `=` |
+| B | Every other operator in the table of §2.3.3; the fields `method`, `class`, and `endpoint`; the values `None` and `Any` |
+
+The legacy `method` parameter works in stage A although `method` as a `filter` field does not.
+
+`GET /api/v1/config` reports what the build implements:
+
+```json
+{
+  "filter_capabilities": {
+    "fields": {
+      "duration": [">", ">=", "<", "<=", "between"],
+      "namespace": ["=", "in"],
+      "service": ["=", "in"],
+      "pod": ["=", "in"],
+      "error": ["="],
+      "retention_class": ["=", "in"],
+      "trace_id": ["="],
+      "request_id": ["="]
+    },
+    "param_operators": ["="],
+    "special_values": [],
+    "orders": ["start_desc"],
+    "group_by": []
+  }
+}
+```
+
+- `fields` maps each implemented field to its implemented operators. A field that is missing is not implemented.
+- `param_operators` lists the operators that work on call params.
+- `special_values` lists `None` and `Any` once they work.
+- `orders` and `group_by` list the `/calls` orderings and the `/stats` groupings the build implements. Their contracts
+  are not written yet; until they are, the lists hold only today's `start_desc` order and no grouping.
+
+A client that finds no `filter_capabilities`, from a build older than the filter model, assumes the legacy parameters
+only.
 
 ### 2.4 Trace blob — lazy endpoint
 
@@ -388,7 +521,7 @@ Response:
 
 `GET /api/v1/pods?from=...&to=...` returns the set of `(namespace, service, pod, restart_time)` tuples that have any Call rows in the time range. The set is the union of two sources: live pod-restarts from the hot tier (`/internal/v1/pods` on each replica, §3) and closed pod-restarts from the cold pod manifests. Cold discovery LISTs `pods/v1/<yyyy>/<mm>/<dd>/` for each day the range spans and reads each small JSON manifest (`01-write-contract.md` §3.6); it does not open parquet files. The `<podRestartHash>` in a parquet key is a one-way hash, so the manifest is the only cold source of the readable identity tuple. The response is an envelope `{ pods, partial, partial_reasons }` — the same partial-failure shape as `/calls` (§7.4), since the pods fan-out can also partially fail. Each `pods` entry is `{ namespace, service, pod, restart_time_ms, time_min_ms, time_max_ms }`, and the hot and cold sources union on the entry shape without reshaping.
 
-`GET /api/v1/stats` is a sketch — full schema deferred to Stage 4. Initial shape: `top_methods_by_duration`, latency percentiles per `(method, retention_class)`, counts per `(retention_class, hour_bucket)`. Implemented over the same hot/cold model as `/calls`.
+`GET /api/v1/stats` is a sketch — full schema deferred to Stage 4. Initial shape: `top_methods_by_duration`, latency percentiles per `(method, retention_class)`, counts per `(retention_class, hour_bucket)`. Implemented over the same hot/cold model as `/calls`. It takes the `filter` conditions of `/calls` (§2.3.3). Its full contract also adds a `param_name` grouping: the call-param names in the window with a count of calls carrying each, which the UI's filter bar offers as fields.
 
 ## 3. Internal hot-read API on collector
 
@@ -680,7 +813,7 @@ Partial results (some sources failed but some succeeded) are NOT errors — `par
 
 The two wide-query rejections (§2.3.2) extend the Problem Details body so a client can render a guided prompt instead of a bare error:
 
-- `suggested_filters` — the narrowing filters that would admit the query (`pod`, `retention_class`, `duration_min_ms`, `error_only`);
+- `suggested_filters` — the narrowing filters that would admit the query (`pod`, `retention_class`, `duration_min_ms`, `error_only`). A build with the filter model (§2.3.3) also suggests `namespace` and `service`;
 - `estimated_files` / `estimated_bytes` — the scan the query would have cost (cost layer only);
 - `by_class` — `estimated_bytes` split by `retention_class`, so the UI can point at the dominant class.
 
@@ -719,7 +852,7 @@ Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`
 ## 10. What this contract does NOT cover
 
 - **Streaming / tail endpoint** for real-time observation — out of scope for MVP, defer to a future iteration once the batch model is stable.
-- **Authentication and authorization** — out of scope for MVP. The likely choice (Keycloak/Bearer) will be a thin layer in front of `/api/v1/*`.
+- **Authentication and authorization** — out of scope for MVP. The likely choice (Keycloak/Bearer) will be a thin layer in front of `/api/v1/*`. It is planned for `/api/v1/*` and for the MCP server of the agent-access plan together; until then an MCP server stays inside the cluster.
 - **`/stats` full schema** — sketched in §2.6, full specification deferred to Stage 4.
 - **Diagnostic dumps endpoint** — already served by `dumps-collector`, not re-implemented here.
 - **UI specifics** — UI consumes `/api/v1/*` as documented; UI-internal data flow is Stage 5.
