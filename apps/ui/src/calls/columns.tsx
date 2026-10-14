@@ -1,5 +1,4 @@
-import { PushpinOutlined } from '@ant-design/icons';
-import { Button, Tag, Tooltip, Typography } from 'antd';
+import { Tag, Tooltip, Typography } from 'antd';
 import type { ReactNode } from 'react';
 
 import { httpTitle } from '../api/http-title';
@@ -34,11 +33,6 @@ export interface CallColumnDef {
 export interface ColumnHandlers {
   /** Filters the calls by the row's pod or trace ID. Without it, those cells are plain text. */
   onPickFilter?: (field: PickFilterField, value: string) => void;
-  /**
-   * Pins the row's pod-restart in the discovery rail (09 §2.1). Goes with the rail
-   * in task 3.3 of the UI redesign plan.
-   */
-  onPinPod?: (tuple: string) => void;
 }
 
 /** A 12 px fixed-width number, as the mockup sets every numeric cell. */
@@ -54,7 +48,7 @@ export function shortTraceId(id: string): string {
 function podCell(c: CallJSON, handlers: ColumnHandlers, zone: string): ReactNode {
   const pod = c.pk.pod_name;
   const tuple = `${c.pk.pod_namespace}/${c.pk.pod_service}/${pod}`;
-  const { onPickFilter, onPinPod } = handlers;
+  const { onPickFilter } = handlers;
   return (
     <span className={styles.podCell}>
       {onPickFilter !== undefined ? (
@@ -66,16 +60,6 @@ function podCell(c: CallJSON, handlers: ColumnHandlers, zone: string): ReactNode
           <Typography.Text>{pod}</Typography.Text>
         </Tooltip>
       )}
-      {onPinPod !== undefined ? (
-        <Button
-          type="text"
-          size="small"
-          icon={<PushpinOutlined />}
-          title={`Pin ${tuple} in the selection`}
-          aria-label={`Pin ${tuple} in the selection`}
-          onClick={() => onPinPod(tuple)}
-        />
-      ) : null}
     </span>
   );
 }
