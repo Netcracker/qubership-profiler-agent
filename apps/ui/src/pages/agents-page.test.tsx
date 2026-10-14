@@ -12,9 +12,17 @@ import { AgentsPage } from './agents-page';
 
 // The page against the mock of the draft API (plan 2026-10-13-ui-redesign
 // §4.7). The mock derives agent statuses from Date.now(), so the tests fake
-// Date only: timers stay real and the page polls on a short interval.
+// Date only: timers stay real, and the polling tests poll on a short interval.
 
 const POLL_MS = 20;
+
+// The other tests keep the page from polling. Each poll answer is an urgent
+// state update, and react-router renders a navigation as a transition, which
+// an urgent update interrupts and restarts. A scope with a pending agent polls
+// from the start, so at 20 ms a tab switch that takes longer than that to
+// render, as it does when the whole suite runs at once, keeps restarting and
+// misses the wait for it.
+const NO_POLL_MS = 60 * 60 * 1000;
 
 // The default second is too short for a page that loads three resources when
 // the whole suite runs at once.
@@ -34,10 +42,10 @@ afterEach(() => {
 afterAll(() => server.close());
 
 /** A data router, as in the app: the page holds navigations with `useBlocker`. */
-function renderAgentsPage(path: string) {
+function renderAgentsPage(path: string, pollIntervalMs = NO_POLL_MS) {
   const router = createMemoryRouter(
     [
-      { path: '/agents', element: <AgentsPage pollIntervalMs={POLL_MS} /> },
+      { path: '/agents', element: <AgentsPage pollIntervalMs={pollIntervalMs} /> },
       { path: '/calls', element: <div>Calls screen</div> },
     ],
     { initialEntries: [path] },
@@ -221,7 +229,7 @@ describe('Agents tab', () => {
 
   it('polls while an agent is pending and stops once none is', async () => {
     const requests = countAgentRequests();
-    renderAgentsPage('/agents?scope=prod-orders%2Forder-processing&tab=agents');
+    renderAgentsPage('/agents?scope=prod-orders%2Forder-processing&tab=agents', POLL_MS);
 
     expect(await screen.findByText('Pending')).toBeInTheDocument();
     await waitFor(() => expect(requests()).toBeGreaterThan(3));
@@ -239,7 +247,7 @@ describe('Agents tab', () => {
 
   it('does not poll a scope without a pending agent', async () => {
     const requests = countAgentRequests();
-    renderAgentsPage('/agents?scope=prod-billing&tab=agents');
+    renderAgentsPage('/agents?scope=prod-billing&tab=agents', POLL_MS);
 
     expect(await screen.findByText('billing-core-8b6d5c7f9-h4wsm')).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, POLL_MS * 10));
