@@ -184,9 +184,10 @@ ones, each with a close button. A derived tab holds the recipe `(op, method, cat
 current model, so it follows Adjust and Setup edits. Derived tabs are client-side state only: they persist through
 the 10b HTML export (07 §5.3), not the URL. Closing the active one returns to the fixed tab that the URL names.
 
-The toolbar sits at the right end of the tab bar: `Adjust duration`, `Setup categories`, `Download HTML`. The slot
-between `Setup categories` and `Download HTML` is reserved for `Explain` and stays empty until the assistant ships.
-Without a tree (loading, cold call, error) there are no tabs; the toolbar then has a row of its own, with its
+The toolbar sits at the right end of the tab bar: `Adjust duration`, `Setup categories`, `Download HTML`, each with an
+`@ant-design/icons` icon (field-time, tags, download), as the link buttons have one. The slot between
+`Setup categories` and `Download HTML` is reserved for `Explain` and stays empty until the assistant ships. Without
+a tree (loading, cold call, error) there are no tabs; the toolbar then has a row of its own, with its
 buttons disabled. The tree search belongs to the Call Tree tab, not to the toolbar.
 
 **Link buttons** follow `Download HTML`, after a divider: one per entry of `links` in `/api/v1/config`, in the

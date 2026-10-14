@@ -62,7 +62,7 @@ describe('RestoredApp', () => {
     expect(screen.queryByRole('button', { name: /Download HTML/ })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Back to Calls' })).toBeNull();
     // Adjust/Setup still work offline (pure transforms on the embedded wire).
-    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Adjust duration/ })).toBeEnabled();
     // The embedded tree renders without any fetch.
     expect(screen.getByText(/InvoiceService\.handle/)).toBeInTheDocument();
   });
