@@ -5,9 +5,11 @@
   gap: 8px 16px;
 }
 
+/* A switch is shorter than a button; its label takes the control height, so the row keeps one line box. */
 .switch {
   display: inline-flex;
   align-items: center;
+  height: var(--pf-control-height, 32px);
   gap: 8px;
   cursor: pointer;
   color: var(--pf-color-text);
