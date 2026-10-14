@@ -22,7 +22,7 @@ job) with its call tree. The `profiler` CLI reads that data from the profiler's 
    ```
 
 3. Check the connection with `profiler services --since 1h`. It lists the namespaces, services, and pods that have
-   data, with each pod's restarts.
+   data, one row per pod restart.
 
 Add `--json` to any command for the full typed result.
 
@@ -58,6 +58,11 @@ A field or operator the server does not implement yet fails with an error that n
    profiler calls --service prod/billing --from 2026-10-14T11:58:00Z --to 2026-10-14T12:02:00Z --filter 'duration>1s'
    ```
 
+   `request_id` reads the `x-request-id` header only. When it finds nothing (`No calls match.`), the service may
+   record its request ID under a call parameter of its own: run `profiler calls --json` on a few calls of the
+   service, look at the names in `params`, and filter on that name, such as `--filter 'request.id=abc123'`. Do not
+   conclude that the request is missing until you have checked.
+
    A request that crossed several services shows one call per service that the profiler sees, all with the same
    `trace_id`. The slowest one that is not mostly waiting on the next service is usually the one to explain.
 2. Explain it, passing the `REF` column as it is printed:
@@ -68,7 +73,8 @@ A field or operator the server does not implement yet fails with an error that n
 
 3. Go deeper only where the time is. `--focus <text>` re-roots the explanation at the slowest method containing the
    text, such as `--focus OrderRepository.load`. `--threshold 0.01` shows nodes down to 1% of the time, and
-   `--max-nodes 100` widens the hot path. The `Notes` section says which of these would show more.
+   `--max-nodes 100` widens the hot path. When the output cut anything, a `Notes` section says what and which of
+   these flags shows it; no `Notes` section means nothing was cut.
 
 ## Reading the output
 
@@ -80,12 +86,15 @@ A field or operator the server does not implement yet fails with an error that n
   suspension as `gc`.
 - **Self against total.** A node's total includes its children; its self time is spent in the method itself. Look for
   large self time: that is where the time went. A large total with a small self points down the tree.
-- **Executions.** `x90` on a fast node under a slow parent is a loop or an N+1 query; the cost is the count, not one
-  execution.
+- **Executions.** `x90` is how often the method ran at that place in the tree, for the whole call. On a fast node
+  under a slow parent it is a loop or an N+1 query; the cost is the count, not one execution.
 - **Collapsed and hidden nodes.** `[3 pass-through frames above]` means frames that only passed the time down
   (filters, proxies, interceptors) were skipped. `(4 more, 37 ms)` counts the children cut by the threshold or the
   node budget.
 - **Top SQL** sums each statement over the call. Statements that differ only in literals are one entry.
+- **The `calls` table.** `IDS` shows the request ID, trace ID, and HTTP method and URL when the call has them; other
+  parameters are only in `--json`. `REF` ends with the call's retention class (`short_clean`, `long_clean`,
+  `any_error`, and so on), which decides how long the call is kept.
 - **No tree.** A call listed with `no tree (<reason>)` was too big for the agent's buffers; `explain` fails for it.
 - **Partial.** A `Partial:` line means a source of data failed; the result may miss calls. Retry before concluding
   that a call does not exist.
