@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { podsInRange } from '../mocks/synthetic';
 import { server } from '../mocks/node';
@@ -60,7 +60,17 @@ const window15m = (): string => {
   return `from=${to - 15 * 60 * 1000}&to=${to}`;
 };
 
-const filterBar = () => screen.getByRole('combobox', { name: 'Filter calls' });
+/** Reads formatDurationMs text back: `412ms`, `4.6s`, `3m 12s`, `1h 04m`. */
+function durationMs(text: string): number {
+  const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+  return text.split(' ').reduce((sum, part) => {
+    const m = /^([\d.]+)(ms|s|m|h)$/.exec(part);
+    if (m === null) throw new Error(`not a duration: ${text}`);
+    return sum + Number(m[1]) * units[m[2]!]!;
+  }, 0);
+}
+
+const filterBar = () =>screen.getByRole('combobox', { name: 'Filter calls' });
 
 describe('CallsPage', () => {
   it('renders no discovery rail, only the filter bar', () => {
@@ -206,6 +216,46 @@ describe('CallsPage', () => {
       expect(screen.getByTestId('location')).toHaveTextContent(`filter=pod=${pod}`);
     } finally {
       calls.stop();
+    }
+  });
+
+  it('sorts the loaded rows in the browser for an order the backend lacks', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(window15m());
+      await rowsLoaded();
+      // antd opens a Select on mousedown and renders the options in its own popup.
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Sort by' }));
+      fireEvent.click(await screen.findByText('Duration', { selector: '.ant-select-item-option-content' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Descending. Click to sort ascending.' }));
+      expect(screen.getByText(/Filters changed/)).toBeInTheDocument();
+      const before = calls.urls.length;
+
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      expect(calls.urls.at(-1)!.searchParams.has('order')).toBe(false);
+      expect(screen.getByTestId('location')).toHaveTextContent('order=duration_asc');
+      await screen.findByText('Sort by Duration applies to the loaded rows only');
+      const durations = screen
+        .getAllByTitle('Open the call tree in a new tab')
+        .map((a) => durationMs(a.textContent!));
+      expect(durations).toEqual([...durations].sort((a, b) => a - b));
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('sends an order the server sorts by and adds no footer note', async () => {
+    vi.stubEnv('VITE_ENABLE_MSW', '1');
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&order=cpu_desc`);
+      await rowsLoaded();
+      expect(calls.urls[0]!.searchParams.get('order')).toBe('cpu_desc');
+      expect(screen.queryByText(/applies to the loaded rows only/)).not.toBeInTheDocument();
+    } finally {
+      calls.stop();
+      vi.unstubAllEnvs();
     }
   });
 

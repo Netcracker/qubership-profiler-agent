@@ -253,11 +253,32 @@ export interface CallsQueryShape {
   durationMaxMs: number;
   errorOnly: boolean;
   retentionClasses: string[];
+  /** `<field>_<asc|desc>` (agent-access plan §5.2); absent in a cursor minted before the mock took `order`. */
+  order?: string;
 }
 
 export interface Position {
   tsMs: number;
   pkPath: string;
+  /** The sort key of the last row, for an order other than start time, newest first. */
+  key?: number;
+}
+
+/** The sort key of each `order` field of the contract (agent-access plan §5.2). */
+export const ORDER_KEYS: Readonly<Record<string, (c: CallJSON) => number>> = {
+  start: (c) => c.ts_ms,
+  duration: (c) => c.duration_ms,
+  cpu: (c) => c.cpu_time_ms,
+  queue: (c) => c.queue_wait_ms,
+  calls: (c) => c.child_calls,
+  net: (c) => c.net_read + c.net_written,
+};
+
+/** Splits `duration_desc` into its field and direction; null for an order outside the contract. */
+export function parseMockOrder(order: string): { field: string; asc: boolean } | null {
+  const m = /^([a-z]+)_(asc|desc)$/.exec(order);
+  if (m === null || ORDER_KEYS[m[1]!] === undefined) return null;
+  return { field: m[1]!, asc: m[2] === 'asc' };
 }
 
 function matches(call: CallJSON, q: CallsQueryShape): boolean {
@@ -284,6 +305,7 @@ export function callsPage(
   limit: number,
   nowMs: number,
 ): { calls: CallJSON[]; nextPos: Position | null } {
+  if (q.order !== undefined && q.order !== 'start_desc') return orderedCallsPage(q, after, limit, nowMs);
   const restarts = podRestarts(q.fromMs, q.toMs, nowMs);
   const topBucket = Math.floor((Math.min(q.toMs, nowMs) - 1) / BUCKET_MS);
   const bottomBucket = Math.floor(q.fromMs / BUCKET_MS);
@@ -317,6 +339,49 @@ export function callsPage(
   return {
     calls: page,
     nextPos: more && last !== undefined ? { tsMs: last.ts_ms, pkPath: pkToPath(last.pk) } : null,
+  };
+}
+
+/**
+ * One keyset page in another order: rows strictly after `after` in (key, pk ASC) order, the key ascending or
+ * descending. No order but start time prunes anything, so this materializes the whole window, as the backend's stage
+ * B does inside the wide-query guard.
+ */
+function orderedCallsPage(
+  q: CallsQueryShape,
+  after: Position | null,
+  limit: number,
+  nowMs: number,
+): { calls: CallJSON[]; nextPos: Position | null } {
+  const { field, asc } = parseMockOrder(q.order!)!;
+  const key = ORDER_KEYS[field]!;
+  const sign = asc ? 1 : -1;
+  const all: CallJSON[] = [];
+  const restarts = podRestarts(q.fromMs, q.toMs, nowMs);
+  const topBucket = Math.floor((Math.min(q.toMs, nowMs) - 1) / BUCKET_MS);
+  for (let bucket = Math.floor(q.fromMs / BUCKET_MS); bucket <= topBucket; bucket++) {
+    const bucketStart = bucket * BUCKET_MS;
+    for (const pr of restarts) {
+      if (bucketStart < pr.restartTimeMs || bucketStart >= pr.endMs) continue;
+      for (const call of callsInBucket(pr, bucketStart)) {
+        if (call.ts_ms >= q.fromMs && call.ts_ms < q.toMs && matches(call, q)) all.push(call);
+      }
+    }
+  }
+  const cmp = (ka: number, pa: string, kb: number, pb: string): number =>
+    sign * (ka - kb) || (pa < pb ? -1 : pa > pb ? 1 : 0);
+  all.sort((a, b) => cmp(key(a), pkToPath(a.pk), key(b), pkToPath(b.pk)));
+  const start =
+    after === null ? 0 : all.findIndex((c) => cmp(key(c), pkToPath(c.pk), after.key ?? 0, after.pkPath) > 0);
+  const rest = start < 0 ? [] : all.slice(start);
+  const page = rest.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    calls: page,
+    nextPos:
+      rest.length > limit && last !== undefined
+        ? { tsMs: last.ts_ms, pkPath: pkToPath(last.pk), key: key(last) }
+        : null,
   };
 }
 
