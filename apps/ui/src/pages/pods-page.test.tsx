@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -21,13 +22,16 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
+// Wrapped in AntdApp, as in app.tsx: the page shows its toast through the App.
 function renderPodsPage(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/pods" element={<PodsPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <AntdApp>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/pods" element={<PodsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </AntdApp>,
   );
 }
 
@@ -55,13 +59,15 @@ describe('PodsPage', () => {
 
   it('puts the time range in the shell header and keeps Apply in the page', () => {
     render(
-      <MemoryRouter initialEntries={['/pods']}>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route path="/pods" element={<PodsPage />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
+      <AntdApp>
+        <MemoryRouter initialEntries={['/pods']}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/pods" element={<PodsPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AntdApp>,
     );
     const header = screen.getByRole('banner');
     expect(within(header).getByRole('button', { name: 'Time range' })).toBeInTheDocument();

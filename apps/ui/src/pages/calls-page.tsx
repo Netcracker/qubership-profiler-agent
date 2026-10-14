@@ -1,4 +1,4 @@
-import { Alert, Button, ConfigProvider, Empty, Layout, Space, Typography, message } from 'antd';
+import { Alert, App, Button, ConfigProvider, Empty, Layout, Space, Typography } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -62,6 +62,9 @@ const supportedHere = (field: string, op?: Operator): string | null =>
 const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
 
 export function CallsPage() {
+  // The App's toast renders in the app's own React tree and unmounts with it.
+  // The static `message` mounts a separate root that nothing unmounts.
+  const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   // Resolve relative window tokens against one `now` per URL change; the memo
   // freezes it, so `now-3h` does not drift (and refetch) on every render.
