@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatDurationFilter, parseDurationFilter } from './duration-filter';
+import { formatDurationFilter, parseDurationFilter, parseDurationMs, parseDurationRange } from './duration-filter';
+
+describe('parseDurationMs and parseDurationRange', () => {
+  it('reads one unsigned value with the same units', () => {
+    expect(parseDurationMs('500ms')).toBe(500);
+    expect(parseDurationMs('1.5s')).toBe(1500);
+    expect(parseDurationMs('3')).toBe(3000);
+    expect(parseDurationMs('>500ms')).toBeNull();
+    expect(parseDurationMs('1s..2s')).toBeNull();
+  });
+
+  it('reads a range only', () => {
+    expect(parseDurationRange('2s..100ms')).toEqual({ minMs: 100, maxMs: 2000 });
+    expect(parseDurationRange('100ms')).toBeNull();
+  });
+});
 
 describe('parseDurationFilter', () => {
   it('reads a bare lower bound, defaulting the unit to seconds', () => {
