@@ -68,10 +68,17 @@ function rowOf(c: CallJSON): HTMLElement {
 }
 
 describe('CallsTable', () => {
-  it('shows the default columns with the column chooser at the end of the header', () => {
+  it('shows the default columns, with no settings column, and the column settings in the footer', () => {
     renderTable();
     const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
-    expect(headers.slice(0, 9)).toEqual(['Start', 'Duration', 'Pod', 'Title', 'trace_id', 'CPU', 'Queue', 'Calls', 'Net IO']);
+    expect(headers).toEqual(['Start', 'Duration', 'Pod', 'Title', 'trace_id', 'CPU', 'Queue', 'Calls', 'Net IO']);
+    const chooser = screen.getByRole('button', { name: 'Choose columns' });
+    expect(chooser.closest('thead')).toBeNull();
+    expect(chooser.closest('.ant-table-footer')).not.toBeNull();
+  });
+
+  it('keeps the column settings while the table loads', () => {
+    renderTable({ rows: [], loading: true });
     expect(screen.getByRole('button', { name: 'Choose columns' })).toBeInTheDocument();
   });
 
