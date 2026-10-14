@@ -23,7 +23,7 @@ dependencies {
         api("org.jmockit:jmockit:1.50")
         api("org.mockito:mockito-core:5.23.0")
         api("org.openjdk.jcstress:jcstress-core:0.16")
-        api("org.postgresql:postgresql:42.7.13")
+        api("org.postgresql:postgresql:42.7.14")
         api("org.springframework.amqp:spring-rabbit:4.1.1")
     }
 }
