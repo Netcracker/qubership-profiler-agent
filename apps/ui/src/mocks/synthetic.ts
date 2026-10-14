@@ -197,6 +197,14 @@ function callsInBucket(pr: PodRestart, bucketStartMs: number): CallJSON[] {
       const routes = HTTP_ROUTES[pr.service] ?? ['/'];
       params['web.method'] = [r() < 0.85 ? 'GET' : 'POST'];
       params['web.url'] = [`http://${pr.service}:8080${routes[Math.floor(r() * routes.length)]}`];
+      // Three business calls in four are traced; the tracing plugins record the
+      // ID as the `trace.id` param. Hashed, not drawn from r(), so the rest of
+      // the dataset keeps its values.
+      const traceHash = fnv1a(`${key}#${tsMs}#${i}#trace`) >>> 0;
+      if (traceHash % 4 !== 0) {
+        const low = fnv1a(`${key}#${tsMs}#${i}#trace-low`) >>> 0;
+        params['trace.id'] = [`${traceHash.toString(16).padStart(8, '0')}${low.toString(16).padStart(8, '0')}`.repeat(2)];
+      }
     }
     const call: CallJSON = {
       pk: {

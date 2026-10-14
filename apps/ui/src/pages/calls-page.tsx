@@ -27,7 +27,8 @@ import { useCallsQuery } from '../calls/use-calls-query';
 import { PeriodControls } from '../controls/period-controls';
 import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
-import type { Condition } from '../filter/condition';
+import { browserNote, browserSupports, filterInBrowser, isBrowserCondition } from '../filter/browser';
+import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
 import { translateConditions, unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
@@ -53,6 +54,10 @@ interface QueryDraft {
 }
 
 const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem, d.order]);
+
+/** The fields and operators the bar offers: those /calls takes, and those the browser applies to the loaded rows. */
+const supportedHere = (field: string, op?: Operator): string | null =>
+  browserSupports(field, op) ? null : unsupportedReason(field, op);
 
 const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
 
@@ -89,12 +94,16 @@ export function CallsPage() {
   const needsPods = search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field));
   const waitingForPods = translation.params === null && podsState.kind !== 'error';
 
-  // A draft token the translation skips renders disabled with the reason, and is not sent.
+  // A draft token the translation skips renders disabled with the reason, and is not sent. A trace_id token is not
+  // sent either, but it filters the loaded rows in the browser, so it renders applied, with that note.
   const draftReasons = useMemo(
     () => new Map(translateConditions(draft.conditions, namespaces).skipped.map((s) => [s.condition, s.reason])),
     [draft.conditions, namespaces],
   );
-  const tokenReason = useCallback((c: Condition) => draftReasons.get(c) ?? null, [draftReasons]);
+  const tokenReason = useCallback(
+    (c: Condition) => (isBrowserCondition(c) ? null : (draftReasons.get(c) ?? null)),
+    [draftReasons],
+  );
 
   // "Hide system/proxy" shows in the bar as a token of the draft: the switch adds and removes it, and so do its ×
   // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2).
@@ -150,11 +159,13 @@ export function CallsPage() {
   };
 
   const rows = state.kind === 'ready' ? state.rows : [];
-  const shownRows = useMemo(
+  const unhiddenRows = useMemo(
     () => (search.hideSystem ? rows.filter((c) => !isIdleMethod(c.method)) : rows),
     [rows, search.hideSystem],
   );
-  const hiddenCount = rows.length - shownRows.length;
+  const hiddenCount = rows.length - unhiddenRows.length;
+  const shownRows = useMemo(() => filterInBrowser(unhiddenRows, search.conditions), [unhiddenRows, search.conditions]);
+  const traceHiddenCount = unhiddenRows.length - shownRows.length;
   const visibleRows = useMemo(
     () => (serverOrdered ? shownRows : sortCalls(shownRows, search.order)),
     [shownRows, serverOrdered, search.order],
@@ -170,6 +181,7 @@ export function CallsPage() {
         <Typography.Text type="secondary">
           {state.rows.length} loaded
           {hiddenCount > 0 ? ` · ${hiddenCount} hidden as system/proxy` : ''}
+          {traceHiddenCount > 0 ? ` · ${traceHiddenCount} hidden by the trace_id filter` : ''}
           {state.nextCursor === null ? ' · end of range' : ''}
         </Typography.Text>
       </Space>
@@ -200,7 +212,8 @@ export function CallsPage() {
                   conditions={draft.conditions}
                   onChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
                   presets={presets}
-                  supported={unsupportedReason}
+                  supported={supportedHere}
+                  tokenNote={browserNote}
                   tokenReason={tokenReason}
                   values={values}
                   onRun={run}
