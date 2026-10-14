@@ -37,6 +37,18 @@ export function formatTs(tsMs: number, zone: string = BROWSER_ZONE): string {
   return (zone === BROWSER_ZONE ? dayjs(tsMs) : dayjs(tsMs).tz(zone)).format('YYYY-MM-DD HH:mm:ss.SSS');
 }
 
+/**
+ * The Start cell (CallsAlt mockup): the time alone for a call of today, and the date and time otherwise, both in the
+ * display timezone. A call of another year keeps the year. The full timestamp goes in the cell's tooltip.
+ */
+export function formatStart(tsMs: number, zone: string = BROWSER_ZONE, nowMs: number = Date.now()): string {
+  const at = (ms: number) => (zone === BROWSER_ZONE ? dayjs(ms) : dayjs(ms).tz(zone));
+  const t = at(tsMs);
+  const now = at(nowMs);
+  if (t.format('YYYY-MM-DD') === now.format('YYYY-MM-DD')) return t.format('HH:mm:ss.SSS');
+  return t.format(t.year() === now.year() ? 'MMM D HH:mm:ss.SSS' : 'YYYY-MM-DD HH:mm:ss.SSS');
+}
+
 export function formatTsShort(tsMs: number, zone: string = BROWSER_ZONE): string {
   return (zone === BROWSER_ZONE ? dayjs(tsMs) : dayjs(tsMs).tz(zone)).format('MM-DD HH:mm:ss');
 }
