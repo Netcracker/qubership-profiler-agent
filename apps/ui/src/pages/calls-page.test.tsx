@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { podsInRange } from '../mocks/synthetic';
 import { server } from '../mocks/node';
@@ -60,7 +60,17 @@ const window15m = (): string => {
   return `from=${to - 15 * 60 * 1000}&to=${to}`;
 };
 
-const filterBar = () => screen.getByRole('combobox', { name: 'Filter calls' });
+/** Reads formatDurationMs text back: `412ms`, `4.6s`, `3m 12s`, `1h 04m`. */
+function durationMs(text: string): number {
+  const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+  return text.split(' ').reduce((sum, part) => {
+    const m = /^([\d.]+)(ms|s|m|h)$/.exec(part);
+    if (m === null) throw new Error(`not a duration: ${text}`);
+    return sum + Number(m[1]) * units[m[2]!]!;
+  }, 0);
+}
+
+const filterBar = () =>screen.getByRole('combobox', { name: 'Filter calls' });
 
 describe('CallsPage', () => {
   it('renders no discovery rail, only the filter bar', () => {
@@ -120,11 +130,11 @@ describe('CallsPage', () => {
   it('keeps an untranslatable condition as a disabled token and does not send it', async () => {
     const calls = recordCalls();
     try {
-      renderCallsPage(`${window15m()}&filter=${encodeURIComponent('trace_id=abc')}&filter=${encodeURIComponent('duration>=1s')}`);
+      renderCallsPage(`${window15m()}&filter=${encodeURIComponent('request_id=abc')}&filter=${encodeURIComponent('duration>=1s')}`);
       await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
       const sp = calls.urls[0]!.searchParams;
       expect([...sp.keys()].sort()).toEqual(['duration_min_ms', 'from', 'limit', 'to']);
-      const token = screen.getByRole('button', { name: 'Remove the filter trace_id = abc' }).parentElement!;
+      const token = screen.getByRole('button', { name: 'Remove the filter request_id = abc' }).parentElement!;
       expect(token).toHaveAttribute('data-applied', 'false');
       expect(token).toHaveAttribute('title', 'The backend does not support this filter yet.');
     } finally {
@@ -204,6 +214,137 @@ describe('CallsPage', () => {
       expect(pods.every((t) => t.endsWith(`/${pod}`))).toBe(true);
       expect(screen.getByRole('button', { name: `Remove the filter pod = ${pod}` })).toBeInTheDocument();
       expect(screen.getByTestId('location')).toHaveTextContent(`filter=pod=${pod}`);
+    } finally {
+      calls.stop();
+    }
+  });
+
+  describe('Hide system/proxy', () => {
+    const tokenRemove = () => screen.queryByRole('button', { name: 'Remove the filter method !~ system/proxy' });
+    const hideSwitch = () => screen.getByRole('switch', { name: 'Hide system/proxy' });
+
+    it('shows the switch as a token, and the switch adds it to the draft', async () => {
+      const calls = recordCalls();
+      try {
+        renderCallsPage(window15m());
+        await rowsLoaded();
+        expect(tokenRemove()).toBeNull();
+        const before = calls.urls.length;
+
+        await userEvent.click(hideSwitch());
+        expect(tokenRemove()).not.toBeNull();
+        expect(tokenRemove()!.parentElement).toHaveAttribute('title', expect.stringMatching(/in the browser/));
+        expect(screen.getByText(/Filters changed/)).toBeInTheDocument();
+        expect(screen.getByTestId('location')).not.toHaveTextContent('hide_system');
+        expect(calls.urls.length).toBe(before);
+
+        await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+        await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('hide_system=1'));
+        // The flag stays a UI flag: nothing about it reaches /calls.
+        await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+        expect([...calls.urls.at(-1)!.searchParams.keys()]).not.toContain('hide_system');
+        expect(screen.queryByText(/Filters changed/)).not.toBeInTheDocument();
+      } finally {
+        calls.stop();
+      }
+    });
+
+    it('turns the switch off when the token is removed with its × or Backspace', async () => {
+      renderCallsPage(`${window15m()}&hide_system=1`);
+      await rowsLoaded();
+      expect(hideSwitch()).toBeChecked();
+      await userEvent.click(tokenRemove()!);
+      expect(hideSwitch()).not.toBeChecked();
+      expect(tokenRemove()).toBeNull();
+
+      await userEvent.click(hideSwitch());
+      expect(tokenRemove()).not.toBeNull();
+      await userEvent.click(filterBar());
+      await userEvent.keyboard('{Backspace}');
+      expect(hideSwitch()).not.toBeChecked();
+      expect(tokenRemove()).toBeNull();
+
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('hide_system'));
+    });
+
+    it('hides the system rows of the loaded pages in the browser', async () => {
+      renderCallsPage(`${window15m()}&hide_system=1`);
+      await rowsLoaded();
+      await screen.findByText(/hidden as system\/proxy/);
+      expect(screen.queryByText(/QuartzSchedulerThread|JobStoreSupport/)).toBeNull();
+
+      await userEvent.click(tokenRemove()!);
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getAllByText(/QuartzSchedulerThread|JobStoreSupport/).length).toBeGreaterThan(0));
+      expect(screen.queryByText(/hidden as system\/proxy/)).toBeNull();
+    });
+  });
+
+  it('sorts the loaded rows in the browser for an order the backend lacks', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(window15m());
+      await rowsLoaded();
+      // antd opens a Select on mousedown and renders the options in its own popup.
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Sort by' }));
+      fireEvent.click(await screen.findByText('Duration', { selector: '.ant-select-item-option-content' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Descending. Click to sort ascending.' }));
+      expect(screen.getByText(/Filters changed/)).toBeInTheDocument();
+      const before = calls.urls.length;
+
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      expect(calls.urls.at(-1)!.searchParams.has('order')).toBe(false);
+      expect(screen.getByTestId('location')).toHaveTextContent('order=duration_asc');
+      await screen.findByText('Sort by Duration applies to the loaded rows only');
+      const durations = screen
+        .getAllByTitle('Open the call tree in a new tab')
+        .map((a) => durationMs(a.textContent!));
+      expect(durations).toEqual([...durations].sort((a, b) => a - b));
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('sends an order the server sorts by and adds no footer note', async () => {
+    vi.stubEnv('VITE_ENABLE_MSW', '1');
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&order=cpu_desc`);
+      await rowsLoaded();
+      expect(calls.urls[0]!.searchParams.get('order')).toBe('cpu_desc');
+      expect(screen.queryByText(/applies to the loaded rows only/)).not.toBeInTheDocument();
+    } finally {
+      calls.stop();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('replaces the trace_id token on a row pick and filters the loaded rows in the browser', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(window15m());
+      await rowsLoaded();
+      const total = screen.getAllByTitle('Open the call tree in a new tab').length;
+
+      const pick = screen.getAllByTitle(/^Filter by trace_id /)[0]!;
+      const id = pick.getAttribute('title')!.replace('Filter by trace_id ', '');
+      const before = calls.urls.length;
+      await userEvent.click(pick);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      // The trace ID is not sent: /calls cannot filter by it.
+      expect([...calls.urls.at(-1)!.searchParams.keys()].sort()).toEqual(['from', 'limit', 'to']);
+      expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${id}`);
+
+      const token = screen.getByRole('button', { name: `Remove the filter trace_id = ${id}` }).parentElement!;
+      expect(token).toHaveAttribute('data-applied', 'browser');
+      expect(token).toHaveAttribute('title', expect.stringMatching(/loaded rows in the browser/));
+      await waitFor(() => expect(screen.getAllByTitle(`Filter by trace_id ${id}`).length).toBeGreaterThan(0));
+      const traceCells = screen.getAllByTitle(/^Filter by trace_id /);
+      expect(traceCells.every((c) => c.getAttribute('title') === `Filter by trace_id ${id}`)).toBe(true);
+      expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeLessThan(total);
+      expect(screen.getByText(/hidden by the trace_id filter/)).toBeInTheDocument();
     } finally {
       calls.stop();
     }

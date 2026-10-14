@@ -1,5 +1,6 @@
 /* The filter bar of the CallsAlt mockup. Colors come from the --pf-color-* variables of theme.css, which both themes
-   define. */
+   define. The bar is one control high (--pf-control-height, calls/control-height.ts), so it lines up with "Sort by"
+   and the controls under it; a bar with more tokens than fit on one line grows by whole token lines. */
 
 .bar {
   position: relative;
@@ -7,8 +8,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  min-height: 38px;
-  padding: 4px 6px 4px 10px;
+  box-sizing: border-box;
+  min-height: var(--pf-control-height, 32px);
+  padding: 3px 4px 3px 10px;
   background: var(--pf-color-surface);
   border: 1px solid var(--pf-color-border);
   border-radius: 6px;
@@ -82,6 +84,13 @@
   font-weight: 500;
 }
 
+/* A token that filters the loaded rows in the browser, not the query: a dashed outline sets it apart. */
+.tokenLocal {
+  outline: 1px dashed var(--pf-color-faint);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
 /* A condition the backend cannot apply yet: shown, not sent. */
 .tokenOff > span {
   color: var(--pf-color-faint);
@@ -95,7 +104,7 @@
 .input {
   flex: 1 1 140px;
   min-width: 120px;
-  height: 28px;
+  height: 24px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -113,8 +122,8 @@
 }
 
 .clear {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: 0;
   border-radius: 4px;
   background: transparent;

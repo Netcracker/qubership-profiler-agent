@@ -12,6 +12,20 @@ import styles from './filter-bar.module.css';
 // condition in three stages, field, operator, and value. The bar edits the draft only; the page decides when a
 // draft runs.
 
+/**
+ * A token the page owns rather than a condition of the bar, such as "Hide system/proxy". It reads like a condition,
+ * comes before the conditions, and is removed with its × or with Backspace once no condition is left before the input.
+ */
+export interface PresetToken {
+  key: string;
+  field: string;
+  op: string;
+  value: string;
+  /** The tooltip: what the token does and where it applies. */
+  title: string;
+  onRemove: () => void;
+}
+
 export interface FilterBarProps {
   conditions: readonly Condition[];
   onChange: (next: Condition[]) => void;
@@ -19,6 +33,13 @@ export interface FilterBarProps {
   supported?: SupportedPredicate;
   /** Why a token is not applied; a token with a reason renders disabled. */
   tokenReason?: (condition: Condition) => string | null;
+  /**
+   * A note for a token that applies, but only to the loaded rows in the browser. Such a token renders with a dashed
+   * outline and the note as its tooltip.
+   */
+  tokenNote?: (condition: Condition) => string | null;
+  /** Tokens the page owns, shown before the conditions. */
+  presets?: readonly PresetToken[];
   /** Value suggestions per field. */
   values?: ValueSource;
   /** The fields the bar lists; every field of the catalog when absent. */
@@ -29,6 +50,7 @@ export interface FilterBarProps {
 }
 
 const ALL_SUPPORTED: SupportedPredicate = () => null;
+const NO_PRESETS: readonly PresetToken[] = [];
 const NO_VALUES: ValueSource = () => [];
 
 function tokenText(c: Condition): string {
@@ -40,6 +62,8 @@ export function FilterBar({
   onChange,
   supported = ALL_SUPPORTED,
   tokenReason,
+  tokenNote,
+  presets = NO_PRESETS,
   values = NO_VALUES,
   fields = ALL_FIELDS,
   onRun,
@@ -96,6 +120,8 @@ export function FilterBar({
       onChange(conditions.slice(0, -1));
       if (isListOperator(last.op)) reset({ field: last.field, op: last.op, values: last.values });
       else reset({ field: last.field, op: last.op, values: [] }, last.values[0] ?? '');
+    } else if (presets.length > 0) {
+      presets[presets.length - 1]!.onRemove();
     }
   };
 
@@ -125,7 +151,7 @@ export function FilterBar({
 
   const inputPlaceholder =
     view.stage === 'field'
-      ? conditions.length > 0
+      ? conditions.length > 0 || presets.length > 0
         ? 'Add a filter'
         : (placeholder ?? 'Filter calls: pick a field or type a method name')
       : view.stage === 'op'
@@ -139,15 +165,33 @@ export function FilterBar({
       <svg className={styles.icon} width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M2 3.5h12L9.5 9v4l-3-1.5V9z" />
       </svg>
+      {presets.map((p) => (
+        <span key={p.key} className={`${styles.token} ${styles.tokenLocal}`} title={p.title} data-applied="browser">
+          <span>{p.field}</span>
+          <span>{p.op}</span>
+          <span className={styles.tokenValue}>{p.value}</span>
+          <button
+            type="button"
+            aria-label={`Remove the filter ${p.field} ${p.op} ${p.value}`}
+            title="Remove this filter"
+            onClick={p.onRemove}
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+              <path d="M2 2l6 6M8 2 2 8" />
+            </svg>
+          </button>
+        </span>
+      ))}
       {conditions.map((c, i) => {
         const reason = tokenReason?.(c) ?? null;
+        const note = reason === null ? (tokenNote?.(c) ?? null) : null;
         const label = tokenText(c);
         return (
           <span
             key={`${i}:${label}`}
-            className={`${styles.token}${reason === null ? '' : ` ${styles.tokenOff}`}`}
-            title={reason ?? undefined}
-            data-applied={reason === null}
+            className={`${styles.token}${reason !== null ? ` ${styles.tokenOff}` : note !== null ? ` ${styles.tokenLocal}` : ''}`}
+            title={reason ?? note ?? undefined}
+            data-applied={reason !== null ? 'false' : note !== null ? 'browser' : 'true'}
           >
             <span>{c.field}</span>
             <span>{c.op}</span>
@@ -199,7 +243,7 @@ export function FilterBar({
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
       />
-      {conditions.length > 0 || draft.field !== null ? (
+      {conditions.length > 0 || presets.length > 0 || draft.field !== null ? (
         <button
           type="button"
           className={styles.clear}
@@ -207,6 +251,7 @@ export function FilterBar({
           aria-label="Clear all filters"
           onClick={() => {
             onChange([]);
+            presets.forEach((p) => p.onRemove());
             reset(EMPTY_DRAFT);
             setOpen(false);
           }}

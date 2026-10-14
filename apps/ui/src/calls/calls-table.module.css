@@ -33,3 +33,7 @@
   align-items: center;
   gap: 8px 12px;
 }
+
+.footerEnd {
+  margin-left: auto;
+}

@@ -6,7 +6,7 @@ import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
 import { BROWSER_ZONE } from '../controls/time-range';
 import { treeHref } from '../url/search-params';
-import { durationHeat, formatBytes, formatCount, formatDurationMs, formatTs } from './format';
+import { durationHeat, formatBytes, formatCount, formatDurationMs, formatStart, formatTs } from './format';
 import { isIdleMethod } from './idle-tags';
 import { callTraceId } from './trace-id';
 import styles from './columns.module.css';
@@ -95,26 +95,39 @@ function traceCell(c: CallJSON, handlers: ColumnHandlers): ReactNode {
 
 export function buildCallColumns(handlers: ColumnHandlers, zone: string = BROWSER_ZONE): CallColumnDef[] {
   return [
-    { key: 'start', title: 'Start', defaultWidth: 190, render: (c) => num(formatTs(c.ts_ms, zone)), compare: (a, b) => a.ts_ms - b.ts_ms },
+    {
+      key: 'start',
+      title: 'Start',
+      defaultWidth: 170,
+      // Today's date is left out of the cell; the tooltip keeps the full timestamp.
+      render: (c) => (
+        <span className={`pf-mono ${styles.num}`} title={formatTs(c.ts_ms, zone)}>
+          {formatStart(c.ts_ms, zone)}
+        </span>
+      ),
+      compare: (a, b) => a.ts_ms - b.ts_ms,
+    },
     {
       key: 'duration',
       title: 'Duration',
       defaultWidth: 110,
       align: 'right',
       compare: (a, b) => a.duration_ms - b.duration_ms,
+      // The text sits right-aligned in a box as wide as the longest duration text, so the dot before it keeps one x
+      // position down the column.
       render: (c) => (
-        <>
+        <span className={styles.duration}>
           <span className={styles.heatDot} style={{ background: durationHeat(c.duration_ms) }} aria-hidden="true" />
           <a
             href={treeHref(pkToPath(c.pk), c.ts_ms, c.retention_class)}
             target="_blank"
             rel="noopener noreferrer"
             title="Open the call tree in a new tab"
-            className={`pf-mono ${styles.num}`}
+            className={`pf-mono ${styles.num} ${styles.durationText}`}
           >
             {formatDurationMs(c.duration_ms)}
           </a>
-        </>
+        </span>
       ),
     },
     { key: 'pod', title: 'Pod', defaultWidth: 230, render: (c) => podCell(c, handlers, zone), compare: (a, b) => a.pk.pod_name.localeCompare(b.pk.pod_name) },

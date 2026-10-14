@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { CALLS_ORDERS } from '../calls/sort-order';
 import { formatCondition } from '../filter/grammar';
 import {
   DEFAULT_CONDITIONS,
@@ -63,6 +64,18 @@ describe('calls search state', () => {
     expect(parsed.fromMs).toBe(now - 3 * 60 * 60 * 1000);
     // The URL keeps the tokens verbatim, so the range stays live on the next load.
     expect(callsSearchToParams(parsed).toString()).toBe('from=now-3h&to=now&order=start_desc');
+  });
+
+  it.each(CALLS_ORDERS)('round-trips order=%s', (order) => {
+    const sp = callsSearchToParams({ ...EMPTY_CALLS_SEARCH, order });
+    expect(sp.get('order')).toBe(order);
+    expect(parseCallsSearch(sp).order).toBe(order);
+  });
+
+  it('reads an absent or unknown order as start time, newest first', () => {
+    expect(parseCallsSearch(new URLSearchParams('from=now-1h&to=now')).order).toBe('start_desc');
+    expect(parseCallsSearch(new URLSearchParams('from=now-1h&to=now&order=pod_desc')).order).toBe('start_desc');
+    expect(parseCallsSearch(new URLSearchParams('from=now-1h&to=now&order=duration')).order).toBe('start_desc');
   });
 
   it('parses empty params to the empty state without the defaults option', () => {

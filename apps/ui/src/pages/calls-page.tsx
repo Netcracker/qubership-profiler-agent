@@ -1,4 +1,4 @@
-import { Alert, Button, Empty, Layout, Space, Typography, message } from 'antd';
+import { Alert, Button, ConfigProvider, Empty, Layout, Space, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -16,14 +16,19 @@ import { CallsTable } from '../calls/calls-table';
 import { loadColumnPrefs, saveColumnPrefs } from '../calls/column-prefs';
 import type { ColumnPrefs } from '../calls/column-prefs';
 import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
+import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
-import { isIdleMethod } from '../calls/idle-tags';
+import type { PresetToken } from '../calls/filter-bar/filter-bar';
+import { HIDE_SYSTEM_TOKEN, isIdleMethod } from '../calls/idle-tags';
 import { QueryControls, SortBy } from '../calls/query-controls';
+import { DEFAULT_ORDER, orderLabel, serverCanOrder, sortCalls } from '../calls/sort-order';
+import type { CallsOrder } from '../calls/sort-order';
 import { useCallsQuery } from '../calls/use-calls-query';
 import { PeriodControls } from '../controls/period-controls';
 import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
-import type { Condition } from '../filter/condition';
+import { browserNote, browserSupports, filterInBrowser, isBrowserCondition } from '../filter/browser';
+import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
 import { translateConditions, unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
@@ -34,8 +39,8 @@ import type { CallsSearchState } from '../url/search-params';
 import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
 import styles from './calls-page.module.css';
 
-// Calls (09 §2). The filter bar, the duration chips, and the switches edit a
-// draft; "Run query" writes it to the URL, which keys the /calls fetch. A time
+// Calls (09 §2). The filter bar, the duration chips, the switches, and "Sort by"
+// edit a draft; "Run query" writes it to the URL, which keys the /calls fetch. A time
 // range change and a row shortcut apply at once (redesign plan §4.2).
 
 // jsdom reports zero heights, which starves the virtual scroller of rows.
@@ -45,9 +50,16 @@ const VIRTUAL = import.meta.env.MODE !== 'test';
 interface QueryDraft {
   conditions: Condition[];
   hideSystem: boolean;
+  order: CallsOrder;
 }
 
-const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem]);
+const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem, d.order]);
+
+/** The fields and operators the bar offers: those /calls takes, and those the browser applies to the loaded rows. */
+const supportedHere = (field: string, op?: Operator): string | null =>
+  browserSupports(field, op) ? null : unsupportedReason(field, op);
+
+const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
 
 export function CallsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -62,10 +74,10 @@ export function CallsPage() {
   }, [bare, search, setSearchParams]);
 
   const appliedKey = draftKey(search);
-  const [draft, setDraft] = useState<QueryDraft>({ conditions: search.conditions, hideSystem: search.hideSystem });
+  const [draft, setDraft] = useState<QueryDraft>(() => draftOf(search));
   // Resync the draft when the applied state changes under it (back/forward, a shared link).
   useEffect(() => {
-    setDraft({ conditions: search.conditions, hideSystem: search.hideSystem });
+    setDraft(draftOf(search));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedKey]);
   const dirty = draftKey(draft) !== appliedKey;
@@ -82,18 +94,31 @@ export function CallsPage() {
   const needsPods = search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field));
   const waitingForPods = translation.params === null && podsState.kind !== 'error';
 
-  // A draft token the translation skips renders disabled with the reason, and is not sent.
+  // A draft token the translation skips renders disabled with the reason, and is not sent. A trace_id token is not
+  // sent either, but it filters the loaded rows in the browser, so it renders applied, with that note.
   const draftReasons = useMemo(
     () => new Map(translateConditions(draft.conditions, namespaces).skipped.map((s) => [s.condition, s.reason])),
     [draft.conditions, namespaces],
   );
-  const tokenReason = useCallback((c: Condition) => draftReasons.get(c) ?? null, [draftReasons]);
+  const tokenReason = useCallback(
+    (c: Condition) => (isBrowserCondition(c) ? null : (draftReasons.get(c) ?? null)),
+    [draftReasons],
+  );
 
+  // "Hide system/proxy" shows in the bar as a token of the draft: the switch adds and removes it, and so do its ×
+  // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2).
+  const presets: PresetToken[] = draft.hideSystem
+    ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
+    : [];
+
+  const serverOrdered = serverCanOrder(search.order);
   const rawFilter: CallsFilter | null = useMemo(() => {
     if (search.fromMs === null || search.toMs === null) return null;
     if (translation.params === null || translation.noPods || translation.contradiction) return null;
-    return { fromMs: search.fromMs, toMs: search.toMs, ...translation.params };
-  }, [search.fromMs, search.toMs, translation]);
+    // An order the server cannot sort by stays out of the request; the loaded rows are sorted below instead.
+    const order = serverOrdered && search.order !== DEFAULT_ORDER ? { order: search.order } : {};
+    return { fromMs: search.fromMs, toMs: search.toMs, ...translation.params, ...order };
+  }, [search.fromMs, search.toMs, translation, serverOrdered, search.order]);
 
   // A wide namespace or service filter expands to repeatable `pod` params (no
   // `service` param exists, 02 §2.3) and can build a request line a proxy
@@ -134,11 +159,18 @@ export function CallsPage() {
   };
 
   const rows = state.kind === 'ready' ? state.rows : [];
-  const visibleRows = useMemo(
+  const unhiddenRows = useMemo(
     () => (search.hideSystem ? rows.filter((c) => !isIdleMethod(c.method)) : rows),
     [rows, search.hideSystem],
   );
-  const hiddenCount = rows.length - visibleRows.length;
+  const hiddenCount = rows.length - unhiddenRows.length;
+  const shownRows = useMemo(() => filterInBrowser(unhiddenRows, search.conditions), [unhiddenRows, search.conditions]);
+  const traceHiddenCount = unhiddenRows.length - shownRows.length;
+  const visibleRows = useMemo(
+    () => (serverOrdered ? shownRows : sortCalls(shownRows, search.order)),
+    [shownRows, serverOrdered, search.order],
+  );
+  const sortNote = serverOrdered ? undefined : `Sort by ${orderLabel(search.order)} applies to the loaded rows only`;
 
   const footer =
     state.kind === 'ready' ? (
@@ -149,12 +181,13 @@ export function CallsPage() {
         <Typography.Text type="secondary">
           {state.rows.length} loaded
           {hiddenCount > 0 ? ` · ${hiddenCount} hidden as system/proxy` : ''}
+          {traceHiddenCount > 0 ? ` · ${traceHiddenCount} hidden by the trace_id filter` : ''}
           {state.nextCursor === null ? ' · end of range' : ''}
         </Typography.Text>
       </Space>
     ) : undefined;
 
-  const applyConditions = (conditions: Condition[]): void => runQuery({ conditions, hideSystem: search.hideSystem });
+  const applyConditions = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions });
   const noMatch = translation.contradiction
     ? 'The filters exclude each other, so no call can match.'
     : translation.noPods
@@ -170,31 +203,36 @@ export function CallsPage() {
             onCommitRange={commitRange}
           />
         </HeaderSlot>
-        <div className={styles.controls}>
-          <div className={styles.barRow}>
-            <div className={styles.bar}>
-              <FilterBar
-                conditions={draft.conditions}
-                onChange={(conditions) => setDraft({ ...draft, conditions })}
-                supported={unsupportedReason}
-                tokenReason={tokenReason}
-                values={values}
-                onRun={run}
-              />
+        {/* One control height for the bar, "Sort by", the chips, the switches, and "Run query". */}
+        <ConfigProvider theme={CONTROL_THEME}>
+          <div className={styles.controls} style={CONTROL_HEIGHT_STYLE}>
+            <div className={styles.barRow}>
+              <div className={styles.bar}>
+                <FilterBar
+                  conditions={draft.conditions}
+                  onChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
+                  presets={presets}
+                  supported={supportedHere}
+                  tokenNote={browserNote}
+                  tokenReason={tokenReason}
+                  values={values}
+                  onRun={run}
+                />
+              </div>
+              <SortBy value={draft.order} onChange={(order) => setDraft((d) => ({ ...d, order }))} />
             </div>
-            <SortBy value={search.order} />
+            <QueryControls
+              conditions={draft.conditions}
+              onConditionsChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
+              hideSystem={draft.hideSystem}
+              onHideSystemChange={(hideSystem) => setDraft((d) => ({ ...d, hideSystem }))}
+              dirty={dirty}
+              running={state.kind === 'loading'}
+              disabled={search.fromMs === null || search.toMs === null}
+              onRun={run}
+            />
           </div>
-          <QueryControls
-            conditions={draft.conditions}
-            onConditionsChange={(conditions) => setDraft({ ...draft, conditions })}
-            hideSystem={draft.hideSystem}
-            onHideSystemChange={(hideSystem) => setDraft({ ...draft, hideSystem })}
-            dirty={dirty}
-            running={state.kind === 'loading'}
-            disabled={search.fromMs === null || search.toMs === null}
-            onRun={run}
-          />
-        </div>
+        </ConfigProvider>
         <Space orientation="vertical" className={styles.fullWidth} size={8}>
           {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={applyConditions} /> : null}
           {state.kind === 'too-wide' ? (
@@ -257,6 +295,7 @@ export function CallsPage() {
               onPickFilter={pickFilter}
               virtual={VIRTUAL}
               footer={footer}
+              sortNote={sortNote}
             />
           )
         ) : null}

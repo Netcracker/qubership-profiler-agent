@@ -77,6 +77,8 @@ text form of the read contract's filter model (agent-access plan §5.1, draft): 
 | Keyboard | Up and Down move the highlight, Enter picks, Escape closes the list, Ctrl+Enter runs the query. Backspace in an empty input steps back: a value, then the operator, then the field, then into the last token, which comes back with its value in the input for editing. |
 | Disabled options | A field or an operator the backend cannot apply yet is listed but disabled, with the reason as a tooltip. |
 | Disabled tokens | A condition from a link that the backend cannot apply yet shows as a crossed-out token with the reason. It is kept in the URL and not sent. |
+| Browser-side tokens | A token that filters the loaded rows in the browser rather than the query, such as "Hide system/proxy" (§2.3), has a dashed outline and says so in its tooltip. |
+| Preset tokens | A token the page owns, such as "Hide system/proxy", comes before the conditions. Its × removes it, and so does Backspace once no condition is left before the input. "Clear all filters" removes it too. |
 
 **Before the `filter` parameter.** `/calls` takes no `filter` parameter yet, so the applied conditions travel as
 its existing parameters (redesign plan §4.2.1):
@@ -88,6 +90,7 @@ its existing parameters (redesign plan §4.2.1):
 | `error=true` | `error_only=true` |
 | `retention_class` with `=` or `in` | `retention_class`; several conditions intersect |
 | `method =~ <word>`, the word without regular-expression syntax | `method`, the substring match; one per query |
+| `trace_id = <id>` | Nothing: it filters the loaded rows in the browser (§2.3), from `apps/ui/src/filter/browser.ts` |
 
 Everything else is disabled. Conditions that exclude each other, or identity filters that match no pod in the
 window, send nothing and say so.
@@ -99,11 +102,15 @@ time zone, between the shift-back and shift-forward buttons, followed by zoom ou
 half its width, and zoom out doubles it around its center. Both commit an absolute window. Choosing a time range
 applies at once (Grafana-style refetch on a range change).
 
-**Draft and applied.** The filter bar, the duration chips, and the two switches edit a draft. "Run query", or
-Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when nothing
-changed. While the draft differs from the applied query, a hint says "Filters changed. Run the query to update
-the results." Only the applied state reaches the URL and `/calls`. A time range change and a row shortcut apply at
-once.
+**Draft and applied.** The filter bar, the duration chips, the two switches, and "Sort by" edit a draft. "Run
+query", or Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when
+nothing changed. While the draft differs from the applied query, a hint says "Filters changed. Run the query to
+update the results." Only the applied state reaches the URL and `/calls`. A time range change and a row shortcut
+apply at once.
+
+The filter bar, "Sort by", the duration chips, the switch labels, and "Run query" share one control height, 32 px
+(`apps/ui/src/calls/control-height.ts`), so the two rows line up in both themes. A bar with more tokens than fit on
+one line grows by whole token lines.
 
 ### 2.3 Calls table
 
@@ -116,13 +123,17 @@ The metrics columns beyond CPU/Calls are the dropped-and-restored set (08 R1). T
 for `error`, `sql`, and `no tree` (the trace blob was dropped, `truncated_reason`).
 
 Rows are 28 px high. Numbers and IDs use the 12 px fixed-width font. The heat dot before the duration is the
-theme's ok color under 100 ms, warn under 1 s, mid under 3 s, and crit from 3 s on.
+theme's ok color under 100 ms, warn under 1 s, mid under 3 s, and crit from 3 s on. The duration text is
+right-aligned in a fixed six-character box, so the dot keeps one x position down the column.
 
 **Pod and `trace_id` shortcuts.** A click on a row's pod or trace ID filters the calls by that value: the pod
 name, or the full trace ID, of which the cell shows the first 12 characters. The table reports the click to its
 page through `onPickFilter(field, value)`; a page that passes no handler gets plain text in both cells. The calls
-page replaces that field's token with `field=value` and runs the query; a `trace_id` token stays disabled until
-the backend takes filters.
+page replaces that field's token with `field=value` and runs the query. `/calls` cannot filter by `trace_id` yet,
+and a disabled token would make the click do nothing, so `trace_id=<id>` is not sent and filters the loaded rows in
+the browser instead: by the ID the row's cell shows, with a dashed outline and a tooltip that says so, and a footer
+count of the rows it hides. The pages loaded before the click are the rows it can find; a call of the trace outside
+them shows only after "Load more".
 
 **`trace_id`.** A `/calls` row has no `trace_id` member (02 §2.3). The cell reads the ID from the call's own
 params, under the names the tracing plugins record it with (`trace.id`, `brave.trace_id`, `X-B3-TraceId`), the
@@ -134,10 +145,10 @@ closes that gap.
 |---------|-----------|
 | Duration chips | `All`, `>10ms`, `>100ms`, `>500ms`, `>3s`, `>5s`. A chip replaces every `duration` token with `duration > <chip>`; `All` removes them. A chip is lit when exactly one `duration >` token has its value. The default `>500ms` keeps page one free of sub-millisecond noise. This is the v1 "slowest" affordance (true ranking is 08 R2). |
 | Errors only | A switch for the `error=true` token: it shows whether the token is present, and adds or removes it. |
-| Hide system/proxy | A switch, on by default: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. It filters the loaded rows in the browser until `/config` serves the patterns for a `method !~` condition (redesign plan §4.6). |
-| Sort by | Start time, newest first: the one order `/calls` has. The other fields and the direction come with the `order` parameter. |
+| Hide system/proxy | A switch, on by default: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. It filters the loaded rows in the browser until `/config` serves the patterns for a `method !~` condition (redesign plan §4.6). The switch shows in the filter bar as the first token, `method !~ system/proxy`, with a dashed outline for "applies in the browser" and that limit in its tooltip. The token is part of the draft: the switch adds and removes it, its × or Backspace removes it and turns the switch off, and "Run query" applies it. The URL keeps `hide_system=1`, not the condition. |
+| Sort by | Start time, duration, CPU time, queue wait, child calls, or net IO, and a direction button. It edits the draft and maps to `order=<field>_<asc\|desc>` (agent-access plan §5.2). The backend sorts by start time, newest first, only, so that order goes to the server and every other one sorts the loaded rows in the browser, with a footer note that it applies to the loaded rows only. `serverCanOrder` in `apps/ui/src/calls/sort-order.ts` decides, and the MSW mock sorts by every order, so `npm run dev:mock` shows the server path. |
 | Run query | Applies the draft (§2.2). |
-| Columns | The gear button at the end of the header: show, hide, reorder, reset. Drag a header border to resize. Persisted in local storage; an entry from before the redesign is migrated to the new column keys, and keys the table no longer has are dropped. |
+| Columns | The "Columns" button at the right end of the table footer, next to the row count: show, hide, reorder, reset. It has no header column of its own, so the data columns keep the width, and it is there while the table loads. The controls row above holds only what edits the query draft; column settings apply at once to the table. Drag a header border to resize. Persisted in local storage; an entry from before the redesign is migrated to the new column keys, and keys the table no longer has are dropped. |
 | Sort | By column, within loaded pages. Cross-range ranking needs 08 R2. While a column sort is on, the footer says that it applies to the loaded rows only, so it does not read as global. |
 | Row → tree | Clicking the Duration link opens `/ui/tree/:pk` in a new tab, carrying `ts_ms` and `retention_class`. |
 
@@ -146,7 +157,10 @@ An empty page with a non-null `next_cursor` keeps paging; an expired cursor rest
 
 **Banners.** Wide-query guard and partial results render as first-class banners (§5), not silent failures.
 
-**Timestamps** display in the browser timezone (as the old UI did); the URL window stays in Unix ms.
+**Timestamps** display in the display time zone of the period picker, the browser's by default (as the old UI
+did); the URL window stays in Unix ms. The Start cell shows the time alone for a call of today in that zone, and
+the date and time otherwise (`Jul 12 23:59:59.999`, with the year for another year). Its tooltip holds the full
+timestamp.
 
 ## 3. Call Tree
 
@@ -335,7 +349,7 @@ needs a choice.
 
 | Screen | Path | Query / path params |
 |--------|------|---------------------|
-| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`start_desc`); `hide_system=1` when the switch is on |
+| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`<field>_<asc\|desc>`, the fields of §2.3 "Sort by"; default `start_desc`, and an unknown value reads as the default); `hide_system=1` when the switch is on |
 | Pods Info | `/ui/pods` | The same parameters as Calls; it reads and writes only the `namespace`, `service`, and `pod` conditions |
 | Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints; `tab` (`tree`, `flame`, `hotspots`, `params`) |
 

@@ -1,9 +1,9 @@
 import { Button, Radio, Select, Space, Switch, Typography } from 'antd';
-import type { ReactNode } from 'react';
 
 import { parseDurationMs } from './duration-filter';
+import { ORDER_FIELDS, makeOrder, orderDirection, orderField } from './sort-order';
+import type { CallsOrder, OrderField } from './sort-order';
 import type { Condition } from '../filter/condition';
-import type { CallsOrder } from '../url/search-params';
 import styles from './query-controls.module.css';
 
 // The controls under the filter bar (CallsAlt mockup): the duration chips, "Errors only", "Hide system/proxy", and
@@ -104,19 +104,47 @@ export function QueryControls({
   );
 }
 
-const SORT_OPTIONS: { value: CallsOrder; label: string }[] = [{ value: 'start_desc', label: 'Start time' }];
+const SORT_OPTIONS: { value: OrderField; label: string }[] = ORDER_FIELDS.map(({ field, label }) => ({ value: field, label }));
 
-/** "Sort by": /calls sorts by start time, newest first, until the `order` parameter lands (redesign plan §4.2.1). */
-export function SortBy({ value, extra }: { value: CallsOrder; extra?: ReactNode }) {
+export interface SortByProps {
+  value: CallsOrder;
+  onChange: (next: CallsOrder) => void;
+}
+
+/**
+ * "Sort by" (CallsAlt mockup): the field and the direction. It edits the draft like the filters. Whether the server or
+ * the browser sorts is the page's call (sort-order.ts).
+ */
+export function SortBy({ value, onChange }: SortByProps) {
+  const field = orderField(value);
+  const direction = orderDirection(value);
+  const directionLabel = direction === 'asc' ? 'Ascending. Click to sort descending.' : 'Descending. Click to sort ascending.';
   return (
     <Space.Compact>
-      <Select<CallsOrder> aria-label="Sort by" prefix="Sort by" value={value} options={SORT_OPTIONS} className={styles.sort} />
-      <Button disabled title="Newest first. The backend sorts in this direction only." aria-label="Newest first">
-        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className={styles.sortIcon}>
+      <Select<OrderField>
+        aria-label="Sort by"
+        prefix="Sort by"
+        value={field}
+        options={SORT_OPTIONS}
+        onChange={(next) => onChange(makeOrder(next, direction))}
+        className={styles.sort}
+        popupMatchSelectWidth={false}
+      />
+      <Button
+        title={directionLabel}
+        aria-label={directionLabel}
+        onClick={() => onChange(makeOrder(field, direction === 'asc' ? 'desc' : 'asc'))}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          className={`${styles.sortIcon}${direction === 'asc' ? ` ${styles.sortIconAsc}` : ''}`}
+        >
           <path d="M4 3v10M1.5 10.5 4 13l2.5-2.5M9 4h5.5M9 8h4M9 12h2.5" />
         </svg>
       </Button>
-      {extra}
     </Space.Compact>
   );
 }
