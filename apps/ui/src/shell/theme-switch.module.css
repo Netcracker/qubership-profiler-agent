@@ -1,31 +1,41 @@
-/* An icon button for the header: white on the header color in both themes. */
-.button {
-  width: 32px;
-  height: 32px;
+/* A compact segmented control on the header color, in both themes: white
+   icons on a translucent track, and the chosen option on a white thumb. */
+.switch {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.16);
 }
 
-.button:hover {
+.switch :global(.ant-segmented-item) {
+  color: #fff;
+}
+
+.switch :global(.ant-segmented-item:hover:not(.ant-segmented-item-selected)) {
+  color: #fff;
   background: rgba(255, 255, 255, 0.2);
 }
 
-.button:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: -2px;
+.switch :global(.ant-segmented-item-selected),
+.switch :global(.ant-segmented-thumb) {
+  background: #fff;
+  color: var(--pf-color-header);
 }
 
-.icon {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.switch :global(.ant-segmented-item-label) {
+  padding: 0 6px;
+}
+
+/* The hidden name takes no room beside the icon. */
+.switch :global(.ant-segmented-item-icon + *) {
+  margin-inline-start: 0;
+}
+
+/* The option's name, for assistive technology only; the icon carries it on screen. */
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

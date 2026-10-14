@@ -362,6 +362,9 @@ classified by effort in [`08-ui-backend-requirements.md`](08-ui-backend-requirem
   inside the screen until the filter bar replaces it — accepted (2026-10-13).
 - [x] **A dark theme, reversing "light only"** — the default follows `prefers-color-scheme`, and the header switch
   stores an override in `localStorage` — accepted (2026-10-13).
+- [x] **An Auto option in the theme switch** — Light, Dark, and Auto; Auto is the default, stores nothing,
+  and follows `prefers-color-scheme` live. A stored `light` or `dark` from the two-way switch still reads — accepted
+  (2026-10-14).
 - [x] **Bundled Inter and JetBrains Mono at a 13 px base, reversing "typography left out of the theme"** — local
   `woff2` files, because the embedded UI must not fetch from another host. D6 stands: the redesign stays on plain
   AntD 6 — accepted (2026-10-13).
