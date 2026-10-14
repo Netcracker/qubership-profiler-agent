@@ -29,7 +29,8 @@
   --pf-shadow: 0 4px 12px rgba(0, 0, 0, 0.16), 0 12px 32px rgba(0, 0, 0, 0.12);
 
   /* Mid step of the duration heat ramp, between colorWarning and colorError.
-     Used by durationHeat in calls/format.ts. */
+     Used by durationHeat in calls/format.ts, after --pf-color-ok and
+     --pf-color-warn and before --pf-color-crit. */
   --pf-color-heat-mid: #ef9206;
 
   /* Histogram and share bars. */
@@ -48,6 +49,24 @@
   --pf-color-guide: #b4bfcf;
   --pf-color-syntax-keyword: #005dcf;
   --pf-color-syntax-number: #00874a;
+
+  /* Category badges, in the order Setup categories hands them out. Translucent,
+     so a badge reads on a plain, a hovered, and a selected row. */
+  --pf-color-cat-1: rgba(0, 104, 255, 0.16);
+  --pf-color-cat-2: rgba(124, 92, 255, 0.22);
+  --pf-color-cat-3: rgba(14, 157, 148, 0.22);
+  --pf-color-cat-4: rgba(184, 118, 12, 0.24);
+  --pf-color-cat-5: rgba(209, 0, 73, 0.16);
+  --pf-color-cat-6: rgba(0, 163, 86, 0.2);
+
+  /* Flame graph blocks: the same hues as the badges, stronger. A block without
+     a category takes --pf-color-bar-soft. */
+  --pf-color-flame-1: rgba(0, 104, 255, 0.3);
+  --pf-color-flame-2: rgba(124, 92, 255, 0.38);
+  --pf-color-flame-3: rgba(14, 157, 148, 0.38);
+  --pf-color-flame-4: rgba(184, 118, 12, 0.4);
+  --pf-color-flame-5: rgba(209, 0, 73, 0.3);
+  --pf-color-flame-6: rgba(0, 163, 86, 0.36);
 }
 
 :root[data-theme='dark'] {
@@ -86,6 +105,20 @@
   --pf-color-guide: #4d586b;
   --pf-color-syntax-keyword: #6fb0ff;
   --pf-color-syntax-number: #6fdc9c;
+
+  --pf-color-cat-1: rgba(77, 155, 255, 0.24);
+  --pf-color-cat-2: rgba(150, 125, 255, 0.3);
+  --pf-color-cat-3: rgba(46, 196, 182, 0.26);
+  --pf-color-cat-4: rgba(255, 176, 46, 0.24);
+  --pf-color-cat-5: rgba(255, 107, 120, 0.24);
+  --pf-color-cat-6: rgba(63, 208, 127, 0.24);
+
+  --pf-color-flame-1: rgba(77, 155, 255, 0.4);
+  --pf-color-flame-2: rgba(150, 125, 255, 0.46);
+  --pf-color-flame-3: rgba(46, 196, 182, 0.42);
+  --pf-color-flame-4: rgba(255, 176, 46, 0.4);
+  --pf-color-flame-5: rgba(255, 107, 120, 0.4);
+  --pf-color-flame-6: rgba(63, 208, 127, 0.4);
 }
 
 /* antd styles its own components from the tokens; this covers the page around
