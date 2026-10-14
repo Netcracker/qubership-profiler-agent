@@ -120,7 +120,8 @@ The metrics columns beyond CPU/Calls are the dropped-and-restored set (08 R1). T
 for `error`, `sql`, and `no tree` (the trace blob was dropped, `truncated_reason`).
 
 Rows are 28 px high. Numbers and IDs use the 12 px fixed-width font. The heat dot before the duration is the
-theme's ok color under 100 ms, warn under 1 s, mid under 3 s, and crit from 3 s on.
+theme's ok color under 100 ms, warn under 1 s, mid under 3 s, and crit from 3 s on. The duration text is
+right-aligned in a fixed six-character box, so the dot keeps one x position down the column.
 
 **Pod and `trace_id` shortcuts.** A click on a row's pod or trace ID filters the calls by that value: the pod
 name, or the full trace ID, of which the cell shows the first 12 characters. The table reports the click to its

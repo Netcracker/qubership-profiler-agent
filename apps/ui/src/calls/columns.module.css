@@ -1,10 +1,24 @@
+/* The Duration cell: the heat dot, then the text right-aligned in a fixed box. formatDurationMs writes at most six
+   characters under ten hours (`3m 12s`, `1h 04m`), and the font has tabular digits, so the dot keeps one x
+   position. */
+.duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.durationText {
+  display: inline-block;
+  min-width: 6ch;
+  text-align: right;
+}
+
 /* Duration heat dot; its background color is data-driven and stays inline. */
 .heatDot {
-  display: inline-block;
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 4px;
-  margin-right: 6px;
 }
 
 /* Numeric and ID cells: 12 px fixed-width, a step below the 13 px body text. */
