@@ -1,4 +1,4 @@
-/* Duration heat dot; its background colour is data-driven and stays inline. */
+/* Duration heat dot; its background color is data-driven and stays inline. */
 .heatDot {
   display: inline-block;
   width: 8px;
@@ -7,6 +7,39 @@
   margin-right: 6px;
 }
 
+/* Numeric and ID cells: 12 px fixed-width, a step below the 13 px body text. */
+.num {
+  font-size: 12px;
+}
+
 .podCell {
   white-space: nowrap;
+}
+
+/* A pod or a trace ID that filters the calls by its value: a button that looks like text. */
+.pick {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.pick:hover {
+  text-decoration: underline;
+}
+
+.pickPod {
+  font: inherit;
+}
+
+.pickTrace {
+  color: var(--pf-color-accent-text);
+}
+
+.notTraced {
+  color: var(--pf-color-dim);
 }

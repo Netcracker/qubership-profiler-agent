@@ -29,7 +29,8 @@
   --pf-shadow: 0 4px 12px rgba(0, 0, 0, 0.16), 0 12px 32px rgba(0, 0, 0, 0.12);
 
   /* Mid step of the duration heat ramp, between colorWarning and colorError.
-     Used by durationHeat in calls/format.ts. */
+     Used by durationHeat in calls/format.ts, after --pf-color-ok and
+     --pf-color-warn and before --pf-color-crit. */
   --pf-color-heat-mid: #ef9206;
 
   /* Histogram and share bars. */

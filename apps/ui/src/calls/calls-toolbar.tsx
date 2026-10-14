@@ -1,11 +1,10 @@
-import { DownOutlined, SettingOutlined, UpOutlined } from '@ant-design/icons';
-import { Button, Checkbox, Input, Popover, Radio, Space, Switch, Typography } from 'antd';
+import { SettingOutlined } from '@ant-design/icons';
+import { Button, Input, Popover, Radio, Space, Switch, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
 import type { CallsSearchState } from '../url/search-params';
-import { defaultColumnPrefs } from './column-prefs';
+import { ColumnSettings } from './column-chooser';
 import type { ColumnPrefs } from './column-prefs';
-import { buildCallColumns, DEFAULT_COLUMN_ORDER } from './columns';
 import { formatDurationFilter, parseDurationFilter } from './duration-filter';
 import styles from './calls-toolbar.module.css';
 
@@ -35,67 +34,6 @@ interface CallsToolbarProps {
   prefs: ColumnPrefs;
   onPrefsChange: (prefs: ColumnPrefs) => void;
   disabled: boolean;
-}
-
-const COLUMN_TITLES = new Map(buildCallColumns({}).map((d) => [d.key, d.title]));
-
-function ColumnSettings({ prefs, onPrefsChange }: Pick<CallsToolbarProps, 'prefs' | 'onPrefsChange'>) {
-  const move = (index: number, delta: number): void => {
-    const next = [...prefs.order];
-    const target = index + delta;
-    if (target < 0 || target >= next.length) return;
-    const [item] = next.splice(index, 1);
-    next.splice(target, 0, item!);
-    onPrefsChange({ ...prefs, order: next });
-  };
-  // Hiding the last visible column leaves a blank table with loaded rows and
-  // no visible way back, so that last checkbox stays checked and disabled.
-  const visibleCount = prefs.order.length - prefs.hidden.length;
-  return (
-    <div className={styles.columnSettings}>
-      {prefs.order.map((key, i) => {
-        const visible = !prefs.hidden.includes(key);
-        const title = COLUMN_TITLES.get(key) ?? key;
-        return (
-          <Space key={key} className={styles.rowBetween}>
-            <Checkbox
-              checked={visible}
-              disabled={visible && visibleCount === 1}
-              onChange={(e) =>
-                onPrefsChange({
-                  ...prefs,
-                  hidden: e.target.checked ? prefs.hidden.filter((k) => k !== key) : [...prefs.hidden, key],
-                })
-              }
-            >
-              {title}
-            </Checkbox>
-            <Space size={0}>
-              <Button
-                type="text"
-                size="small"
-                icon={<UpOutlined />}
-                disabled={i === 0}
-                aria-label={`Move ${title} column up`}
-                onClick={() => move(i, -1)}
-              />
-              <Button
-                type="text"
-                size="small"
-                icon={<DownOutlined />}
-                disabled={i === prefs.order.length - 1}
-                aria-label={`Move ${title} column down`}
-                onClick={() => move(i, 1)}
-              />
-            </Space>
-          </Space>
-        );
-      })}
-      <Button size="small" onClick={() => onPrefsChange(defaultColumnPrefs(DEFAULT_COLUMN_ORDER))}>
-        Reset columns
-      </Button>
-    </div>
-  );
 }
 
 export function CallsToolbar({ search, onSearchChange, prefs, onPrefsChange, disabled }: CallsToolbarProps) {
