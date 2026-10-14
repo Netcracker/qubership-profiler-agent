@@ -24,6 +24,7 @@ type reply struct {
 	status     int
 	retryAfter string
 	fixture    string
+	body       []byte // used instead of fixture when set
 }
 
 // replay serves canned answers in order and records every request. Fixtures
@@ -42,8 +43,12 @@ func (r *replay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	require.NotEmpty(r.t, r.replies, "unexpected request %s", req.URL)
 	next := r.replies[0]
 	r.replies = r.replies[1:]
-	body, err := os.ReadFile(filepath.Join("testdata", next.fixture))
-	require.NoError(r.t, err)
+	body := next.body
+	if body == nil {
+		var err error
+		body, err = os.ReadFile(filepath.Join("testdata", next.fixture))
+		require.NoError(r.t, err)
+	}
 	if next.status == http.StatusOK {
 		w.Header().Set("Content-Type", "application/json")
 	} else {
