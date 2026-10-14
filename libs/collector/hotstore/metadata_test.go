@@ -218,21 +218,21 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 	assert.EqualValues(t, base+98, next[1].TsMs)
 
 	filtered, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, DurationMinMs: 100},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.DurationCondition(model.OpGe, 100)}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	require.Len(t, filtered, 1, "the duration filter runs in SQL")
 	assert.Equal(t, 2, filtered[0].TraceFileIndex)
 
 	errored, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, ErrorOnly: true},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.ErrorCondition(true)}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	require.Len(t, errored, 1)
 	assert.Equal(t, 6, errored[0].TraceFileIndex)
 
 	byPod, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, Pods: []string{"ns/svc/pod-b"}},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.PodTuplesCondition("ns/svc/pod-b")}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	require.Len(t, byPod, 2, "the pod filter matches by pod_restart prefix")
@@ -241,8 +241,22 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 	}
 	// A pod id that PREFIXES another must not leak the longer pod's rows.
 	prefixPod, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, Pods: []string{"ns/svc/pod"}},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.PodTuplesCondition("ns/svc/pod")}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	assert.Empty(t, prefixPod, "prefix matching stops at the '/' separator")
+
+	// Conditions that contradict each other select nothing rather than
+	// rendering an empty IN list.
+	for name, filters := range map[string][]model.Condition{
+		"two disjoint class sets": {
+			model.RetentionClassCondition(model.RetentionAnyError), model.RetentionClassCondition(model.RetentionShortClean),
+		},
+		"two disjoint pod sets": {model.PodTuplesCondition("ns/svc/pod-a"), model.PodTuplesCondition("ns/svc/pod-b")},
+	} {
+		none, err := store.CallsPage(bucket, model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: filters},
+			base, base+1000, 10)
+		require.NoError(t, err, name)
+		assert.Empty(t, none, name)
+	}
 }

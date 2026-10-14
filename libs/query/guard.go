@@ -38,22 +38,27 @@ type guardRejection struct {
 // naming every class — no longer buys a guard exemption (№28). method and
 // params filter rows inside already-listed files, so they do not exempt.
 func (s *Service) hasNarrowingFilter(q model.CallsQuery) bool {
-	return len(q.Pods) > 0 || len(s.cold.ClassesFor(q)) < len(model.RetentionClasses)
+	return hasPodFilter(q) || len(s.cold.ClassesFor(q)) < len(model.RetentionClasses)
+}
+
+func hasPodFilter(q model.CallsQuery) bool {
+	_, ok := q.PodTuples()
+	return ok
 }
 
 // suggestedFilters lists the narrowing filters the query does not use yet.
 func suggestedFilters(q model.CallsQuery) []string {
 	var out []string
-	if len(q.Pods) == 0 {
+	if !hasPodFilter(q) {
 		out = append(out, "pod")
 	}
-	if len(q.RetentionClasses) == 0 {
+	if _, ok := q.RetentionClassSet(); !ok {
 		out = append(out, "retention_class")
 	}
-	if q.DurationMinMs <= 0 {
+	if minMs, _ := q.DurationBounds(); minMs <= 0 {
 		out = append(out, "duration_min_ms")
 	}
-	if !q.ErrorOnly {
+	if !q.ErrorRequired() {
 		out = append(out, "error_only")
 	}
 	return out
@@ -97,7 +102,7 @@ func (s *Service) guardSpan(q model.CallsQuery, wideLimit, podLimit time.Duratio
 		return nil
 	}
 	if s.hasNarrowingFilter(q) {
-		if len(q.Pods) > 0 {
+		if hasPodFilter(q) {
 			return guardPodsSpan(q.FromMs, q.ToMs, podLimit)
 		}
 		return nil
