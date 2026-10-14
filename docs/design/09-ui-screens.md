@@ -88,6 +88,7 @@ its existing parameters (redesign plan §4.2.1):
 | `error=true` | `error_only=true` |
 | `retention_class` with `=` or `in` | `retention_class`; several conditions intersect |
 | `method =~ <word>`, the word without regular-expression syntax | `method`, the substring match; one per query |
+| `trace_id = <id>` | Nothing: it filters the loaded rows in the browser (§2.3), from `apps/ui/src/filter/browser.ts` |
 
 Everything else is disabled. Conditions that exclude each other, or identity filters that match no pod in the
 window, send nothing and say so.
@@ -126,8 +127,11 @@ right-aligned in a fixed six-character box, so the dot keeps one x position down
 **Pod and `trace_id` shortcuts.** A click on a row's pod or trace ID filters the calls by that value: the pod
 name, or the full trace ID, of which the cell shows the first 12 characters. The table reports the click to its
 page through `onPickFilter(field, value)`; a page that passes no handler gets plain text in both cells. The calls
-page replaces that field's token with `field=value` and runs the query; a `trace_id` token stays disabled until
-the backend takes filters.
+page replaces that field's token with `field=value` and runs the query. `/calls` cannot filter by `trace_id` yet,
+and a disabled token would make the click do nothing, so `trace_id=<id>` is not sent and filters the loaded rows in
+the browser instead: by the ID the row's cell shows, with a dashed outline and a tooltip that says so, and a footer
+count of the rows it hides. The pages loaded before the click are the rows it can find; a call of the trace outside
+them shows only after "Load more".
 
 **`trace_id`.** A `/calls` row has no `trace_id` member (02 §2.3). The cell reads the ID from the call's own
 params, under the names the tracing plugins record it with (`trace.id`, `brave.trace_id`, `X-B3-TraceId`), the

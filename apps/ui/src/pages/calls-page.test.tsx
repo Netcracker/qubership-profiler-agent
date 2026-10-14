@@ -130,11 +130,11 @@ describe('CallsPage', () => {
   it('keeps an untranslatable condition as a disabled token and does not send it', async () => {
     const calls = recordCalls();
     try {
-      renderCallsPage(`${window15m()}&filter=${encodeURIComponent('trace_id=abc')}&filter=${encodeURIComponent('duration>=1s')}`);
+      renderCallsPage(`${window15m()}&filter=${encodeURIComponent('request_id=abc')}&filter=${encodeURIComponent('duration>=1s')}`);
       await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
       const sp = calls.urls[0]!.searchParams;
       expect([...sp.keys()].sort()).toEqual(['duration_min_ms', 'from', 'limit', 'to']);
-      const token = screen.getByRole('button', { name: 'Remove the filter trace_id = abc' }).parentElement!;
+      const token = screen.getByRole('button', { name: 'Remove the filter request_id = abc' }).parentElement!;
       expect(token).toHaveAttribute('data-applied', 'false');
       expect(token).toHaveAttribute('title', 'The backend does not support this filter yet.');
     } finally {
@@ -318,6 +318,35 @@ describe('CallsPage', () => {
     } finally {
       calls.stop();
       vi.unstubAllEnvs();
+    }
+  });
+
+  it('replaces the trace_id token on a row pick and filters the loaded rows in the browser', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(window15m());
+      await rowsLoaded();
+      const total = screen.getAllByTitle('Open the call tree in a new tab').length;
+
+      const pick = screen.getAllByTitle(/^Filter by trace_id /)[0]!;
+      const id = pick.getAttribute('title')!.replace('Filter by trace_id ', '');
+      const before = calls.urls.length;
+      await userEvent.click(pick);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      // The trace ID is not sent: /calls cannot filter by it.
+      expect([...calls.urls.at(-1)!.searchParams.keys()].sort()).toEqual(['from', 'limit', 'to']);
+      expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${id}`);
+
+      const token = screen.getByRole('button', { name: `Remove the filter trace_id = ${id}` }).parentElement!;
+      expect(token).toHaveAttribute('data-applied', 'browser');
+      expect(token).toHaveAttribute('title', expect.stringMatching(/loaded rows in the browser/));
+      await waitFor(() => expect(screen.getAllByTitle(`Filter by trace_id ${id}`).length).toBeGreaterThan(0));
+      const traceCells = screen.getAllByTitle(/^Filter by trace_id /);
+      expect(traceCells.every((c) => c.getAttribute('title') === `Filter by trace_id ${id}`)).toBe(true);
+      expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeLessThan(total);
+      expect(screen.getByText(/hidden by the trace_id filter/)).toBeInTheDocument();
+    } finally {
+      calls.stop();
     }
   });
 
