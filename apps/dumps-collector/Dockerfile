@@ -46,7 +46,7 @@ RUN DIAGTOOLS_URL="https://repo1.maven.org/maven2/org/qubership/profiler/qubersh
 RUN cd apps/dumps-collector && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /workspace/tools/prf_dump_writer main.go
 
-FROM nginx:1.27.3-alpine3.20@sha256:814a8e88df978ade80e584cc5b333144b9372a8e3c98872d07137dbf3b44d0e4
+FROM nginx:1.31.6-alpine3.24@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
 
 USER root
 
