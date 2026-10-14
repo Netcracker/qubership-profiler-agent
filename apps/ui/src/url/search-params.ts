@@ -1,5 +1,7 @@
 import { isRelativeExpr, resolveUrlTime } from '../controls/time-range';
 import { isRetentionClass } from '../api/types';
+import { DEFAULT_ORDER, isCallsOrder } from '../calls/sort-order';
+import type { CallsOrder } from '../calls/sort-order';
 import type { RetentionClass } from '../api/types';
 import type { Condition } from '../filter/condition';
 import { formatCondition, parseCondition } from '../filter/grammar';
@@ -19,11 +21,6 @@ export const DEFAULT_TO = 'now';
 /** The filter of a visit with no query string: page one must not be sub-millisecond noise (07 §11). */
 export const DEFAULT_CONDITIONS: readonly Condition[] = [{ field: 'duration', op: '>', values: ['500ms'] }];
 
-/** The orders "Sort by" offers. /calls has one order until the `order` parameter lands (redesign plan §4.2.1). */
-export const CALLS_ORDERS = ['start_desc'] as const;
-
-export type CallsOrder = (typeof CALLS_ORDERS)[number];
-
 /** /ui/calls and /ui/pods query state (09 §6). Both screens read and write the same scheme. */
 export interface CallsSearchState {
   /**
@@ -39,6 +36,7 @@ export interface CallsSearchState {
   conditions: Condition[];
   /** Hide system/proxy noise. A UI flag: the loaded rows are filtered in the browser (redesign plan §4.6). */
   hideSystem: boolean;
+  /** "Sort by", `order=<field>_<asc|desc>`. Kept in the URL even while the browser does the sorting. */
   order: CallsOrder;
 }
 
@@ -49,7 +47,7 @@ export const EMPTY_CALLS_SEARCH: CallsSearchState = {
   toMs: null,
   conditions: [],
   hideSystem: false,
-  order: 'start_desc',
+  order: DEFAULT_ORDER,
 };
 
 function parseMs(raw: string | null): number | null {
@@ -80,6 +78,11 @@ function parseFlag(raw: string | null): boolean | null {
   if (raw === '1' || raw === 'true') return true;
   if (raw === '0' || raw === 'false') return false;
   return null;
+}
+
+/** An absent or unknown `order` falls back to start time, newest first. */
+function parseOrder(raw: string | null): CallsOrder {
+  return raw !== null && isCallsOrder(raw) ? raw : DEFAULT_ORDER;
 }
 
 /**
@@ -116,7 +119,7 @@ export function parseCallsSearch(
     toMs: resolveUrlTime(to, nowMs),
     conditions,
     hideSystem: parseFlag(sp.get('hide_system')) ?? hideDefault,
-    order: 'start_desc',
+    order: parseOrder(sp.get('order')),
   };
 }
 

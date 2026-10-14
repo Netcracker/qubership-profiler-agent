@@ -74,6 +74,8 @@ export interface CallsTableProps {
   virtual?: boolean;
   /** The start of the footer line, such as "Load more" and the row count; the table adds its own sort note. */
   footer?: ReactNode;
+  /** Says that "Sort by" ordered the loaded rows in the browser; shown unless a column sort replaces that order. */
+  sortNote?: string;
 }
 
 // The header row holds the 24 px chooser button; the footer holds "Load more".
@@ -88,6 +90,7 @@ export function CallsTable({
   onPickFilter,
   virtual = true,
   footer,
+  sortNote,
 }: CallsTableProps) {
   const [containerRef, containerHeight] = useElementHeight<HTMLDivElement>();
   const zone = useZone();
@@ -137,11 +140,13 @@ export function CallsTable({
     setColumnSorted((Array.isArray(sorter) ? sorter : [sorter]).some((s) => s.order != null));
   };
 
+  // A column sort and a browser-side "Sort by" both cover the loaded rows only (09 §2.3), so the footer says so.
+  const localSortNote = columnSorted ? 'Column sort applies to the loaded rows only' : sortNote;
   const footerLine =
-    footer === undefined && !columnSorted ? undefined : (
+    footer === undefined && localSortNote === undefined ? undefined : (
       <div className={styles.footer}>
         {footer}
-        {columnSorted ? <Typography.Text type="secondary">Column sort applies to the loaded rows only</Typography.Text> : null}
+        {localSortNote !== undefined ? <Typography.Text type="secondary">{localSortNote}</Typography.Text> : null}
       </div>
     );
 

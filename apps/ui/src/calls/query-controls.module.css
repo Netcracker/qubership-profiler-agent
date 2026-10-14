@@ -31,3 +31,8 @@
   stroke: currentColor;
   stroke-width: 1.5;
 }
+
+/* The icon draws descending; ascending flips it. */
+.sortIconAsc {
+  transform: scaleY(-1);
+}

@@ -20,6 +20,8 @@ import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
 import { isIdleMethod } from '../calls/idle-tags';
 import { QueryControls, SortBy } from '../calls/query-controls';
+import { DEFAULT_ORDER, orderLabel, serverCanOrder, sortCalls } from '../calls/sort-order';
+import type { CallsOrder } from '../calls/sort-order';
 import { useCallsQuery } from '../calls/use-calls-query';
 import { PeriodControls } from '../controls/period-controls';
 import { podValueSource } from '../discovery/pod-values';
@@ -35,8 +37,8 @@ import type { CallsSearchState } from '../url/search-params';
 import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
 import styles from './calls-page.module.css';
 
-// Calls (09 §2). The filter bar, the duration chips, and the switches edit a
-// draft; "Run query" writes it to the URL, which keys the /calls fetch. A time
+// Calls (09 §2). The filter bar, the duration chips, the switches, and "Sort by"
+// edit a draft; "Run query" writes it to the URL, which keys the /calls fetch. A time
 // range change and a row shortcut apply at once (redesign plan §4.2).
 
 // jsdom reports zero heights, which starves the virtual scroller of rows.
@@ -46,9 +48,12 @@ const VIRTUAL = import.meta.env.MODE !== 'test';
 interface QueryDraft {
   conditions: Condition[];
   hideSystem: boolean;
+  order: CallsOrder;
 }
 
-const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem]);
+const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem, d.order]);
+
+const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
 
 export function CallsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -63,10 +68,10 @@ export function CallsPage() {
   }, [bare, search, setSearchParams]);
 
   const appliedKey = draftKey(search);
-  const [draft, setDraft] = useState<QueryDraft>({ conditions: search.conditions, hideSystem: search.hideSystem });
+  const [draft, setDraft] = useState<QueryDraft>(() => draftOf(search));
   // Resync the draft when the applied state changes under it (back/forward, a shared link).
   useEffect(() => {
-    setDraft({ conditions: search.conditions, hideSystem: search.hideSystem });
+    setDraft(draftOf(search));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedKey]);
   const dirty = draftKey(draft) !== appliedKey;
@@ -90,11 +95,14 @@ export function CallsPage() {
   );
   const tokenReason = useCallback((c: Condition) => draftReasons.get(c) ?? null, [draftReasons]);
 
+  const serverOrdered = serverCanOrder(search.order);
   const rawFilter: CallsFilter | null = useMemo(() => {
     if (search.fromMs === null || search.toMs === null) return null;
     if (translation.params === null || translation.noPods || translation.contradiction) return null;
-    return { fromMs: search.fromMs, toMs: search.toMs, ...translation.params };
-  }, [search.fromMs, search.toMs, translation]);
+    // An order the server cannot sort by stays out of the request; the loaded rows are sorted below instead.
+    const order = serverOrdered && search.order !== DEFAULT_ORDER ? { order: search.order } : {};
+    return { fromMs: search.fromMs, toMs: search.toMs, ...translation.params, ...order };
+  }, [search.fromMs, search.toMs, translation, serverOrdered, search.order]);
 
   // A wide namespace or service filter expands to repeatable `pod` params (no
   // `service` param exists, 02 §2.3) and can build a request line a proxy
@@ -135,11 +143,16 @@ export function CallsPage() {
   };
 
   const rows = state.kind === 'ready' ? state.rows : [];
-  const visibleRows = useMemo(
+  const shownRows = useMemo(
     () => (search.hideSystem ? rows.filter((c) => !isIdleMethod(c.method)) : rows),
     [rows, search.hideSystem],
   );
-  const hiddenCount = rows.length - visibleRows.length;
+  const hiddenCount = rows.length - shownRows.length;
+  const visibleRows = useMemo(
+    () => (serverOrdered ? shownRows : sortCalls(shownRows, search.order)),
+    [shownRows, serverOrdered, search.order],
+  );
+  const sortNote = serverOrdered ? undefined : `Sort by ${orderLabel(search.order)} applies to the loaded rows only`;
 
   const footer =
     state.kind === 'ready' ? (
@@ -155,7 +168,7 @@ export function CallsPage() {
       </Space>
     ) : undefined;
 
-  const applyConditions = (conditions: Condition[]): void => runQuery({ conditions, hideSystem: search.hideSystem });
+  const applyConditions = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions });
   const noMatch = translation.contradiction
     ? 'The filters exclude each other, so no call can match.'
     : translation.noPods
@@ -185,7 +198,7 @@ export function CallsPage() {
                   onRun={run}
                 />
               </div>
-              <SortBy value={search.order} />
+              <SortBy value={draft.order} onChange={(order) => setDraft({ ...draft, order })} />
             </div>
             <QueryControls
               conditions={draft.conditions}
@@ -261,6 +274,7 @@ export function CallsPage() {
               onPickFilter={pickFilter}
               virtual={VIRTUAL}
               footer={footer}
+              sortNote={sortNote}
             />
           )
         ) : null}

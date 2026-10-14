@@ -99,11 +99,11 @@ time zone, between the shift-back and shift-forward buttons, followed by zoom ou
 half its width, and zoom out doubles it around its center. Both commit an absolute window. Choosing a time range
 applies at once (Grafana-style refetch on a range change).
 
-**Draft and applied.** The filter bar, the duration chips, and the two switches edit a draft. "Run query", or
-Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when nothing
-changed. While the draft differs from the applied query, a hint says "Filters changed. Run the query to update
-the results." Only the applied state reaches the URL and `/calls`. A time range change and a row shortcut apply at
-once.
+**Draft and applied.** The filter bar, the duration chips, the two switches, and "Sort by" edit a draft. "Run
+query", or Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when
+nothing changed. While the draft differs from the applied query, a hint says "Filters changed. Run the query to
+update the results." Only the applied state reaches the URL and `/calls`. A time range change and a row shortcut
+apply at once.
 
 The filter bar, "Sort by", the duration chips, the switch labels, and "Run query" share one control height, 32 px
 (`apps/ui/src/calls/control-height.ts`), so the two rows line up in both themes. A bar with more tokens than fit on
@@ -139,7 +139,7 @@ closes that gap.
 | Duration chips | `All`, `>10ms`, `>100ms`, `>500ms`, `>3s`, `>5s`. A chip replaces every `duration` token with `duration > <chip>`; `All` removes them. A chip is lit when exactly one `duration >` token has its value. The default `>500ms` keeps page one free of sub-millisecond noise. This is the v1 "slowest" affordance (true ranking is 08 R2). |
 | Errors only | A switch for the `error=true` token: it shows whether the token is present, and adds or removes it. |
 | Hide system/proxy | A switch, on by default: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. It filters the loaded rows in the browser until `/config` serves the patterns for a `method !~` condition (redesign plan §4.6). |
-| Sort by | Start time, newest first: the one order `/calls` has. The other fields and the direction come with the `order` parameter. |
+| Sort by | Start time, duration, CPU time, queue wait, child calls, or net IO, and a direction button. It edits the draft and maps to `order=<field>_<asc\|desc>` (agent-access plan §5.2). The backend sorts by start time, newest first, only, so that order goes to the server and every other one sorts the loaded rows in the browser, with a footer note that it applies to the loaded rows only. `serverCanOrder` in `apps/ui/src/calls/sort-order.ts` decides, and the MSW mock sorts by every order, so `npm run dev:mock` shows the server path. |
 | Run query | Applies the draft (§2.2). |
 | Columns | The gear button at the end of the header: show, hide, reorder, reset. Drag a header border to resize. Persisted in local storage; an entry from before the redesign is migrated to the new column keys, and keys the table no longer has are dropped. |
 | Sort | By column, within loaded pages. Cross-range ranking needs 08 R2. While a column sort is on, the footer says that it applies to the loaded rows only, so it does not read as global. |
@@ -246,7 +246,7 @@ needs a choice.
 
 | Screen | Path | Query / path params |
 |--------|------|---------------------|
-| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`start_desc`); `hide_system=1` when the switch is on |
+| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`<field>_<asc\|desc>`, the fields of §2.3 "Sort by"; default `start_desc`, and an unknown value reads as the default); `hide_system=1` when the switch is on |
 | Pods Info | `/ui/pods` | The same parameters as Calls; it reads and writes only the `namespace`, `service`, and `pod` conditions |
 | Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints |
 
