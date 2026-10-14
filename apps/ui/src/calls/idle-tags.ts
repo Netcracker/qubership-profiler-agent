@@ -22,6 +22,20 @@ export const IDLE_TAGS: ReadonlySet<string> = new Set([
   'weblogic.jms.bridge.internal.MessagingBridge.run',
 ]);
 
+/**
+ * The filter-bar token of "Hide system/proxy" (09 §2.3). The URL keeps the `hide_system=1` flag rather than this
+ * condition, so a saved link does not freeze the pattern list (redesign plan §4.2); the plan expands the flag to a
+ * `method !~` condition at request time once the backend takes `!~` and /config serves the patterns (§4.6).
+ */
+export const HIDE_SYSTEM_TOKEN = {
+  field: 'method',
+  op: '!~',
+  value: 'system/proxy',
+  title:
+    `Hides ${IDLE_TAGS.size} system and proxy methods, such as scheduler and cluster threads. ` +
+    'The backend cannot filter by method !~ yet, so this hides the loaded rows in the browser.',
+} as const;
+
 export function isIdleMethod(method: string): boolean {
   // `method` is normally a full dictionary word (return type, args, file/line,
   // jar — 08 §7), which never equals the bare `package.Class.method` entries

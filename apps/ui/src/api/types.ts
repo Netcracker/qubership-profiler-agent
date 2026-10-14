@@ -97,6 +97,25 @@ export interface PodsResponse {
  */
 export interface ConfigResponse {
   dumps_collector_url: string;
+  /**
+   * Link-outs from one call to a tracing or logging system, in the operator's
+   * order (02 §2.8). Absent from a server that predates the member; treat that
+   * as an empty list.
+   */
+  links?: ConfigLink[];
+  /** Optional screens. A backend that predates a flag omits it, which means off. */
+  features?: {
+    /** The agent-configuration page and its draft API (agents/types.ts). */
+    agent_config?: boolean;
+  };
+}
+
+/** One `links` entry of GET /config: a button label and a URL template the client expands (02 §2.8). */
+export interface ConfigLink {
+  label: string;
+  kind: 'trace' | 'logs';
+  /** An absolute http or https URL with `{placeholder}` parts; see tree/links.ts. */
+  url_template: string;
 }
 
 /** RFC 7807 body with the §2.3.2 wide-query guard extensions (02 §8). */

@@ -1,10 +1,11 @@
-import { HttpResponse, delay, http } from 'msw';
+import { HttpResponse, http } from 'msw';
 
 import { parsePkPath } from '../api/pk';
 import { isRetentionClass } from '../api/types';
-import type { ProblemDetails } from '../api/types';
 import { encodeTree } from '../msgpack/encode';
-import { HOT_WINDOW_MS, callsPage, findCall, podsInRange, treeForCall } from './synthetic';
+import { agentConfigHandlers } from './agent-config';
+import { badRequest, pace, problem } from './respond';
+import { HOT_WINDOW_MS, callsPage, findCall, parseMockOrder, podsInRange, treeForCall } from './synthetic';
 import type { CallsQueryShape, Position } from './synthetic';
 
 // MSW handlers that mirror the query service's external behaviour: same
@@ -16,21 +17,6 @@ export const WIDE_RANGE_LIMIT_MS = 6 * 60 * 60 * 1000;
 export const CURSOR_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
-
-function problem(p: ProblemDetails): Response {
-  return HttpResponse.json(p, {
-    status: p.status,
-    headers: { 'Content-Type': 'application/problem+json' },
-  });
-}
-
-const badRequest = (detail: string): Response =>
-  problem({ type: 'about:blank', title: 'invalid request', status: 400, detail });
-
-// Human pacing in the browser; instant under vitest.
-async function pace(): Promise<void> {
-  if (import.meta.env.MODE !== 'test') await delay(120 + Math.random() * 200);
-}
 
 // --- Window and filter parsing (mirrors model.ParseWindow / ParseCallsQuery) ---
 
@@ -60,6 +46,13 @@ function parseCallsQuery(sp: URLSearchParams): CallsQueryShape | string {
     errorOnly: false,
     retentionClasses: sp.getAll('retention_class'),
   };
+  // `order` follows the agent-access plan §5.2, so `npm run dev:mock` shows server-side ordering before the backend
+  // has it. The real backend sorts by start time, newest first, only; the UI sorts in the browser there.
+  const order = sp.get('order');
+  if (order !== null && order !== '') {
+    if (parseMockOrder(order) === null) return `unknown order: ${order}`;
+    q.order = order;
+  }
   for (const p of q.pods) {
     if (p.split('/').length !== 3) return `pod must be <namespace>/<service>/<pod>: ${p}`;
   }
@@ -187,6 +180,7 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
   if (sp.get('duration_min_ms') !== null) resent.durationMinMs = Number(sp.get('duration_min_ms'));
   if (sp.get('duration_max_ms') !== null) resent.durationMaxMs = Number(sp.get('duration_max_ms'));
   if (sp.get('error_only') !== null) resent.errorOnly = sp.get('error_only') === 'true';
+  if (sp.get('order') !== null) resent.order = sp.get('order') ?? '';
   if (JSON.stringify(resent) !== JSON.stringify(frozen)) {
     return 're-sent filters do not match the query frozen in the cursor; restart from page 1';
   }
@@ -198,8 +192,28 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
 export const handlers = [
   http.get('/api/v1/config', async () => {
     await pace();
-    return HttpResponse.json({ dumps_collector_url: 'https://dumps-collector-petclinic.example.com' });
+    // 02 §2.8: one trace link and one logs link, the shapes of the contract's example.
+    return HttpResponse.json({
+      dumps_collector_url: 'https://dumps-collector-petclinic.example.com',
+      links: [
+        {
+          label: 'Open trace · Tempo',
+          kind: 'trace',
+          url_template: 'https://grafana.example.com/explore?trace={trace_id}',
+        },
+        {
+          label: 'Logs · Grafana',
+          kind: 'logs',
+          url_template:
+            'https://grafana.example.com/logs?namespace={namespace}&pod={pod}&from={from_ms}&to={to_ms}',
+        },
+      ],
+      // No backend sets the flag yet; the mock serves the draft API it gates.
+      features: { agent_config: true },
+    });
   }),
+
+  ...agentConfigHandlers,
 
   http.get('/api/v1/pods', async ({ request }) => {
     await pace();

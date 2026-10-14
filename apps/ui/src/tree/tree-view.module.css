@@ -5,9 +5,43 @@
   height: 100%;
 }
 
+/* The tab's own controls: search, the bar's legend, the two switches, Expand all, Collapse all, and Help. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
 /* `ch` tracks the font: room for ~40 characters of query text. */
 .searchInput {
   width: 40ch;
+}
+
+/* Pushes the legend and what follows it to the right end. */
+.toolbarEnd {
+  margin-left: auto;
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pf-color-dim);
+  font-size: 12px;
+}
+
+.swatch {
+  width: 18px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.switchLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
 }
 
 .listContainer {
@@ -15,28 +49,158 @@
   min-height: 240px;
 }
 
-/* Shared row layout for node and param rows; per-row padding/background stay inline. */
-.row {
+/* Column caption over the rows. */
+.listHeader {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  background: var(--pf-color-surface2);
+  border-bottom: 1px solid var(--pf-color-border);
+  color: var(--pf-color-dim);
+  font-weight: 500;
   white-space: nowrap;
+}
+
+.listHeaderMain {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+/* Shared row layout for node and param rows. border-box, so the row line is
+   inside the 28 px and a connector cell spans the row exactly. */
+.row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  min-width: 0;
+  padding-right: 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--pf-color-border-soft);
+}
+
+/* "Row lines" off. The border stays, transparent, so no row changes height. */
+.noRowLines .row {
+  border-bottom-color: transparent;
+}
+
+/* The connector column: one cell per tree level. The negative margin takes
+   back the row's gap, so an elbow ends right at the caret. */
+.guides {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  padding-left: 8px;
+  margin-right: -8px;
+}
+
+.guide {
+  position: relative;
+  width: 18px;
+  height: 28px;
+  flex: none;
+}
+
+/* A line that runs past the row, to a sibling further down. */
+.guidePass::before,
+.guideTee::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--pf-color-guide);
+}
+
+/* The rounded elbow into the row. */
+.guideTee::after,
+.guideEnd::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  width: 10px;
+  height: 14px;
+  border-left: 1px solid var(--pf-color-guide);
+  border-bottom: 1px solid var(--pf-color-guide);
+  border-bottom-left-radius: 7px;
+}
+
+.row:hover {
+  background: var(--pf-color-veil);
+}
+
+.rowSelected,
+.rowSelected:hover {
+  background: var(--pf-color-accent-soft);
+}
+
+.rowMarked,
+.rowMarked:hover {
+  background: var(--pf-color-crit-bg);
+}
+
+/* A row the search does not match. It stays in place, so the tree keeps its shape. */
+.rowDim {
+  opacity: 0.4;
 }
 
 .paramRow {
-  color: var(--ant-color-text-secondary);
+  color: var(--pf-color-dim);
 }
 
+/* The caret and the three-dot button. */
 .iconBtn {
   width: 22px;
-  min-width: 22px;
   height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pf-color-dim);
+  cursor: pointer;
 }
 
+.iconBtn:hover {
+  background: var(--pf-color-veil);
+  color: var(--pf-color-text);
+}
+
+.iconBtn:focus-visible,
+.signature:focus-visible,
+.chainBadge:focus-visible {
+  outline: 2px solid var(--pf-color-accent);
+  outline-offset: -1px;
+}
+
+/* Keeps a leaf's three-dot button under its siblings' buttons. */
+.iconSlot {
+  width: 22px;
+  flex: none;
+}
+
+.icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.caretClosed {
+  transform: rotate(-90deg);
+}
+
+/* "View full value" on a param row, an antd button. */
 .iconBtnMuted {
   width: 22px;
   min-width: 22px;
@@ -45,40 +209,134 @@
   color: var(--ant-color-text-tertiary);
 }
 
-.chainTag {
+/* `total (self) ×calls`. */
+.numbers {
+  flex: none;
+  font-size: 12px;
+}
+
+.total {
+  font-weight: 500;
+}
+
+.totalBold {
+  font-weight: 600;
+}
+
+.dimNumber {
+  color: var(--pf-color-dim);
+}
+
+/* After .dimNumber, so the heat color wins over the dim one. */
+.heatWarn {
+  color: var(--pf-color-warn);
+  font-weight: 600;
+}
+
+.heatCrit {
+  color: var(--pf-color-crit);
+  font-weight: 600;
+}
+
+/* The method label. It shrinks first, so the bar and the percentage stay in view. */
+.signature {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
-  margin-inline-end: 0;
 }
 
-.tagFlush {
-  margin-inline-end: 0;
+/* Dimmed so the class stands out, and still part of the text a copy picks up. */
+.pkg {
+  color: var(--pf-color-dim);
 }
 
-/* Duration bar; width scales with the node duration and stays inline. */
-.durationBar {
-  display: inline-block;
+.nameHot {
+  font-weight: 600;
+}
+
+.match {
+  background: var(--pf-color-mark);
+}
+
+.badge {
+  flex: none;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--pf-color-text);
+}
+
+.chainBadge {
+  background: var(--pf-color-surface2);
+  color: var(--pf-color-dim);
+  cursor: pointer;
+}
+
+.chainBadge:hover {
+  color: var(--pf-color-text);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* The widths of the two parts are computed and stay inline. */
+.shareBar {
+  width: 100px;
   height: 8px;
-  background: var(--ant-color-primary-border);
+  flex: none;
+  display: flex;
   border-radius: 2px;
-}
-
-.tabularNums {
-  font-variant-numeric: tabular-nums;
-}
-
-.methodName {
-  flex: 1;
-}
-
-.paramValue {
-  flex: 1;
   overflow: hidden;
 }
 
-/* font-size:0 hides the package yet keeps it selectable, so copying the row
-   yields the qualified name (old span.p). */
-.pkgPrefix {
-  font-size: 0;
+.shareSelf {
+  background: var(--pf-color-bar);
+}
+
+.shareChildren {
+  background: var(--pf-color-bar-soft);
+}
+
+.percent {
+  width: 40px;
+  flex: none;
+  text-align: right;
+  font-size: 12px;
+}
+
+.keyBadge {
+  background: var(--pf-color-surface2);
+  color: var(--pf-color-dim);
+}
+
+/* `pre`, so the spacing of a SQL text survives; the full value is in the viewer. */
+.paramValue {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  font-size: 12px;
+  color: var(--pf-color-text);
+}
+
+/* The `::other` bucket is a remainder, not a value. */
+.paramOther {
+  color: var(--pf-color-dim);
+  font-style: italic;
+}
+
+/* The bar is the first thing to go on a narrow viewport. */
+@media (max-width: 820px) {
+  .shareBar {
+    display: none;
+  }
 }
 
 /* Stats popover floating over the tree. */
@@ -90,7 +348,7 @@
   background: var(--ant-color-bg-elevated);
   border: 1px solid var(--ant-color-border);
   border-radius: 8px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--pf-shadow);
   padding: 12px;
   pointer-events: none;
 }
