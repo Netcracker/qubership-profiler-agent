@@ -230,7 +230,7 @@ func TestShortMethod(t *testing.T) {
 		"com.example.Service.handle":                 "com.example.Service.handle",
 		"com.a.B.<init>(java.util.Map, int)":         "com.a.B.<init>(java.util.Map, int)",
 	} {
-		assert.Equal(t, want, shortMethod(full), full)
+		assert.Equal(t, want, ShortMethod(full), full)
 	}
 }
 

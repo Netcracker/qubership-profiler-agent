@@ -180,7 +180,7 @@ func (in ExplainInput) reduceOptions() (reduceOptions, error) {
 func reduce(tree *calltree.Tree, o reduceOptions) ExplainResult {
 	method := func(n *calltree.Node) string {
 		if n.MethodIdx >= 0 && n.MethodIdx < len(tree.Methods) {
-			return shortMethod(tree.Methods[n.MethodIdx])
+			return ShortMethod(tree.Methods[n.MethodIdx])
 		}
 		return "#" + strconv.Itoa(n.MethodIdx)
 	}
@@ -383,9 +383,9 @@ func topSQL(root *calltree.Node, params []string) []SQLStat {
 	return out
 }
 
-// shortMethod drops the source file, the jar, and the return type the agent
+// ShortMethod drops the source file, the jar, and the return type the agent
 // appends: "void com.a.B.m(long) (B.java) [b.jar]" becomes "com.a.B.m(long)".
-func shortMethod(full string) string {
+func ShortMethod(full string) string {
 	s := full
 	if i := strings.Index(s, ") ("); i >= 0 {
 		s = s[:i+1]
