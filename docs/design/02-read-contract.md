@@ -215,7 +215,8 @@ flag, and the MCP tools carry the same conditions in the same text form, so a fi
   itself. A list ending in a lone backslash is invalid.
 - In a URL, a condition is percent-encoded like any other query value: `filter=duration%3E100ms`.
 - A duration is a number with the unit `ms` or `s`, and a bare number is seconds: `500ms`, `1.5s`, and `2` are valid.
-  A duration is rounded to whole milliseconds.
+  Whitespace inside a duration is ignored, and a duration is rounded to whole milliseconds. A `between` range may name
+  its bounds in either order: `2s..100ms` is the same range as `100ms..2s`.
 - `None` and `Any` are special values for fields a call can lack (params, `trace_id`, `request_id`, `endpoint`). They
   go with `=` and `!=` only: `trace_id=None` matches a call without a trace ID, and `trace_id=Any` a call with one.
 
@@ -272,9 +273,8 @@ without `web.url` has no endpoint. A call with `web.url` and no `web.method` has
 | `retention_class=<c>` (repeatable) | `retention_class in <c1>,<c2>` |
 
 **Errors.** A condition that does not parse, a field that does not take the operator, a value of the wrong type (a
-duration that does not parse, an `error` value other than `true` or `false`, an unknown retention class), a `between`
-range whose start is after its end, and `None` or `Any` on a field every call has all answer `400` with
-`code: invalid_request` and a detail that quotes the condition.
+duration that does not parse, an `error` value other than `true` or `false`, an unknown retention class), and `None` or
+`Any` on a field every call has all answer `400` with `code: invalid_request` and a detail that quotes the condition.
 
 ### 2.3.4 Filter stages and capabilities
 
