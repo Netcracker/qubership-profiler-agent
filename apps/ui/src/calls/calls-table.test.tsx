@@ -117,6 +117,18 @@ describe('CallsTable', () => {
     const link = within(rowOf(slow)).getByRole('link', { name: '3.0s' });
     expect(link).toHaveAttribute('href', expect.stringContaining('/tree/'));
     expect(link.previousElementSibling).toHaveStyle({ background: 'var(--pf-color-crit)' });
+    // The dot and the fixed-width text box share one wrapper, so the dot does not follow the text width.
+    expect(link.parentElement!.firstElementChild).toBe(link.previousElementSibling);
+    expect(link).toHaveClass('pf-mono');
+  });
+
+  it('shows the browser-side "Sort by" note until a column sort replaces it', async () => {
+    const user = userEvent.setup();
+    renderTable({ sortNote: 'Sort by Duration applies to the loaded rows only' });
+    expect(screen.getByText('Sort by Duration applies to the loaded rows only')).toBeInTheDocument();
+    await user.click(screen.getAllByRole('columnheader').find((th) => th.textContent === 'CPU')!);
+    expect(screen.queryByText('Sort by Duration applies to the loaded rows only')).toBeNull();
+    expect(screen.getByText('Column sort applies to the loaded rows only')).toBeInTheDocument();
   });
 
   it('notes in the footer that a column sort covers the loaded rows only', async () => {
