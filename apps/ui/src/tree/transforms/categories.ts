@@ -36,8 +36,8 @@ function categoryColor(index: number): string {
 }
 
 /**
- * The fill of a category's flame graph block: the hue of its badge, stronger,
- * because a block is the whole picture and a badge sits on a row.
+ * The fill of a category's flame graph frame: the hue of its badge, stronger,
+ * because a frame is the whole picture and a badge sits on a row.
  */
 export function categoryBlockColor(category: CategoryDef): string {
   return category.color.replace('--pf-color-cat-', '--pf-color-flame-');
