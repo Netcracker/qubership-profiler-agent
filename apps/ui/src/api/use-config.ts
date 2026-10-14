@@ -37,9 +37,11 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 /**
  * The deployment-specific /config values. Under a {@link ConfigProvider} this
  * reads the shared answer. Without one, as in a page test, it fetches its own.
+ * With `enabled` false and no provider it fetches nothing and stays in
+ * `loading`; an exported offline copy has no backend to ask.
  */
-export function useConfig(): ConfigState {
+export function useConfig(enabled = true): ConfigState {
   const shared = useContext(ConfigContext);
-  const own = useFetchedConfig(shared === undefined);
+  const own = useFetchedConfig(enabled && shared === undefined);
   return shared ?? own;
 }
