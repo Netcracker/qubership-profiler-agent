@@ -22,8 +22,6 @@ import styles from './calls-table.module.css';
 // and 12 px cell padding at the sides. The compact tags are in the CSS module.
 const DENSE_TABLE_THEME = { components: { Table: { cellPaddingBlockSM: 4, cellPaddingInlineSM: 12 } } };
 
-const CHOOSER_COLUMN_WIDTH = 40;
-
 type CallsTableChange = NonNullable<TableProps<CallJSON>['onChange']>;
 
 interface ResizableCellProps extends ThHTMLAttributes<HTMLTableCellElement> {
@@ -78,7 +76,7 @@ export interface CallsTableProps {
   sortNote?: string;
 }
 
-// The header row holds the 24 px chooser button; the footer holds "Load more".
+// The header row, and the footer with "Load more" and the column settings.
 const HEADER_AND_FOOTER_PX = 33 + 48;
 
 export function CallsTable({
@@ -99,7 +97,7 @@ export function CallsTable({
 
   const columns = useMemo<TableColumnType<CallJSON>[]>(() => {
     const defs = new Map(buildCallColumns({ ...handlers, onPickFilter }, zone).map((d) => [d.key, d]));
-    const dataColumns: TableColumnType<CallJSON>[] = prefs.order
+    return prefs.order
       .filter((key) => !prefs.hidden.includes(key))
       .map((key) => defs.get(key))
       .filter((def) => def !== undefined)
@@ -121,17 +119,6 @@ export function CallsTable({
               onPrefsChange({ ...prefs, widths: { ...prefs.widths, [key]: width } }),
           }) as ResizableCellProps,
       }));
-    return [
-      ...dataColumns,
-      {
-        key: 'columnChooser',
-        title: <ColumnChooser prefs={prefs} onPrefsChange={onPrefsChange} />,
-        width: CHOOSER_COLUMN_WIDTH,
-        fixed: 'right',
-        align: 'center',
-        render: () => null,
-      },
-    ];
   }, [prefs, handlers, onPickFilter, onPrefsChange, zone]);
 
   const totalWidth = columns.reduce((sum, c) => sum + (typeof c.width === 'number' ? c.width : 120), 0);
@@ -142,13 +129,17 @@ export function CallsTable({
 
   // A column sort and a browser-side "Sort by" both cover the loaded rows only (09 §2.3), so the footer says so.
   const localSortNote = columnSorted ? 'Column sort applies to the loaded rows only' : sortNote;
-  const footerLine =
-    footer === undefined && localSortNote === undefined ? undefined : (
-      <div className={styles.footer}>
-        {footer}
-        {localSortNote !== undefined ? <Typography.Text type="secondary">{localSortNote}</Typography.Text> : null}
-      </div>
-    );
+  // The column settings sit at the right end of the footer, not in a header column of their own, so every data
+  // column keeps its width; the footer is there in every state of the table.
+  const footerLine = (
+    <div className={styles.footer}>
+      {footer}
+      {localSortNote !== undefined ? <Typography.Text type="secondary">{localSortNote}</Typography.Text> : null}
+      <span className={styles.footerEnd}>
+        <ColumnChooser prefs={prefs} onPrefsChange={onPrefsChange} />
+      </span>
+    </div>
+  );
 
   return (
     <div ref={containerRef} className={styles.tableContainer}>
@@ -164,7 +155,7 @@ export function CallsTable({
           scroll={virtual ? { x: totalWidth, y: Math.max(160, containerHeight - HEADER_AND_FOOTER_PX) } : { x: totalWidth }}
           components={{ header: { cell: ResizableHeaderCell } }}
           onChange={onChange}
-          footer={footerLine === undefined ? undefined : () => footerLine}
+          footer={() => footerLine}
         />
       </ConfigProvider>
     </div>

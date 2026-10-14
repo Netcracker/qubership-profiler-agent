@@ -73,11 +73,13 @@ export function ColumnSettings({ prefs, onPrefsChange }: ColumnSettingsProps) {
   );
 }
 
-/** The gear button at the right end of the table header that opens the column settings. */
+/** The "Columns" button at the right end of the table footer that opens the column settings. */
 export function ColumnChooser(props: ColumnSettingsProps) {
   return (
-    <Popover trigger="click" placement="bottomRight" content={<ColumnSettings {...props} />}>
-      <Button type="text" size="small" icon={<SettingOutlined />} title="Choose columns" aria-label="Choose columns" />
+    <Popover trigger="click" placement="topRight" content={<ColumnSettings {...props} />}>
+      <Button type="text" size="small" icon={<SettingOutlined />} title="Choose columns" aria-label="Choose columns">
+        Columns
+      </Button>
     </Popover>
   );
 }
