@@ -41,16 +41,17 @@ func (s *Service) hasNarrowingFilter(q model.CallsQuery) bool {
 	return hasPodFilter(q) || len(s.cold.ClassesFor(q)) < len(model.RetentionClasses)
 }
 
+// hasPodFilter reports a `pod` filter or a namespace, service, or pod
+// condition with = or in, which the guard counts the same way (02 §2.3.2).
 func hasPodFilter(q model.CallsQuery) bool {
-	_, ok := q.PodTuples()
-	return ok
+	return q.IdentityFilter()
 }
 
 // suggestedFilters lists the narrowing filters the query does not use yet.
 func suggestedFilters(q model.CallsQuery) []string {
 	var out []string
 	if !hasPodFilter(q) {
-		out = append(out, "pod")
+		out = append(out, "pod", "namespace", "service")
 	}
 	if _, ok := q.RetentionClassSet(); !ok {
 		out = append(out, "retention_class")

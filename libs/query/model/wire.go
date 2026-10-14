@@ -228,6 +228,19 @@ func ParseCallsQuery(params url.Values) (CallsQuery, string) {
 			q.Filters = append(q.Filters, ErrorCondition(true))
 		}
 	}
+	for _, text := range params["filter"] {
+		c, err := ParseCondition(text)
+		if err == nil {
+			_, err = compileCondition(c)
+		}
+		if err == nil {
+			err = checkImplemented(c)
+		}
+		if err != nil {
+			return q, "filter " + strconv.Quote(text) + ": " + err.Error()
+		}
+		q.Filters = append(q.Filters, c)
+	}
 	if _, err := q.Matcher(); err != nil {
 		return q, err.Error()
 	}
@@ -256,9 +269,12 @@ func ParseWindow(params url.Values) (int64, int64, string) {
 
 // Values renders the query as parameters of the internal
 // /internal/v1/calls, which takes the same parameters as /api/v1/calls
-// (02 §3). The parameters select a superset of the query's rows, not always
-// the exact set: a collector filters what it can push down, and query
-// re-checks every hot row with the full Matcher.
+// (02 §3). The legacy parameters carry what they can express, so a collector
+// that predates the filter model still pushes it down; every other condition
+// goes as a `filter` value. The parameters select a superset of the query's
+// rows, not always the exact set: an older collector ignores `filter`, and
+// contradicting conditions have no legacy form. query therefore re-checks
+// every hot row with the full Matcher.
 func (q CallsQuery) Values() url.Values {
 	v := url.Values{}
 	v.Set("from", strconv.FormatInt(q.FromMs, 10))
@@ -287,7 +303,28 @@ func (q CallsQuery) Values() url.Values {
 	if classes, ok := q.RetentionClassSet(); ok && len(classes) > 0 {
 		v["retention_class"] = classes
 	}
+	for _, c := range q.Filters {
+		if !hasLegacyForm(c) {
+			v.Add("filter", c.String())
+		}
+	}
 	return v
+}
+
+// hasLegacyForm reports whether Values carries the condition exactly through
+// a legacy parameter. A method condition never qualifies: the legacy `method`
+// parameter carries at most one literal word, so every method condition also
+// goes as a `filter` value.
+func hasLegacyForm(c Condition) bool {
+	switch c.Field {
+	case FieldPodTuple, "duration":
+		return true
+	case "error":
+		return c.Op == OpEq && len(c.Values) == 1 && c.Values[0] == "true"
+	case "retention_class":
+		return c.Op == OpEq || c.Op == OpIn
+	}
+	return false
 }
 
 // regexLiteral returns the text a pattern matches when it has no

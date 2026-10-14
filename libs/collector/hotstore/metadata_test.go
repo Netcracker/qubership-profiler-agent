@@ -246,6 +246,22 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, prefixPod, "prefix matching stops at the '/' separator")
 
+	// Namespace, service, and pod conditions push down as pod_restart prefixes.
+	for name, tc := range map[string]struct {
+		filters []model.Condition
+		want    int
+	}{
+		"namespace":                  {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"ns"}}}, 6},
+		"another namespace":          {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"other"}}}, 0},
+		"namespace, service, pod in": {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"ns"}}, {Field: "service", Op: model.OpEq, Values: []string{"svc"}}, {Field: "pod", Op: model.OpIn, Values: []string{"pod-b", "pod-c"}}}, 2},
+		"two disjoint namespaces":    {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"ns"}}, {Field: "namespace", Op: model.OpEq, Values: []string{"other"}}}, 0},
+	} {
+		rows, err := store.CallsPage(bucket, model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: tc.filters},
+			base, base+1000, 10)
+		require.NoError(t, err, name)
+		assert.Len(t, rows, tc.want, name)
+	}
+
 	// Conditions that contradict each other select nothing rather than
 	// rendering an empty IN list.
 	for name, filters := range map[string][]model.Condition{
