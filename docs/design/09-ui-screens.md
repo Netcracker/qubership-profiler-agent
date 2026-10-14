@@ -148,7 +148,10 @@ An empty page with a non-null `next_cursor` keeps paging; an expired cursor rest
 
 **Banners.** Wide-query guard and partial results render as first-class banners (§5), not silent failures.
 
-**Timestamps** display in the browser timezone (as the old UI did); the URL window stays in Unix ms.
+**Timestamps** display in the display time zone of the period picker, the browser's by default (as the old UI
+did); the URL window stays in Unix ms. The Start cell shows the time alone for a call of today in that zone, and
+the date and time otherwise (`Jul 12 23:59:59.999`, with the year for another year). Its tooltip holds the full
+timestamp.
 
 ## 3. Call Tree
 

@@ -6,7 +6,7 @@ import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
 import { BROWSER_ZONE } from '../controls/time-range';
 import { treeHref } from '../url/search-params';
-import { durationHeat, formatBytes, formatCount, formatDurationMs, formatTs } from './format';
+import { durationHeat, formatBytes, formatCount, formatDurationMs, formatStart, formatTs } from './format';
 import { isIdleMethod } from './idle-tags';
 import { callTraceId } from './trace-id';
 import styles from './columns.module.css';
@@ -95,7 +95,18 @@ function traceCell(c: CallJSON, handlers: ColumnHandlers): ReactNode {
 
 export function buildCallColumns(handlers: ColumnHandlers, zone: string = BROWSER_ZONE): CallColumnDef[] {
   return [
-    { key: 'start', title: 'Start', defaultWidth: 190, render: (c) => num(formatTs(c.ts_ms, zone)), compare: (a, b) => a.ts_ms - b.ts_ms },
+    {
+      key: 'start',
+      title: 'Start',
+      defaultWidth: 170,
+      // Today's date is left out of the cell; the tooltip keeps the full timestamp.
+      render: (c) => (
+        <span className={`pf-mono ${styles.num}`} title={formatTs(c.ts_ms, zone)}>
+          {formatStart(c.ts_ms, zone)}
+        </span>
+      ),
+      compare: (a, b) => a.ts_ms - b.ts_ms,
+    },
     {
       key: 'duration',
       title: 'Duration',
