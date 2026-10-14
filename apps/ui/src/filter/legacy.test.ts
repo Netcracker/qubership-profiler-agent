@@ -1,0 +1,68 @@
+import { describe, expect, it } from 'vitest';
+
+import { conditionsFromLegacyParams, hasLegacyParams } from './legacy';
+
+const convert = (query: string) => conditionsFromLegacyParams(new URLSearchParams(query));
+const NO_MIN = 'duration_min_ms=0';
+
+describe('conditionsFromLegacyParams', () => {
+  it('turns a service into namespace and service conditions', () => {
+    expect(convert(`service=payments/billing&${NO_MIN}`)).toEqual([
+      { field: 'namespace', op: '=', values: ['payments'] },
+      { field: 'service', op: '=', values: ['billing'] },
+    ]);
+  });
+
+  it('turns several services into in conditions', () => {
+    expect(convert(`service=payments/billing&service=payments/ledger&${NO_MIN}`)).toEqual([
+      { field: 'namespace', op: '=', values: ['payments'] },
+      { field: 'service', op: 'in', values: ['billing', 'ledger'] },
+    ]);
+  });
+
+  it('turns a pod into a pod condition with its namespace and service', () => {
+    expect(convert(`pod=payments/billing/billing-7f9c&${NO_MIN}`)).toEqual([
+      { field: 'namespace', op: '=', values: ['payments'] },
+      { field: 'service', op: '=', values: ['billing'] },
+      { field: 'pod', op: '=', values: ['billing-7f9c'] },
+    ]);
+  });
+
+  it('applies the old 500 ms default when duration_min_ms is absent', () => {
+    expect(convert('')).toEqual([{ field: 'duration', op: '>=', values: ['500ms'] }]);
+  });
+
+  it('turns duration_min_ms into a lower bound', () => {
+    expect(convert('duration_min_ms=3000')).toEqual([{ field: 'duration', op: '>=', values: ['3s'] }]);
+  });
+
+  it('turns duration_max_ms into an upper bound', () => {
+    expect(convert('duration_min_ms=0&duration_max_ms=100')).toEqual([{ field: 'duration', op: '<=', values: ['100ms'] }]);
+  });
+
+  it('turns both duration bounds into a range', () => {
+    expect(convert('duration_min_ms=100&duration_max_ms=2000')).toEqual([
+      { field: 'duration', op: 'between', values: ['100ms..2s'] },
+    ]);
+  });
+
+  it('turns error_only into error=true', () => {
+    expect(convert(`error_only=true&${NO_MIN}`)).toEqual([{ field: 'error', op: '=', values: ['true'] }]);
+    expect(convert(`error_only=false&${NO_MIN}`)).toEqual([]);
+  });
+
+  it('turns retention_class into a retention_class condition and drops unknown classes', () => {
+    expect(convert(`retention_class=long_clean&retention_class=any_error&retention_class=hot&${NO_MIN}`)).toEqual([
+      { field: 'retention_class', op: 'in', values: ['long_clean', 'any_error'] },
+    ]);
+  });
+
+  it('turns q into a quoted method match', () => {
+    expect(convert(`q=Order.place&${NO_MIN}`)).toEqual([{ field: 'method', op: '=~', values: ['Order\\.place'] }]);
+  });
+
+  it('tells an old link from a new one', () => {
+    expect(hasLegacyParams(new URLSearchParams('q=x'))).toBe(true);
+    expect(hasLegacyParams(new URLSearchParams('filter=pod%3Dx&from=now-1h'))).toBe(false);
+  });
+});

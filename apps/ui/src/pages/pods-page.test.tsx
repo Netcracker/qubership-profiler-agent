@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -21,33 +22,52 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
+// Wrapped in AntdApp, as in app.tsx: the page shows its toast through the App.
 function renderPodsPage(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/pods" element={<PodsPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <AntdApp>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/pods" element={<PodsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </AntdApp>,
   );
 }
 
 describe('PodsPage', () => {
-  it('offers a period picker and rail without any URL window', async () => {
+  it('offers a period picker and a filter bar, and no rail, without any URL window', async () => {
     renderPodsPage('/pods');
     expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Filter services')).toBeInTheDocument();
-    expect(screen.getByText('Pick a period and Apply to see pods.')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Filter calls' })).toBeInTheDocument();
+    expect(screen.queryByRole('tree')).not.toBeInTheDocument();
+    expect(document.querySelector('aside')).toBeNull();
+    expect(screen.getByText('Pick a time range to see pods.')).toBeInTheDocument();
+  });
+
+  it('filters the table by the service filter of the shared URL and keeps the other filters', async () => {
+    const to = Date.now();
+    const duration = encodeURIComponent('duration>1s');
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&filter=${encodeURIComponent('service=billing')}&filter=${duration}`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    const tuples = screen.getAllByRole('row').slice(1).map((row) => row.textContent ?? '');
+    expect(tuples.every((t) => t.includes('/billing/'))).toBe(true);
+    // Calls' own conditions are not Pods Info's to show.
+    expect(screen.queryByRole('button', { name: 'Remove the filter duration > 1s' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove the filter service = billing' })).toBeInTheDocument();
   });
 
   it('puts the time range in the shell header and keeps Apply in the page', () => {
     render(
-      <MemoryRouter initialEntries={['/pods']}>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route path="/pods" element={<PodsPage />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
+      <AntdApp>
+        <MemoryRouter initialEntries={['/pods']}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/pods" element={<PodsPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AntdApp>,
     );
     const header = screen.getByRole('banner');
     expect(within(header).getByRole('button', { name: 'Time range' })).toBeInTheDocument();

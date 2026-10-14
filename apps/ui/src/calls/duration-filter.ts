@@ -52,8 +52,24 @@ export function parseDurationFilter(raw: string): DurationBound | null {
   return null;
 }
 
+/**
+ * Parses one duration value with no sign, such as `500ms`, `1.5s`, or `3` (seconds). Returns null for anything else,
+ * including a range. The filter module reads condition values with it.
+ */
+export function parseDurationMs(raw: string): number | null {
+  const simple = SIMPLE.exec(raw.replace(/\s+/g, ''));
+  return simple === null || simple[1] !== undefined ? null : toMs(Number(simple[2]), simple[3]);
+}
+
+/** Parses a range such as `100ms..2s` into ordered bounds, or returns null. */
+export function parseDurationRange(raw: string): { minMs: number; maxMs: number } | null {
+  if (!RANGE.test(raw.replace(/\s+/g, ''))) return null;
+  const bound = parseDurationFilter(raw);
+  return bound === null || bound.minMs === null || bound.maxMs === null ? null : { minMs: bound.minMs, maxMs: bound.maxMs };
+}
+
 /** ms as `500ms` or `1.5s` — whole seconds stay in seconds, the rest in ms. */
-function formatMs(ms: number): string {
+export function formatMs(ms: number): string {
   return ms >= 1000 && ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`;
 }
 
