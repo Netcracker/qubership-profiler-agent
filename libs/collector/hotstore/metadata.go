@@ -1139,8 +1139,9 @@ func (m *metaDb) MinTsMs(bucket int64) (*int64, error) {
 
 // callsQueryWhere renders the SQL-pushable predicates of q (№15): the ts
 // window, the duration bounds, the error flag, the retention classes, and
-// the pod filter (pod_restart is "<pod_id>/<restartMs>", so a pod matches by
-// prefix), each from the conditions' narrowed views. Every other condition,
+// the pod and identity filters (pod_restart is "<pod_id>/<restartMs>", so a
+// pod, a service, or a namespace matches by prefix), each from the
+// conditions' narrowed views. Every other condition,
 // the method filter among them, stays in Go — it matches the
 // dictionary-resolved name, which SQL does not have.
 func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
@@ -1173,6 +1174,17 @@ func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
 		}
 		parts := make([]string, len(tuples))
 		for i, p := range tuples {
+			parts[i] = `pod_restart LIKE ? ESCAPE '\'`
+			args = append(args, escapeLikePrefix(p)+"/%")
+		}
+		where += " AND (" + strings.Join(parts, " OR ") + ")"
+	}
+	if prefixes, ok := q.IdentityPrefixes(); ok {
+		if len(prefixes) == 0 {
+			return where + " AND 0", args
+		}
+		parts := make([]string, len(prefixes))
+		for i, p := range prefixes {
 			parts[i] = `pod_restart LIKE ? ESCAPE '\'`
 			args = append(args, escapeLikePrefix(p)+"/%")
 		}

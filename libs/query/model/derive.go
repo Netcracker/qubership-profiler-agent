@@ -121,3 +121,57 @@ func (q CallsQuery) intersectValues(field string, universe []string) ([]string, 
 	}
 	return out, found
 }
+
+// maxIdentityPrefixes caps the pushed-down prefix list; a wider combination
+// is left to Matcher rather than rendered as hundreds of LIKE terms.
+const maxIdentityPrefixes = 64
+
+// IdentityFilter reports whether a condition selects calls by identity with
+// `=` or `in`: a pod tuple, a namespace, a service, or a pod. The guard
+// counts such a query as pod-filtered (02 §2.3.2).
+func (q CallsQuery) IdentityFilter() bool {
+	return slices.ContainsFunc(q.Filters, func(c Condition) bool {
+		switch c.Field {
+		case FieldPodTuple, "namespace", "service", "pod":
+			return c.Op == OpEq || c.Op == OpIn
+		}
+		return false
+	})
+}
+
+// IdentityPrefixes returns "<namespace>", "<namespace>/<service>", or
+// "<namespace>/<service>/<pod>" prefixes that every call allowed by the
+// namespace, service, and pod conditions starts with. ok is false when the
+// conditions cannot be written as prefixes: no namespace condition, or more
+// than maxIdentityPrefixes combinations. A store pushes the prefixes down as
+// a filter on its "<namespace>/<service>/<pod>/..." key; pod tuples go
+// through PodTuples instead.
+func (q CallsQuery) IdentityPrefixes() (prefixes []string, ok bool) {
+	namespaces, ok := q.intersectValues("namespace", nil)
+	if !ok {
+		return nil, false
+	}
+	services, hasServices := q.intersectValues("service", nil)
+	pods, hasPods := q.intersectValues("pod", nil)
+	prefixes = namespaces
+	if hasServices {
+		prefixes = joinEach(prefixes, services)
+		if hasPods {
+			prefixes = joinEach(prefixes, pods)
+		}
+	}
+	if len(prefixes) > maxIdentityPrefixes {
+		return nil, false
+	}
+	return prefixes, true
+}
+
+func joinEach(heads, tails []string) []string {
+	out := make([]string, 0, len(heads)*len(tails))
+	for _, h := range heads {
+		for _, t := range tails {
+			out = append(out, h+"/"+t)
+		}
+	}
+	return out
+}

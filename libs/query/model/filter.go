@@ -146,8 +146,9 @@ func (c Condition) String() string {
 
 // canonical returns the text form with the value spelling normalized, so two
 // conditions that mean the same thing compare equal: durations in whole
-// milliseconds, a range in ascending order, and a list sorted and without
-// duplicates. A value that does not parse is kept as written.
+// milliseconds, a range in ascending order, a list sorted and without
+// duplicates, and a one-value list as `=` or `!=`. A value that does not
+// parse is kept as written.
 func (c Condition) canonical() string {
 	n := Condition{Field: c.Field, Op: c.Op, Values: append([]string(nil), c.Values...)}
 	if fieldOf(c.Field).kind == kindDuration && len(n.Values) == 1 {
@@ -162,6 +163,9 @@ func (c Condition) canonical() string {
 	if isListOp(c.Op) {
 		sort.Strings(n.Values)
 		n.Values = dedupSorted(n.Values)
+		if len(n.Values) == 1 {
+			n.Op = map[Op]Op{OpIn: OpEq, OpNotIn: OpNe}[c.Op]
+		}
 	}
 	return n.String()
 }

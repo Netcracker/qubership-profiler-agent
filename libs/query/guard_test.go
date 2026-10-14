@@ -19,7 +19,7 @@ func TestGuardSpan(t *testing.T) {
 	rej := s.guardSpan(wide, 6*time.Hour, podLimit)
 	require.NotNil(t, rej, "a 7h window with no pruning filter is rejected")
 	assert.False(t, rej.HasEstimate, "the span layer fires before the LIST, so no estimate")
-	assert.Equal(t, []string{"pod", "retention_class", "duration_min_ms", "error_only"}, rej.SuggestedFilters)
+	assert.Equal(t, []string{"pod", "namespace", "service", "retention_class", "duration_min_ms", "error_only"}, rej.SuggestedFilters)
 
 	assert.Nil(t, s.guardSpan(model.CallsQuery{FromMs: 0, ToMs: 6 * hour}, 6*time.Hour, podLimit), "at the limit passes")
 
@@ -69,6 +69,43 @@ func TestGuardSpanPodCap(t *testing.T) {
 	// The cap holds when a class-axis filter rides along with the pod filter.
 	assert.NotNil(t, s.guardSpan(model.CallsQuery{FromMs: 0, ToMs: 400 * day, Filters: []model.Condition{model.PodTuplesCondition(pod...), model.ErrorCondition(true)}},
 		wide, podLimit), "a pod + error_only query past the pods range is still rejected")
+}
+
+// TestGuardSpanFilterConditions covers the filter conditions of 02 §2.3.3: an
+// identity condition with = or in counts as a pod filter, with the same
+// PROFILER_MAX_PODS_RANGE cap; a param, a negation, or an upper duration bound
+// prunes no file and exempts nothing.
+func TestGuardSpanFilterConditions(t *testing.T) {
+	s := &Service{cold: &cold.Source{}}
+	hour := int64(time.Hour / time.Millisecond)
+	day := 24 * hour
+	wide, podLimit := 6*time.Hour, 366*24*time.Hour
+	query := func(toMs int64, texts ...string) model.CallsQuery {
+		q := model.CallsQuery{FromMs: 0, ToMs: toMs}
+		for _, text := range texts {
+			c, err := model.ParseCondition(text)
+			require.NoError(t, err)
+			q.Filters = append(q.Filters, c)
+		}
+		return q
+	}
+
+	for _, text := range []string{"namespace=prod", "service in billing,orders", "pod=billing-1"} {
+		assert.Nil(t, s.guardSpan(query(7*hour, text), wide, podLimit), "%s narrows like pod", text)
+		assert.NotNil(t, s.guardSpan(query(400*day, text), wide, podLimit), "%s is capped like pod", text)
+	}
+	for _, text := range []string{"request_id=abc", "user.tenant=acme", "service!=billing", "duration<1s", "error=false"} {
+		rej := s.guardSpan(query(7*hour, text), wide, podLimit)
+		assert.NotNil(t, rej, "%s prunes no file", text)
+	}
+	assert.Nil(t, s.guardSpan(query(7*hour, "duration>2s"), wide, podLimit), "a lower duration bound prunes classes")
+
+	rej := s.guardSpan(query(7*hour, "request_id=abc"), wide, podLimit)
+	require.NotNil(t, rej)
+	assert.Contains(t, rej.SuggestedFilters, "service")
+	rej = s.guardSpan(query(7*hour, "service!=billing"), wide, podLimit)
+	require.NotNil(t, rej)
+	assert.Contains(t, rej.SuggestedFilters, "namespace", "a negation is not an identity filter")
 }
 
 func TestGuardSpanOverflow(t *testing.T) {
