@@ -1,21 +1,30 @@
-import { Table } from 'antd';
-import type { TableColumnType } from 'antd';
-import { useMemo } from 'react';
+import { ConfigProvider, Table, Typography } from 'antd';
+import type { TableColumnType, TableProps } from 'antd';
+import { useMemo, useState } from 'react';
 import type { ReactNode, ThHTMLAttributes } from 'react';
 
 import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
 import { useZone } from '../ui/timezone';
 import { useElementHeight } from '../ui/use-element-height';
+import { ColumnChooser } from './column-chooser';
 import type { ColumnPrefs } from './column-prefs';
 import { buildCallColumns } from './columns';
-import type { ColumnHandlers } from './columns';
+import type { ColumnHandlers, PickFilterField } from './columns';
 import styles from './calls-table.module.css';
 
 // AntD 6 Table with the built-in virtual scroller: keyset pages bound the
 // loaded row count, so the DOM never holds more than the fetched pages and
 // the virtualiser windows those. Header drag handles resize columns — AntD 6
 // has no built-in column resize.
+
+// The mockup's density: 28 px rows (20 px of text plus 4 px above and below)
+// and 12 px cell padding at the sides. The compact tags are in the CSS module.
+const DENSE_TABLE_THEME = { components: { Table: { cellPaddingBlockSM: 4, cellPaddingInlineSM: 12 } } };
+
+const CHOOSER_COLUMN_WIDTH = 40;
+
+type CallsTableChange = NonNullable<TableProps<CallJSON>['onChange']>;
 
 interface ResizableCellProps extends ThHTMLAttributes<HTMLTableCellElement> {
   'data-col-key'?: string;
@@ -56,20 +65,38 @@ export interface CallsTableProps {
   prefs: ColumnPrefs;
   onPrefsChange: (prefs: ColumnPrefs) => void;
   handlers?: ColumnHandlers;
+  /**
+   * Called when the user clicks a row's pod or trace ID, to filter the calls by that value. Without it, the pod and
+   * trace ID cells are plain text.
+   */
+  onPickFilter?: (field: PickFilterField, value: string) => void;
   /** Off in jsdom tests: the virtualiser needs real element sizes. */
   virtual?: boolean;
+  /** The start of the footer line, such as "Load more" and the row count; the table adds its own sort note. */
   footer?: ReactNode;
 }
 
-const HEADER_AND_FOOTER_PX = 39 + 48;
+// The header row holds the 24 px chooser button; the footer holds "Load more".
+const HEADER_AND_FOOTER_PX = 33 + 48;
 
-export function CallsTable({ rows, loading, prefs, onPrefsChange, handlers, virtual = true, footer }: CallsTableProps) {
+export function CallsTable({
+  rows,
+  loading,
+  prefs,
+  onPrefsChange,
+  handlers,
+  onPickFilter,
+  virtual = true,
+  footer,
+}: CallsTableProps) {
   const [containerRef, containerHeight] = useElementHeight<HTMLDivElement>();
   const zone = useZone();
+  // A column sort reorders the loaded rows only (09 §2.3), so the footer says so while one is on.
+  const [columnSorted, setColumnSorted] = useState(false);
 
   const columns = useMemo<TableColumnType<CallJSON>[]>(() => {
-    const defs = new Map(buildCallColumns(handlers ?? {}, zone).map((d) => [d.key, d]));
-    return prefs.order
+    const defs = new Map(buildCallColumns({ ...handlers, onPickFilter }, zone).map((d) => [d.key, d]));
+    const dataColumns: TableColumnType<CallJSON>[] = prefs.order
       .filter((key) => !prefs.hidden.includes(key))
       .map((key) => defs.get(key))
       .filter((def) => def !== undefined)
@@ -81,7 +108,7 @@ export function CallsTable({ rows, loading, prefs, onPrefsChange, handlers, virt
         ellipsis: true,
         sorter: def.compare,
         // Cross-range ranking is 08 R2; make the local scope explicit.
-        showSorterTooltip: def.compare === undefined ? undefined : { title: 'Sorts the loaded pages only' },
+        showSorterTooltip: def.compare === undefined ? undefined : { title: `Sort the loaded rows by ${def.title}` },
         render: (_: unknown, call: CallJSON) => def.render(call),
         onHeaderCell: () =>
           ({
@@ -91,24 +118,50 @@ export function CallsTable({ rows, loading, prefs, onPrefsChange, handlers, virt
               onPrefsChange({ ...prefs, widths: { ...prefs.widths, [key]: width } }),
           }) as ResizableCellProps,
       }));
-  }, [prefs, handlers, onPrefsChange, zone]);
+    return [
+      ...dataColumns,
+      {
+        key: 'columnChooser',
+        title: <ColumnChooser prefs={prefs} onPrefsChange={onPrefsChange} />,
+        width: CHOOSER_COLUMN_WIDTH,
+        fixed: 'right',
+        align: 'center',
+        render: () => null,
+      },
+    ];
+  }, [prefs, handlers, onPickFilter, onPrefsChange, zone]);
 
   const totalWidth = columns.reduce((sum, c) => sum + (typeof c.width === 'number' ? c.width : 120), 0);
 
+  const onChange: CallsTableChange = (_pagination, _filters, sorter) => {
+    setColumnSorted((Array.isArray(sorter) ? sorter : [sorter]).some((s) => s.order != null));
+  };
+
+  const footerLine =
+    footer === undefined && !columnSorted ? undefined : (
+      <div className={styles.footer}>
+        {footer}
+        {columnSorted ? <Typography.Text type="secondary">Column sort applies to the loaded rows only</Typography.Text> : null}
+      </div>
+    );
+
   return (
     <div ref={containerRef} className={styles.tableContainer}>
-      <Table<CallJSON>
-        size="small"
-        rowKey={(c) => pkToPath(c.pk)}
-        columns={columns}
-        dataSource={rows}
-        loading={loading ? { spinning: true, description: 'Querying hot replicas + cold tier.' } : false}
-        pagination={false}
-        virtual={virtual}
-        scroll={virtual ? { x: totalWidth, y: Math.max(160, containerHeight - HEADER_AND_FOOTER_PX) } : { x: totalWidth }}
-        components={{ header: { cell: ResizableHeaderCell } }}
-        footer={footer === undefined ? undefined : () => footer}
-      />
+      <ConfigProvider theme={DENSE_TABLE_THEME}>
+        <Table<CallJSON>
+          size="small"
+          rowKey={(c) => pkToPath(c.pk)}
+          columns={columns}
+          dataSource={rows}
+          loading={loading ? { spinning: true, description: 'Querying hot replicas + cold tier.' } : false}
+          pagination={false}
+          virtual={virtual}
+          scroll={virtual ? { x: totalWidth, y: Math.max(160, containerHeight - HEADER_AND_FOOTER_PX) } : { x: totalWidth }}
+          components={{ header: { cell: ResizableHeaderCell } }}
+          onChange={onChange}
+          footer={footerLine === undefined ? undefined : () => footerLine}
+        />
+      </ConfigProvider>
     </div>
   );
 }
