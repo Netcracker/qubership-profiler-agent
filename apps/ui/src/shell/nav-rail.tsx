@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router';
 
@@ -7,15 +7,23 @@ import styles from './nav-rail.module.css';
 export interface Screen {
   path: string;
   label: string;
+  /** The screen name in the header, when it differs from the rail label. */
+  title?: string;
+  /**
+   * Screens with the same value read the same query-string scheme, so a switch
+   * between them keeps the search string.
+   */
+  urlScheme: 'calls';
   icon: ReactNode;
 }
 
 /** The screens the rail links to, in rail order. The header reads the labels. */
 export const SCREENS: readonly Screen[] = [
-  { path: '/calls', label: 'Calls', icon: <path d="M2 4h12M2 8h12M2 12h8" /> },
+  { path: '/calls', label: 'Calls', urlScheme: 'calls', icon: <path d="M2 4h12M2 8h12M2 12h8" /> },
   {
     path: '/pods',
     label: 'Pods Info',
+    urlScheme: 'calls',
     icon: (
       <>
         <path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z" />
@@ -51,6 +59,17 @@ export function NavRail() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(loadCollapsed);
 
+  // The search string each URL scheme last had. A link to a screen of another
+  // scheme restores that scheme's own string, so a visit to a screen of
+  // another scheme does not cost Calls its window and filters.
+  const current = SCREENS.find((screen) => location.pathname.startsWith(screen.path))?.urlScheme;
+  const lastSearch = useRef(new Map<Screen['urlScheme'], string>());
+  useEffect(() => {
+    if (current !== undefined) lastSearch.current.set(current, location.search);
+  }, [current, location.search]);
+  const searchFor = (screen: Screen): string =>
+    screen.urlScheme === current ? location.search : (lastSearch.current.get(screen.urlScheme) ?? '');
+
   const toggle = (): void => {
     const next = !collapsed;
     setCollapsed(next);
@@ -81,7 +100,7 @@ export function NavRail() {
           key={screen.path}
           // The search string carries the window and selection (09 §6); keep
           // it when switching screens so the view survives.
-          to={{ pathname: screen.path, search: location.search }}
+          to={{ pathname: screen.path, search: searchFor(screen) }}
           title={screen.label}
           aria-label={screen.label}
           className={({ isActive }) => `${styles.link}${isActive ? ` ${styles.active}` : ''}`}

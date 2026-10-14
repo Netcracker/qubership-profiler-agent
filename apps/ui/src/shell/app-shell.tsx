@@ -28,7 +28,7 @@ export function AppShell() {
           <path d="M4 19V9M9 19V5M14 19v-7M19 19v-11" />
         </svg>
         <div className={styles.product}>Profiler</div>
-        {screen === undefined ? null : <div className={styles.screen}>{screen.label}</div>}
+        {screen === undefined ? null : <div className={styles.screen}>{screen.title ?? screen.label}</div>}
         <div className={styles.controls}>
           <div ref={setSlot} className={styles.slot} />
           <span className={styles.divider} />
