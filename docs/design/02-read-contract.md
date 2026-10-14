@@ -285,10 +285,11 @@ reads `filter_capabilities` instead of probing.
 
 | Stage | Operators and fields |
 |---|---|
-| A | `duration` with `>`, `>=`, `<`, `<=`, `between`; `namespace`, `service`, `pod`, and `retention_class` with `=` and `in`; `error` with `=`; `trace_id`, `request_id`, and params with `=` |
-| B | Every other operator in the table of §2.3.3; the fields `method`, `class`, and `endpoint`; the values `None` and `Any` |
+| A | `duration` with `>`, `>=`, `<`, `<=`, `between`; `namespace`, `service`, `pod`, and `retention_class` with `=` and `in`; `method` with `=~`; `error` with `=`; `trace_id`, `request_id`, and params with `=` |
+| B | Every other operator in the table of §2.3.3; the fields `class` and `endpoint`; the values `None` and `Any` |
 
-The legacy `method` parameter works in stage A although `method` as a `filter` field does not.
+`method` with `=~` is in stage A because it costs the same row scan as the legacy `method` substring match, and the
+UI's filter bar turns a typed word into `method=~<word>`.
 
 `GET /api/v1/config` reports what the build implements:
 
@@ -303,7 +304,8 @@ The legacy `method` parameter works in stage A although `method` as a `filter` f
       "error": ["="],
       "retention_class": ["=", "in"],
       "trace_id": ["="],
-      "request_id": ["="]
+      "request_id": ["="],
+      "method": ["=~"]
     },
     "param_operators": ["="],
     "special_values": [],
