@@ -18,7 +18,8 @@ import type { ColumnPrefs } from '../calls/column-prefs';
 import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
 import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
-import { isIdleMethod } from '../calls/idle-tags';
+import type { PresetToken } from '../calls/filter-bar/filter-bar';
+import { HIDE_SYSTEM_TOKEN, isIdleMethod } from '../calls/idle-tags';
 import { QueryControls, SortBy } from '../calls/query-controls';
 import { DEFAULT_ORDER, orderLabel, serverCanOrder, sortCalls } from '../calls/sort-order';
 import type { CallsOrder } from '../calls/sort-order';
@@ -94,6 +95,12 @@ export function CallsPage() {
     [draft.conditions, namespaces],
   );
   const tokenReason = useCallback((c: Condition) => draftReasons.get(c) ?? null, [draftReasons]);
+
+  // "Hide system/proxy" shows in the bar as a token of the draft: the switch adds and removes it, and so do its ×
+  // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2).
+  const presets: PresetToken[] = draft.hideSystem
+    ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
+    : [];
 
   const serverOrdered = serverCanOrder(search.order);
   const rawFilter: CallsFilter | null = useMemo(() => {
@@ -191,20 +198,21 @@ export function CallsPage() {
               <div className={styles.bar}>
                 <FilterBar
                   conditions={draft.conditions}
-                  onChange={(conditions) => setDraft({ ...draft, conditions })}
+                  onChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
+                  presets={presets}
                   supported={unsupportedReason}
                   tokenReason={tokenReason}
                   values={values}
                   onRun={run}
                 />
               </div>
-              <SortBy value={draft.order} onChange={(order) => setDraft({ ...draft, order })} />
+              <SortBy value={draft.order} onChange={(order) => setDraft((d) => ({ ...d, order }))} />
             </div>
             <QueryControls
               conditions={draft.conditions}
-              onConditionsChange={(conditions) => setDraft({ ...draft, conditions })}
+              onConditionsChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
               hideSystem={draft.hideSystem}
-              onHideSystemChange={(hideSystem) => setDraft({ ...draft, hideSystem })}
+              onHideSystemChange={(hideSystem) => setDraft((d) => ({ ...d, hideSystem }))}
               dirty={dirty}
               running={state.kind === 'loading'}
               disabled={search.fromMs === null || search.toMs === null}

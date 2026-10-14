@@ -219,6 +219,68 @@ describe('CallsPage', () => {
     }
   });
 
+  describe('Hide system/proxy', () => {
+    const tokenRemove = () => screen.queryByRole('button', { name: 'Remove the filter method !~ system/proxy' });
+    const hideSwitch = () => screen.getByRole('switch', { name: 'Hide system/proxy' });
+
+    it('shows the switch as a token, and the switch adds it to the draft', async () => {
+      const calls = recordCalls();
+      try {
+        renderCallsPage(window15m());
+        await rowsLoaded();
+        expect(tokenRemove()).toBeNull();
+        const before = calls.urls.length;
+
+        await userEvent.click(hideSwitch());
+        expect(tokenRemove()).not.toBeNull();
+        expect(tokenRemove()!.parentElement).toHaveAttribute('title', expect.stringMatching(/in the browser/));
+        expect(screen.getByText(/Filters changed/)).toBeInTheDocument();
+        expect(screen.getByTestId('location')).not.toHaveTextContent('hide_system');
+        expect(calls.urls.length).toBe(before);
+
+        await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+        await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('hide_system=1'));
+        // The flag stays a UI flag: nothing about it reaches /calls.
+        await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+        expect([...calls.urls.at(-1)!.searchParams.keys()]).not.toContain('hide_system');
+        expect(screen.queryByText(/Filters changed/)).not.toBeInTheDocument();
+      } finally {
+        calls.stop();
+      }
+    });
+
+    it('turns the switch off when the token is removed with its × or Backspace', async () => {
+      renderCallsPage(`${window15m()}&hide_system=1`);
+      await rowsLoaded();
+      expect(hideSwitch()).toBeChecked();
+      await userEvent.click(tokenRemove()!);
+      expect(hideSwitch()).not.toBeChecked();
+      expect(tokenRemove()).toBeNull();
+
+      await userEvent.click(hideSwitch());
+      expect(tokenRemove()).not.toBeNull();
+      await userEvent.click(filterBar());
+      await userEvent.keyboard('{Backspace}');
+      expect(hideSwitch()).not.toBeChecked();
+      expect(tokenRemove()).toBeNull();
+
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('hide_system'));
+    });
+
+    it('hides the system rows of the loaded pages in the browser', async () => {
+      renderCallsPage(`${window15m()}&hide_system=1`);
+      await rowsLoaded();
+      await screen.findByText(/hidden as system\/proxy/);
+      expect(screen.queryByText(/QuartzSchedulerThread|JobStoreSupport/)).toBeNull();
+
+      await userEvent.click(tokenRemove()!);
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getAllByText(/QuartzSchedulerThread|JobStoreSupport/).length).toBeGreaterThan(0));
+      expect(screen.queryByText(/hidden as system\/proxy/)).toBeNull();
+    });
+  });
+
   it('sorts the loaded rows in the browser for an order the backend lacks', async () => {
     const calls = recordCalls();
     try {
