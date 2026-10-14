@@ -247,6 +247,8 @@ row, which ancestor lines run past it, and the row turns that into one 18 px cel
 | Legend | The two parts of the share bar: self time, and time in children. |
 | Tree lines | Switch, on by default. Off hides the connectors and keeps the indent. |
 | Row lines | Switch, on by default. Off hides the line between rows. |
+| Expand all | A button with a plus-square icon. Opens every node, level by level from the root, up to the 20,000-row budget (07 §5.4). Pass-through chains stay skipped. A tree past the budget opens only as far as the budget allows, and a message says so. |
+| Collapse all | A button with a minus-square icon. Closes every node under the root, so the root's children stay in view. |
 | Help | A popover that takes one example row apart and explains the colors, the bar, the badges, parameter rows, the three-dot menu, and Ctrl+hover. |
 
 The two switches are stored in `localStorage`. They are a reader's taste and not part of a view, so they are not in

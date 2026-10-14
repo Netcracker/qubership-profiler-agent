@@ -5,7 +5,7 @@
   height: 100%;
 }
 
-/* The tab's own controls: search, the bar's legend, the two switches, and Help. */
+/* The tab's own controls: search, the bar's legend, the two switches, Expand all, Collapse all, and Help. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
