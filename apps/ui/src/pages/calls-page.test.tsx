@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -24,21 +25,24 @@ function Location() {
   return <div data-testid="location">{decodeURIComponent(location.search)}</div>;
 }
 
+// Wrapped in AntdApp, as in app.tsx: the page shows its toast through the App.
 function renderCallsPage(query: string) {
   return render(
-    <MemoryRouter initialEntries={[`/calls${query === '' ? '' : `?${query}`}`]}>
-      <Routes>
-        <Route
-          path="/calls"
-          element={
-            <>
-              <CallsPage />
-              <Location />
-            </>
-          }
-        />
-      </Routes>
-    </MemoryRouter>,
+    <AntdApp>
+      <MemoryRouter initialEntries={[`/calls${query === '' ? '' : `?${query}`}`]}>
+        <Routes>
+          <Route
+            path="/calls"
+            element={
+              <>
+                <CallsPage />
+                <Location />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </AntdApp>,
   );
 }
 

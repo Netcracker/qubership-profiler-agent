@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Empty, Layout, Space, Table, Typography, message } from 'antd';
+import { Alert, App, Badge, Button, Empty, Layout, Space, Table, Typography } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -80,6 +80,9 @@ interface PodRow {
 }
 
 export function PodsPage() {
+  // The App's toast renders in the app's own React tree and unmounts with it.
+  // The static `message` mounts a separate root that nothing unmounts.
+  const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   // One `now` per URL change anchors relative tokens; the memo freezes it.
   const search = useMemo(() => parseCallsSearch(searchParams, Date.now()), [searchParams]);
