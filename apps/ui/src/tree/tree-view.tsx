@@ -1,5 +1,4 @@
-import { EyeOutlined } from '@ant-design/icons';
-import { QuestionCircleOutlined } from '@ant-design/icons';
+import { EyeOutlined, MinusSquareOutlined, PlusSquareOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Dropdown, Input, Modal, Popover, Switch, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -19,7 +18,7 @@ import { searchTree } from './search';
 import { stacktraceText } from './stacktrace';
 import { TreeHelp } from './tree-help';
 import { VirtualList } from './virtual-list';
-import { buildRows, expandLarge, guideCells, initialExpansion } from './visible-rows';
+import { buildRows, expandAll, expandLarge, guideCells, initialExpansion } from './visible-rows';
 import type { NodeRow, ParamRow, TreeRow } from './visible-rows';
 import styles from './tree-view.module.css';
 
@@ -328,6 +327,23 @@ export function TreeView({
     });
   };
 
+  /** Opens the whole tree, breadth first, as far as the row budget allows. */
+  const expandEverything = (): void => {
+    const result = expandAll(model.root, ROW_BUDGET, revealedChains, computeChildren);
+    setExpanded(result.expanded);
+    if (result.capped) {
+      void message.warning(
+        `The tree has more than ${formatCount(ROW_BUDGET)} rows, so it is expanded only that far, level by level. ` +
+          'Expand the remaining branches by hand.',
+      );
+    }
+  };
+
+  /** Closes everything under the root; the root's children stay in view. */
+  const collapseEverything = (): void => {
+    setExpanded(new Set([model.root.id]));
+  };
+
   const rootDurationMs = model.root.durationMs;
 
   /** The indent of a row. The cells keep their width with the lines switched off. */
@@ -609,6 +625,17 @@ export function TreeView({
           <Switch size="small" checked={prefs.rowLines} onChange={(on) => setTreePref('rowLines', on)} />
           Row lines
         </label>
+        <Button
+          size="small"
+          icon={<PlusSquareOutlined />}
+          title={`Expand every node, up to ${formatCount(ROW_BUDGET)} rows`}
+          onClick={expandEverything}
+        >
+          Expand all
+        </Button>
+        <Button size="small" icon={<MinusSquareOutlined />} title="Collapse every node under the root" onClick={collapseEverything}>
+          Collapse all
+        </Button>
         <Popover trigger="click" placement="bottomRight" content={<TreeHelp />}>
           <Button size="small" icon={<QuestionCircleOutlined />} title="How to read this page">
             Help

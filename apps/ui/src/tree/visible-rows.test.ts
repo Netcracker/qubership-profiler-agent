@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { TreeWire } from '../msgpack/tree-wire';
 import { buildTreeModel } from './model';
 import { searchTree } from './search';
-import { buildRows, expandLarge, guideCells, initialExpansion } from './visible-rows';
+import { buildRows, expandAll, expandLarge, guideCells, initialExpansion } from './visible-rows';
 import type { TreeRow } from './visible-rows';
 
 // Fixture (durations add up: 800 + 100 + 50 + self 120 = 1070):
@@ -180,6 +180,56 @@ describe('initialExpansion + buildRows', () => {
   it('caps the row budget instead of expanding a pathological tree', () => {
     const { capped } = initialExpansion(model, 3);
     expect(capped).toBe(true);
+  });
+});
+
+describe('expandAll', () => {
+  const model = buildTreeModel(WIRE);
+  const noState = { revealedChains: new Set<number>(), expandedParams: new Set<string>() };
+
+  it('opens every node, also the subtrees that start collapsed, and keeps chains skipped', () => {
+    const { expanded, capped, rows } = expandAll(model.root, 10_000);
+    expect(capped).toBe(false);
+    const built = buildRows(model, { ...noState, expanded });
+    expect(names(model, built)).toEqual([
+      'a.Root.run@0',
+      'param:select 1@1',
+      'param:::other@1',
+      'a.Big.pass@1', // still skips mid
+      'a.Leaf.work@2',
+      'a.Small.other@1',
+      'a.Child.bit@2',
+      'a.Tiny.rare@1',
+      'a.Child.bit@2',
+    ]);
+    // The count it reports is the count the tree draws.
+    expect(rows).toBe(built.length);
+  });
+
+  it('opens a revealed chain level by level', () => {
+    const big = model.root.children[0]!;
+    const { expanded } = expandAll(model.root, 10_000, new Set([big.id]));
+    const built = buildRows(model, { ...noState, revealedChains: new Set([big.id]), expanded });
+    expect(names(model, built)).toContain('a.Mid.pass@2');
+    expect(names(model, built)).toContain('a.Leaf.work@3');
+  });
+
+  it('stops breadth first at the row budget and never draws past it', () => {
+    // Root (1) + its 2 params and 3 children = 6 rows; Big adds 1 more = 7;
+    // Small would make 8.
+    const { expanded, capped, rows } = expandAll(model.root, 7);
+    expect(capped).toBe(true);
+    expect(rows).toBe(7);
+    const built = buildRows(model, { ...noState, expanded });
+    expect(built.length).toBe(7);
+    expect(names(model, built)).toContain('a.Leaf.work@2');
+    expect(names(model, built)).not.toContain('a.Child.bit@2');
+  });
+
+  it('keeps the root open when its own rows exceed the budget', () => {
+    const { expanded, capped } = expandAll(model.root, 3);
+    expect(capped).toBe(true);
+    expect([...expanded]).toEqual([model.root.id]);
   });
 });
 

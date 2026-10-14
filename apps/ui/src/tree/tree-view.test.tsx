@@ -405,3 +405,86 @@ describe('TreeView parameter value viewer', () => {
     expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(LONG_SQL_TEXT);
   });
 });
+
+describe('TreeView Expand all and Collapse all', () => {
+  afterEach(cleanup);
+
+  const leaf = (methodIdx: number, durationMs: number): TreeNodeWire => ({
+    methodIdx,
+    durationMs,
+    selfDurationMs: durationMs,
+    suspensionMs: 0,
+    selfSuspensionMs: 0,
+    executions: 1,
+    selfExecutions: 1,
+  });
+  const branch = (methodIdx: number, durationMs: number, children: TreeNodeWire[]): TreeNodeWire => ({
+    ...leaf(methodIdx, durationMs),
+    selfDurationMs: durationMs - children.reduce((sum, c) => sum + c.durationMs, 0),
+    executions: 1 + children.reduce((sum, c) => sum + c.executions, 0),
+    children,
+  });
+
+  // Root(1000) ── Big(900) ── BigChild(400)
+  //            └─ Small(50) ── SmallChild(20)   ← ≤10% of the call: starts collapsed
+  const NAMES = ['Root.run', 'Big.work', 'BigChild.bit', 'Small.work', 'SmallChild.bit'];
+  const methods = NAMES.map((name) => `void a.${name}() (${name.split('.')[0]}.java:1) [a.jar]`);
+  const nested = (): TreeWire => ({
+    v: 1,
+    methods,
+    params: [],
+    root: branch(0, 1000, [branch(1, 900, [leaf(2, 400)]), branch(3, 50, [leaf(4, 20)])]),
+  });
+  const shown = (i: number): boolean => screen.queryByTitle(methods[i]!) !== null;
+
+  /** Rows the list holds, on screen or not: its spacer is one row height per row. */
+  const rowCount = (container: HTMLElement): number => {
+    const spacer = container.querySelector<HTMLElement>('[style*="height"] > [style*="height"]')!;
+    return parseInt(spacer.style.height, 10) / 28;
+  };
+
+  it('expands every node and collapses everything under the root', () => {
+    render(
+      <AntdApp>
+        <TreeView model={buildTreeModel(nested())} />
+      </AntdApp>,
+    );
+    expect(shown(4)).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Expand all/ }));
+    expect([0, 1, 2, 3, 4].every(shown)).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: /Collapse all/ }));
+    expect(shown(1)).toBe(true);
+    expect(shown(3)).toBe(true);
+    expect(shown(2)).toBe(false);
+    expect(shown(4)).toBe(false);
+  });
+
+  it('stops at the 20,000-row budget and says so', async () => {
+    // 200 children of 200 leaves each: 40,201 rows when fully open. Breadth
+    // first, the root and 98 children fit: 1 + 200 + 98 × 200 = 19,801 rows,
+    // and the 99th would make 20,001.
+    const wide: TreeWire = {
+      v: 1,
+      methods: ['void a.Root.run() (Root.java:1) [a.jar]', 'void a.Mid.run() (Mid.java:1) [a.jar]', 'void a.Leaf.run() (Leaf.java:1) [a.jar]'],
+      params: [],
+      root: branch(
+        0,
+        40_000,
+        Array.from({ length: 200 }, () => branch(1, 200, Array.from({ length: 200 }, () => leaf(2, 1)))),
+      ),
+    };
+    const { container } = render(
+      <AntdApp>
+        <TreeView model={buildTreeModel(wide)} />
+      </AntdApp>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Expand all/ }));
+    expect(rowCount(container)).toBe(19_801);
+    expect(await screen.findByText(/The tree has more than 20,000 rows/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Collapse all/ }));
+    expect(rowCount(container)).toBe(201);
+  });
+});

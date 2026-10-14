@@ -126,6 +126,44 @@ export function expandLarge(
   return { expanded, capped };
 }
 
+/**
+ * The toolbar's "Expand all": opens every node, level by level from the root,
+ * until the next node would push the visible rows past `rowBudget`. Breadth
+ * first, so a capped tree is open evenly down to some depth rather than down
+ * one deep branch. A skipped chain stays skipped unless `revealedChains` holds
+ * it, the way the tree draws it. `computeChildren` builds a lazy node's
+ * children before the walk reads them.
+ */
+export function expandAll(
+  root: TreeNode,
+  rowBudget: number,
+  revealedChains: ReadonlySet<number> = new Set(),
+  computeChildren?: (node: TreeNode) => void,
+): { expanded: Set<number>; capped: boolean; rows: number } {
+  const expanded = new Set<number>();
+  let rows = 1;
+  const queue: TreeNode[] = [root];
+  for (let i = 0; i < queue.length; i++) {
+    const x = queue[i]!;
+    if (x.notComputed === true) computeChildren?.(x);
+    const display = chainEnd(x, revealedChains.has(x.id) ? 0 : x.collapseLevels);
+    const added = x.params.reduce((sum, p) => sum + p.groups.length, 0) + display.children.length;
+    if (added === 0) continue;
+    if (rows + added > rowBudget) {
+      // The root stays open whatever its width, as it does on first render.
+      if (i === 0) {
+        expanded.add(root.id);
+        rows += added;
+      }
+      return { expanded, capped: true, rows };
+    }
+    expanded.add(x.id);
+    rows += added;
+    queue.push(...display.children);
+  }
+  return { expanded, capped: false, rows };
+}
+
 export function initialExpansion(model: TreeModel, rowBudget: number): { expanded: Set<number>; capped: boolean } {
   return expandLarge(model.root, rowBudget);
 }
