@@ -32,9 +32,11 @@ they share are specified once in §5.
 | Navigation rail | Links to `Calls` and `Pods Info`. 196 px open, 52 px collapsed to icons; the state is kept in `localStorage`. Switching screens keeps the query string, so the time range and the filters carry over. Hidden on the tree route. |
 | Content | The active screen. No screen has a filter sidebar: filters live in one bar above the content (§2.1). |
 
-**Theme.** The UI has a light and a dark theme. The default follows the browser's `prefers-color-scheme`. The
-switch in the header stores the user's choice in `localStorage`, and the stored choice then wins on every screen.
-The tree route has no shell header, so its own header carries the switch.
+**Theme.** The UI has a light and a dark theme. The switch in the header is a three-way choice with icons: Light,
+Dark, and Auto. Auto is the default and follows the browser's `prefers-color-scheme`, live: an OS change applies
+while the page is open. Light and Dark are stored in `localStorage` (`profiler.theme`) and win on every screen;
+Auto removes the stored value. The tree route has no shell header, so its own header carries the switch. An HTML
+export saves the mode in effect, so a copy exported under Auto opens in the mode Auto had resolved to.
 
 **Fonts.** Inter for text at a 13 px base size, and JetBrains Mono as the fixed-width font for code and, through
 the `.pf-mono` class, for numbers. Both are bundled as local `woff2` files: the UI is embedded in the query binary

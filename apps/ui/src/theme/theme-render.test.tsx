@@ -10,7 +10,7 @@ import { callsPage } from '../mocks/synthetic';
 import { CallsPage } from '../pages/calls-page';
 import { PodsPage } from '../pages/pods-page';
 import { TreePage } from '../pages/tree-page';
-import { setThemeMode, syncThemeMode } from '../ui/theme-mode';
+import { setThemePreference, syncThemeMode } from '../ui/theme-mode';
 import type { ThemeMode } from '../ui/theme-mode';
 import { darkPalette, lightPalette } from './profiler-theme';
 import { ThemeProvider } from './theme-provider';
@@ -65,7 +65,7 @@ async function expectRows(): Promise<void> {
 
 describe.each<ThemeMode>(['light', 'dark'])('pages in the %s theme', (mode) => {
   it('renders the calls page', async () => {
-    setThemeMode(mode);
+    setThemePreference(mode);
     const to = Date.now();
     renderThemed(`/calls?from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`, '/calls', <CallsPage />);
     await expectRows();
@@ -73,7 +73,7 @@ describe.each<ThemeMode>(['light', 'dark'])('pages in the %s theme', (mode) => {
   });
 
   it('renders the pods page', async () => {
-    setThemeMode(mode);
+    setThemePreference(mode);
     const to = Date.now();
     renderThemed(`/pods?from=${to - 15 * 60 * 1000}&to=${to}`, '/pods', <PodsPage />);
     await expectRows();
@@ -81,7 +81,7 @@ describe.each<ThemeMode>(['light', 'dark'])('pages in the %s theme', (mode) => {
   });
 
   it('renders the tree page', async () => {
-    setThemeMode(mode);
+    setThemePreference(mode);
     const toMs = Date.now();
     const query = {
       fromMs: toMs - 30 * 60 * 1000,

@@ -61,7 +61,7 @@ describe('AppShell', () => {
     const header = screen.getByRole('banner');
     expect(within(header).getByText('Profiler')).toBeInTheDocument();
     expect(within(header).getByText('Pods Info')).toBeInTheDocument();
-    expect(within(header).getByRole('button', { name: /^Switch to (dark|light) theme$/ })).toBeInTheDocument();
+    expect(within(header).getByRole('radiogroup', { name: 'Color theme' })).toBeInTheDocument();
   });
 
   it("renders a screen's controls in the header slot", () => {
