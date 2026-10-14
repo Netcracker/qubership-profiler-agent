@@ -172,4 +172,56 @@ describe('FilterBar', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
     expect(last()).toEqual([]);
   });
+
+  it('renders a token with a note as applied in the browser', () => {
+    setup({ initial: [{ field: 'trace_id', op: '=', values: ['abc'] }], tokenNote: () => 'Filters the loaded rows.' });
+    const token = screen.getByRole('button', { name: 'Remove the filter trace_id = abc' }).parentElement!;
+    expect(token).toHaveAttribute('data-applied', 'browser');
+    expect(token).toHaveAttribute('title', 'Filters the loaded rows.');
+  });
+
+  describe('a preset token', () => {
+    const preset = (onRemove: () => void) => ({
+      key: 'hide_system',
+      field: 'method',
+      op: '!~',
+      value: 'system/proxy',
+      title: 'Hides system calls.',
+      onRemove,
+    });
+
+    it('comes before the conditions and is removed with its ×', async () => {
+      const onRemove = vi.fn();
+      setup({ initial: [{ field: 'error', op: '=', values: ['true'] }], presets: [preset(onRemove)] });
+      const remove = screen.getByRole('button', { name: 'Remove the filter method !~ system/proxy' });
+      expect(remove.parentElement).toHaveAttribute('title', 'Hides system calls.');
+      expect(remove.parentElement).toHaveAttribute('data-applied', 'browser');
+      const tokens = [...document.querySelectorAll('[data-applied]')].map((t) => t.textContent);
+      expect(tokens).toEqual(['method!~system/proxy', 'error=true']);
+      await userEvent.click(remove);
+      expect(onRemove).toHaveBeenCalledTimes(1);
+    });
+
+    it('is removed with Backspace once no condition is left', async () => {
+      const onRemove = vi.fn();
+      const { input, last } = setup({ initial: [{ field: 'error', op: '=', values: ['true'] }], presets: [preset(onRemove)] });
+      await userEvent.click(input);
+      // The first Backspace steps into the condition, which comes back as a draft with its value.
+      await userEvent.keyboard('{Backspace}');
+      expect(last()).toEqual([]);
+      expect(onRemove).not.toHaveBeenCalled();
+      // Four delete "true", then the operator, the field, and the preset go.
+      await userEvent.keyboard('{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}');
+      expect(onRemove).not.toHaveBeenCalled();
+      await userEvent.keyboard('{Backspace}');
+      expect(onRemove).toHaveBeenCalledTimes(1);
+    });
+
+    it('is removed by "Clear all filters"', async () => {
+      const onRemove = vi.fn();
+      setup({ presets: [preset(onRemove)] });
+      await userEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
+      expect(onRemove).toHaveBeenCalledTimes(1);
+    });
+  });
 });

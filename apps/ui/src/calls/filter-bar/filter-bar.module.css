@@ -84,6 +84,13 @@
   font-weight: 500;
 }
 
+/* A token that filters the loaded rows in the browser, not the query: a dashed outline sets it apart. */
+.tokenLocal {
+  outline: 1px dashed var(--pf-color-faint);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
 /* A condition the backend cannot apply yet: shown, not sent. */
 .tokenOff > span {
   color: var(--pf-color-faint);
