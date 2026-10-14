@@ -241,24 +241,30 @@ category first, then flat-profiles within — so a business operation's share of
 **Call Tree.** Virtualised over the flattened visible nodes; lazy expansion; degenerate-chain collapse; a size guard
 against a pathological blob (07 §5.4).
 
-**Flame graph.** The same merged model as blocks, laid out by a client-side transform
-(`tree/transforms/flame.ts`): one block per node, placed under its parent, with its offset and width as shares of
-the call. Children follow the model's order, from the parent's left edge, so the part of a block with nothing under
-it is the method's self time.
+**Flame graph.** The same merged model as frames, drawn by
+[d3-flame-graph](https://github.com/spiermar/d3-flame-graph) as an SVG icicle with the whole call on top
+(07 §11). A client-side transform (`tree/transforms/flame-data.ts`) turns the model into the library's
+`{name, value, children}` tree: the value is the node's total time, and each datum keeps its model node, so a
+frame maps back to a tree row. Children follow the model's order, from the parent's left edge, so the part of a
+frame with nothing under it is the method's self time. A child is clipped to the time its parent has left, so a
+merged or adjusted tree whose totals disagree still nests.
 
 | Element | Behavior |
 |---------|----------|
-| Block | 26 px high on a 28 px row. It shows `Class.method · duration` when it is at least 40 px wide; its tooltip and accessible name always carry the method, the duration, the share of the call, the self time, and the call count. |
-| Color | By category, in the stronger variant of the badge color (§3.5). A block without a category takes the share bar's light color. The legend lists the categories on screen and `No category`. |
-| Readout | A line above the graph with the numbers of the hovered or focused block, else of the selected one. |
-| Selection | A click selects a block, and a second click clears it. The selection is shared with the Call Tree tab: the tree opens the way to the selected row, through closed nodes and skipped chains, and scrolls to it. Selecting adds no buttons. |
-| Zoom | A double click, or Shift+Enter on a focused block, re-roots the graph on that block. A `Reset to the whole call` link returns. Shares stay shares of the whole call. |
-| Culling | A block under one pixel wide is not drawn, and neither is anything under it. Its space stays reserved, so its siblings do not move. This bounds a row at one block per pixel. |
+| Frame | 28 px rows; a 2 px stroke in the surface color draws the gap between frames. It shows `Class.method · duration` when it is at least 35 px wide (the library's rule); its tooltip and accessible name always carry the method, the duration, the share of the call, the self time, and the call count. |
+| Color | By category, in the stronger variant of the badge color (§3.5). A frame without a category takes the share bar's light color. The colors are theme variables resolved when the graph draws, and the graph redraws on a theme change. The legend lists the categories in the call and `No category`. |
+| Readout | A line above the graph with the numbers of the hovered or focused frame, else of the selected one. |
+| Selection and zoom | A click, or Enter on a focused frame, zooms on the frame and selects its node: the frame spans the graph, the frames above it stay as a faded path back, and a click on one of them zooms out to it. A second click on the selected frame clears the selection and keeps the zoom. A `Reset zoom` link returns to the whole call and keeps the selection. Shares stay shares of the whole call. |
+| Shared selection | The selection is shared with the Call Tree tab. A frame selected here opens the way to its row in the tree, through closed nodes and skipped chains, and scrolls to it. A row selected in the tree zooms the graph on its frame. Selecting adds no buttons. |
+| Width and culling | The graph follows the width of its pane. A frame 1 px wide or narrower is not drawn, and neither is anything under it, which bounds a row at one frame per pixel. |
 
-The flame graph does not skip pass-through chains: a chain is a stack of equally wide blocks, which reads at a
-glance and costs one block per level. Blocks are DOM buttons, not a canvas, so focus, tooltips, and theming come
-from the browser. Measured on synthetic trees at 1200 px: a 2,062-node tree draws 286 blocks, and a 20,000-node
-tree, the row budget, draws 777. A canvas renderer is the fallback if a real tree proves this too slow.
+The flame graph does not skip pass-through chains: a chain is a stack of equally wide frames, which reads at a
+glance and costs one frame per level. The library draws SVG elements, five per frame; the view adds the keyboard
+focus, the accessible names, and the selection ring that the library leaves out. Measured under jsdom on synthetic
+trees at 1200 px: the largest mock tree (2,062 nodes) draws 286 frames, 1,440 elements, in about 0.5 s, and a
+20,000-node tree, the row budget, draws 777 frames, 3,895 elements, in about 1.6 s. jsdom is much slower than a
+browser, so the times bound the order of magnitude only. A canvas renderer is the fallback if a real tree proves
+this too slow.
 
 ## 4. Pods Info
 

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -6,18 +6,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CallJSON } from '../api/types';
 import { treeForCall } from '../mocks/synthetic';
 import type { TreeNodeWire, TreeWire } from '../msgpack/tree-wire';
+import { setThemePreference, syncThemeMode } from '../ui/theme-mode';
 import { FlameView } from './flame-view';
 import { buildTreeModel } from './model';
-import type { TreeModel } from './model';
+import type { TreeModel, TreeNode } from './model';
 import { applyCategories, parseCategoryConfig } from './transforms/categories';
-import { flameLayout } from './transforms/flame';
+import { toFlameData } from './transforms/flame-data';
+import type { FlameDatum } from './transforms/flame-data';
+
+// The view draws with d3-flame-graph, which runs under jsdom: these tests
+// drive the real library. The frame geometry is read from the attributes the
+// library sets at once (a frame's `width` and an entering frame's
+// `transform`), not from the ones it animates (a rect's width).
 
 // Synthetic call (the model sorts children by duration, descending):
 //   Entry(1000, self 100)
 //   ├─ ServiceA(500, self 200)
 //   │   └─ Query.run(300, self 300)
 //   ├─ ServiceB(400, self 400)
-//   └─ Tiny.blip(0 ms)              ← under one pixel: not drawn
+//   └─ Tiny.blip(0 ms)              ← no width: not drawn
 const METHODS = [
   'void e.Entry.handle() (Entry.java:1) [app.jar]',
   'void s.ServiceA.doWork() (ServiceA.java:2) [app.jar]',
@@ -25,6 +32,9 @@ const METHODS = [
   'void s.ServiceB.other() (ServiceB.java:4) [app.jar]',
   'void t.Tiny.blip() (Tiny.java:5) [app.jar]',
 ];
+
+/** The width the view falls back to under jsdom, where elements measure 0. */
+const WIDTH = 1200;
 
 const node = (methodIdx: number, durationMs: number, selfDurationMs: number, children?: TreeNodeWire[]): TreeNodeWire => ({
   methodIdx,
@@ -47,6 +57,16 @@ function fixture(): TreeModel {
   return buildTreeModel(wire);
 }
 
+const byMethod = (model: TreeModel, methodIdx: number): TreeNode => {
+  const found: TreeNode[] = [];
+  const visit = (n: TreeNode): void => {
+    if (n.methodIdx === methodIdx) found.push(n);
+    n.children.forEach(visit);
+  };
+  visit(model.root);
+  return found[0]!;
+};
+
 /** The page's role: it owns the selection that the two tabs share. */
 function Harness({ model, onSelect }: { model: TreeModel; onSelect?: (id: number | null) => void }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -62,111 +82,157 @@ function Harness({ model, onSelect }: { model: TreeModel; onSelect?: (id: number
   );
 }
 
-const block = (name: RegExp): HTMLElement => screen.getByRole('button', { name });
+const frame = (name: RegExp): SVGGElement => screen.getByRole('button', { name }) as unknown as SVGGElement;
+const widthOf = (name: RegExp): number => Number(frame(name).getAttribute('width'));
+const fillOf = (name: RegExp): string | null => frame(name).querySelector('rect')!.getAttribute('fill');
 
 describe('FlameView', () => {
-  afterEach(cleanup);
-
-  it('draws one block per node, sized and placed by its share of the call', () => {
-    render(<Harness model={fixture()} />);
-    const entry = block(/^Entry\.handle · /);
-    expect(entry.style.left).toBe('0%');
-    expect(entry.style.width).toBe('100%');
-    expect(entry.style.top).toBe('0px');
-
-    const serviceA = block(/^ServiceA\.doWork · /);
-    expect(serviceA.style.width).toBe('50%');
-    expect(serviceA.style.top).toBe('28px');
-    // The next sibling starts where the first one ends.
-    const serviceB = block(/^ServiceB\.other · /);
-    expect(serviceB.style.left).toBe('50%');
-    expect(serviceB.style.width).toBe('40%');
-    expect(block(/^Query\.run · /).style.top).toBe('56px');
+  afterEach(() => {
+    cleanup();
+    document.documentElement.style.removeProperty('--pf-color-flame-1');
+    localStorage.clear();
+    syncThemeMode();
   });
 
-  it('does not draw a block under one pixel wide', () => {
+  it('draws one frame per node, the whole call on top, sized by its share of the call', () => {
+    render(<Harness model={fixture()} />);
+    expect(widthOf(/^Entry\.handle · /)).toBe(WIDTH);
+    expect(frame(/^Entry\.handle · /).getAttribute('transform')).toBe('translate(0,0)');
+
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH * 0.5);
+    expect(frame(/^ServiceA\.doWork · /).getAttribute('transform')).toBe('translate(0,28)');
+    // The next sibling starts where the first one ends.
+    expect(widthOf(/^ServiceB\.other · /)).toBe(WIDTH * 0.4);
+    expect(frame(/^ServiceB\.other · /).getAttribute('transform')).toBe(`translate(${WIDTH * 0.5},28)`);
+    expect(frame(/^Query\.run · /).getAttribute('transform')).toBe('translate(0,56)');
+  });
+
+  it('does not draw a frame without width', () => {
     render(<Harness model={fixture()} />);
     expect(screen.queryByRole('button', { name: /^Tiny\.blip/ })).toBeNull();
+    expect(document.querySelectorAll('g.frame')).toHaveLength(4);
   });
 
-  it('describes a block in its accessible name and in the readout on hover', () => {
+  it('describes a frame in its accessible name, its tooltip, and the readout on hover', () => {
     render(<Harness model={fixture()} />);
-    expect(screen.getByText('Hover a block for its numbers. Click one to select it.')).toBeInTheDocument();
-    const serviceA = block(/^ServiceA\.doWork · /);
-    expect(serviceA).toHaveAccessibleName('ServiceA.doWork · 500ms · 50% of the call · self 200ms · ×1');
-    fireEvent.mouseEnter(serviceA);
-    expect(screen.getByText('ServiceA.doWork · 500ms · 50% of the call · self 200ms · ×1')).toBeInTheDocument();
+    expect(screen.getByText('Hover a frame for its numbers. Click one to zoom in on it and select it.')).toBeInTheDocument();
+    const text = 'ServiceA.doWork · 500ms · 50% of the call · self 200ms · ×1';
+    const serviceA = frame(/^ServiceA\.doWork · /);
+    expect(serviceA).toHaveAccessibleName(text);
+    expect(serviceA.querySelector('title')?.textContent).toBe(text);
+
+    fireEvent.mouseOver(serviceA);
+    expect(screen.getByText(text, { selector: 'span' })).toBeInTheDocument();
+    fireEvent.mouseOut(serviceA);
+    expect(screen.queryByText(text, { selector: 'span' })).toBeNull();
   });
 
-  it('selects a block on click and clears the selection on a second click', () => {
+  it('zooms on a click and selects the node; a second click clears the selection', () => {
     const onSelect = vi.fn();
     const model = fixture();
     render(<Harness model={model} onSelect={onSelect} />);
-    const serviceA = model.root.children.find((c) => c.methodIdx === 1)!;
+    const serviceA = byMethod(model, 1);
+    expect(screen.queryByRole('button', { name: 'Reset zoom' })).toBeNull();
 
-    fireEvent.click(block(/^ServiceA\.doWork · /));
+    fireEvent.click(frame(/^ServiceA\.doWork · /));
     expect(onSelect).toHaveBeenLastCalledWith(serviceA.id);
-    expect(block(/^ServiceA\.doWork · /)).toHaveAttribute('aria-pressed', 'true');
-    expect(block(/^ServiceB\.other · /)).toHaveAttribute('aria-pressed', 'false');
+    expect(frame(/^ServiceA\.doWork · /)).toHaveAttribute('aria-pressed', 'true');
+    // The frame now spans the graph, its child scales with it, and its sibling is gone.
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH);
+    expect(widthOf(/^Query\.run · /)).toBe(WIDTH * 0.6);
+    expect(screen.queryByRole('button', { name: /^ServiceB\.other/ })).toBeNull();
+    // The numbers still describe the whole call.
+    expect(frame(/^ServiceA\.doWork · /)).toHaveAccessibleName(/50% of the call/);
+    // The readout falls back to the selection.
+    expect(screen.getByText(/^ServiceA\.doWork · 500ms/, { selector: 'span' })).toBeInTheDocument();
     // Selecting adds no strip of operations.
     expect(screen.queryByRole('button', { name: 'Incoming calls' })).toBeNull();
 
-    fireEvent.click(block(/^ServiceA\.doWork · /));
+    fireEvent.click(frame(/^ServiceA\.doWork · /));
     expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 
-  it('reaches a block with the keyboard and selects it with Enter', async () => {
+  it('returns to the whole call from the reset link and keeps the selection', () => {
+    const onSelect = vi.fn();
+    render(<Harness model={fixture()} onSelect={onSelect} />);
+    fireEvent.click(frame(/^ServiceA\.doWork · /));
+    expect(screen.getByText(/^Zoomed in on/)).toHaveTextContent('Zoomed in on ServiceA.doWork.');
+
+    fireEvent.click(screen.getByRole('button', { name: /Reset zoom/ }));
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH * 0.5);
+    expect(frame(/^ServiceB\.other · /)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Reset zoom/ })).toBeNull();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(frame(/^ServiceA\.doWork · /)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('reaches a frame with the keyboard and zooms on it with Enter', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const model = fixture();
     render(<Harness model={model} onSelect={onSelect} />);
 
     await user.tab();
-    expect(block(/^Entry\.handle · /)).toHaveFocus();
+    expect(frame(/^Entry\.handle · /)).toHaveFocus();
     await user.tab();
-    expect(block(/^ServiceA\.doWork · /)).toHaveFocus();
+    expect(frame(/^ServiceA\.doWork · /)).toHaveFocus();
     // Focus feeds the readout, the way hover does.
-    expect(screen.getByText('ServiceA.doWork · 500ms · 50% of the call · self 200ms · ×1')).toBeInTheDocument();
+    expect(screen.getByText(/^ServiceA\.doWork · 500ms/, { selector: 'span' })).toBeInTheDocument();
 
     await user.keyboard('{Enter}');
-    expect(onSelect).toHaveBeenLastCalledWith(model.root.children.find((c) => c.methodIdx === 1)!.id);
+    expect(onSelect).toHaveBeenLastCalledWith(byMethod(model, 1).id);
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH);
   });
 
-  it('re-roots on a double click and returns to the whole call from the reset link', () => {
-    render(<Harness model={fixture()} />);
-    expect(screen.queryByRole('button', { name: 'Reset to the whole call' })).toBeNull();
-
-    fireEvent.doubleClick(block(/^ServiceA\.doWork · /));
-    // The block now spans the graph on the top row, and its siblings are gone.
-    const serviceA = block(/^ServiceA\.doWork · /);
-    expect(serviceA.style.width).toBe('100%');
-    expect(serviceA.style.top).toBe('0px');
-    expect(serviceA).toHaveAttribute('aria-pressed', 'true');
-    expect(block(/^Query\.run · /).style.width).toBe('60%');
+  it('zooms on a node selected in the Call Tree tab, without selecting again', () => {
+    const onSelect = vi.fn();
+    const model = fixture();
+    const view = render(<FlameView model={model} selectedId={null} onSelect={onSelect} />);
+    view.rerender(<FlameView model={model} selectedId={byMethod(model, 2).id} onSelect={onSelect} />);
+    expect(widthOf(/^Query\.run · /)).toBe(WIDTH);
+    expect(frame(/^Query\.run · /)).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('button', { name: /^ServiceB\.other/ })).toBeNull();
-    // The numbers still describe the whole call.
-    expect(serviceA).toHaveAccessibleName(/50% of the call/);
+    expect(onSelect).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset to the whole call' }));
-    expect(block(/^ServiceA\.doWork · /).style.width).toBe('50%');
-    expect(block(/^ServiceB\.other · /)).toBeInTheDocument();
+    // From one zoom straight to a frame the first one hid.
+    view.rerender(<FlameView model={model} selectedId={byMethod(model, 3).id} onSelect={onSelect} />);
+    expect(widthOf(/^ServiceB\.other · /)).toBe(WIDTH);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('re-roots from the keyboard with Shift+Enter', () => {
-    render(<Harness model={fixture()} />);
-    fireEvent.keyDown(block(/^ServiceA\.doWork · /), { key: 'Enter', shiftKey: true });
-    expect(block(/^ServiceA\.doWork · /).style.width).toBe('100%');
+  it('keeps the zoom when the model is rebuilt', () => {
+    const first = fixture();
+    const view = render(<FlameView model={first} selectedId={null} onSelect={() => undefined} />);
+    fireEvent.click(frame(/^ServiceA\.doWork · /));
+    // Node ids survive a rebuild (Adjust, Setup), so the zoom finds its node again.
+    view.rerender(<FlameView model={fixture()} selectedId={null} onSelect={() => undefined} />);
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH);
+    expect(screen.getByRole('button', { name: /Reset zoom/ })).toBeInTheDocument();
   });
 
-  it('colors blocks by category and lists the categories in the legend', () => {
+  it('colors frames by category and lists the categories in the legend', () => {
     const model = fixture();
     applyCategories(model, parseCategoryConfig('db db.Query.run'));
     render(<Harness model={model} />);
-    expect(block(/^Query\.run · /).style.background).toBe('var(--pf-color-flame-1)');
-    // No inline fill: the stylesheet gives an uncategorized block the plain bar color.
-    expect(block(/^ServiceB\.other · /).style.background).toBe('');
+    // jsdom applies no stylesheet, so the variable stays unresolved and names the choice.
+    expect(fillOf(/^Query\.run · /)).toBe('var(--pf-color-flame-1)');
+    expect(fillOf(/^ServiceB\.other · /)).toBe('var(--pf-color-bar-soft)');
     expect(screen.getByText('db')).toBeInTheDocument();
     expect(screen.getByText('No category')).toBeInTheDocument();
+  });
+
+  it('resolves the category colors of the current theme and redraws on a theme change', () => {
+    const root = document.documentElement;
+    root.style.setProperty('--pf-color-flame-1', 'rgb(1, 2, 3)');
+    const model = fixture();
+    applyCategories(model, parseCategoryConfig('db db.Query.run'));
+    render(<Harness model={model} />);
+    expect(fillOf(/^Query\.run · /)).toBe('rgb(1, 2, 3)');
+
+    // theme.css would switch the variable with data-theme; the test switches it by hand.
+    root.style.setProperty('--pf-color-flame-1', 'rgb(4, 5, 6)');
+    act(() => setThemePreference('dark'));
+    expect(fillOf(/^Query\.run · /)).toBe('rgb(4, 5, 6)');
   });
 });
 
@@ -241,7 +307,15 @@ describe('flame graph scale', () => {
     return buildTreeModel({ v: 1, methods, params: [], root });
   }
 
-  it('reports the DOM block count and the render time of the largest trees', () => {
+  /** Frames wider than one pixel at `width`, the library's culling rule; a culled frame takes its subtree along. */
+  function expectedFrames(datum: FlameDatum, width: number): number {
+    const scale = width / datum.value;
+    const count = (d: FlameDatum): number =>
+      d.value * scale > 1 ? 1 + d.children.reduce((sum, c) => sum + count(c), 0) : 0;
+    return count(datum);
+  }
+
+  it('reports the DOM size and the render time of the largest trees', () => {
     let largest = buildTreeModel(treeForCall(longCall(432_198)));
     for (let offset = 0; offset < 40; offset++) {
       const candidate = buildTreeModel(treeForCall(longCall(400_000 + offset)));
@@ -253,23 +327,23 @@ describe('flame graph scale', () => {
       ['largest mock tree', largest],
       ['20,000-node tree', budget],
     ] as const) {
-      const all = flameLayout(model.root).blocks.length;
       const t0 = performance.now();
-      const layout = flameLayout(model.root, { minWidth: 1 / 1200 });
-      const layoutMs = performance.now() - t0;
+      const data = toFlameData(model.root, (n) => String(n.methodIdx));
+      const transformMs = performance.now() - t0;
 
       const t1 = performance.now();
       const view = render(<Harness model={model} />);
       const renderMs = performance.now() - t1;
-      const dom = view.container.querySelectorAll('button[aria-pressed]').length;
+      const frames = view.container.querySelectorAll('g.frame').length;
+      const elements = view.container.querySelectorAll('*').length;
       view.unmount();
 
-      // The view draws exactly what the layout keeps, and culling never adds blocks.
-      expect(dom).toBe(layout.blocks.length);
-      expect(dom).toBeLessThanOrEqual(model.nodeCount);
+      // The view draws exactly the frames the culling keeps, never more than the nodes.
+      expect(frames).toBe(expectedFrames(data, WIDTH));
+      expect(frames).toBeLessThanOrEqual(model.nodeCount);
       console.info(
-        `flame scale, ${name}: ${model.nodeCount} nodes, ${all} blocks unculled, ${dom} DOM blocks at 1200 px, ` +
-          `${layout.rows} rows, layout ${layoutMs.toFixed(1)}ms, first render ${renderMs.toFixed(0)}ms (jsdom)`,
+        `flame scale, ${name}: ${model.nodeCount} nodes, ${frames} frames at ${WIDTH} px, ${elements} DOM elements, ` +
+          `transform ${transformMs.toFixed(1)}ms, first render ${renderMs.toFixed(0)}ms (jsdom)`,
       );
     }
   });

@@ -380,3 +380,11 @@ classified by effort in [`08-ui-backend-requirements.md`](08-ui-backend-requirem
   Call Tree, Flame graph, Hotspots, and Parameters, drawn as line tabs, and the open one is in the URL as `tab`
   (§3.2 and §6 of `09`). The flame graph is a client-side transform of the same merged model, so it needs no
   backend change — accepted (2026-10-13).
+- [x] **The flame graph draws with d3-flame-graph, replacing the hand-written block layout** — version 5.0.0,
+  Apache-2.0, with the d3 modules it depends on (`d3-selection`, `d3-hierarchy`, `d3-scale`, `d3-transition`, and
+  others) rather than the full `d3` bundle. The library brings a tested partition layout, click zoom with a faded
+  path back, and frame culling, which the hand-written view reimplemented; zoom on click replaces the double-click
+  re-root. It is a chart library, not a component kit, so D6 stands. The view keeps what the library lacks: theme
+  colors, keyboard access, accessible names, and the selection shared with the Call Tree tab. Cost from
+  `vite build`: the app chunk grows by 60.6 KB (21.1 KB gzipped) and the CSS by 0.7 KB. The bundle carries it,
+  so the HTML export inlines it and works offline — accepted (2026-10-14).
