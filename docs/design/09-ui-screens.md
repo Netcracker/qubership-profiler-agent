@@ -92,11 +92,24 @@ hide-system writes the URL but filters the loaded rows client-side (§2.3).
 
 | Group | Columns |
 |-------|---------|
-| Always | Start, Duration (heat dot + link to tree), Pod, Title (method + param tags) |
-| Metrics (R1) | CPU, Suspend, Queue, Calls, Transactions, Disk IO, Net IO, Memory |
+| Default | Start, Duration (heat dot + link to tree), Pod, Title (method + tags), `trace_id`, CPU, Queue, Calls, Net IO |
+| Hidden by default (R1) | Suspend, Transactions, Disk IO, Memory |
 
-The metrics columns beyond CPU/Calls are the dropped-and-restored set (08 R1). Title shows the method plus a
-tag for `sql`, `error`, and similar.
+The metrics columns beyond CPU/Calls are the dropped-and-restored set (08 R1). Title shows the method plus a tag
+for `error`, `sql`, and `no tree` (the trace blob was dropped, `truncated_reason`).
+
+Rows are 28 px high. Numbers and IDs use the 12 px fixed-width font. The heat dot before the duration is the
+theme's ok color under 100 ms, warn under 1 s, mid under 3 s, and crit from 3 s on.
+
+**Pod and `trace_id` shortcuts.** A click on a row's pod or trace ID filters the calls by that value: the pod
+name, or the full trace ID, of which the cell shows the first 12 characters. The table reports the click to its
+page through `onPickFilter(field, value)`; a page that passes no handler gets plain text in both cells.
+
+**`trace_id`.** A `/calls` row has no `trace_id` member (02 §2.3). The cell reads the ID from the call's own
+params, under the names the tracing plugins record it with (`trace.id`, `brave.trace_id`, `X-B3-TraceId`), the
+same names the tree searches (§3.1). A call without one reads "not traced". A tracer that records the ID on a frame
+below the root leaves the row without it, although the tree still finds it; a `trace_id` in the row projection
+closes that gap.
 
 | Control | Behavior |
 |---------|-----------|
@@ -104,8 +117,8 @@ tag for `sql`, `error`, and similar.
 | Errors only | Toggle → `error_only=true`. |
 | Hide system/proxy | Toggle, default on: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. Client-side filter unless a backend `hide_system` flag is added. |
 | Query | Method substring; `$param=value` is the later param-filter (08 R3). |
-| Columns | Show, hide, reorder, resize; persisted in local storage. |
-| Sort | By column, within loaded pages. Cross-range ranking needs 08 R2 — label the scope so it does not read as global. |
+| Columns | The gear button at the end of the header: show, hide, reorder, reset. Drag a header border to resize. Persisted in local storage; an entry from before the redesign is migrated to the new column keys, and keys the table no longer has are dropped. |
+| Sort | By column, within loaded pages. Cross-range ranking needs 08 R2. While a column sort is on, the footer says that it applies to the loaded rows only, so it does not read as global. |
 | Row → tree | Clicking the Duration link opens `/ui/tree/:pk` in a new tab, carrying `ts_ms` and `retention_class`. |
 
 **Pagination.** Keyset (`cursor`), infinite scroll or an explicit "load more"; no offset, no page numbers.
