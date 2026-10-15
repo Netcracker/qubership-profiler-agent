@@ -357,3 +357,14 @@ classified by effort in [`08-ui-backend-requirements.md`](08-ui-backend-requirem
   spans as node params (§3.4) — accepted.
 - [x] **Diagnostic dumps link out to `dumps-collector`** from Pods Info; dump-as-tree analysis stays deferred
   — accepted.
+- [x] **A header and a navigation rail replace the top bar and its tab switch** — the header holds the screen's
+  controls, starting with the time range, and the rail links the screens (§1 of `09`). The discovery rail stays
+  inside the screen until the filter bar replaces it — accepted (2026-10-13).
+- [x] **A dark theme, reversing "light only"** — the default follows `prefers-color-scheme`, and the header switch
+  stores an override in `localStorage` — accepted (2026-10-13).
+- [x] **An Auto option in the theme switch** — Light, Dark, and Auto; Auto is the default, stores nothing,
+  and follows `prefers-color-scheme` live. A stored `light` or `dark` from the two-way switch still reads — accepted
+  (2026-10-14).
+- [x] **Bundled Inter and JetBrains Mono at a 13 px base, reversing "typography left out of the theme"** — local
+  `woff2` files, because the embedded UI must not fetch from another host. D6 stands: the redesign stays on plain
+  AntD 6 — accepted (2026-10-13).

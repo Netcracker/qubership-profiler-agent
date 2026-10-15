@@ -1,11 +1,11 @@
-import { App as AntdApp, ConfigProvider } from 'antd';
+import { App as AntdApp } from 'antd';
 import { MemoryRouter } from 'react-router';
 
 import { parsePkPath } from '../api/pk';
 import { isRetentionClass } from '../api/types';
 import { decodeTree } from '../msgpack/decode';
 import { TreePage } from '../pages/tree-page';
-import { profilerTheme } from '../theme/profiler-theme';
+import { ThemeProvider } from '../theme/theme-provider';
 import { base64ToBytes } from './restore';
 import type { RestorePayload } from './restore';
 
@@ -20,7 +20,7 @@ export function RestoredApp({ payload }: { payload: RestorePayload }) {
     payload.retentionClass !== null && isRetentionClass(payload.retentionClass) ? payload.retentionClass : null;
 
   return (
-    <ConfigProvider theme={profilerTheme}>
+    <ThemeProvider>
       <AntdApp>
         <MemoryRouter>
           <TreePage
@@ -37,6 +37,6 @@ export function RestoredApp({ payload }: { payload: RestorePayload }) {
           />
         </MemoryRouter>
       </AntdApp>
-    </ConfigProvider>
+    </ThemeProvider>
   );
 }

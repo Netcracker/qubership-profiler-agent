@@ -1,0 +1,95 @@
+.rail {
+  flex: 0 0 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 8px;
+  background: var(--pf-color-surface);
+  border-right: 1px solid var(--pf-color-border);
+  overflow: hidden;
+}
+
+.collapsed {
+  flex-basis: 52px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  margin-bottom: 4px;
+}
+
+.caption {
+  flex: 1;
+  padding-left: 10px;
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--pf-color-dim);
+}
+
+.toggle {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pf-color-dim);
+  cursor: pointer;
+}
+
+/* The arrow in the icon points the way the rail edge moves on a click. */
+.collapsed .toggle .icon {
+  transform: rotate(180deg);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--pf-color-dim);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.collapsed .link {
+  justify-content: center;
+  padding: 7px 0;
+}
+
+.toggle:hover,
+.link:hover {
+  background: var(--pf-color-veil);
+  color: var(--pf-color-text);
+}
+
+.link.active {
+  background: var(--pf-color-accent-soft);
+  color: var(--pf-color-accent-text);
+}
+
+.toggle:focus-visible,
+.link:focus-visible {
+  outline: 2px solid var(--pf-color-accent);
+  outline-offset: -1px;
+}
+
+.icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
