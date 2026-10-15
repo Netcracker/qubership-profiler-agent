@@ -9,5 +9,5 @@ dependencies {
     // so the plugin classpath does not get okhttp, coroutines, and kotlinx-serialization.
     // Keep the version in sync with the githubPackagesPublisher dependency in build-logic.root-build.gradle.kts.
     compileOnly("com.gradleup.nmcp:nmcp-tasks:1.6.2")
-    compileOnly("com.squareup.okio:okio-jvm:3.17.0")
+    compileOnly("com.squareup.okio:okio-jvm:3.18.2")
 }
