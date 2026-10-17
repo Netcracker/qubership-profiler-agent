@@ -4,6 +4,7 @@
 # `kind load` — OrbStack's k8s shares the host Docker daemon.
 #
 #   docker build -f apps/profiler-backend/Dockerfile -t profiler-backend:dev backend
+#   helm dependency update deploy/charts/profiler-backend
 #   helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-orbstack.yaml
 
 collector:
@@ -30,10 +31,16 @@ maintain:
   mode: deployment
   checkInterval: 1m
 
-minio:
+seaweedfs:
   enabled: true
+  s3:
+    credentials:
+      admin:
+        accessKey: &s3AccessKey profiler
+        secretKey: &s3SecretKey profiler-secret
 
+# The profiler workloads sign in as the SeaweedFS admin identity above.
 s3:
   auth:
-    accessKey: minioadmin
-    secretKey: minioadmin
+    accessKey: *s3AccessKey
+    secretKey: *s3SecretKey
