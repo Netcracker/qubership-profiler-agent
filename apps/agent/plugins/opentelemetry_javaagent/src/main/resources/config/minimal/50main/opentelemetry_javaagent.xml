@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiler-configuration>
+    <enhancer>opentelemetry_javaagent</enhancer>
+    <parameters>
+        <parameter name="trace.id" index="true" list="true"/>
+        <parameter name="span.id" index="true" list="false" order="800"/>
+        <parameter name="parent.span.id" index="true" list="false" order="810"/>
+    </parameters>
+    <!--
+      The context storage of the Java agent lives in the opentelemetry plugin: its class name is
+      relocated, so it cannot be mistaken for the application's own. The SDK span keeps its name,
+      and this plugin takes it by the jar it comes from.
+    -->
+    <ruleset if-enhancer="opentelemetry_javaagent">
+        <rule>
+            <class>io.opentelemetry.sdk.trace.SdkSpan</class>
+            <method>&lt;init&gt;</method>
+            <execute-after>recordAgentSpan$profiler</execute-after>
+            <do-not-profile/>
+        </rule>
+    </ruleset>
+</profiler-configuration>
