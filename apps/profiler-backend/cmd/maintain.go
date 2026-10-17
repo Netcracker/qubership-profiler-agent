@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	appenv "github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/metrics"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/maintain"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/oklog/run"

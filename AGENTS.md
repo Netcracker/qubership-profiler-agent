@@ -25,7 +25,7 @@ algorithm in the first Stage 0 draft:
 - **Logical trace chunk** — `[threadId, startTime]` (16 bytes) + events + `EVENT_FINISH_RECORD`, `LocalBuffer`-sized
   (tens of KB). One logical chunk spans many `RCV_DATA` payloads. It has no length prefix, so its boundary is found only
   by parsing events to `EVENT_FINISH_RECORD` (see `libs/parser/pipe/traces.go`).
-- **Go `Chunk` type** (`libs/protocol`) — a rolling-stream handle, unrelated to either of the above.
+- **Go `Chunk` type** (`libs/wire/protocol`) — a rolling-stream handle, unrelated to either of the above.
 
 **Channel gzip is optional and off by default.** `ProtocolConst.ZIPPING_ENABLED = false`. When on, the *whole*
 multiplexed channel is one GZIP stream, so the collector must gunzip before it can demux `RCV_DATA`. The existing Go

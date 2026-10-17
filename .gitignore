@@ -19,8 +19,9 @@ nbproject
 node_modules/
 target/
 # Coverage profiles written by `go test -coverprofile`; CI uploads them to Codecov.
-# The root module writes /coverage.out, the nested diagtools module its own copy.
+# The root module writes /coverage.out, each nested module its own copy.
 /coverage.out
+/libs/wire/coverage.out
 /apps/diagtools/coverage.out
 # Unanchored so they match at any depth: Gradle projects live under apps/ and
 # apps/agent/plugins/, and the `build` entry above already covers build output.

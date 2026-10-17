@@ -127,7 +127,7 @@ A second, separate harness is the regression gate for a different bug: agents bu
 `gc` stream unconditionally whenever they stream directly to a collector, regardless of whether GC-log harvesting is
 even enabled (`Dumper.java`'s `gcOs`, deleted in commit `ac804ee3` together with `GCDumper` when GC-log collection moved
 to `diagtools`).
-Before the fix in `libs/protocol/streams.go` / `libs/collector/ingest/streams.go`, the collector treated `gc` as an
+Before the fix in `libs/wire/protocol/streams.go` / `libs/collector/ingest/streams.go`, the collector treated `gc` as an
 unknown stream and tore the WHOLE connection down on it — so a pre-v3.1.4 agent wrote no data at all, not just its
 GC-log bytes.
 

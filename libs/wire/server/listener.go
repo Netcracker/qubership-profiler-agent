@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
 )
 
 type (

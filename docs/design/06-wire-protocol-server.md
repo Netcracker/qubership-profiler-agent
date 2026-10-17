@@ -1,19 +1,19 @@
 # 06 — Wire protocol, server side
 
-> Status: **draft**, awaiting review. Verified against agent code (`apps/agent/dumper/`, `apps/agent/proto-definition/`) and the Go server (`libs/server/`). The server implementation now conforms (§8), guarded by an integration test (§9). No agent change is required.
+> Status: **draft**, awaiting review. Verified against agent code (`apps/agent/dumper/`, `apps/agent/proto-definition/`) and the Go server (`libs/wire/server/`). The server implementation now conforms (§8), guarded by an integration test (§9). No agent change is required.
 
 Contract `01-write-contract.md` §1 covers what the agent **sends** over the TCP channel — the seven named streams and the framing of each. This document covers the other half of the same socket: what the collector **reads from each command and writes back**, on which events it flushes, and how it acknowledges data. It is the source of truth for the TCP listener in Stage 1.1.
 
 The distinction matters because the response direction is not a parser concern. `libs/parser/parser.go` is an offline dump reader: for every command it reads *both* the request fields *and* the server's reply from the same input stream (for example `svrProtocol` at `parser.go:126-130`, the `INIT_STREAM_V2` handle and rotation fields at `parser.go:178-198`). On a live socket those reads do not exist — the collector is the party that produces those bytes. The response state machine is new code, not a parser extension.
 
-A live server already exists (`libs/server/server_connection.go`). It was a skeleton that diverged from this contract in several places; §8 records those divergences and the fixes that brought it into conformance.
+A live server already exists (`libs/wire/server/server_connection.go`). It was a skeleton that diverged from this contract in several places; §8 records those divergences and the fixes that brought it into conformance.
 
 ## 1. Model
 
 - **One TCP connection, one agent, one `(namespace, service, podName)` triple** (`01-write-contract.md` §1 V6). The collector accepts the connection and stamps `restartTime` at accept time (§1 V4).
 - **Request/response over a single duplex socket.** The agent drives: it sends a command, and for the commands that expect a reply it reads the reply before sending the next data command. The collector never initiates a command in the MVP; it only answers.
-- **Framing primitives** are shared with the read path and already exist on the Go side (`libs/io/tcp_writer.go`): `WriteFixedByte`, `WriteFixedInt`, `WriteFixedLong`, `WriteUuid`, `WriteFixedString`, `WriteFixedBuf`. Field encodings match the agent's `FieldIO` (`apps/agent/proto-definition/.../transport/`). "Fixed" long/int are big-endian; strings and byte fields are length-prefixed.
-- **Command bytes** are defined once in `libs/protocol/commands.go` and must stay numerically identical to `apps/agent/proto-definition/.../transport/ProtocolConst.java`.
+- **Framing primitives** are shared with the read path and already exist on the Go side (`libs/wire/io/tcp_writer.go`): `WriteFixedByte`, `WriteFixedInt`, `WriteFixedLong`, `WriteUuid`, `WriteFixedString`, `WriteFixedBuf`. Field encodings match the agent's `FieldIO` (`apps/agent/proto-definition/.../transport/`). "Fixed" long/int are big-endian; strings and byte fields are length-prefixed.
+- **Command bytes** are defined once in `libs/wire/protocol/commands.go` and must stay numerically identical to `apps/agent/proto-definition/.../transport/ProtocolConst.java`.
 
 ## 2. Command table
 
@@ -43,7 +43,7 @@ The agent opens every connection with `GET_PROTOCOL_VERSION_V2`, sending its own
 - Reply `PROTOCOL_VERSION_V2` = `100605` → the agent sends the `dictionary` stream: each record is `[len][utf-8 string]`, ids implied by arrival order (`Dumper.java:1266-1268`).
 - Reply `PROTOCOL_VERSION_V3` = `100705` → the agent switches to the `posDictionary` stream: each record is `[varint id][string]` (`Dumper.java:350-354, 1269-1273`).
 
-**The collector MUST reply `PROTOCOL_VERSION_V2`.** The redesign's stream set (`01-write-contract.md` §1) and the Go parser know `dictionary`, not `posDictionary` (`libs/protocol/streams.go` lists seven streams, none of them `posDictionary`). Replying `V3` silently switches the agent to a stream the collector cannot demux — the dictionary is lost and every trace byte that references it becomes undecodable. This is a data-loss bug with no error surfaced on either side, which is exactly why it belongs in a contract.
+**The collector MUST reply `PROTOCOL_VERSION_V2`.** The redesign's stream set (`01-write-contract.md` §1) and the Go parser know `dictionary`, not `posDictionary` (`libs/wire/protocol/streams.go` lists seven streams, none of them `posDictionary`). Replying `V3` silently switches the agent to a stream the collector cannot demux — the dictionary is lost and every trace byte that references it becomes undecodable. This is a data-loss bug with no error surfaced on either side, which is exactly why it belongs in a contract.
 
 The agent accepts either `V2` or `V3` as a successful handshake (`DefaultCollectorClient.java:142`), so replying `V2` while the agent offered `V3` is a normal, supported downgrade — the agent already carries the `V2` dictionary path for it.
 
@@ -66,7 +66,7 @@ The handle must be non-nil and stable: the agent keys every subsequent `RCV_DATA
 
 An unknown or unregisterable `streamName` gets a null-UUID reply followed by a close (§6), mirroring `ProfilerAgentReader.java:104-110`.
 
-**Exception: `gc`.** Agents built before v3.1.4 register a `gc` stream unconditionally whenever they stream directly to a collector (`Dumper.java`'s `gcOs`, removed in commit `ac804ee3`). Treating it as unknown would tear down the whole connection before any real stream gets a chance, so `model.IsKnownStream` (`libs/protocol/streams.go`) accepts it like any other stream — the collector just never opens a segment or decoder for it, so its bytes are discarded (`01-write-contract.md` §1).
+**Exception: `gc`.** Agents built before v3.1.4 register a `gc` stream unconditionally whenever they stream directly to a collector (`Dumper.java`'s `gcOs`, removed in commit `ac804ee3`). Treating it as unknown would tear down the whole connection before any real stream gets a chance, so `model.IsKnownStream` (`libs/wire/protocol/streams.go`) accepts it like any other stream — the collector just never opens a segment or decoder for it, so its bytes are discarded (`01-write-contract.md` §1).
 
 ## 5. Acknowledgement policy
 
@@ -113,11 +113,11 @@ Two rules follow, and they are not symmetric:
 
 The MVP targets the default (off). Cross-reference: `01-write-contract.md` §1 and `CLAUDE.md`.
 
-## 8. Conformance of the `libs/server` implementation
+## 8. Conformance of the `libs/wire/server` implementation
 
-The live server (`libs/server/`) was a skeleton that predated this contract and diverged from §2–§6 in five ways. All five are now fixed; the list is the conformance record and the regression surface for §9.
+The live server (`libs/wire/server/`) was a skeleton that predated this contract and diverged from §2–§6 in five ways. All five are now fixed; the list is the conformance record and the regression surface for §9.
 
-1. **Handshake version** — was `ProtocolVersion = 10`, which a real agent rejects, dropping the socket (§3). Now `ProtocolVersion = PROTOCOL_VERSION_V2` (`libs/server/common.go`), with the version and ack constants defined once in `libs/protocol/versions.go`.
+1. **Handshake version** — was `ProtocolVersion = 10`, which a real agent rejects, dropping the socket (§3). Now `ProtocolVersion = PROTOCOL_VERSION_V2` (`libs/wire/server/common.go`), with the version and ack constants defined once in `libs/wire/protocol/versions.go`.
 2. **`RCV_DATA` ack** — the ack write was commented out, so a real agent's flush cycle stalled into a reconnect (§5). `CommandRcvData` now writes one `ACK_OK` byte per payload, and `REQUEST_ACK_FLUSH` writes one `ACK_OK` and forces the flush that drains them. The buffered acks were still flushed only on a command event (a `REQUEST_ACK_FLUSH`, an `INIT_STREAM_V2` reply, an error ack, or a full write buffer), so a mid-cycle stream rotation deadlocked: the agent drains every pending ack before it sends `INIT_STREAM_V2`, and those acks sat unflushed until its 30 s read timeout fired and it reconnected with a full dictionary resend. A per-connection goroutine (`periodicFlush`) now flushes any buffered ack every `FlushCheckInterval` = 500 ms, independent of the next command, so the cadence in §5 holds under sustained load.
 3. **`INIT_STREAM_V2` reply** — the four fields were all zero. The server now assigns a fresh non-nil `RandomUuid` handle, echoes the requested rolling sequence, and returns `RotationPeriod` / `RequiredRotationSize` from `ConnectionOpts` (defaulting to 4 MB) (§4).
 4. **Unknown stream** — `CommandInitStream` now validates `streamType` with `model.IsKnownStream` and replies a null UUID before tearing the connection down (§6).
@@ -147,4 +147,4 @@ Before this document is merged and Stage 1.1 starts, please confirm or correct:
 - [ ] `INIT_STREAM_V2` response semantics, especially non-nil stable handle and `requiredRotationSize` as the segment-size lever (§4).
 - [ ] Unknown-stream and unknown-command behavior — `ACK_ERROR_MAGIC` / null-UUID + close (§6).
 - [ ] Deprecated `0x01` / `0x08` — reserved but not implemented; reject with close (§2).
-- [x] `libs/server` brought into conformance (§8), with a regression test (§9).
+- [x] `libs/wire/server` brought into conformance (§8), with a regression test (§9).
