@@ -4,5 +4,5 @@ plugins {
 
 dependencies {
     injectorImplementation("io.opentracing:opentracing-api:0.33.0")
-    injectorImplementation("io.zipkin.brave:brave:4.19.3")
+    injectorImplementation("io.zipkin.brave:brave:6.3.1")
 }
