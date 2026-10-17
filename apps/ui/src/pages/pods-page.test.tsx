@@ -12,7 +12,7 @@ import { PodsPage } from './pods-page';
 // rail (09 §2.1-2.2, §4) instead of sending the user to Calls first
 // (PR 708 review #16).
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
@@ -131,14 +131,14 @@ describe('PodsPage', () => {
 
     // First load with no pod filter to read a real pod tuple from the data.
     const { unmount } = renderPodsPage(`/pods?from=${from}&to=${to}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    await screen.findAllByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c), undefined, { timeout: 5000 });
     const unfiltered = screen.getAllByRole('row').slice(1).map(tupleOf);
     const selected = unfiltered[0]!;
     expect(new Set(unfiltered).size).toBeGreaterThan(1); // the view really holds other pods
     unmount();
 
     renderPodsPage(`/pods?from=${from}&to=${to}&pod=${encodeURIComponent(selected)}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    await screen.findByText(selected, undefined, { timeout: 5000 });
     const filtered = screen.getAllByRole('row').slice(1).map(tupleOf);
     expect(new Set(filtered)).toEqual(new Set([selected]));
   });
@@ -171,8 +171,7 @@ describe('PodsPage', () => {
 
     const to = Date.now();
     renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
-
+    await screen.findByText('2026-01-02 03:04:05.000', undefined, { timeout: 5000 });
     const dataRow = screen.getAllByRole('row')[1]!;
     expect(within(dataRow).getByText('2026-01-02 03:04:05.000')).toBeInTheDocument();
     expect(within(dataRow).getByText('2026-01-02 03:04:05.000 — 2026-01-02 03:05:05.000')).toBeInTheDocument();
