@@ -98,6 +98,11 @@ git clone https://github.com/Netcracker/qubership-profiler-agent.git
 
 This project defines a [manual release workflow](.github/workflows/release.yaml).
 
+The [Auto Release workflow](.github/workflows/auto-release.yaml) runs every Monday and starts the release workflow on
+`main` when a Dependabot or code scanning alert has been fixed since the latest release, or when about a month has
+passed since it. It does nothing when `main` has no commits since the latest release tag. Run it manually with
+`dry-run` to see the decision and the alerts it counted without releasing.
+
 To trigger a release, go to the
 👉 [Actions tab → release.yaml](https://github.com/Netcracker/qubership-profiler-agent/actions/workflows/release.yaml)
 and run it manually.
