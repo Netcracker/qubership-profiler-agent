@@ -6,6 +6,10 @@ metadata:
   labels:
     {{- include "common.namedLabels" .Values.dumpsCollector | nindent 4 }}
     {{- include "common.commonLabels" . | nindent 4 }}
+  {{- with (dig "metadata" "annotations" dict (.Values.pvc | default dict)) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   resources:
     requests:
