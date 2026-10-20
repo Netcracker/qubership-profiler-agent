@@ -75,6 +75,21 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `metrics.serviceMonitor.enabled` | `false` | Requires the prometheus-operator CRDs. Also creates the query and maintain PodMonitors; see the note under [Metrics contract](#metrics-contract). |
 | `metrics.prometheusRule.enabled` | `false` | Ships `files/prometheus-rules.yaml` as a PrometheusRule. |
 
+PVC annotations: `pvc.metadata.annotations` goes into the collector StatefulSet `volumeClaimTemplates`, which
+Kubernetes does not allow to change on an existing StatefulSet. It works for new installs, but setting or changing it on
+an existing release fails `helm upgrade` with `Forbidden`. Changing the template also never updates PVCs that already
+exist. For an existing release, annotate the PVCs, orphan-delete the StatefulSet, and upgrade. The collector pods and
+their PVCs keep running, and the recreated StatefulSet adopts them. With Argo CD, replace the `helm upgrade` step with a
+sync.
+
+```bash
+sel='app.kubernetes.io/instance=<release>,app.kubernetes.io/component=collector'
+kubectl annotate pvc -n <namespace> -l "$sel" --overwrite <key>=<value>
+kubectl delete sts -n <namespace> -l "$sel" --cascade=orphan
+helm upgrade <release> deploy/charts/profiler-backend -n <namespace> --reuse-values \
+  --set-string 'pvc.metadata.annotations.<key>=<value>'
+```
+
 ## Metrics contract
 
 Series names are stable — dashboards and the shipped alerts reference them; renames are breaking changes (a Go test, `pkg/metrics/collect_test.go`, pins them). Labels stay low-cardinality: `reason`, `kind`, `layer`, `result` — never pod, PK, or replica.
