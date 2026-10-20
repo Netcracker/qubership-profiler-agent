@@ -1,0 +1,26 @@
+suite: dumps-collector pvc annotations
+templates:
+  - templates/persistencevolumeclaim.yaml
+release:
+  name: test
+  namespace: test-ns
+tests:
+  - it: default renders PVC without annotations
+    set:
+      cloud.dumpsStorage.storageClassName: nfs-provisioning
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - notExists:
+          path: metadata.annotations
+
+  - it: pvc.metadata.annotations is rendered on the PVC
+    set:
+      cloud.dumpsStorage.storageClassName: nfs-provisioning
+      pvc.metadata.annotations:
+        argocd.argoproj.io/sync-options: Prune=false
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            argocd.argoproj.io/sync-options: Prune=false

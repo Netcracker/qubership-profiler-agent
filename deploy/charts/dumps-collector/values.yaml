@@ -53,6 +53,12 @@ cloud:
     # Default:
     host: 'http://esc-collector-service:8080'
 
+# Annotations added to every PVC this chart renders (for example, to keep Argo CD from
+# pruning them: argocd.argoproj.io/sync-options: Prune=false). Empty by default.
+pvc:
+  metadata:
+    annotations: {}
+
 ############# Dumps Collector Service #############
 
 dumpsCollector:

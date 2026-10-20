@@ -66,6 +66,7 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `collector.agentService.type` | `ClusterIP` | `NodePort` / `LoadBalancer` (OrbStack) for host-reachable agents. |
 | `collector.terminationGracePeriodSeconds` | `100` | ≥ the 03 §5.4 shutdown budget. |
 | `collector.env`, `query.env`, `maintain.env` | `{}` | Extra env (name → value) for the remaining `PROFILER_*` knobs. |
+| `pvc.metadata.annotations` | `{}` | Annotations for the collector PVCs (`volumeClaimTemplates`). Values must be strings. See the note below the table before changing it on an existing release. |
 | `query.replicas` / `query.port` | `2` / `8080` | Stateless; scale horizontally. |
 | `maintain.mode` | `cronjob` | `deployment` runs the singleton loop — the only mode with `/metrics`. |
 | `maintain.schedule` | `0 * * * *` | CronJob mode. |

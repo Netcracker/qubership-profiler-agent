@@ -11,6 +11,7 @@
 |-------------------------|----------------------------------------------------------------------|-------------------------------------------|
 | cloud.dumpsStorage      | Dumps storage settings                                               | \*[Dumps Storage](#dumps-storage)         |
 | dumpsCollector          | Dumps collector service settings                                     | \*[Dumps Collector](#dumps-collector)     |
+| pvc.metadata.annotations | Annotations for the dumps PVC, for example `argocd.argoproj.io/sync-options: Prune=false`. Values must be strings: quote them or use `--set-string`. Default: `{}` | object |
 
 ### Dumps Storage
 
