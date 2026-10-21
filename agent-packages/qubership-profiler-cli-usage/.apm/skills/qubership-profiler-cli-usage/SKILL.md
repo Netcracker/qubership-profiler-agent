@@ -80,8 +80,10 @@ A field or operator the server does not implement yet fails with an error that n
    profiler explain 'prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error'
    ```
 
-3. Go deeper only where the time is. `--focus <text>` re-roots the explanation at the slowest method containing the
-   text, such as `--focus OrderRepository.load`. `--threshold 0.01` shows nodes down to 1% of the time, and
+3. Go deeper only where the time is. Every hot-path node starts with its node ID, such as `#12`; rerun `explain`
+   on the same call with `--node 12` to re-root the explanation at exactly that node. `--focus <text>` is a shortcut
+   when the method is unique: it takes the slowest node whose method contains the text, and when several match, a
+   note lists the others' IDs for `--node`. `--threshold 0.01` shows nodes down to 1% of the time, and
    `--max-nodes 100` widens the hot path. When the output cut anything, a `Notes` section says what and which of
    these flags shows it; no `Notes` section means nothing was cut.
 
@@ -124,4 +126,4 @@ A field or operator the server does not implement yet fails with an error that n
   old fast call may be gone.
 - `request_id` and `trace_id` exist only when the service received the header or ran under a supported tracer.
 - Filters apply to root calls. A method inside a call is not searchable with `--filter`; find the calls by their root
-  method, duration, or IDs, then use `explain` and `--focus`.
+  method, duration, or IDs, then use `explain` and `--node`.
