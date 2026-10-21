@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
 	"github.com/Netcracker/qubership-profiler-backend/libs/insight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,16 +95,17 @@ func TestExplainText(t *testing.T) {
 	call := sampleCalls()[0]
 	var b bytes.Buffer
 	require.NoError(t, writeExplain(&b, insight.ExplainResult{
-		Call:  &call,
-		Focus: "com.example.Billing.charge(long)",
+		Call:      &call,
+		Focus:     "com.example.Billing.charge(long)",
+		FocusNode: 0,
 		HotPath: &insight.PathNode{
-			Method: "com.example.Billing.charge(long)", TotalMs: 2470, SelfMs: 20, SuspendMs: 120, Executions: 1, Skipped: 3,
+			Node: 3, Method: "com.example.Billing.charge(long)", TotalMs: 2470, SelfMs: 20, SuspendMs: 120, Executions: 1, Skipped: 3,
 			Hidden: 2, HiddenMs: 40,
 			Children: []*insight.PathNode{
-				{Method: "com.example.Repo.load(long)", TotalMs: 2000, SelfMs: 50, Executions: 1, Children: []*insight.PathNode{
-					{Method: "a.Jdbc.execute", TotalMs: 1950, SelfMs: 1950, Executions: 90},
+				{Node: 4, Method: "com.example.Repo.load(long)", TotalMs: 2000, SelfMs: 50, Executions: 1, Children: []*insight.PathNode{
+					{Node: 5, Method: "a.Jdbc.execute", TotalMs: 1950, SelfMs: 1950, Executions: 90},
 				}},
-				{Method: "com.example.Http.call()", TotalMs: 410, SelfMs: 410, Executions: 2},
+				{Node: 12, Method: "com.example.Http.call()", TotalMs: 410, SelfMs: 410, Executions: 2},
 			},
 		},
 		TopSelf: []insight.MethodStat{
@@ -171,13 +173,17 @@ func TestTextReportsWriteErrors(t *testing.T) {
 	}
 }
 
-// serve answers /api/v1/pods and /api/v1/calls from testdata and records the
-// last query.
+// serve answers /api/v1/pods and /api/v1/calls from testdata, a call's
+// /tree with sampleTree, and records the last query.
 func serve(t *testing.T) (string, *http.Request) {
 	t.Helper()
 	last := &http.Request{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		*last = *r.Clone(context.Background())
+		if strings.HasSuffix(r.URL.Path, "/tree") {
+			_, _ = w.Write(calltree.Encode(sampleTree()))
+			return
+		}
 		name := map[string]string{"/api/v1/pods": "pods.json", "/api/v1/calls": "calls.json"}[r.URL.Path]
 		if name == "" {
 			http.NotFound(w, r)
@@ -190,6 +196,29 @@ func serve(t *testing.T) (string, *http.Request) {
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL, last
+}
+
+// sampleTree is a call tree whose node references follow the comments.
+func sampleTree() *calltree.Tree {
+	leaf := func(method int, ms int64) *calltree.Node {
+		return &calltree.Node{MethodIdx: method, DurationMs: ms, SelfDurationMs: ms, Executions: 1, SelfExecutions: 1}
+	}
+	return &calltree.Tree{
+		Methods: []string{"a.Main.run", "a.Repo.load", "a.Jdbc.execute"},
+		Root: &calltree.Node{ // #0
+			MethodIdx: 0, DurationMs: 1000, SelfDurationMs: 100, Executions: 5, SelfExecutions: 1,
+			Children: []*calltree.Node{
+				{ // #1
+					MethodIdx: 1, DurationMs: 600, SelfDurationMs: 100, Executions: 2, SelfExecutions: 1,
+					Children: []*calltree.Node{leaf(2, 500)}, // #2
+				},
+				{ // #3
+					MethodIdx: 1, DurationMs: 300, SelfDurationMs: 50, Executions: 2, SelfExecutions: 1,
+					Children: []*calltree.Node{leaf(2, 250)}, // #4
+				},
+			},
+		},
+	}
 }
 
 func run(t *testing.T, args ...string) (string, error) {
@@ -251,8 +280,34 @@ func TestCommandErrors(t *testing.T) {
 		{"calls", "--url", url, "--filter", "service"},
 		{"explain", "--url", url},
 		{"explain", "--url", url, "not-a-ref"},
+		{"explain", "--url", url, "--node", "1", "--focus", "Repo", explainRef},
+		{"explain", "--url", url, "--node", "-1", explainRef},
+		{"explain", "--url", url, "--node", "5", explainRef},
 	} {
 		_, err := run(t, args...)
 		assert.Error(t, err, "%v", args)
 	}
+}
+
+const explainRef = "prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error"
+
+func TestExplainCommandFocusesOnANode(t *testing.T) {
+	url, _ := serve(t)
+	out, err := run(t, "explain", "--url", url, "--focus", "Repo.load", explainRef)
+	require.NoError(t, err)
+	assert.Contains(t, out, "Focus: #1 a.Repo.load\n", "the text focus takes the slower match")
+	assert.Contains(t, out, "To explain another, focus on its node: 3 (300 ms)")
+
+	out, err = run(t, "explain", "--url", url, "--node", "3", explainRef)
+	require.NoError(t, err)
+	assert.Contains(t, out, "Focus: #3 a.Repo.load\n")
+	assert.Contains(t, out, "\n#3 a.Repo.load  300, 50, x1\n  #4 a.Jdbc.execute  250, 250, x1\n")
+
+	out, err = run(t, "explain", "--url", url, "--node", "3", "--json", explainRef)
+	require.NoError(t, err)
+	var res insight.ExplainResult
+	require.NoError(t, json.Unmarshal([]byte(out), &res))
+	assert.Equal(t, 3, res.FocusNode)
+	assert.Equal(t, 3, res.HotPath.Node)
+	assert.Contains(t, out, `"focus_node": 3`)
 }

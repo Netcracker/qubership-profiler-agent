@@ -142,9 +142,9 @@ func writeExplain(w io.Writer, res insight.ExplainResult) error {
 		out.printf("  duration %d ms, cpu %d ms, wait %d ms, queue %d ms, gc suspension %d ms%s\n",
 			c.DurationMs, c.CPUMs, c.WaitMs, c.QueueWaitMs, c.SuspendMs, errText)
 	}
-	out.printf("Focus: %s\n", res.Focus)
+	out.printf("Focus: #%d %s\n", res.FocusNode, res.Focus)
 
-	out.println("\nHot path (total ms, self ms, executions):")
+	out.println("\nHot path (#node method  total ms, self ms, executions):")
 	writePath(out, res.HotPath, 0)
 
 	if len(res.TopSelf) > 0 {
@@ -173,7 +173,7 @@ func writePath(out *errWriter, n *insight.PathNode, depth int) {
 		return
 	}
 	indent := strings.Repeat("  ", depth)
-	line := fmt.Sprintf("%s%s  %d, %d, x%d", indent, n.Method, n.TotalMs, n.SelfMs, n.Executions)
+	line := fmt.Sprintf("%s#%d %s  %d, %d, x%d", indent, n.Node, n.Method, n.TotalMs, n.SelfMs, n.Executions)
 	if n.SuspendMs > 0 {
 		line += fmt.Sprintf(", gc %d", n.SuspendMs)
 	}
