@@ -31,9 +31,9 @@ Base path: `/api/v1`. JSON request and response. Error bodies follow RFC 7807 (P
 | GET | `/calls/{pk}` | Fetch a single Call by PK with full metadata. |
 | GET | `/calls/{pk}/trace` | Fetch the per-call trace blob (raw wire bytes; advanced consumers — see §2.5). |
 | GET | `/calls/{pk}/tree` | Server-decoded call tree, MessagePack-encoded (canonical for UI / MCP / CLI — see §2.5). |
-| GET | `/stats` | Aggregates: top methods by duration, p50/p95/p99, counts per bucket. (Sketch only; details deferred — §10.) |
+| GET | `/stats` | Aggregates of the calls a `/calls` query matches: counts, errors, sums, and percentiles per time bucket or per field value (§2.9). |
 
-> **Not yet implemented.** `/pods/{pod-restart}/dictionary` and `/calls/{pk}` are specified here for advanced and raw-trace consumers, but the query service does not register them today; the MVP serves `/pods`, `/calls`, `/calls/{pk}/trace`, and `/calls/{pk}/tree`. `/stats` is a deferred sketch (§10).
+> **Not yet implemented.** `/pods/{pod-restart}/dictionary` and `/calls/{pk}` are specified here for advanced and raw-trace consumers, but the query service does not register them today; the MVP serves `/pods`, `/calls`, `/calls/{pk}/trace`, and `/calls/{pk}/tree`. `/stats` is specified in §2.9 and built in stages.
 
 ### 2.2 Primary key
 
@@ -78,6 +78,7 @@ Query parameters:
 | `duration_max_ms` | int32 | Optional. Shorthand for `duration<=<n>ms`; `0` means no upper bound. |
 | `error_only` | bool | Optional. Maps to `error_flag = true`. Shorthand for `error=true`. |
 | `retention_class` | string (repeatable) | Optional. `short_clean` / `normal_clean` / `long_clean` / `any_error` / `corrupted`. Shorthand for `retention_class in <values>`. |
+| `order` | string | Optional. `<field>_<asc\|desc>`, default `start_desc` (§2.3.5). |
 | `cursor` | string | Opaque cursor from previous page's `next_cursor`. |
 | `limit` | int | Page size. Default 100, max 1000. |
 
@@ -135,7 +136,7 @@ reason the §6.3 dedup prefers the cold copy.
 
 `/calls` paginates by keyset (seek), not by offset. The cursor encodes a position in a total order that every tier shares, so a call that migrates from the hot tier to the cold tier between two page fetches keeps its place.
 
-**Ordering.** Rows come back by `ts_ms` descending, then by PK ascending as the tiebreaker (`ts_ms` is not unique — many calls share a millisecond). The PK compares component by component: the `pod_*` string components byte-wise (not locale-aware), then `restart_time_ms` and the integer pointer components numerically. Both tiers must produce this same total order, so the query service applies one shared component-wise comparator to the hot rows and the cold-tier k-way merge alike. A hot source must not delegate ordering to a SQLite `ORDER BY` over a concatenated `pod_restart` string: the `/` separators and a text-compared `restart_time_ms` diverge from the component-wise order and silently break cross-tier merge and pagination. Alternative sort orders (for example by `duration_ms`) are out of scope for the MVP; `/stats` covers ranked-by-duration views.
+**Ordering.** Rows come back by `ts_ms` descending, then by PK ascending as the tiebreaker (`ts_ms` is not unique — many calls share a millisecond). The PK compares component by component: the `pod_*` string components byte-wise (not locale-aware), then `restart_time_ms` and the integer pointer components numerically. Both tiers must produce this same total order, so the query service applies one shared component-wise comparator to the hot rows and the cold-tier k-way merge alike. A hot source must not delegate ordering to a SQLite `ORDER BY` over a concatenated `pod_restart` string: the `/` separators and a text-compared `restart_time_ms` diverge from the component-wise order and silently break cross-tier merge and pagination. This is the default order, `start_desc`; §2.3.5 specifies the others.
 
 **Why migration is not a special case.** `ts_ms` and the PK are immutable and identical in the SQLite call index and in the parquet row. Keyset pagination seeks with `WHERE (ts_ms, pk) < (cursor.ts_ms, cursor.pk)` against every source, so a migrated call is found by whichever tier now holds it, at the same position; the overlap window (§4.3) and PK dedup (§6) collapse the duplicate. Crossing the hot→cold boundary as pagination goes deeper is therefore transparent, and it rests on the zero-gap guarantee of §4.3: a flushed call is visible from at least one tier from the moment it leaves in-memory state.
 
@@ -321,11 +322,76 @@ UI's filter bar turns a typed word into `method=~<word>`.
 - `fields` maps each implemented field to its implemented operators. A field that is missing is not implemented.
 - `param_operators` lists the operators that work on call params.
 - `special_values` lists `None` and `Any` once they work.
-- `orders` and `group_by` list the `/calls` orderings and the `/stats` groupings the build implements. Their contracts
-  are not written yet; until they are, the lists hold only today's `start_desc` order and no grouping.
+- `orders` lists the `/calls` orders the build implements (§2.3.5), and `group_by` the `/stats` groupings (§2.9). A
+  build without either holds only `start_desc` and no grouping, as the example shows.
 
 A client that finds no `filter_capabilities`, from a build older than the filter model, assumes the legacy parameters
 only.
+
+### 2.3.5 Orders
+
+`order=<field>_<direction>` sets the order of `/calls`. The direction is `asc` or `desc`, and the default is
+`start_desc`, the order of §2.3.1.
+
+| Field | Sort key |
+|---|---|
+| `start` | `ts_ms` |
+| `duration` | `duration_ms` |
+| `cpu` | `cpu_time_ms` |
+| `queue` | `queue_wait_ms` |
+| `calls` | `child_calls` |
+| `net` | `net_read + net_written` |
+
+Every order breaks ties by PK ascending, with the component-wise comparator of §2.3.1, so each order is a total order
+that both tiers produce alike. The keyset of an order is `(sort key, pk)`: the cursor freezes the order with the rest
+of the query and records the last-emitted `(sort key, pk)`. A re-sent `order` that differs from the frozen one answers
+`400` with `code: cursor_rejected`, as any other contradicted filter does. The sort keys are immutable, like `ts_ms`,
+so a call that migrates from the hot tier to the cold tier keeps its place in every order.
+
+`query` implements orders in two stages, and an order the build does not implement answers `400` with
+`code: invalid_request` and a detail that names it. `filter_capabilities.orders` (§2.3.4) lists the implemented ones.
+
+| Stage | Orders |
+|---|---|
+| A | `start_desc`, `duration_desc` |
+| B | Every other field and direction of the table above |
+
+No retention class bounds `cpu`, `queue`, `calls`, or `net`, so a stage B order other than `duration_asc` reads every
+file of the window and works only inside the wide-query guard (§2.3.2).
+
+**`duration_desc` reads the duration bands from the top.** The clean retention classes are disjoint duration bands of
+the tier table (`01-write-contract.md` §6.4): `huge_clean`, `long_clean`, `normal_clean`, and `short_clean`, from the
+longest band down. The error classes, `any_error` and `corrupted`, hold calls of any duration. A page reads the clean
+bands in that order and reads the error classes alongside every band:
+
+1. Skip each clean band whose upper bound is not above the cursor's `duration_ms`; its rows all precede the cursor.
+   Skip each band a `duration` condition excludes, as discovery does (§2.3.2).
+2. Read the next band and merge its rows past the cursor with the error-class rows past the cursor, by
+   `(duration_ms DESC, pk ASC)`.
+3. Once at least `limit` merged rows have a `duration_ms` at or above the band's lower bound, the page is the first
+   `limit` of them. Every row of a lower band is shorter, so no lower band can change the page. Otherwise go back to
+   step 2 with the next band.
+
+A request for the slowest calls of a window therefore starts with `huge_clean` and the error classes, and opens a
+shorter band only when the longer bands hold fewer than `limit` calls past the cursor. It needs no lower bound on
+`duration`. The error classes have no duration index, so every page scans them in full; the guard
+bounds that cost.
+
+**The guard and `duration_desc`.** `order=duration_desc` counts as a narrowing filter for the span layer of §2.3.2,
+because the first band a page opens is `huge_clean` plus the error classes. The cost layer is evaluated per page,
+before each band opens, against the files and bytes of the bands the page has opened so far plus the next one:
+
+- If the first band of a page already exceeds `PROFILER_MAX_SCAN_FILES` or `PROFILER_MAX_SCAN_BYTES`, the page
+  answers `400` with `code: query_too_wide`, and `by_class` names the classes in the estimate.
+- If a later band would exceed the limits, the page stops before that band. It returns the merged rows at or above the
+  previous band's lower bound, which are final, and a `next_cursor` that points after them. Such a page can hold fewer
+  than `limit` rows; like an empty page (§2.3.1), it does not end the stream. The next page starts with the band that
+  did not fit, and its first-band check answers `400` with the narrowing affordance, so the caller adds a lower bound
+  on `duration` or narrows the window.
+
+`next_cursor` is `null` once every band the conditions allow and the error classes hold no row past the cursor. The
+hot tier needs no bands: a hot source returns up to `limit` rows past the cursor in `(duration_ms DESC, pk ASC)` order,
+and `query` merges them with the cold rows by the same comparator.
 
 ### 2.4 Trace blob — lazy endpoint
 
@@ -526,11 +592,114 @@ Response:
 
 `GET /api/v1/pods?from=...&to=...` returns the set of `(namespace, service, pod, restart_time)` tuples that have any Call rows in the time range. The set is the union of two sources: live pod-restarts from the hot tier (`/internal/v1/pods` on each replica, §3) and closed pod-restarts from the cold pod manifests. Cold discovery LISTs `pods/v1/<yyyy>/<mm>/<dd>/` for each day the range spans and reads each small JSON manifest (`01-write-contract.md` §3.6); it does not open parquet files. The `<podRestartHash>` in a parquet key is a one-way hash, so the manifest is the only cold source of the readable identity tuple. The response is an envelope `{ pods, partial, partial_reasons }` — the same partial-failure shape as `/calls` (§7.4), since the pods fan-out can also partially fail. Each `pods` entry is `{ namespace, service, pod, restart_time_ms, time_min_ms, time_max_ms }`, and the hot and cold sources union on the entry shape without reshaping.
 
-`GET /api/v1/stats` is a sketch — full schema deferred to Stage 4. Initial shape: `top_methods_by_duration`, latency percentiles per `(method, retention_class)`, counts per `(retention_class, hour_bucket)`. Implemented over the same hot/cold model as `/calls`. It takes the `filter` conditions of `/calls` (§2.3.3). Its full contract also adds a `param_name` grouping: the call-param names in the window with a count of calls carrying each, which the UI's filter bar offers as fields.
+`GET /api/v1/stats` is specified in §2.9.
+
+### 2.9 GET /stats
+
+`GET /api/v1/stats` aggregates the calls that match a `/calls` query. It serves the UI's histogram, its "N calls ·
+M errors" readout, and its value suggestions, and the agent-access operations `hotspots`, `timeline`, and `compare`.
+
+Query parameters:
+
+| Param | Type | Notes |
+|---|---|---|
+| `from`, `to`, `filter`, and the legacy shorthand | | As for `/calls` (§2.3, §2.3.3). |
+| `group_by` | string | Required. `time`, or a field of §2.3.3. |
+| `buckets` | int | `group_by=time` only. Default 60, max 1000. |
+| `limit` | int | Field grouping only. Default 20, max 1000. |
+| `order` | string | Field grouping only. `count_desc` (default) or `duration_sum_desc`. |
+
+Response:
+
+```json
+{
+  "group_by": "service",
+  "rows": [
+    {
+      "key": "billing",
+      "count": 1200, "errors": 14,
+      "duration_ms_sum": 384000, "p50_ms": 120, "p95_ms": 950, "p99_ms": 2100,
+      "cpu_time_ms_sum": 201000, "wait_time_ms_sum": 9000, "queue_wait_ms_sum": 1500, "suspend_ms_sum": 300
+    }
+  ],
+  "other": null,
+  "distinct": 1,
+  "totals": { "count": 1200, "errors": 14 },
+  "approximate": false,
+  "partial": false,
+  "partial_reasons": []
+}
+```
+
+**Rows.** Every row has the same members: the key, the call count, the error count, the sum and the 50th, 95th, and
+99th percentiles of `duration_ms`, and the sums of `cpu_time_ms`, `wait_time_ms`, `queue_wait_ms`, and `suspend_ms`.
+A row with no calls has `null` percentiles.
+
+**`group_by=time`.** The window splits into equal buckets of `bucket_ms = max(1, ceil((to - from) / buckets))`
+milliseconds, and the response adds a `bucket_ms` member. Bucket `i` covers
+`[from + i·bucket_ms, from + (i+1)·bucket_ms)`, the last bucket ends at `to` and may be shorter, and a call falls into
+the bucket that holds its `ts_ms`. The key is
+the bucket's start in Unix ms. Every bucket is a row, in time order, including the empty ones, so a client draws the
+histogram without filling gaps. `other` is `null` and `distinct` is the number of buckets.
+
+**`group_by=<field>`.** One row per value of the field, the top `limit` by `order`, with ties broken by the key
+ascending. `count_desc` ranks by call count, and `duration_sum_desc` by the sum of `duration_ms`, which is the "where
+does the time go" ranking of `hotspots`. `other` is a row without a key that aggregates every value past the top
+`limit`, or `null` when there is none. `distinct` is the number of distinct values. A key is the field's value as
+§2.3.3 defines it, so `<field>=<key>` is a condition that selects the row's calls. A call that lacks the field (a
+param it does not carry) falls into no row; it still counts in the totals.
+
+**Totals.** `totals` counts the calls and the errors under the conditions, across every row and `other`.
+
+**Percentiles.** Each group keeps a DDSketch with a relative accuracy of 1%: logarithmic bins of ratio
+`γ = 1.01 / 0.99`, plus one bin for `duration_ms = 0`. A reported percentile is within 1% of the exact value of that
+rank, before rounding to whole milliseconds. The rank of the `q` percentile over `n` calls is `floor(q · (n − 1))`, in
+ascending order of duration. Sketches merge by adding bin counts, so the hot replicas and the cold scan each build
+their own, and `query` merges them without loss.
+
+**Sources and duplicates.** `/stats` has no cursor, so it splits the window between the tiers at one instant instead
+of reading the overlap window from both (§4.3). With `t_split = coldTo − overlap_margin`, the cold scan aggregates
+`[from, t_split)` and the hot replicas aggregate `[t_split, to)`. `t_split` is the latest `hot_window_oldest_ms` of
+the healthy replicas, so every replica serves the whole hot part, and no call is read from both tiers. When the hot
+tier is degraded (§4.3), the cold scan aggregates the whole window and the response is `partial`. Each replica
+aggregates its own rows through `/internal/v1/stats` (§3) and returns mergeable partial aggregates. A call that two
+replicas both hold after a replica transition (§6.2), or that two cold objects both hold, counts twice; that case is
+rare, and removing it would need a PK set as large as the window.
+
+**Retention.** `/stats` counts the calls the store still holds. The clean classes have shorter TTLs than the error
+classes (`01-write-contract.md` §6.4), so a window older than two days holds no `short_clean` calls, and its counts,
+error rates, and percentiles describe the longer calls only. A client that compares two windows (`compare`) keeps
+both inside the shortest TTL that matters to it, or adds `duration>=100ms` to both.
+
+**Bounded memory.** A source keeps at most `PROFILER_STATS_MAX_GROUPS` (default 10,000) groups. Past that, it tracks
+the groups with Space-Saving, weighted by the `order` metric: the heaviest groups stay, a new value replaces the
+lightest one, and the response sets `approximate: true`. The counts of an approximate row can then exceed the exact
+counts, by at most the window's total divided by `PROFILER_STATS_MAX_GROUPS`, and its sums and percentiles cover the
+calls since the value last entered the summary. `distinct` is then a lower bound. Groupings by a high-cardinality
+param, such as a request ID, are the expected case; the stage A groupings rarely reach the limit.
+
+**Guard, budget, and errors.** The wide-query guard (§2.3.2) applies with the same layers, the same narrowing
+filters, and no exemption for an order: an aggregate reads every file of the window, so its cost is the full
+estimate. The read memory budget (§7.5) charges the cold scan's batches and every source's groups and sketches.
+`partial` and `partial_reasons` follow §7.4. A missing or unknown `group_by`, `buckets` or `limit` out of range, an
+`order` other than the two above, and a parameter that does not apply to the grouping all answer `400` with
+`code: invalid_request`.
+
+**Stages.** `query` implements the groupings in two stages. A grouping the build does not implement answers `400`
+with `code: invalid_request` and a detail that names it, and `filter_capabilities.group_by` (§2.3.4) lists the
+implemented ones.
+
+| Stage | Groupings |
+|---|---|
+| A | `time`, `method`, `namespace`, `service`, `pod` |
+| B | Call params, the derived fields `class` and `endpoint`, `error`, `retention_class`, and `param_name` |
+
+`group_by=param_name` counts, for each call-param name in the window, the calls that carry it; the UI's filter bar
+offers those names as fields. It takes `limit` and `order` like a field grouping.
 
 ## 3. Internal hot-read API on collector
 
-Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in `query`, not in collector.
+Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in `query`, not in collector, except that a replica builds the mergeable partial aggregates of `/internal/v1/stats`.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -540,6 +709,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
 | GET | `/internal/v1/calls` | Same params as `/api/v1/calls`; returns only rows this replica holds. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |
+| GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, and no `other` row, so `query` can merge the replicas and the cold scan before it ranks and cuts to `limit` (§2.9). |
 | GET | `/internal/v1/calls/{pk}/trace` | Blob from this replica. |
 | GET | `/internal/v1/health/hot-window` | `{ "hot_window_oldest_ms": ..., "hot_window_now_ms": ... }`. Reports the earliest `ts_ms` this replica still serves. Lets `query` compute the cold cutoff dynamically (§4.3). |
 
@@ -844,6 +1014,7 @@ Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`
 | `PROFILER_FANOUT_TIMEOUT` | `2s` | Per-replica hot read timeout (§7.2). |
 | `PROFILER_S3_LIST_CONCURRENCY` | `16` | Parallel S3 LIST cap (§5.2). |
 | `PROFILER_CURSOR_TTL` | `15m` | Validity of a `/calls` pagination cursor (§2.3.1). |
+| `PROFILER_STATS_MAX_GROUPS` | `10000` | Groups one `/stats` source keeps before it switches to an approximate top-N (§2.9). |
 | `PROFILER_WIDE_RANGE_LIMIT` | `6h` | Span above which `/calls` requires a narrowing filter (§2.3.2). |
 | `PROFILER_MAX_PODS_RANGE` | `8784h` (366 d) | Span above which `/pods` is rejected with `400`; `/pods` lists one S3 prefix per UTC day and has no narrowing filter (§2.7). Also caps a pod-filtered `/calls` window, which a `pod` filter exempts from `PROFILER_WIDE_RANGE_LIMIT` but not from the discovery-LIST fan-out (§2.3.2); lower it below the default if that fan-out — one LIST per hour prefix per class across the window — is the cost you want to bound. |
 | `PROFILER_MAX_SCAN_FILES` | `10000` | Candidate-object ceiling for a `/calls` scan; over it, `400` (§2.3.2). |
@@ -858,7 +1029,6 @@ Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`
 
 - **Streaming / tail endpoint** for real-time observation — out of scope for MVP, defer to a future iteration once the batch model is stable.
 - **Authentication and authorization** — out of scope for MVP. The likely choice (Keycloak/Bearer) will be a thin layer in front of `/api/v1/*`. It is planned for `/api/v1/*` and for the MCP server of the agent-access plan together; until then an MCP server stays inside the cluster.
-- **`/stats` full schema** — sketched in §2.6, full specification deferred to Stage 4.
 - **Diagnostic dumps endpoint** — already served by `dumps-collector`, not re-implemented here.
 - **UI specifics** — UI consumes `/api/v1/*` as documented; UI-internal data flow is Stage 5.
 
