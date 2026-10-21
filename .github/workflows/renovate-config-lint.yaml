@@ -22,7 +22,7 @@ jobs:
     outputs:
       reason: ${{ steps.validate.outputs.reason }}
     container:
-      image: renovate/renovate:44.156.0@sha256:10521c4d1136710559603b08f530ce6f264dc26ce6f95e7e20de7b2ae0e7def4
+      image: renovate/renovate:44.157.1@sha256:8bbbff99c6fc17d2f22ad2368d2a63463c9e354f818f4528ecaee63e5541654c
       options: --user 0
     permissions:
       contents: read
@@ -50,7 +50,7 @@ jobs:
     outputs:
       reason: ${{ steps.lookup.outputs.reason }}
     container:
-      image: renovate/renovate:44.156.0@sha256:10521c4d1136710559603b08f530ce6f264dc26ce6f95e7e20de7b2ae0e7def4
+      image: renovate/renovate:44.157.1@sha256:8bbbff99c6fc17d2f22ad2368d2a63463c9e354f818f4528ecaee63e5541654c
       options: --user 0
     permissions:
       contents: read
