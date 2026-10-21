@@ -5,7 +5,7 @@ plugins {
 }
 
 dependencies {
-    injectorImplementation("jakarta.servlet:jakarta.servlet-api:6.0.0")
+    injectorImplementation("jakarta.servlet:jakarta.servlet-api:6.1.0")
 }
 
 // 2.3.0.Final is the first 2.3 release, and bom-testing tracks the latest one, so the two arms of
