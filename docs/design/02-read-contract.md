@@ -361,16 +361,19 @@ file of the window and works only inside the wide-query guard (§2.3.2).
 
 **`duration_desc` reads the duration bands from the top.** The clean retention classes are disjoint duration bands of
 the tier table (`01-write-contract.md` §6.4): `huge_clean`, `long_clean`, `normal_clean`, and `short_clean`, from the
-longest band down. The error classes, `any_error` and `corrupted`, hold calls of any duration. A page reads the clean
-bands in that order and reads the error classes alongside every band:
+longest band down. The error classes, `any_error` and `corrupted`, hold calls of any duration. Besides the position
+`(duration_ms, pk)`, a `duration_desc` cursor records `band`: the longest clean band the next page may still need. A
+first page has no position, and its `band` is `huge_clean`. A page reads the clean bands from `band` down and reads the
+error classes alongside every band:
 
-1. Skip each clean band whose upper bound is not above the cursor's `duration_ms`; its rows all precede the cursor.
-   Skip each band a `duration` condition excludes, as discovery does (§2.3.2).
-2. Read the next band and merge its rows past the cursor with the error-class rows past the cursor, by
-   `(duration_ms DESC, pk ASC)`.
+1. Skip each clean band longer than `band`; its rows all precede the cursor. Skip each band a `duration` condition
+   excludes, as discovery does (§2.3.2).
+2. Read the next band and merge its rows past the position with the error-class rows past the position, by
+   `(duration_ms DESC, pk ASC)`. A row is past the position when its `duration_ms` is lower, or equal with a greater
+   PK; a position with no PK (below) passes only lower durations.
 3. Once at least `limit` merged rows have a `duration_ms` at or above the band's lower bound, the page is the first
-   `limit` of them. Every row of a lower band is shorter, so no lower band can change the page. Otherwise go back to
-   step 2 with the next band.
+   `limit` of them, and the next cursor has the last row's position and this band as `band`. Every row of a shorter
+   band is shorter, so no shorter band can change the page. Otherwise go back to step 2 with the next band.
 
 A request for the slowest calls of a window therefore starts with `huge_clean` and the error classes, and opens a
 shorter band only when the longer bands hold fewer than `limit` calls past the cursor. It needs no lower bound on
@@ -378,16 +381,20 @@ shorter band only when the longer bands hold fewer than `limit` calls past the c
 bounds that cost.
 
 **The guard and `duration_desc`.** `order=duration_desc` counts as a narrowing filter for the span layer of §2.3.2,
-because the first band a page opens is `huge_clean` plus the error classes. The cost layer is evaluated per page,
+because a first page opens `huge_clean` plus the error classes. The cost layer is evaluated per page,
 before each band opens, against the files and bytes of the bands the page has opened so far plus the next one:
 
 - If the first band of a page already exceeds `PROFILER_MAX_SCAN_FILES` or `PROFILER_MAX_SCAN_BYTES`, the page
   answers `400` with `code: query_too_wide`, and `by_class` names the classes in the estimate.
-- If a later band would exceed the limits, the page stops before that band. It returns the merged rows at or above the
-  previous band's lower bound, which are final, and a `next_cursor` that points after them. Such a page can hold fewer
-  than `limit` rows; like an empty page (§2.3.1), it does not end the stream. The next page starts with the band that
-  did not fit, and its first-band check answers `400` with the narrowing affordance, so the caller adds a lower bound
-  on `duration` or narrows the window.
+- If a later band would exceed the limits, the page stops before that band. It returns every merged row at or above
+  the lower bound of the last band it read, which are final, and a `next_cursor` whose `band` is the band that did not
+  fit and whose position is that lower bound with no PK: every row at or above it has been returned. Such a page can
+  hold fewer than `limit` rows, even none; like an empty page (§2.3.1), it does not end the stream. The next page
+  starts at the band that did not fit, so its first-band check charges that band and the error classes only. If they
+  fit, paging goes on; if not, it answers `400` with the narrowing affordance, and the caller adds a lower bound on
+  `duration` or narrows the window.
+
+Every page therefore either returns a row or moves `band` to a shorter band, so paging always progresses.
 
 `next_cursor` is `null` once every band the conditions allow and the error classes hold no row past the cursor. The
 hot tier needs no bands: a hot source returns up to `limit` rows past the cursor in `(duration_ms DESC, pk ASC)` order,
@@ -658,13 +665,21 @@ ascending order of duration. Sketches merge by adding bin counts, so the hot rep
 their own, and `query` merges them without loss.
 
 **Sources and duplicates.** `/stats` has no cursor, so it splits the window between the tiers at one instant instead
-of reading the overlap window from both (§4.3). With `t_split = coldTo − overlap_margin`, the cold scan aggregates
-`[from, t_split)` and the hot replicas aggregate `[t_split, to)`. `t_split` is the latest `hot_window_oldest_ms` of
-the healthy replicas, so every replica serves the whole hot part, and no call is read from both tiers. When the hot
-tier is degraded (§4.3), the cold scan aggregates the whole window and the response is `partial`. Each replica
-aggregates its own rows through `/internal/v1/stats` (§3) and returns mergeable partial aggregates. A call that two
-replicas both hold after a replica transition (§6.2), or that two cold objects both hold, counts twice; that case is
-rare, and removing it would need a PK set as large as the window.
+of reading the overlap window from both (§4.3). `t_split` is the latest `hot_window_oldest_ms` of the healthy
+replicas, clamped to `[from, to]`: the cold scan aggregates `[from, t_split)` and the hot replicas aggregate
+`[t_split, to)`. Every replica serves its hot window from its own `hot_window_oldest_ms` on, so each serves the whole
+hot part, and no call is read from both tiers. A window that ends before `t_split` is cold only, and a window that
+starts after it is hot only. When the hot tier is degraded (§4.3), the cold scan aggregates the whole window and the
+response is `partial`. Each replica aggregates its own rows through `/internal/v1/stats` (§3) and returns mergeable
+partial aggregates.
+
+Compaction leaves its output and its inputs side by side until the delete grace has passed (`01-write-contract.md`
+§6.6), so the cold scan removes that overlap by lineage, not by PK. Before it aggregates, it reads the footer of each
+discovered compacted object (its key carries the `maintain` replica token) and skips every discovered object that a
+footer's `profiler.compaction_inputs` lists, including a compacted object that a later compaction took as input. The
+footers are read anyway to plan the scan, so this costs no extra request. A call that two replicas both hold after a
+replica transition (§6.2) still counts twice; that case is rare, and removing it would need a PK set as large as the
+window.
 
 **Retention.** `/stats` counts the calls the store still holds. The clean classes have shorter TTLs than the error
 classes (`01-write-contract.md` §6.4), so a window older than two days holds no `short_clean` calls, and its counts,
