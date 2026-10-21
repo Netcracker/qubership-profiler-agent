@@ -80,14 +80,15 @@ Kubernetes does not allow to change on an existing StatefulSet. It works for new
 an existing release fails `helm upgrade` with `Forbidden`. Changing the template also never updates PVCs that already
 exist. For an existing release, annotate the PVCs, orphan-delete the StatefulSet, and upgrade. The collector pods and
 their PVCs keep running, and the recreated StatefulSet adopts them. With Argo CD, replace the `helm upgrade` step with a
-sync.
+sync. The example sets the Argo CD prune guard. `--set` splits keys on dots, so escape the dots in the annotation key as
+`\.`, or put the annotations in a values file instead.
 
 ```bash
 sel='app.kubernetes.io/instance=<release>,app.kubernetes.io/component=collector'
-kubectl annotate pvc -n <namespace> -l "$sel" --overwrite <key>=<value>
+kubectl annotate pvc -n <namespace> -l "$sel" --overwrite argocd.argoproj.io/sync-options=Prune=false
 kubectl delete sts -n <namespace> -l "$sel" --cascade=orphan
 helm upgrade <release> deploy/charts/profiler-backend -n <namespace> --reuse-values \
-  --set-string 'pvc.metadata.annotations.<key>=<value>'
+  --set-string 'pvc.metadata.annotations.argocd\.argoproj\.io/sync-options=Prune=false'
 ```
 
 ## Metrics contract
