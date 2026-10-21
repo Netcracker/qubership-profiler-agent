@@ -40,6 +40,12 @@ func podTuple(r *CallRow) string {
 	return r.PK.PodNamespace + "/" + r.PK.PodService + "/" + r.PK.PodName
 }
 
+// TraceIDParams are the call params the trace_id field reads, in the order
+// the UI picks a call's displayed trace ID from: the shared name the tracer
+// plugins write, the name older Brave plugins write, and the B3 header
+// (02 §2.3.3).
+var TraceIDParams = []string{"trace.id", "brave.trace_id", "X-B3-TraceId"}
+
 // fields is the field table of 02 §2.3.3. A name outside it is a call param.
 var fields = map[string]fieldDef{
 	"duration":        {kind: kindDuration, ops: durationOps},
@@ -51,7 +57,7 @@ var fields = map[string]fieldDef{
 	"endpoint":        {kind: kindDerived, ops: enumOps},
 	"error":           {kind: kindBool, ops: []Op{OpEq}},
 	"retention_class": {kind: kindString, ops: []Op{OpEq, OpNe, OpIn, OpNotIn}, value: func(r *CallRow) string { return r.RetentionClass }},
-	"trace_id":        {kind: kindParam, ops: idOps, params: []string{"trace.id", "brave.trace_id", "X-B3-TraceId"}},
+	"trace_id":        {kind: kindParam, ops: idOps, params: TraceIDParams},
 	"request_id":      {kind: kindParam, ops: idOps, params: []string{"x-request-id"}},
 	FieldPodTuple:     {kind: kindString, ops: []Op{OpIn}, value: podTuple},
 }
