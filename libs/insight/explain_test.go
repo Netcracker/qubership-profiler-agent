@@ -209,6 +209,45 @@ func TestReduceKeepsASiblingAboveTheThreshold(t *testing.T) {
 	assert.Len(t, res.HotPath.Children, 2)
 }
 
+func sqlNode(b *treeBuilder, method string, groups ...calltree.ParamGroup) *calltree.Node {
+	var total int64
+	for _, g := range groups {
+		total += g.DurationMs
+	}
+	n := b.node(method, total)
+	n.Params = []calltree.Param{{ParamIdx: 0, Groups: groups}}
+	return n
+}
+
+// TestReduceGroupsSQLBySignature pins the fix for keying top SQL by the
+// truncated text: statements sharing a long prefix stay apart, and literal
+// variants that two nodes keep as different values fold together.
+func TestReduceGroupsSQLBySignature(t *testing.T) {
+	b := &treeBuilder{}
+	cols := "select " + strings.Repeat("customer_name, ", 25) + "id"
+	require.Greater(t, len(cols), sqlTextLimit)
+	root := b.node("a.Service.handle", 1000,
+		sqlNode(b, "a.Jdbc.orders", calltree.ParamGroup{Value: cols + " from orders", DurationMs: 60, Executions: 1}),
+		sqlNode(b, "a.Jdbc.payments", calltree.ParamGroup{Value: cols + " from payments", DurationMs: 40, Executions: 1}),
+		sqlNode(b, "a.Jdbc.first", calltree.ParamGroup{Value: "select * from t where id = 1", DurationMs: 30, Executions: 3}),
+		sqlNode(b, "a.Jdbc.second", calltree.ParamGroup{Value: "select * from t where id = 22", DurationMs: 50, Executions: 5}),
+		sqlNode(b, "a.Jdbc.third",
+			calltree.ParamGroup{Value: "sql:3:17", DurationMs: 8, Executions: 1, Unresolved: true},
+			calltree.ParamGroup{Value: "sql:3:18", DurationMs: 7, Executions: 1, Unresolved: true}),
+	)
+
+	res := reduce(b.roundTrip(t, root, "sql"), opts(DefaultThreshold, DefaultMaxNodes))
+	require.Len(t, res.TopSQL, 5)
+	assert.Equal(t, SQLStat{Statement: "select * from t where id = 22", DurationMs: 80, Executions: 8}, res.TopSQL[0],
+		"literal variants from two nodes fold, shown by the slower one's text")
+	assert.Equal(t, int64(60), res.TopSQL[1].DurationMs, "a shared prefix does not merge orders into payments")
+	assert.Equal(t, int64(40), res.TopSQL[2].DurationMs)
+	assert.Len(t, res.TopSQL[1].Statement, sqlTextLimit+3, "only the shown text is truncated")
+	assert.Equal(t, "(statement text unavailable: sql:3:17)", res.TopSQL[3].Statement)
+	assert.Equal(t, "(statement text unavailable: sql:3:18)", res.TopSQL[4].Statement,
+		"two unresolved references stay apart")
+}
+
 func TestReduceRanksSelfTimeAndSQL(t *testing.T) {
 	b := &treeBuilder{}
 	q1 := b.node("a.Jdbc.execute", 300)

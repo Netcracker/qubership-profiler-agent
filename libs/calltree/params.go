@@ -112,7 +112,7 @@ func (b *builder) groupOf(scope *container, tag invocationTag, durationMs int64)
 	}
 	key := tag.value
 	if (tag.isSQL || tag.isBinds) && !tag.unresolved {
-		key = sqlSignature(tag.value)
+		key = SQLSignature(tag.value)
 	}
 	if g := p.byKey[key]; g != nil {
 		return g
@@ -231,12 +231,12 @@ func (c *container) materialize() []Param {
 // literalRe strips single-quoted SQL literals, ” escapes included.
 var literalRe = regexp.MustCompile(`'(?:''|[^'])*'`)
 
-// sqlSignature is the old UI's similarity key (profiler.mjs:3469,
+// SQLSignature is the old UI's similarity key (profiler.mjs:3469,
 // signatures.sql): drop commas, strip quoted literals and digits, abbreviate
 // every word to its first character, drop whitespace. Two SQL texts differing
 // only in literals and identifiers' tails share a signature and fold into one
 // group.
-func sqlSignature(sql string) string {
+func SQLSignature(sql string) string {
 	s := strings.ReplaceAll(sql, ",", "")
 	s = literalRe.ReplaceAllString(s, "")
 	var out strings.Builder

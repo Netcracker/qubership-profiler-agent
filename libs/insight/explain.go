@@ -382,39 +382,57 @@ func topSelf(root *calltree.Node, method func(*calltree.Node) string) []MethodSt
 	return out
 }
 
-// topSQL sums the groups of every `sql` param under root. The server already
-// folded statements that differ only in literals into one group per node.
+// topSQL sums the groups of every `sql` param under root. Each node already
+// folded its statements by calltree.SQLSignature, but it keeps the first
+// value it saw, so two nodes can hold the same statement with different
+// literals; topSQL keys by the same signature to fold them again (as the
+// UI's params-summary.ts does). The ::other bucket and each unresolved
+// reference keep identities of their own. Only the emitted text is
+// truncated, so a shared long prefix cannot merge two statements.
 func topSQL(root *calltree.Node, params []string) []SQLStat {
-	byText := map[string]*SQLStat{}
+	type group struct {
+		stat SQLStat
+		// slowestMs picks the representative text: the value of the
+		// slowest group folded in.
+		slowestMs int64
+	}
+	byKey := map[string]*group{}
+	var order []string
 	walk(root, func(n *calltree.Node) {
 		for _, p := range n.Params {
 			if p.ParamIdx < 0 || p.ParamIdx >= len(params) || params[p.ParamIdx] != "sql" {
 				continue
 			}
 			for _, g := range p.Groups {
-				text := g.Value
+				var key, text string
 				switch {
-				case text == calltree.OtherGroupValue:
-					text = "(other statements)"
+				case g.Value == calltree.OtherGroupValue:
+					key, text = "other", "(other statements)"
 				case g.Unresolved:
-					text = "(statement text unavailable: " + text + ")"
+					key, text = "unresolved:"+g.Value, "(statement text unavailable: "+g.Value+")"
+				default:
+					key, text = "sql:"+calltree.SQLSignature(g.Value), strings.Join(strings.Fields(g.Value), " ")
 				}
-				text = truncate(strings.Join(strings.Fields(text), " "), sqlTextLimit)
-				s := byText[text]
+				s := byKey[key]
 				if s == nil {
-					s = &SQLStat{Statement: text}
-					byText[text] = s
+					s = &group{stat: SQLStat{Statement: text}, slowestMs: g.DurationMs}
+					byKey[key] = s
+					order = append(order, key)
+				} else if g.DurationMs > s.slowestMs {
+					s.stat.Statement, s.slowestMs = text, g.DurationMs
 				}
-				s.DurationMs += g.DurationMs
-				s.Executions += g.Executions
+				s.stat.DurationMs += g.DurationMs
+				s.stat.Executions += g.Executions
 			}
 		}
 	})
-	out := make([]SQLStat, 0, len(byText))
-	for _, s := range byText {
-		out = append(out, *s)
+	out := make([]SQLStat, 0, len(byKey))
+	for _, key := range order {
+		s := byKey[key].stat
+		s.Statement = truncate(s.Statement, sqlTextLimit)
+		out = append(out, s)
 	}
-	sort.Slice(out, func(i, j int) bool {
+	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].DurationMs != out[j].DurationMs {
 			return out[i].DurationMs > out[j].DurationMs
 		}
