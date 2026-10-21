@@ -385,3 +385,22 @@ func TestParseWindowAndResolve(t *testing.T) {
 	_, err = w.Resolve()
 	assert.ErrorContains(t, err, "ends")
 }
+
+func TestCallTraceIDReadsEveryTraceParam(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		params map[string][]string
+		want   string
+	}{
+		{"shared name", map[string][]string{"trace.id": {"t1"}}, "t1"},
+		{"Brave only", map[string][]string{"brave.trace_id": {"t2"}}, "t2"},
+		{"B3 only", map[string][]string{"X-B3-TraceId": {"t3"}}, "t3"},
+		{"shared name first", map[string][]string{"X-B3-TraceId": {"t3"}, "trace.id": {"t1"}}, "t1"},
+		{"empty value skipped", map[string][]string{"trace.id": {""}, "brave.trace_id": {"t2"}}, "t2"},
+		{"none", map[string][]string{"x-request-id": {"r1"}}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, toCall(model.CallJSON{Params: tc.params}).TraceID)
+		})
+	}
+}
