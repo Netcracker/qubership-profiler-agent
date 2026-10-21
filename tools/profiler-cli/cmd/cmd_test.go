@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -210,7 +211,17 @@ func TestCallsCommandSendsFlagsAsConditions(t *testing.T) {
 	assert.Equal(t, []string{"request_id=abc123", "duration>1s", "namespace=prod", "service=billing"}, q["filter"])
 	assert.Equal(t, "5", q.Get("limit"))
 	assert.Contains(t, out, "request_id=abc123")
-	assert.Contains(t, out, "More calls: --cursor cursor-page-2")
+
+	// The printed cursor continues the listing under the same filters, and
+	// the window of page 1 stays with the server's cursor.
+	_, token, found := strings.Cut(out, "More calls: --cursor ")
+	require.True(t, found, out)
+	_, err = run(t, "calls", "--url", url, "--cursor", strings.TrimSpace(token))
+	require.NoError(t, err)
+	q = last.URL.Query()
+	assert.Equal(t, "cursor-page-2", q.Get("cursor"))
+	assert.ElementsMatch(t, []string{"request_id=abc123", "duration>1s", "namespace=prod", "service=billing"}, q["filter"])
+	assert.Empty(t, q.Get("from"))
 }
 
 func TestJSONFlagPrintsTheTypedResult(t *testing.T) {
