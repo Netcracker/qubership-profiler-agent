@@ -218,7 +218,9 @@ flag, and the MCP tools carry the same conditions in the same text form, so a fi
   Whitespace inside a duration is ignored, and a duration is rounded to whole milliseconds. A `between` range may name
   its bounds in either order: `2s..100ms` is the same range as `100ms..2s`.
 - `None` and `Any` are special values for fields a call can lack (params, `trace_id`, `request_id`, `endpoint`). They
-  go with `=` and `!=` only: `trace_id=None` matches a call without a trace ID, and `trace_id=Any` a call with one.
+  take their special meaning with `=` and `!=` only: `trace_id=None` matches a call without a trace ID, and
+  `trace_id=Any` a call with one. With any other operator they are plain text, so `method=~Any` matches a method
+  containing `Any`.
 
 **Fields.**
 
