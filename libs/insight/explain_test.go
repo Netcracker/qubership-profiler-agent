@@ -146,6 +146,69 @@ func TestReduceSpendsTheBudgetOnTheSlowestBranch(t *testing.T) {
 	assert.Equal(t, 2, res.HotPath.Children[1].Hidden, "Fast's children are past the budget")
 }
 
+// TestReduceChargesTheBudgetWhenANodeIsShown pins the fix for a budget
+// spent on a wide level: children used to take slots before the expansion
+// order picked a branch, so 39 small siblings hid the expensive grandchildren.
+func TestReduceChargesTheBudgetWhenANodeIsShown(t *testing.T) {
+	b := &treeBuilder{}
+	branch := b.node("a.Slow.run", 700, b.node("a.Slow.query", 400), b.node("a.Slow.render", 300))
+	children := []*calltree.Node{branch}
+	for i := 0; i < 39; i++ {
+		children = append(children, b.node(fmt.Sprintf("a.Small.m%02d", i), 7))
+	}
+	root := b.node("a.Main.run", 1000, children...)
+
+	res := reduce(b.roundTrip(t, root), opts(0.001, 40))
+	path := res.HotPath
+	require.NotEmpty(t, path.Children)
+	slow := path.Children[0]
+	assert.Equal(t, "a.Slow.run", slow.Method)
+	require.Len(t, slow.Children, 2, "the 400 ms and 300 ms nodes take slots before any 7 ms sibling")
+	assert.Equal(t, "a.Slow.query", slow.Children[0].Method)
+	assert.Equal(t, "a.Slow.render", slow.Children[1].Method)
+	assert.Len(t, path.Children, 1+36, "the root, the branch, and its two children leave 36 slots")
+	assert.Equal(t, 3, path.Hidden)
+	assert.Equal(t, int64(21), path.HiddenMs)
+	require.Len(t, res.Notes, 1)
+	assert.Contains(t, res.Notes[0], "the node budget of 40 is reached and 3 nodes are hidden")
+}
+
+// TestReduceKeepsASiblingAboveTheThreshold pins the fix for a collapse that
+// dropped a side child the threshold would show: a 100 ms sibling of a
+// 900 ms child is 10% of the root, so the root is not a pass-through.
+func TestReduceKeepsASiblingAboveTheThreshold(t *testing.T) {
+	b := &treeBuilder{}
+	root := b.node("a.Main.run", 1000, b.node("a.Repo.load", 900), b.node("a.Http.call", 100))
+
+	res := reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	path := res.HotPath
+	assert.Equal(t, "a.Main.run", path.Method)
+	assert.Zero(t, path.Skipped)
+	require.Len(t, path.Children, 2)
+	assert.Equal(t, "a.Repo.load", path.Children[0].Method)
+	assert.Equal(t, "a.Http.call", path.Children[1].Method)
+	assert.Zero(t, path.Hidden)
+	assert.Empty(t, res.Notes)
+
+	// A side child under the threshold still collapses, and the landed node
+	// reports it as hidden.
+	b = &treeBuilder{}
+	root = b.node("a.Main.run", 1000, b.node("a.Repo.load", 960), b.node("a.Http.call", 40))
+	res = reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	path = res.HotPath
+	assert.Equal(t, "a.Repo.load", path.Method)
+	assert.Equal(t, 1, path.Skipped)
+	assert.Equal(t, 1, path.Hidden)
+	assert.Equal(t, int64(40), path.HiddenMs)
+	require.Len(t, res.Notes, 1)
+	assert.Contains(t, res.Notes[0], "1 nodes under 5% of 1000 ms are hidden")
+
+	// A lower threshold shows that child again.
+	res = reduce(b.roundTrip(t, root), opts(0.01, DefaultMaxNodes))
+	assert.Equal(t, "a.Main.run", res.HotPath.Method)
+	assert.Len(t, res.HotPath.Children, 2)
+}
+
 func TestReduceRanksSelfTimeAndSQL(t *testing.T) {
 	b := &treeBuilder{}
 	q1 := b.node("a.Jdbc.execute", 300)
