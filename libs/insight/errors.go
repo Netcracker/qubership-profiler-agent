@@ -100,6 +100,30 @@ func (e *APIError) tooWideMessage() string {
 	return b.String()
 }
 
+// CursorMismatchError rejects a cursor passed with filters other than the
+// ones of the listing it continues. The cursor's own filters would apply to
+// the page, so it would hold calls the given filters exclude.
+type CursorMismatchError struct {
+	// CursorFilters are the conditions of the listing the cursor continues.
+	CursorFilters []string
+	// Filters are the conditions passed with the cursor.
+	Filters []string
+}
+
+// Error names both sets of filters and the two ways forward.
+func (e *CursorMismatchError) Error() string {
+	return fmt.Sprintf("the cursor continues a listing filtered by %s, not by %s: "+
+		"pass the cursor with that listing's filters or with none, or drop it to start a new listing",
+		filterList(e.CursorFilters), filterList(e.Filters))
+}
+
+func filterList(conditions []string) string {
+	if len(conditions) == 0 {
+		return "no condition"
+	}
+	return strings.Join(conditions, ", ")
+}
+
 // IsCode reports whether err is an APIError with the given code.
 func IsCode(err error, code string) bool {
 	var e *APIError
