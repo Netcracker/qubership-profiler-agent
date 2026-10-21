@@ -11,13 +11,14 @@ job) with its call tree. The `profiler` CLI reads that data from the profiler's 
 ## Setup
 
 1. Get the binary. In a checkout of `Netcracker/qubership-profiler-agent`, run `make -C tools/profiler-cli install`;
-   it installs `profiler` into `$(go env GOPATH)/bin`. `go install` by module path does not work: the Go module is
-   named `qubership-profiler-backend`, not after the repository.
-2. Reach the query service. It is the `<release>-query` service of the profiler's Helm release, on port 8080. Find
-   it with `kubectl get svc -A | grep -- '-query'`, or ask the user for the namespace and release, then run:
+   it installs `profiler` into `$(go env GOBIN)`, or into `$(go env GOPATH)/bin` when `GOBIN` is unset. `go install`
+   by module path does not work: the Go module is named `qubership-profiler-backend`, not after the repository.
+2. Reach the query service on port 8080. The chart names it after the release's full name with a `-query` suffix,
+   such as `profiler-profiler-backend-query`, so find the exact name rather than guessing it:
+   `kubectl get svc -A | grep -- '-query'`. If several match, ask the user which one. Then run:
 
    ```bash
-   kubectl port-forward -n <profiler-namespace> svc/<release>-query 8080:8080
+   kubectl port-forward -n <profiler-namespace> svc/<query-service> 8080:8080
    export PROFILER_URL=http://localhost:8080
    ```
 
@@ -84,8 +85,9 @@ A field or operator the server does not implement yet fails with an error that n
    on the same call with `--node 12` to re-root the explanation at exactly that node. `--focus <text>` is a shortcut
    when the method is unique: it takes the slowest node whose method contains the text, and when several match, a
    note lists the others' IDs for `--node`. `--threshold 0.01` shows nodes down to 1% of the time, and
-   `--max-nodes 100` widens the hot path. When the output cut anything, a `Notes` section says what and which of
-   these flags shows it; no `Notes` section means nothing was cut.
+   `--max-nodes 100` widens the hot path. When the threshold or the node budget dropped hot-path nodes, a `Notes`
+   section says what and which of these flags shows it; no `Notes` section means the hot path is complete. The top
+   self-time and top SQL lists show at most ten entries each, with no note when they stop there.
 
 ## Reading the output
 
