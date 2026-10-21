@@ -28,11 +28,12 @@ Add `--json` to any command for the full typed result.
 
 ## Filter conditions
 
-`calls` and `services` take repeatable `--filter` conditions; a call must meet all of them. `--service <ns>/<svc>`
-is shorthand for `namespace=<ns>` and `service=<svc>`. Quote each condition for the shell.
+`calls` takes repeatable `--filter` conditions on any field below; a call must meet all of them. `services` takes
+only `namespace`, `service`, and `pod` conditions. `--service <ns>/<svc>` is shorthand for `namespace=<ns>` and
+`service=<svc>`. Quote each condition for the shell.
 
 | Field | Means | Examples |
-|---|---|---|
+| --- | --- | --- |
 | `duration` | Call duration; `ms` or `s`, a bare number is seconds | `duration>2s`, `duration between 100ms..500ms` |
 | `namespace`, `service`, `pod` | Where the call ran | `service=billing`, `pod in billing-1,billing-2` |
 | `error` | The call failed | `error=true` |
@@ -59,8 +60,16 @@ A field or operator the server does not implement yet fails with an error that n
    ```
 
    `request_id` reads the `x-request-id` header only. When it finds nothing (`No calls match.`), the service may
-   record its request ID under a call parameter of its own: run `profiler calls --json` on a few calls of the
-   service, look at the names in `params`, and filter on that name, such as `--filter 'request.id=abc123'`. Do not
+   record its request ID under a call parameter of its own. The CLI does not print other parameters, so read them
+   from the query service for a few recent calls of the service:
+
+   ```bash
+   now=$(date +%s)
+   curl -sG "$PROFILER_URL/api/v1/calls" -d from=$(( (now - 3600) * 1000 )) -d to=$(( now * 1000 )) -d limit=3 \
+     --data-urlencode 'filter=namespace=prod' --data-urlencode 'filter=service=billing' | jq '.calls[].params'
+   ```
+
+   Pick the parameter that holds the ID and filter on its name, such as `--filter 'request.id=abc123'`. Do not
    conclude that the request is missing until you have checked.
 
    A request that crossed several services shows one call per service that the profiler sees, all with the same
@@ -93,8 +102,8 @@ A field or operator the server does not implement yet fails with an error that n
   node budget.
 - **Top SQL** sums each statement over the call. Statements that differ only in literals are one entry.
 - **The `calls` table.** `IDS` shows the request ID, trace ID, and HTTP method and URL when the call has them; other
-  parameters are only in `--json`. `REF` ends with the call's retention class (`short_clean`, `long_clean`,
-  `any_error`, and so on), which decides how long the call is kept.
+  parameters are not in the CLI output, even with `--json`. `REF` ends with the call's retention class
+  (`short_clean`, `long_clean`, `any_error`, and so on), which decides how long the call is kept.
 - **No tree.** A call listed with `no tree (<reason>)` was too big for the agent's buffers; `explain` fails for it.
 - **Partial.** A `Partial:` line means a source of data failed; the result may miss calls. Retry before concluding
   that a call does not exist.
