@@ -75,7 +75,7 @@ Query parameters:
 | `pod` | string (repeatable) | Optional. `namespace/service/pod`. Shorthand for conditions (§2.3.3). |
 | `method` | string | Optional substring match on the `method` column. Shorthand for a condition (§2.3.3). |
 | `duration_min_ms` | int32 | Optional. Shorthand for `duration>=<n>ms`. |
-| `duration_max_ms` | int32 | Optional. Shorthand for `duration<=<n>ms`. |
+| `duration_max_ms` | int32 | Optional. Shorthand for `duration<=<n>ms`; `0` means no upper bound. |
 | `error_only` | bool | Optional. Maps to `error_flag = true`. Shorthand for `error=true`. |
 | `retention_class` | string (repeatable) | Optional. `short_clean` / `normal_clean` / `long_clean` / `any_error` / `corrupted`. Shorthand for `retention_class in <values>`. |
 | `cursor` | string | Opaque cursor from previous page's `next_cursor`. |
@@ -218,7 +218,9 @@ flag, and the MCP tools carry the same conditions in the same text form, so a fi
   Whitespace inside a duration is ignored, and a duration is rounded to whole milliseconds. A `between` range may name
   its bounds in either order: `2s..100ms` is the same range as `100ms..2s`.
 - `None` and `Any` are special values for fields a call can lack (params, `trace_id`, `request_id`, `endpoint`). They
-  go with `=` and `!=` only: `trace_id=None` matches a call without a trace ID, and `trace_id=Any` a call with one.
+  take their special meaning with `=` and `!=` only: `trace_id=None` matches a call without a trace ID, and
+  `trace_id=Any` a call with one. With any other operator they are plain text, so `method=~Any` matches a method
+  containing `Any`.
 
 **Fields.**
 
@@ -231,15 +233,16 @@ flag, and the MCP tools carry the same conditions in the same text form, so a fi
 | `endpoint` | Derived from the `web.method` and `web.url` params, below | `=`, `!=`, `=~`, `!~`, `in`, `not in` |
 | `error` | `error_flag`; the value is `true` or `false` | `=` |
 | `retention_class` | The object key's class (§5.1) | `=`, `!=`, `in`, `not in` |
-| `trace_id` | The `trace.id` param | `=`, `!=`, `=~` |
+| `trace_id` | The `trace.id`, `brave.trace_id`, and `X-B3-TraceId` params, below | `=`, `!=`, `=~` |
 | `request_id` | The `x-request-id` param | `=`, `!=`, `=~` |
 | Any other name | The call param of that name, such as `user.tenant` | `=`, `!=`, `=~`, `!~`, `in`, `not in` |
 
 A name in the table always means the field. A call param that shares a name with a field, such as a param named
 `duration`, cannot be filtered on.
 
-`trace_id` reads the shared name the agent's tracer plugins write (`trace.id`). The raw propagation headers the agent
-also records, such as `X-B3-TraceId`, stay reachable as plain params.
+`trace_id` reads the shared name the agent's tracer plugins write (`trace.id`), the name older Brave plugins write
+(`brave.trace_id`), and the B3 propagation header (`X-B3-TraceId`). The values of all three count as values of one
+param, so a trace ID the UI shows for a call always finds that call. Each name also stays reachable as a plain param.
 
 `class` is the declaring class of the root method. Take the `method` text before its first `(`, then its last
 whitespace-separated word, which is the qualified method name; the class is that name up to its last `.`. For
@@ -268,7 +271,7 @@ without `web.url` has no endpoint. A call with `web.url` and no `web.method` has
 | `pod=<ns>/<svc>/<pod>` | One condition that the call's `(namespace, service, pod)` is one of the listed tuples. Repeating `pod` adds tuples to the same condition. The text form has no syntax for it. |
 | `method=<text>` | `method=~<text>` with every regular-expression character of `<text>` escaped, which is a substring match |
 | `duration_min_ms=<n>` | `duration>=<n>ms` |
-| `duration_max_ms=<n>` | `duration<=<n>ms` |
+| `duration_max_ms=<n>` | `duration<=<n>ms`; `duration_max_ms=0` adds no condition, as before `filter` existed |
 | `error_only=true` | `error=true` |
 | `retention_class=<c>` (repeatable) | `retention_class in <c1>,<c2>` |
 

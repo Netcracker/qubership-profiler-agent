@@ -227,6 +227,9 @@ func parseDurationRange(text string) (lo, hi int64, err error) {
 	return lo, hi, nil
 }
 
+// durationAboveMax is the smallest duration no call can have.
+const durationAboveMax = math.MaxInt32 + 1
+
 func durationMs(number, unit string) (int64, error) {
 	v, err := strconv.ParseFloat(number, 64)
 	if err != nil {
@@ -236,10 +239,13 @@ func durationMs(number, unit string) (int64, error) {
 		v *= 1000
 	}
 	v = math.Round(v)
-	// A call duration is an int32 of milliseconds; anything past it matches
-	// the same calls as the int32 maximum, so clamping changes no answer.
-	if v > math.MaxInt32 {
-		v = math.MaxInt32
+	// A call duration is an int32 of milliseconds, so every threshold above
+	// the int32 maximum matches the same calls as the maximum plus one: no
+	// call reaches it, and every call is below it. Clamping there keeps each
+	// comparison exact and keeps ms+1 and the int64 conversion from
+	// overflowing.
+	if v > durationAboveMax {
+		v = durationAboveMax
 	}
 	return int64(v), nil
 }

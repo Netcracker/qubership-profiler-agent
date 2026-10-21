@@ -146,6 +146,108 @@ func TestReduceSpendsTheBudgetOnTheSlowestBranch(t *testing.T) {
 	assert.Equal(t, 2, res.HotPath.Children[1].Hidden, "Fast's children are past the budget")
 }
 
+// TestReduceChargesTheBudgetWhenANodeIsShown pins the fix for a budget
+// spent on a wide level: children used to take slots before the expansion
+// order picked a branch, so 39 small siblings hid the expensive grandchildren.
+func TestReduceChargesTheBudgetWhenANodeIsShown(t *testing.T) {
+	b := &treeBuilder{}
+	branch := b.node("a.Slow.run", 700, b.node("a.Slow.query", 400), b.node("a.Slow.render", 300))
+	children := []*calltree.Node{branch}
+	for i := 0; i < 39; i++ {
+		children = append(children, b.node(fmt.Sprintf("a.Small.m%02d", i), 7))
+	}
+	root := b.node("a.Main.run", 1000, children...)
+
+	res := reduce(b.roundTrip(t, root), opts(0.001, 40))
+	path := res.HotPath
+	require.NotEmpty(t, path.Children)
+	slow := path.Children[0]
+	assert.Equal(t, "a.Slow.run", slow.Method)
+	require.Len(t, slow.Children, 2, "the 400 ms and 300 ms nodes take slots before any 7 ms sibling")
+	assert.Equal(t, "a.Slow.query", slow.Children[0].Method)
+	assert.Equal(t, "a.Slow.render", slow.Children[1].Method)
+	assert.Len(t, path.Children, 1+36, "the root, the branch, and its two children leave 36 slots")
+	assert.Equal(t, 3, path.Hidden)
+	assert.Equal(t, int64(21), path.HiddenMs)
+	require.Len(t, res.Notes, 1)
+	assert.Contains(t, res.Notes[0], "the node budget of 40 is reached and 3 nodes are hidden")
+}
+
+// TestReduceKeepsASiblingAboveTheThreshold pins the fix for a collapse that
+// dropped a side child the threshold would show: a 100 ms sibling of a
+// 900 ms child is 10% of the root, so the root is not a pass-through.
+func TestReduceKeepsASiblingAboveTheThreshold(t *testing.T) {
+	b := &treeBuilder{}
+	root := b.node("a.Main.run", 1000, b.node("a.Repo.load", 900), b.node("a.Http.call", 100))
+
+	res := reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	path := res.HotPath
+	assert.Equal(t, "a.Main.run", path.Method)
+	assert.Zero(t, path.Skipped)
+	require.Len(t, path.Children, 2)
+	assert.Equal(t, "a.Repo.load", path.Children[0].Method)
+	assert.Equal(t, "a.Http.call", path.Children[1].Method)
+	assert.Zero(t, path.Hidden)
+	assert.Empty(t, res.Notes)
+
+	// A side child under the threshold still collapses, and the landed node
+	// reports it as hidden.
+	b = &treeBuilder{}
+	root = b.node("a.Main.run", 1000, b.node("a.Repo.load", 960), b.node("a.Http.call", 40))
+	res = reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	path = res.HotPath
+	assert.Equal(t, "a.Repo.load", path.Method)
+	assert.Equal(t, 1, path.Skipped)
+	assert.Equal(t, 1, path.Hidden)
+	assert.Equal(t, int64(40), path.HiddenMs)
+	require.Len(t, res.Notes, 1)
+	assert.Contains(t, res.Notes[0], "1 nodes under 5% of 1000 ms are hidden")
+
+	// A lower threshold shows that child again.
+	res = reduce(b.roundTrip(t, root), opts(0.01, DefaultMaxNodes))
+	assert.Equal(t, "a.Main.run", res.HotPath.Method)
+	assert.Len(t, res.HotPath.Children, 2)
+}
+
+func sqlNode(b *treeBuilder, method string, groups ...calltree.ParamGroup) *calltree.Node {
+	var total int64
+	for _, g := range groups {
+		total += g.DurationMs
+	}
+	n := b.node(method, total)
+	n.Params = []calltree.Param{{ParamIdx: 0, Groups: groups}}
+	return n
+}
+
+// TestReduceGroupsSQLBySignature pins the fix for keying top SQL by the
+// truncated text: statements sharing a long prefix stay apart, and literal
+// variants that two nodes keep as different values fold together.
+func TestReduceGroupsSQLBySignature(t *testing.T) {
+	b := &treeBuilder{}
+	cols := "select " + strings.Repeat("customer_name, ", 25) + "id"
+	require.Greater(t, len(cols), sqlTextLimit)
+	root := b.node("a.Service.handle", 1000,
+		sqlNode(b, "a.Jdbc.orders", calltree.ParamGroup{Value: cols + " from orders", DurationMs: 60, Executions: 1}),
+		sqlNode(b, "a.Jdbc.payments", calltree.ParamGroup{Value: cols + " from payments", DurationMs: 40, Executions: 1}),
+		sqlNode(b, "a.Jdbc.first", calltree.ParamGroup{Value: "select * from t where id = 1", DurationMs: 30, Executions: 3}),
+		sqlNode(b, "a.Jdbc.second", calltree.ParamGroup{Value: "select * from t where id = 22", DurationMs: 50, Executions: 5}),
+		sqlNode(b, "a.Jdbc.third",
+			calltree.ParamGroup{Value: "sql:3:17", DurationMs: 8, Executions: 1, Unresolved: true},
+			calltree.ParamGroup{Value: "sql:3:18", DurationMs: 7, Executions: 1, Unresolved: true}),
+	)
+
+	res := reduce(b.roundTrip(t, root, "sql"), opts(DefaultThreshold, DefaultMaxNodes))
+	require.Len(t, res.TopSQL, 5)
+	assert.Equal(t, SQLStat{Statement: "select * from t where id = 22", DurationMs: 80, Executions: 8}, res.TopSQL[0],
+		"literal variants from two nodes fold, shown by the slower one's text")
+	assert.Equal(t, int64(60), res.TopSQL[1].DurationMs, "a shared prefix does not merge orders into payments")
+	assert.Equal(t, int64(40), res.TopSQL[2].DurationMs)
+	assert.Len(t, res.TopSQL[1].Statement, sqlTextLimit+3, "only the shown text is truncated")
+	assert.Equal(t, "(statement text unavailable: sql:3:17)", res.TopSQL[3].Statement)
+	assert.Equal(t, "(statement text unavailable: sql:3:18)", res.TopSQL[4].Statement,
+		"two unresolved references stay apart")
+}
+
 func TestReduceRanksSelfTimeAndSQL(t *testing.T) {
 	b := &treeBuilder{}
 	q1 := b.node("a.Jdbc.execute", 300)

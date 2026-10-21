@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +119,58 @@ func TestExplainText(t *testing.T) {
 	golden(t, "explain", b.String())
 }
 
+// shortWriter accepts the first n bytes, then fails like a closed pipe.
+type shortWriter struct{ n int }
+
+func (w *shortWriter) Write(p []byte) (int, error) {
+	if len(p) > w.n {
+		k := w.n
+		w.n = 0
+		return k, io.ErrClosedPipe
+	}
+	w.n -= len(p)
+	return len(p), nil
+}
+
+// TestTextReportsWriteErrors cuts each text output at every byte offset, so a
+// write on any path, down to the last line, fails the command instead of
+// leaving a truncated result behind a zero exit status.
+func TestTextReportsWriteErrors(t *testing.T) {
+	call := sampleCalls()[0]
+	for name, write := range map[string]func(io.Writer) error{
+		"services": func(w io.Writer) error {
+			return writeServices(w, insight.ServicesResult{Window: window, Namespaces: []insight.Namespace{{
+				Name: "prod", Services: []insight.Service{{Name: "billing", Pods: []insight.Pod{{
+					Name: "billing-7f8c", Restarts: []insight.Restart{{StartedAt: t0, FirstCall: t0, LastCall: t0}},
+				}}}},
+			}}})
+		},
+		"services, empty": func(w io.Writer) error {
+			return writeServices(w, insight.ServicesResult{Window: window, Partial: []string{"timeout"}})
+		},
+		"calls": func(w io.Writer) error {
+			return writeCalls(w, insight.CallsResult{Window: &window, Calls: sampleCalls(), NextCursor: "c2"})
+		},
+		"calls, empty": func(w io.Writer) error {
+			return writeCalls(w, insight.CallsResult{Restarted: true, NextCursor: "c2"})
+		},
+		"explain": func(w io.Writer) error {
+			return writeExplain(w, insight.ExplainResult{
+				Call: &call, Focus: "f",
+				HotPath: &insight.PathNode{Method: "a", Hidden: 1, Children: []*insight.PathNode{{Method: "b"}}},
+				TopSelf: []insight.MethodStat{{Method: "b"}}, TopSQL: []insight.SQLStat{{Statement: "s"}},
+				Notes: []string{"n"},
+			})
+		},
+	} {
+		var full bytes.Buffer
+		require.NoError(t, write(&full), name)
+		for n := 0; n < full.Len(); n++ {
+			assert.ErrorIs(t, write(&shortWriter{n: n}), io.ErrClosedPipe, "%s cut at byte %d of %d", name, n, full.Len())
+		}
+	}
+}
+
 // serve answers /api/v1/pods and /api/v1/calls from testdata and records the
 // last query.
 func serve(t *testing.T) (string, *http.Request) {
@@ -157,7 +211,17 @@ func TestCallsCommandSendsFlagsAsConditions(t *testing.T) {
 	assert.Equal(t, []string{"request_id=abc123", "duration>1s", "namespace=prod", "service=billing"}, q["filter"])
 	assert.Equal(t, "5", q.Get("limit"))
 	assert.Contains(t, out, "request_id=abc123")
-	assert.Contains(t, out, "More calls: --cursor cursor-page-2")
+
+	// The printed cursor continues the listing under the same filters, and
+	// the window of page 1 stays with the server's cursor.
+	_, token, found := strings.Cut(out, "More calls: --cursor ")
+	require.True(t, found, out)
+	_, err = run(t, "calls", "--url", url, "--cursor", strings.TrimSpace(token))
+	require.NoError(t, err)
+	q = last.URL.Query()
+	assert.Equal(t, "cursor-page-2", q.Get("cursor"))
+	assert.ElementsMatch(t, []string{"request_id=abc123", "duration>1s", "namespace=prod", "service=billing"}, q["filter"])
+	assert.Empty(t, q.Get("from"))
 }
 
 func TestJSONFlagPrintsTheTypedResult(t *testing.T) {
