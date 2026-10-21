@@ -131,7 +131,7 @@ operation except `explain` takes a list of filter conditions (section 5.1).
 |---|---|---|---|---|
 | List services | `profiler services` | `profiler_list_services` | None | Namespaces, services, and pods with data, with pod-restart times |
 | Find calls | `profiler calls` | `profiler_find_calls` | Order, limit, cursor | Calls with a call reference, time, duration, root method, CPU, wait, suspension, and key params |
-| Explain a call | `profiler explain` | `profiler_explain_call` | Call reference, focus method, threshold, node budget | Header, reduced hot path, top methods by self time, top SQL groups |
+| Explain a call | `profiler explain` | `profiler_explain_call` | Call reference, focus node or method, threshold, node budget | Header, reduced hot path, top methods by self time, top SQL groups |
 | Hotspots | `profiler hotspots` | `profiler_hotspots` | Grouping field (default: root method), sample size | Exact per-group statistics, plus sampled inner methods and SQL |
 | Timeline | `profiler timeline` | `profiler_timeline` | Bucket count | Call count, error count, and p95 duration per time bucket |
 | Compare windows | `profiler compare` | `profiler_compare_windows` | A second window | Per-group changes, new and vanished entries, sampled detail for what changed |
@@ -151,8 +151,11 @@ client-side in v1.
   the root), and a node budget. It follows the skip-degenerate-chains rule of `08-ui-backend-requirements.md` §5.
 - **Top methods by self time** across the whole tree. This is the same view as the UI's Hotspots tab.
 - **Top SQL groups** with duration, executions, and a truncated statement.
-- **Going deeper:** a focus method re-roots the reduction at a subtree; the threshold and the node budget widen it.
-  The UI's "Explain" on a selected node maps to the focus method.
+- **Node references:** every node in the result carries its preorder index in the `/tree` wire tree, the same number
+  the UI uses as a node ID. The reduction keeps each shown node's reference.
+- **Going deeper:** a focus node re-roots the reduction at exactly that subtree; the threshold and the node budget
+  widen it. A method appears under several parents or recursively, so a focus method is a shortcut only: it picks the
+  slowest match and names the references of the others. The UI's "Explain" on a selected node passes its node ID.
 
 Every result has a hard cap and states when it was cut and which input widens it.
 
@@ -165,7 +168,16 @@ trace blob decode per call, which the read memory budget rules out. So the two o
 - **Sampled:** the library fetches the trees of the K slowest calls (default 20) for the top groups, merges them, and
   reports inner methods and SQL signatures. The output labels this part as a sample of K calls.
 
-`compare` joins the exact layer across both windows and samples trees only for groups that changed.
+`compare` joins the exact layer across both windows and samples trees only for groups that changed. A `/stats`
+response holds the top `limit` groups plus `other`, so a group missing from one window's response may still be there,
+below the cut: with limit 1, A=100/B=90 then A=80/B=110 gives two disjoint lists although both groups exist in both
+windows. `compare` therefore fetches the statistics of every candidate group in both windows before it ranks:
+
+- A group listed in one response and missing from the other is looked up in the other window with a `/stats` query
+  restricted to the missing keys (`<field> in <keys>`), when the build implements `in` on the field.
+- A group is new or vanished only when that lookup returns no calls for it, or when the other window's response
+  lists every group (`other` is `null` and `approximate` is `false`).
+- Otherwise the group is reported as outside the top N of that window, with no change figures.
 
 ### 4.4 Deep links to the UI
 
@@ -288,7 +300,7 @@ The skill is a deliverable of its own, authored in phase 1 and extended in phase
   - Setup: how to get the `profiler` binary, `PROFILER_URL`, and the port-forward command.
   - The filter conditions: fields, operators, and examples.
   - Workflow "why was this request slow?": `services`, then `calls` with a condition on a request identifier or with
-    a time and a service, then `explain`, then `explain` with a focus method.
+    a time and a service, then `explain`, then `explain` with a focus node from the previous output.
   - Workflows "what is slow in service X?" and "what changed?" (added in phase 2), with `timeline` to find when a
     change started.
   - How to read the output: self time against total time, suspension as GC pauses, wait against CPU, and what a
@@ -372,8 +384,9 @@ Usable alone; the smallest backend change.
   reference, window parsing, and the error mapping of section 6.6. Tests: an `httptest` server replaying recorded
   responses, one case per error code, and a check that the credential header is attached when a credential is present.
 - [ ] **1.4 `explain` operation.** Tree reduction: chain collapse, share threshold, node budget, top self-time
-  methods, top SQL groups, and the focus method. Tests: table tests over trees built with `calltree.Encode`,
-  including a deep pass-through chain, a wide fan-out, and a tree past the node budget.
+  methods, top SQL groups, node references, and the focus node and method. Tests: table tests over trees built with
+  `calltree.Encode`, including a deep pass-through chain, a wide fan-out, a tree past the node budget, a method under
+  two parents, and recursion.
 - [ ] **1.5 `profiler` CLI.** `tools/profiler-cli` with `services`, `calls`, and `explain`; `--filter` and
   `--service`; text and `--json` output; Makefile and build wiring like the other tools. Tests: golden files for the
   text output.
@@ -397,8 +410,9 @@ Usable alone; the smallest backend change.
 - [ ] **2.4 `hotspots` and `timeline` operations and subcommands.** The exact layer from `/stats`, and the sampled
   layer: fetch K trees, merge, rank inner methods and SQL signatures. Tests: tree merging on built trees, and the
   sample label in the output.
-- [ ] **2.5 `compare` operation and subcommand.** The join of two `/stats` results, the change ranking, new and
-  vanished entries, and sampling for changed groups only. Tests: table tests on two synthetic windows.
+- [ ] **2.5 `compare` operation and subcommand.** The join of two `/stats` results, the lookup of groups missing
+  from one side (section 4.3), the change ranking, new, vanished, and outside-top-N entries, and sampling for changed
+  groups only. Tests: table tests on two synthetic windows, including a ranking swap across the top-N cut.
 - [ ] **2.6 Extend the skill.** Add the service and change workflows, `timeline`, and how to read a sampled result.
 
 ### Phase 3: MCP front end
