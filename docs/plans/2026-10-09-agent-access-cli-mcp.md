@@ -175,9 +175,11 @@ windows. `compare` therefore fetches the statistics of every candidate group in 
 
 - A group listed in one response and missing from the other is looked up in the other window with a `/stats` query
   restricted to the missing keys (`<field> in <keys>`), when the build implements `in` on the field.
-- A group is new or vanished only when that lookup returns no calls for it, or when the other window's response
-  lists every group (`other` is `null` and `approximate` is `false`).
-- Otherwise the group is reported as outside the top N of that window, with no change figures.
+- A group is new or vanished only on complete evidence: a lookup that returns no calls for it, or a response for the
+  other window that lists every group (`other` is `null` and `approximate` is `false`), and in either case with
+  `partial` false. A failed collector or S3 source can hold the group's calls, so a partial answer proves nothing.
+- When the build has no `in` on the field, so no lookup runs, the group is reported as outside the top N of that
+  window. When the response or the lookup is partial, it is reported as unknown. Neither carries change figures.
 
 ### 4.4 Deep links to the UI
 
@@ -412,7 +414,8 @@ Usable alone; the smallest backend change.
   sample label in the output.
 - [ ] **2.5 `compare` operation and subcommand.** The join of two `/stats` results, the lookup of groups missing
   from one side (section 4.3), the change ranking, new, vanished, and outside-top-N entries, and sampling for changed
-  groups only. Tests: table tests on two synthetic windows, including a ranking swap across the top-N cut.
+  groups only. Tests: table tests on two synthetic windows, including a ranking swap across the top-N cut and a
+  partial response that must leave a group unknown rather than new or vanished.
 - [ ] **2.6 Extend the skill.** Add the service and change workflows, `timeline`, and how to read a sampled result.
 
 ### Phase 3: MCP front end
