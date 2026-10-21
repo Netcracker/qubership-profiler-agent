@@ -26,8 +26,8 @@ since `--run-now` exits too fast to scrape). query keeps `/metrics` and
 From the repository root:
 
 ```bash
-docker compose up --build -d     # MinIO + collector + query
-make smoke                       # end-to-end proof: agent → collector → seal → MinIO → query
+docker compose up --build -d     # SeaweedFS + collector + query
+make smoke                       # end-to-end proof: agent → collector → seal → SeaweedFS → query
 ```
 
 The services create the `profiler-data` bucket themselves on first connect.
@@ -106,7 +106,7 @@ requests get 15 s to finish.
 `make smoke` (from the repository root) recreates the compose stack and runs
 `libs/tests/smoke` (build tag `smoke`): a synthetic agent sends
 dictionary + trace + calls + suspend streams over TCP, the hot phase asserts
-`/api/v1/calls` and `/tree` answer before anything reaches MinIO, the cold
+`/api/v1/calls` and `/tree` answer before anything reaches S3, the cold
 phase ages a bucket into S3, stops the collector container, and asserts the
 wide range and `/tree` answer from S3 alone; a final phase restarts the
 collector and checks recovery. The test needs a fresh stack and the `docker`

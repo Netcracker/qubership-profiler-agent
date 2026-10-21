@@ -254,7 +254,7 @@ profiler-backend-archive:
 
 
 # =============================================================================
-# SMOKE TEST (docker-compose stack: collector + query + MinIO)
+# SMOKE TEST (docker-compose stack: collector + query + SeaweedFS)
 # =============================================================================
 
 .PHONY: smoke

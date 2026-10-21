@@ -98,7 +98,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app_token
         with:
           client-id: ${{ vars.GH_BUMP_VERSION_APP_CLIENT_ID }}
@@ -177,7 +177,7 @@ jobs:
           SIGNING_PGP_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }} # zizmor: ignore[secrets-outside-env]
 
       - name: Publish GitHub release
-        uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
+        uses: release-drafter/release-drafter@978bb0b30c5ee8cdd332ced253758157150d43f0 # v7.10.0
         id: publish_release
         with:
           publish: true
@@ -260,7 +260,7 @@ jobs:
         component: ${{ fromJson(needs.load-docker-components.outputs.components) }}
     steps:
       - name: Docker build and publish
-        uses: netcracker/qubership-workflow-hub/actions/docker-action@288a6a0d9a78e80dfdefccab1be6497a39deb746 # v2.8.0
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@0eefd4976131d113c986281eed8bc642b6da303d # v2.8.1
         with:
           ref: 'v${{ needs.publish-release.outputs.version }}'
           download-artifact: false

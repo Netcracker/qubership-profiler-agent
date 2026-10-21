@@ -7,9 +7,9 @@ pluginManagement {
         id("com.gradleup.shadow") version "9.6.1"
         id("com.github.node-gradle.node") version "7.1.0"
         id("com.google.osdetector") version "1.7.3"
-        kotlin("jvm") version "2.4.20"
-        kotlin("kapt") version "2.4.20"
-        kotlin("plugin.spring") version "2.4.20"
+        kotlin("jvm") version "2.4.21"
+        kotlin("kapt") version "2.4.21"
+        kotlin("plugin.spring") version "2.4.21"
         id("me.champeau.jmh") version "0.7.3"
     }
 }
@@ -32,7 +32,7 @@ gradle.allprojects {
     if (path != ":plugins" && path != ":sample-apps") {
         buildscript {
             dependencies {
-                classpath(platform("com.fasterxml.jackson:jackson-bom:2.22.2"))
+                classpath(platform("com.fasterxml.jackson:jackson-bom:2.22.3"))
                 constraints {
                     classpath("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
                 }
