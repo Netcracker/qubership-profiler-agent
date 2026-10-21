@@ -166,6 +166,11 @@ func (q CallsQuery) IdentityPrefixes() (prefixes []string, ok bool) {
 	if count > maxIdentityPrefixes {
 		return nil, false
 	}
+	if count == 0 {
+		// A list the prefix uses is empty, so no call matches; return before
+		// a join builds strings that the empty list would discard.
+		return []string{}, true
+	}
 	prefixes = namespaces
 	if hasServices {
 		prefixes = joinEach(prefixes, services)
