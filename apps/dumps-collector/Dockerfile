@@ -1,17 +1,17 @@
 # Build context: repository root
 # Usage: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector .
 
-FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
+FROM golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
 
 # Multi-arch build support
 ARG TARGETOS=linux
 ARG TARGETARCH
 
 # renovate: datasource=maven depName=qubership-profiler-installer packageName=org.qubership.profiler:qubership-profiler-installer versioning=maven
-ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=4.0.6
+ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=4.0.7
 
 # renovate: datasource=maven depName=qubership-profiler-diagtools packageName=org.qubership.profiler:qubership-profiler-diagtools versioning=maven
-ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=4.0.6
+ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=4.0.7
 
 ENV INSTALLER_CLOUD="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip"
 
@@ -46,7 +46,7 @@ RUN DIAGTOOLS_URL="https://repo1.maven.org/maven2/org/qubership/profiler/qubersh
 RUN cd apps/dumps-collector && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /workspace/tools/prf_dump_writer main.go
 
-FROM nginx:1.27.3-alpine3.20@sha256:814a8e88df978ade80e584cc5b333144b9372a8e3c98872d07137dbf3b44d0e4
+FROM nginx:1.31.6-alpine3.24@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
 
 USER root
 
