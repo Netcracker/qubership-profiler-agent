@@ -169,7 +169,7 @@ func toCall(row model.CallJSON) Call {
 		ChildCalls:     row.ChildCalls,
 		Error:          row.ErrorFlag,
 		RetentionClass: row.RetentionClass,
-		TraceID:        firstParam(row.Params, "trace.id"),
+		TraceID:        firstParam(row.Params, model.TraceIDParams...),
 		RequestID:      firstParam(row.Params, "x-request-id"),
 	}
 	if u := firstParam(row.Params, "web.url"); u != "" {
@@ -181,9 +181,15 @@ func toCall(row model.CallJSON) Call {
 	return call
 }
 
-func firstParam(params map[string][]string, name string) string {
-	if vs := params[name]; len(vs) > 0 {
-		return vs[0]
+// firstParam returns the first non-empty value of the first name that has
+// one.
+func firstParam(params map[string][]string, names ...string) string {
+	for _, name := range names {
+		for _, v := range params[name] {
+			if v != "" {
+				return v
+			}
+		}
 	}
 	return ""
 }
