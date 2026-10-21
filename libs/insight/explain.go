@@ -150,7 +150,9 @@ func (c *Client) Explain(ctx context.Context, in ExplainInput) (ExplainResult, e
 }
 
 // callRow finds the call's /calls row: one millisecond of one pod, which no
-// guard rejects and every tier answers cheaply.
+// guard rejects and every tier answers cheaply. More than a page of calls can
+// share that millisecond, and a page can be empty mid-listing (02 §2.3.1), so
+// it follows next_cursor until the row turns up or the listing ends.
 func (c *Client) callRow(ctx context.Context, ref CallRef) (*Call, error) {
 	pk := ref.PK
 	q := url.Values{
@@ -159,17 +161,25 @@ func (c *Client) callRow(ctx context.Context, ref CallRef) (*Call, error) {
 		"pod":   {pk.PodNamespace + "/" + pk.PodService + "/" + pk.PodName},
 		"limit": {strconv.Itoa(MaxCallsLimit)},
 	}
-	var resp callsResponse
-	if err := c.getJSON(ctx, "/calls", q, &resp); err != nil {
-		return nil, err
-	}
-	for _, row := range resp.Calls {
-		if row.PK == pk {
-			call := toCall(row)
-			return &call, nil
+	seen := map[string]bool{}
+	for {
+		var resp callsResponse
+		if err := c.getJSON(ctx, "/calls", q, &resp); err != nil {
+			return nil, err
 		}
+		for _, row := range resp.Calls {
+			if row.PK == pk {
+				call := toCall(row)
+				return &call, nil
+			}
+		}
+		// A cursor the server already returned would loop forever.
+		if resp.NextCursor == nil || seen[*resp.NextCursor] {
+			return nil, nil
+		}
+		seen[*resp.NextCursor] = true
+		q = url.Values{"cursor": {*resp.NextCursor}, "limit": {strconv.Itoa(MaxCallsLimit)}}
 	}
-	return nil, nil
 }
 
 // NodeNotFoundError rejects a focus node the call tree does not have.
