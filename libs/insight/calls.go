@@ -24,8 +24,9 @@ type CallsInput struct {
 	Filters Filters
 	// Limit is the page size; zero means DefaultCallsLimit.
 	Limit int
-	// Cursor continues from a previous result's NextCursor. The window and
-	// filters of the first page apply; the ones given here must match them.
+	// Cursor continues from a previous result's NextCursor. The window of
+	// the first page applies, and so do its filters: pass them again or
+	// pass none. Other filters fail with *CursorMismatchError.
 	Cursor string
 }
 
@@ -39,8 +40,8 @@ type CallsResult struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 	// Partial names the sources that failed; the page may miss calls.
 	Partial []string `json:"partial,omitempty"`
-	// Restarted reports that the server rejected the cursor (expired or
-	// stale) and this page is page 1 again.
+	// Restarted reports that the cursor was rejected (expired, stale, or
+	// damaged) and this page is page 1 again.
 	Restarted bool `json:"restarted,omitempty"`
 }
 
@@ -96,6 +97,19 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 	if limit < 0 || limit > MaxCallsLimit {
 		return CallsResult{}, errors.Errorf("limit must be between 1 and %d", MaxCallsLimit)
 	}
+	// The conditions a cursor page runs under are the cursor's own: authorize
+	// those, not the ones passed beside it (see callsCursor).
+	var serverCursor string
+	if in.Cursor != "" {
+		if cur, err := decodeCallsCursor(in.Cursor); err == nil {
+			if len(conditions) > 0 && !sameConditions(conditions, cur.Conditions) {
+				return CallsResult{}, &CursorMismatchError{CursorFilters: cur.Conditions, Filters: conditions}
+			}
+			conditions, serverCursor = cur.Conditions, cur.Server
+		}
+		// A cursor that does not decode restarts from page 1, as one the
+		// server rejects does.
+	}
 	if err := c.authorize(ctx, namespaces(conditions)); err != nil {
 		return CallsResult{}, err
 	}
@@ -105,16 +119,21 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 	query.Set("limit", strconv.Itoa(limit))
 	var out CallsResult
 	var resp callsResponse
-	if in.Cursor != "" {
-		// A cursor page re-sends only the cursor: the frozen query wins, and a
-		// window resolved again at a later now would contradict it.
-		err = c.getJSON(ctx, "/calls", url.Values{"cursor": {in.Cursor}, "limit": {strconv.Itoa(limit)}}, &resp)
+	if serverCursor != "" {
+		// The window is not re-sent: the server keeps page 1's, and a window
+		// resolved again at a later now would contradict it. The conditions
+		// are re-sent, so the server rejects a frozen query that has others.
+		page := url.Values{"cursor": {serverCursor}, "limit": {strconv.Itoa(limit)}}
+		if len(conditions) > 0 {
+			page["filter"] = conditions
+		}
+		err = c.getJSON(ctx, "/calls", page, &resp)
 		if IsCode(err, CodeCursorRejected) {
 			out.Restarted, out.Window = true, &window
 			err = c.getJSON(ctx, "/calls", query, &resp)
 		}
 	} else {
-		out.Window = &window
+		out.Restarted, out.Window = in.Cursor != "", &window
 		err = c.getJSON(ctx, "/calls", query, &resp)
 	}
 	if err != nil {
@@ -126,7 +145,7 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 		out.Calls = append(out.Calls, toCall(row))
 	}
 	if resp.NextCursor != nil {
-		out.NextCursor = *resp.NextCursor
+		out.NextCursor = encodeCallsCursor(*resp.NextCursor, conditions)
 	}
 	if resp.Partial {
 		out.Partial = resp.PartialReasons
