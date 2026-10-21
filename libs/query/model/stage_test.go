@@ -1,7 +1,10 @@
 package model
 
 import (
+	"fmt"
 	"net/url"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -94,6 +97,37 @@ func TestIdentityPrefixes(t *testing.T) {
 	assert.True(t, conds(t, "service=billing").IdentityFilter())
 	assert.False(t, conds(t, "service!=billing").IdentityFilter())
 	assert.False(t, conds(t, "user.tenant=acme").IdentityFilter())
+}
+
+func TestIdentityPrefixesCountBeforeBuilding(t *testing.T) {
+	list := func(field string, value func(i int) string) string {
+		values := make([]string, 200)
+		for i := range values {
+			values[i] = value(i)
+		}
+		return field + " in " + strings.Join(values, ",")
+	}
+	wide := conds(t,
+		list("namespace", func(i int) string { return fmt.Sprintf("ns-%d", i) }),
+		list("service", func(i int) string { return fmt.Sprintf("svc-%d", i) }),
+		list("pod", func(i int) string { return fmt.Sprintf("pod-%d", i) }),
+	)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, ok := wide.IdentityPrefixes()
+	runtime.ReadMemStats(&after)
+	assert.False(t, ok, "8,000,000 combinations fall back to row matching")
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20),
+		"the combinations are counted, not built")
+
+	repeated := conds(t,
+		list("namespace", func(int) string { return "a" }),
+		list("service", func(int) string { return "a" }),
+		list("pod", func(int) string { return "a" }),
+	)
+	got, ok := repeated.IdentityPrefixes()
+	assert.True(t, ok, "a repeated value counts once")
+	assert.Equal(t, []string{"a/a/a"}, got)
 }
 
 func TestCapabilitiesMatchTheGate(t *testing.T) {
