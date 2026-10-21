@@ -531,3 +531,43 @@ func TestExplainRejectsAFocusNodeOutsideTheTree(t *testing.T) {
 	assert.Equal(t, 2, notFound.Count)
 	assert.Len(t, r.reqs, 1, "the call row is not fetched for a rejected node")
 }
+
+// TestExplainFollowsTheCursorToTheRow puts the call's row on the third page,
+// behind a page of other calls and an empty page, as a busy millisecond and
+// the contract's mid-listing empty pages allow.
+func TestExplainFollowsTheCursorToTheRow(t *testing.T) {
+	b := &treeBuilder{}
+	root := b.node("void com.example.Billing.charge(long) (Billing.java) [billing.jar]", 2470)
+	tree := calltree.Encode(&calltree.Tree{Methods: b.methods, Root: root})
+	row := func(offset int) string {
+		return fmt.Sprintf(`{"pk": {"pod_namespace": "prod", "pod_service": "billing", "pod_name": "billing-7f8c",
+			"restart_time_ms": 1760420000000, "trace_file_index": 5, "buffer_offset": %d, "record_index": 0},
+			"ts_ms": 1760433000123, "duration_ms": 2470, "method": "m", "cpu_time_ms": 310, "wait_time_ms": 1900,
+			"retention_class": "any_error", "params": {}}`, offset)
+	}
+	page := func(rows, cursor string) reply {
+		return reply{status: http.StatusOK, body: []byte(`{"calls": [` + rows + `], "next_cursor": ` + cursor + `}`)}
+	}
+	ref := "prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error"
+
+	c, r := newReplay(t, nil, reply{status: http.StatusOK, body: tree},
+		page(row(1)+","+row(2), `"c2"`), page("", `"c3"`), page(row(12340), "null"))
+	res, err := c.Explain(context.Background(), ExplainInput{Ref: ref})
+	require.NoError(t, err)
+	require.Len(t, r.reqs, 4)
+	assert.Equal(t, "c2", r.reqs[2].URL.Query().Get("cursor"))
+	assert.Empty(t, r.reqs[2].URL.Query().Get("from"), "a cursor page re-sends only the cursor")
+	assert.Equal(t, "c3", r.reqs[3].URL.Query().Get("cursor"))
+	require.NotNil(t, res.Call)
+	assert.Equal(t, int64(1900), res.Call.WaitMs)
+	assert.Empty(t, res.Notes)
+
+	// A server that hands back a cursor it already gave ends the search.
+	c, r = newReplay(t, nil, reply{status: http.StatusOK, body: tree},
+		page(row(1), `"c2"`), page("", `"c2"`))
+	res, err = c.Explain(context.Background(), ExplainInput{Ref: ref})
+	require.NoError(t, err)
+	require.Len(t, r.reqs, 3)
+	assert.Nil(t, res.Call)
+	assert.Contains(t, res.Notes, "the call's row was not found, so CPU and wait times are missing")
+}
