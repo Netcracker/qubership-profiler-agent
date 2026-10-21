@@ -137,7 +137,9 @@ func TestLegacyMethodAnyAndNoneStaySubstringSearches(t *testing.T) {
 		assert.Equal(t, method, v.Get("method"), "the collector gets the same substring")
 		back, detail := ParseCallsQuery(v)
 		require.Empty(t, detail, method)
-		assert.Equal(t, q.Filters, back.Filters, method)
+		// The fan-out sends a method condition both as `method` and as
+		// `filter`, so compare the conditions as a set.
+		assert.Equal(t, CanonicalConditions(q.Filters), CanonicalConditions(back.Filters), method)
 	}
 }
 
