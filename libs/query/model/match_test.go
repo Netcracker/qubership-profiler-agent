@@ -1,6 +1,7 @@
 package model
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,4 +115,111 @@ func TestLegacyConditionsMatchLikeTheOldParameters(t *testing.T) {
 	assert.False(t, match(DurationCondition(OpLe, 499)))
 	assert.False(t, match(ErrorCondition(true)))
 	assert.True(t, match(RetentionClassCondition(RetentionShortClean, RetentionNormalClean)))
+}
+
+// TestNoneAndAnyAreLiteralOutsideEqualityOperators covers the legacy
+// method=Any and method=None, which become method=~Any and method=~None: a
+// substring search for the word, not a special value.
+func TestNoneAndAnyAreLiteralOutsideEqualityOperators(t *testing.T) {
+	r := matchRow()
+	r.Method = "void com.example.AnyService.findNone()"
+	r.Params["flag"] = []string{"None"}
+	for text, want := range map[string]bool{
+		"method=~Any":        true,
+		"method=~None":       true,
+		"method!~Any":        false,
+		"method=~^Any":       false,
+		"flag=~None":         true,
+		"flag in Any,None":   true,
+		"flag not in None":   false,
+		"missing=~Any":       false,
+		"trace_id=~None":     false,
+		"user.tenant in Any": false,
+	} {
+		assert.Equal(t, want, matches(t, r, text), text)
+	}
+	for _, method := range []string{"Any", "None"} {
+		other := matchRow()
+		assert.True(t, match(t, r, MethodContainsCondition(method)), method)
+		assert.False(t, match(t, other, MethodContainsCondition(method)), method)
+	}
+}
+
+// match runs the matcher with one condition built in code, as the legacy
+// parameters build it.
+func match(t *testing.T, r CallRow, c Condition) bool {
+	t.Helper()
+	m, err := CallsQuery{FromMs: 100, ToMs: 200, Filters: []Condition{c}}.Matcher()
+	require.NoError(t, err, c)
+	return m.Match(&r)
+}
+
+// TestTraceIDReadsEveryTraceParam checks that trace_id finds a call by any of
+// the names the UI shows a trace ID from (02 §2.3.3), and that the values of
+// all of them count as values of one param.
+func TestTraceIDReadsEveryTraceParam(t *testing.T) {
+	row := func(params map[string][]string) CallRow {
+		r := matchRow()
+		r.Params = params
+		return r
+	}
+	shared := row(map[string][]string{"trace.id": {"t1"}})
+	brave := row(map[string][]string{"brave.trace_id": {"t2"}})
+	b3 := row(map[string][]string{"X-B3-TraceId": {"t3"}})
+	mixed := row(map[string][]string{"trace.id": {"t1"}, "X-B3-TraceId": {"t3"}})
+	none := row(map[string][]string{"user.tenant": {"acme"}})
+
+	for _, tc := range []struct {
+		r    CallRow
+		text string
+		want bool
+	}{
+		{shared, "trace_id=t1", true},
+		{brave, "trace_id=t2", true},
+		{b3, "trace_id=t3", true},
+		{b3, "trace_id=t1", false},
+		{mixed, "trace_id=t1", true},
+		{mixed, "trace_id=t3", true},
+		{mixed, "trace_id!=t3", false}, // a negation holds only when no name has the value
+		{mixed, "trace_id!=t2", true},
+		{brave, "trace_id=~^t", true},
+		{brave, "trace_id=Any", true},
+		{b3, "trace_id=None", false},
+		{none, "trace_id=None", true},
+		{none, "trace_id!=t1", true},
+		{brave, "brave.trace_id=t2", true}, // each name stays a plain param
+		{brave, "trace.id=None", true},
+	} {
+		assert.Equal(t, tc.want, matches(t, tc.r, tc.text), "%s on %v", tc.text, tc.r.Params)
+	}
+}
+
+// TestDurationThresholdsAboveTheInt32Maximum checks that a threshold past the
+// largest duration a call can have keeps the meaning of its comparison.
+func TestDurationThresholdsAboveTheInt32Maximum(t *testing.T) {
+	r := matchRow()
+	r.DurationMs = math.MaxInt32
+	for text, want := range map[string]bool{
+		"duration<2147483647ms":                       false,
+		"duration<=2147483647ms":                      true,
+		"duration>=2147483647ms":                      true,
+		"duration>2147483647ms":                       false,
+		"duration<2147483648ms":                       true,
+		"duration<=2147483648ms":                      true,
+		"duration>=2147483648ms":                      false,
+		"duration>2147483648ms":                       false,
+		"duration<99999999999999999999999s":           true,
+		"duration>=99999999999999999999999s":          false,
+		"duration between 2147483648ms..2147483649ms": false,
+		"duration between 2147483647ms..2147483649ms": true,
+		"duration between 1ms..2147483646ms":          false,
+		"duration between 1ms..99999999999s":          true,
+	} {
+		assert.Equal(t, want, matches(t, r, text), text)
+	}
+
+	r.DurationMs = 0
+	assert.True(t, matches(t, r, "duration<=0ms"), "an explicit duration<=0ms keeps its literal meaning")
+	r.DurationMs = 1
+	assert.False(t, matches(t, r, "duration<=0ms"))
 }

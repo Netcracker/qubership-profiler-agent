@@ -6,6 +6,7 @@ package hotstore
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"sync"
 	"testing"
@@ -258,5 +259,34 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 			base, base+1000, 10)
 		require.NoError(t, err, name)
 		assert.Empty(t, none, name)
+	}
+}
+
+// TestCallsPageDurationAboveTheInt32Maximum checks the SQL bounds for a
+// threshold past the largest duration a call can have: each one keeps the
+// meaning of its comparison.
+func TestCallsPageDurationAboveTheInt32Maximum(t *testing.T) {
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	bucket := store.cfg.Bucket(janitorCallTs)
+	base := store.cfg.BucketStartMs(bucket)
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-a", base+100, 1, math.MaxInt32, false)))
+
+	for text, want := range map[string]int{
+		"duration<2147483648ms":                       1,
+		"duration<=2147483647ms":                      1,
+		"duration>=2147483648ms":                      0,
+		"duration>=2147483647ms":                      1,
+		"duration between 2147483648ms..2147483649ms": 0,
+		"duration between 1ms..99999999999s":          1,
+	} {
+		c, err := model.ParseCondition(text)
+		require.NoError(t, err, text)
+		page, err := store.CallsPage(bucket,
+			model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{c}},
+			base, base+1000, 10)
+		require.NoError(t, err, text)
+		assert.Len(t, page, want, text)
 	}
 }

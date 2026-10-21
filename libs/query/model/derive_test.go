@@ -123,3 +123,56 @@ func TestRegexLiteral(t *testing.T) {
 		assert.False(t, ok, pattern)
 	}
 }
+
+// TestLegacyMethodAnyAndNoneStaySubstringSearches covers method=Any and
+// method=None, which the API and a collector both accept as a substring
+// search, and the fan-out carries to a collector unchanged.
+func TestLegacyMethodAnyAndNoneStaySubstringSearches(t *testing.T) {
+	for _, method := range []string{"Any", "None"} {
+		q, detail := ParseCallsQuery(url.Values{"from": {"1"}, "to": {"2"}, "method": {method}})
+		require.Empty(t, detail, method)
+		assert.Equal(t, []Condition{{Field: "method", Op: OpMatch, Values: []string{method}}}, q.Filters, method)
+
+		v := q.Values()
+		assert.Equal(t, method, v.Get("method"), "the collector gets the same substring")
+		back, detail := ParseCallsQuery(v)
+		require.Empty(t, detail, method)
+		assert.Equal(t, q.Filters, back.Filters, method)
+	}
+}
+
+func TestLegacyDurationMaxZeroAddsNoCondition(t *testing.T) {
+	q, detail := ParseCallsQuery(url.Values{"from": {"1"}, "to": {"2"}, "duration_max_ms": {"0"}})
+	require.Empty(t, detail)
+	assert.Empty(t, q.Filters, "duration_max_ms=0 means no upper bound")
+	_, maxMs := q.DurationBounds()
+	assert.Equal(t, int64(math.MaxInt64), maxMs)
+	assert.Empty(t, q.Values().Get("duration_max_ms"))
+}
+
+// TestDurationBoundsAboveTheInt32Maximum checks the bounds the stores push
+// down for thresholds past the largest call duration: each one selects the
+// same calls as the condition.
+func TestDurationBoundsAboveTheInt32Maximum(t *testing.T) {
+	const aboveMax = int64(math.MaxInt32) + 1
+	for _, tc := range []struct {
+		text     string
+		min, max int64
+	}{
+		{"duration<2147483648ms", 0, math.MaxInt32},
+		{"duration<=2147483648ms", 0, aboveMax},
+		{"duration>=2147483648ms", aboveMax, math.MaxInt64},
+		{"duration>2147483647ms", aboveMax, math.MaxInt64},
+		{"duration>99999999999999999999999s", aboveMax + 1, math.MaxInt64},
+		{"duration between 2147483648ms..2147483649ms", aboveMax, aboveMax},
+	} {
+		q := conds(t, tc.text)
+		minMs, maxMs := q.DurationBounds()
+		assert.Equal(t, [2]int64{tc.min, tc.max}, [2]int64{minMs, maxMs}, tc.text)
+
+		// The collector reads the bounds as int32 parameters, so a bound past
+		// the int32 maximum is left out and the full matcher applies it.
+		_, detail := ParseCallsQuery(q.Values())
+		assert.Empty(t, detail, tc.text)
+	}
+}

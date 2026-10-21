@@ -21,8 +21,10 @@ const (
 type fieldDef struct {
 	kind fieldKind
 	ops  []Op
-	// param is the call param an alias field reads (trace_id, request_id).
-	param string
+	// params are the call params a param field reads. An alias field
+	// (trace_id, request_id) reads one or more; the values of all of them
+	// count as the values of one param.
+	params []string
 	// value reads a kindString field from a row.
 	value func(r *CallRow) string
 }
@@ -49,8 +51,8 @@ var fields = map[string]fieldDef{
 	"endpoint":        {kind: kindDerived, ops: enumOps},
 	"error":           {kind: kindBool, ops: []Op{OpEq}},
 	"retention_class": {kind: kindString, ops: []Op{OpEq, OpNe, OpIn, OpNotIn}, value: func(r *CallRow) string { return r.RetentionClass }},
-	"trace_id":        {kind: kindParam, ops: idOps, param: "trace.id"},
-	"request_id":      {kind: kindParam, ops: idOps, param: "x-request-id"},
+	"trace_id":        {kind: kindParam, ops: idOps, params: []string{"trace.id", "brave.trace_id", "X-B3-TraceId"}},
+	"request_id":      {kind: kindParam, ops: idOps, params: []string{"x-request-id"}},
 	FieldPodTuple:     {kind: kindString, ops: []Op{OpIn}, value: podTuple},
 }
 
@@ -60,7 +62,7 @@ func fieldOf(name string) fieldDef {
 	if def, ok := fields[name]; ok {
 		return def
 	}
-	return fieldDef{kind: kindParam, ops: enumOps, param: name}
+	return fieldDef{kind: kindParam, ops: enumOps, params: []string{name}}
 }
 
 // rowPredicate reports whether a row meets one condition.
@@ -86,13 +88,12 @@ func compileCondition(c Condition) (rowPredicate, error) {
 		if v == "" {
 			return nil, errors.Errorf("%s has an empty value", c)
 		}
-		if v == ValueNone || v == ValueAny {
-			if def.kind != kindParam {
-				return nil, errors.Errorf("every call has a %s, so %s does not apply: %s", c.Field, v, c)
-			}
-			if c.Op != OpEq && c.Op != OpNe {
-				return nil, errors.Errorf("%s goes with = or != only: %s", v, c)
-			}
+		// None and Any are special with = and != only; with any other
+		// operator they are literal text, so the legacy method=Any, which
+		// becomes method=~Any, is still a substring search (02 §2.3.3).
+		special := (v == ValueNone || v == ValueAny) && (c.Op == OpEq || c.Op == OpNe)
+		if special && def.kind != kindParam {
+			return nil, errors.Errorf("every call has a %s, so %s does not apply: %s", c.Field, v, c)
 		}
 	}
 	switch def.kind {
@@ -113,9 +114,19 @@ func compileCondition(c Condition) (rowPredicate, error) {
 		value := def.value
 		return compileText(c, func(r *CallRow) ([]string, bool) { return []string{value(r)}, true })
 	default:
-		name := def.param
+		names := def.params
+		if len(names) == 1 {
+			name := names[0]
+			return compileText(c, func(r *CallRow) ([]string, bool) {
+				vs := r.Params[name]
+				return vs, len(vs) > 0
+			})
+		}
 		return compileText(c, func(r *CallRow) ([]string, bool) {
-			vs := r.Params[name]
+			var vs []string
+			for _, name := range names {
+				vs = append(vs, r.Params[name]...)
+			}
 			return vs, len(vs) > 0
 		})
 	}
