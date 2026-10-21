@@ -128,6 +128,26 @@ func TestIdentityPrefixesCountBeforeBuilding(t *testing.T) {
 	got, ok := repeated.IdentityPrefixes()
 	assert.True(t, ok, "a repeated value counts once")
 	assert.Equal(t, []string{"a/a/a"}, got)
+
+	// Contradicting pod conditions leave no pod, so no call matches. The
+	// namespace and service lists must not be joined on the way.
+	var namespaces, services []string
+	for i := range 1000 {
+		namespaces = append(namespaces, fmt.Sprintf("ns-%d", i))
+		services = append(services, fmt.Sprintf("svc-%d", i))
+	}
+	contradicting := conds(t,
+		"namespace in "+strings.Join(namespaces, ","),
+		"service in "+strings.Join(services, ","),
+		"pod=a", "pod=b",
+	)
+	runtime.ReadMemStats(&before)
+	got, ok = contradicting.IdentityPrefixes()
+	runtime.ReadMemStats(&after)
+	assert.True(t, ok)
+	assert.Empty(t, got, "no call matches")
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20),
+		"an empty pod list stops the join before it starts")
 }
 
 func TestCapabilitiesMatchTheGate(t *testing.T) {
