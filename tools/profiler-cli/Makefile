@@ -41,10 +41,29 @@ archive:
 # The request-investigation scenario against the docker compose dev stack
 # (agent-access plan task 1.7). The stack is rebuilt from this checkout.
 REPO_ROOT := ../..
+COMPOSE_DOWN := cd $(REPO_ROOT) && docker compose down -v --remove-orphans
+# The readiness probes the smoke tests poll. The collector opens its agent
+# listener only after S3 setup and hot-store recovery, and ui-seed dials it
+# once, so seeding waits for READY.
+COLLECTOR_READY_URL := http://localhost:8081/internal/v1/health/ready
+QUERY_READY_URL := http://localhost:8080/api/v1/health/ready
+READY_TIMEOUT_SECONDS := 120
 
+# One shell runs the whole lifecycle: the EXIT trap stops the stack whether
+# startup, seeding, or the test fails, and the shell keeps the failing status.
 e2e:
-	cd $(REPO_ROOT) && docker compose down -v --remove-orphans
-	cd $(REPO_ROOT) && docker compose up --build -d
-	cd $(REPO_ROOT) && go run ./tools/ui-seed
+	$(COMPOSE_DOWN)
+	@trap '$(COMPOSE_DOWN)' EXIT; set -e; \
+	(cd $(REPO_ROOT) && docker compose up --build -d); \
+	for url in $(COLLECTOR_READY_URL) $(QUERY_READY_URL); do \
+		echo "==> Waiting for $$url"; \
+		deadline=$$(($$(date +%s) + $(READY_TIMEOUT_SECONDS))); \
+		until curl -fs -o /dev/null "$$url"; do \
+			if [ "$$(date +%s)" -ge "$$deadline" ]; then \
+				echo "$$url is not READY after $(READY_TIMEOUT_SECONDS)s" >&2; exit 1; \
+			fi; \
+			sleep 1; \
+		done; \
+	done; \
+	(cd $(REPO_ROOT) && go run ./tools/ui-seed); \
 	PROFILER_URL=http://localhost:8080 go test -tags e2e -count=1 -run E2E -v ./cmd/
-	cd $(REPO_ROOT) && docker compose down -v --remove-orphans
