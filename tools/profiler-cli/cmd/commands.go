@@ -68,7 +68,7 @@ func newCallsCmd(root *rootFlags) *cobra.Command {
 	window.add(cmd)
 	filters.add(cmd)
 	cmd.Flags().IntVar(&limit, "limit", insight.DefaultCallsLimit, "calls per page")
-	cmd.Flags().StringVar(&cursor, "cursor", "", "continue from the cursor a previous page printed")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "continue from the cursor a previous page printed; the page keeps that page's filters, so repeat them or leave them out")
 	return cmd
 }
 

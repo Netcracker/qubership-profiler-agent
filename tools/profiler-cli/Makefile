@@ -5,11 +5,16 @@
 
 BUILD_DIR := build
 BINARY_NAME := profiler
+# Where `go install` would put the binary: GOBIN, or GOPATH/bin when GOBIN is unset.
+GOBIN ?= $(shell go env GOBIN)
+ifeq ($(strip $(GOBIN)),)
+GOBIN := $(shell go env GOPATH)/bin
+endif
 
 help:
 	@echo "Available targets:"
 	@echo "  build         - Build the profiler binary for this machine into $(BUILD_DIR)/"
-	@echo "  install       - Install the profiler binary into GOBIN"
+	@echo "  install       - Install the profiler binary into GOBIN (default GOPATH/bin)"
 	@echo "  clean         - Clean build artifacts"
 	@echo "  test          - Run tests"
 	@echo "  docker-build  - No-op: the CLI has no image"
@@ -25,7 +30,7 @@ build: clean
 
 install:
 	@echo "==> Installing $(BINARY_NAME)..."
-	CGO_ENABLED=0 go build -o $$(go env GOPATH)/bin/$(BINARY_NAME) .
+	CGO_ENABLED=0 go build -o $(GOBIN)/$(BINARY_NAME) .
 
 test:
 	@echo "==> Running tests..."

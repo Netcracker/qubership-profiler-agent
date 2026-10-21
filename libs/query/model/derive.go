@@ -100,7 +100,7 @@ func (q CallsQuery) PodTuples() (tuples []string, ok bool) {
 
 // intersectValues intersects the values of the field's `=` and `in`
 // conditions. With a universe, the result follows its order; without one, it
-// follows the first condition's order.
+// follows the first condition's order. The result holds no duplicates.
 func (q CallsQuery) intersectValues(field string, universe []string) ([]string, bool) {
 	var out []string
 	found := false
@@ -113,7 +113,7 @@ func (q CallsQuery) intersectValues(field string, universe []string) ([]string, 
 			if universe != nil {
 				out = slices.DeleteFunc(slices.Clone(universe), func(v string) bool { return !slices.Contains(c.Values, v) })
 			} else {
-				out = slices.Clone(c.Values)
+				out = distinct(c.Values)
 			}
 			continue
 		}
@@ -153,6 +153,19 @@ func (q CallsQuery) IdentityPrefixes() (prefixes []string, ok bool) {
 	}
 	services, hasServices := q.intersectValues("service", nil)
 	pods, hasPods := q.intersectValues("pod", nil)
+	// Count the combinations before building them: three lists of a few
+	// hundred values each would otherwise allocate millions of strings only
+	// to be dropped.
+	count := len(namespaces)
+	if hasServices {
+		count = cappedProduct(count, len(services))
+		if hasPods {
+			count = cappedProduct(count, len(pods))
+		}
+	}
+	if count > maxIdentityPrefixes {
+		return nil, false
+	}
 	prefixes = namespaces
 	if hasServices {
 		prefixes = joinEach(prefixes, services)
@@ -160,10 +173,31 @@ func (q CallsQuery) IdentityPrefixes() (prefixes []string, ok bool) {
 			prefixes = joinEach(prefixes, pods)
 		}
 	}
-	if len(prefixes) > maxIdentityPrefixes {
-		return nil, false
-	}
 	return prefixes, true
+}
+
+// cappedProduct returns a*b for non-negative a and b, or
+// maxIdentityPrefixes+1 when the product exceeds maxIdentityPrefixes, so a
+// chain of products never overflows.
+func cappedProduct(a, b int) int {
+	if b != 0 && a > maxIdentityPrefixes/b {
+		return maxIdentityPrefixes + 1
+	}
+	return a * b
+}
+
+// distinct returns the values without repeats, in the order each first
+// appears.
+func distinct(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if _, dup := seen[v]; !dup {
+			seen[v] = struct{}{}
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func joinEach(heads, tails []string) []string {

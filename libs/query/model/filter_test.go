@@ -76,7 +76,8 @@ func TestConditionRejections(t *testing.T) {
 		{"duration>fast", "is not a duration"},
 		{"duration between 2s", "is not a range"},
 		{"pod=None", "does not apply"},
-		{"trace_id=~None", "goes with = or != only"},
+		{"method=Any", "does not apply"},
+		{"error=None", "does not apply"},
 		{"pod=", "has an empty value"},
 		{"pod in a,,b", "has an empty value"},
 		{`pod in a\`, "ends with a backslash"},
@@ -129,7 +130,7 @@ func TestConditionRoundTrip(t *testing.T) {
 
 func TestParseDuration(t *testing.T) {
 	for text, want := range map[string]int64{
-		"500ms": 500, "2s": 2000, "1.5s": 1500, "2": 2000, "0.4ms": 0, "0.5ms": 1, " 3 s ": 3000, "99999999s": 1<<31 - 1,
+		"500ms": 500, "2s": 2000, "1.5s": 1500, "2": 2000, "0.4ms": 0, "0.5ms": 1, " 3 s ": 3000, "99999999s": 1 << 31,
 	} {
 		got, err := parseDuration(text)
 		require.NoError(t, err, text)

@@ -17,68 +17,92 @@ const timeLayout = "2006-01-02T15:04:05.000Z"
 
 func stamp(t time.Time) string { return t.UTC().Format(timeLayout) }
 
-func writeWindow(out io.Writer, w insight.ResolvedWindow) {
-	fmt.Fprintf(out, "Window: %s to %s (%s)\n", stamp(w.From), stamp(w.To), w.To.Sub(w.From))
+// errWriter keeps the first write error and fails every later write with it,
+// so a text writer can print without checking each call and still report a
+// closed pipe or a full disk once, at the end.
+type errWriter struct {
+	w   io.Writer
+	err error
 }
 
-func writePartial(out io.Writer, reasons []string) {
+func (e *errWriter) Write(p []byte) (int, error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+	n, err := e.w.Write(p)
+	e.err = err
+	return n, err
+}
+
+// printf and println drop the per-call error; e.err holds the first one.
+func (e *errWriter) printf(format string, a ...any) { _, _ = fmt.Fprintf(e, format, a...) }
+func (e *errWriter) println(a ...any)               { _, _ = fmt.Fprintln(e, a...) }
+
+func writeWindow(out *errWriter, w insight.ResolvedWindow) {
+	out.printf("Window: %s to %s (%s)\n", stamp(w.From), stamp(w.To), w.To.Sub(w.From))
+}
+
+func writePartial(out *errWriter, reasons []string) {
 	for _, r := range reasons {
-		fmt.Fprintf(out, "Partial: %s\n", r)
+		out.printf("Partial: %s\n", r)
 	}
 }
 
-func writeServices(out io.Writer, res insight.ServicesResult) error {
+func writeServices(w io.Writer, res insight.ServicesResult) error {
+	out := &errWriter{w: w}
 	writeWindow(out, res.Window)
 	writePartial(out, res.Partial)
 	if len(res.Namespaces) == 0 {
-		_, err := fmt.Fprintln(out, "No pods have profiling data in the window.")
-		return err
+		out.println("No pods have profiling data in the window.")
+		return out.err
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAMESPACE\tSERVICE\tPOD\tSTARTED\tFIRST CALL\tLAST CALL")
+	rows := &errWriter{w: tw}
+	rows.println("NAMESPACE\tSERVICE\tPOD\tSTARTED\tFIRST CALL\tLAST CALL")
 	for _, ns := range res.Namespaces {
 		for _, svc := range ns.Services {
 			for _, pod := range svc.Pods {
 				for _, r := range pod.Restarts {
-					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					rows.printf("%s\t%s\t%s\t%s\t%s\t%s\n",
 						ns.Name, svc.Name, pod.Name, stamp(r.StartedAt), stamp(r.FirstCall), stamp(r.LastCall))
 				}
 			}
 		}
 	}
-	return tw.Flush()
+	_ = tw.Flush()
+	return out.err
 }
 
-func writeCalls(out io.Writer, res insight.CallsResult) error {
+func writeCalls(w io.Writer, res insight.CallsResult) error {
+	out := &errWriter{w: w}
 	if res.Window != nil {
 		writeWindow(out, *res.Window)
 	}
 	if res.Restarted {
-		fmt.Fprintln(out, "The cursor was stale, so this is page 1 again.")
+		out.println("The cursor was stale, so this is page 1 again.")
 	}
 	writePartial(out, res.Partial)
 	if len(res.Calls) == 0 {
-		fmt.Fprintln(out, "No calls match.")
+		out.println("No calls match.")
 	} else {
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "START\tDUR ms\tCPU ms\tWAIT ms\tQUEUE ms\tSUSP ms\tERR\tPOD\tMETHOD\tIDS\tREF")
+		rows := &errWriter{w: tw}
+		rows.println("START\tDUR ms\tCPU ms\tWAIT ms\tQUEUE ms\tSUSP ms\tERR\tPOD\tMETHOD\tIDS\tREF")
 		for _, c := range res.Calls {
 			errMark := "-"
 			if c.Error {
 				errMark = "yes"
 			}
-			fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\n",
+			rows.printf("%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\n",
 				stamp(c.Start), c.DurationMs, c.CPUMs, c.WaitMs, c.QueueWaitMs, c.SuspendMs, errMark,
 				c.Namespace+"/"+c.Service+"/"+c.Pod, insight.ShortMethod(c.Method), ids(c), c.Ref)
 		}
-		if err := tw.Flush(); err != nil {
-			return err
-		}
+		_ = tw.Flush()
 	}
 	if res.NextCursor != "" {
-		fmt.Fprintf(out, "More calls: --cursor %s\n", res.NextCursor)
+		out.printf("More calls: --cursor %s\n", res.NextCursor)
 	}
-	return nil
+	return out.err
 }
 
 // ids joins the identifiers an investigation searches by, and marks a call
@@ -103,47 +127,48 @@ func ids(c insight.Call) string {
 	return strings.Join(parts, " ")
 }
 
-func writeExplain(out io.Writer, res insight.ExplainResult) error {
+func writeExplain(w io.Writer, res insight.ExplainResult) error {
+	out := &errWriter{w: w}
 	if c := res.Call; c != nil {
-		fmt.Fprintf(out, "Call: %s\n", c.Ref)
-		fmt.Fprintf(out, "  %s %s/%s/%s %s\n", stamp(c.Start), c.Namespace, c.Service, c.Pod, insight.ShortMethod(c.Method))
+		out.printf("Call: %s\n", c.Ref)
+		out.printf("  %s %s/%s/%s %s\n", stamp(c.Start), c.Namespace, c.Service, c.Pod, insight.ShortMethod(c.Method))
 		if id := ids(*c); id != "-" {
-			fmt.Fprintf(out, "  %s\n", id)
+			out.printf("  %s\n", id)
 		}
 		errText := ""
 		if c.Error {
 			errText = ", failed"
 		}
-		fmt.Fprintf(out, "  duration %d ms, cpu %d ms, wait %d ms, queue %d ms, gc suspension %d ms%s\n",
+		out.printf("  duration %d ms, cpu %d ms, wait %d ms, queue %d ms, gc suspension %d ms%s\n",
 			c.DurationMs, c.CPUMs, c.WaitMs, c.QueueWaitMs, c.SuspendMs, errText)
 	}
-	fmt.Fprintf(out, "Focus: %s\n", res.Focus)
+	out.printf("Focus: %s\n", res.Focus)
 
-	fmt.Fprintln(out, "\nHot path (total ms, self ms, executions):")
+	out.println("\nHot path (total ms, self ms, executions):")
 	writePath(out, res.HotPath, 0)
 
 	if len(res.TopSelf) > 0 {
-		fmt.Fprintln(out, "\nTop methods by self time:")
+		out.println("\nTop methods by self time:")
 		for _, m := range res.TopSelf {
-			fmt.Fprintf(out, "%8d ms  x%-6d %s\n", m.SelfMs, m.Executions, m.Method)
+			out.printf("%8d ms  x%-6d %s\n", m.SelfMs, m.Executions, m.Method)
 		}
 	}
 	if len(res.TopSQL) > 0 {
-		fmt.Fprintln(out, "\nTop SQL:")
+		out.println("\nTop SQL:")
 		for _, s := range res.TopSQL {
-			fmt.Fprintf(out, "%8d ms  x%-6d %s\n", s.DurationMs, s.Executions, s.Statement)
+			out.printf("%8d ms  x%-6d %s\n", s.DurationMs, s.Executions, s.Statement)
 		}
 	}
 	if len(res.Notes) > 0 {
-		fmt.Fprintln(out, "\nNotes:")
+		out.println("\nNotes:")
 		for _, n := range res.Notes {
-			fmt.Fprintf(out, "- %s\n", n)
+			out.printf("- %s\n", n)
 		}
 	}
-	return nil
+	return out.err
 }
 
-func writePath(out io.Writer, n *insight.PathNode, depth int) {
+func writePath(out *errWriter, n *insight.PathNode, depth int) {
 	if n == nil {
 		return
 	}
@@ -155,11 +180,11 @@ func writePath(out io.Writer, n *insight.PathNode, depth int) {
 	if n.Skipped > 0 {
 		line += fmt.Sprintf("  [%d pass-through frames above]", n.Skipped)
 	}
-	fmt.Fprintln(out, line)
+	out.println(line)
 	for _, ch := range n.Children {
 		writePath(out, ch, depth+1)
 	}
 	if n.Hidden > 0 {
-		fmt.Fprintf(out, "%s  (%d more, %d ms)\n", indent, n.Hidden, n.HiddenMs)
+		out.printf("%s  (%d more, %d ms)\n", indent, n.Hidden, n.HiddenMs)
 	}
 }
