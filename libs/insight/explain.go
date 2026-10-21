@@ -20,6 +20,8 @@ const (
 	DefaultMaxNodes  = 40
 	MaxNodesCap      = 200
 	topListSize      = 10
+	// focusNoteMatches caps the other matches a text focus lists by node.
+	focusNoteMatches = 5
 	sqlTextLimit     = 300
 	// passThroughShare is the 08-ui-backend-requirements §5 rule: a node
 	// whose time is at most 10% unexplained by its dominant child collapses
@@ -32,8 +34,16 @@ type ExplainInput struct {
 	// Ref is a call reference from the calls operation.
 	Ref string
 	// Focus re-roots the reduction at the slowest node whose method contains
-	// this text. Empty means the root.
+	// this text. Empty means the root. A method that runs at several places
+	// in the tree matches several nodes; FocusNode picks one of them.
 	Focus string
+	// FocusNode re-roots the reduction at exactly this node; nil means none.
+	// A node reference is the node's preorder index in the call tree as
+	// /calls/{pk}/tree serves it: the root is 0 and children count in wire
+	// order, before any sorting. The UI numbers its TreeNode.id the same way.
+	// Every node of an explain result carries its reference. FocusNode and
+	// Focus exclude each other.
+	FocusNode *int
 	// Threshold drops children below this share of the (focus) root's
 	// duration; zero means DefaultThreshold.
 	Threshold float64
@@ -48,6 +58,9 @@ type ExplainResult struct {
 	Call *Call `json:"call,omitempty"`
 	// Focus is the method the reduction is rooted at.
 	Focus string `json:"focus"`
+	// FocusNode is the node reference of the node the reduction is rooted
+	// at; 0 is the call's root.
+	FocusNode int `json:"focus_node"`
 	// HotPath is the reduced tree under Focus.
 	HotPath *PathNode `json:"hot_path"`
 	// TopSelf ranks methods by self time under Focus.
@@ -60,6 +73,9 @@ type ExplainResult struct {
 
 // PathNode is one node of the reduced tree. Times are in milliseconds.
 type PathNode struct {
+	// Node is the node's reference (see ExplainInput.FocusNode). A node a
+	// pass-through chain collapsed into keeps its own reference.
+	Node      int    `json:"node"`
 	Method    string `json:"method"`
 	TotalMs   int64  `json:"total_ms"`
 	SelfMs    int64  `json:"self_ms"`
@@ -118,7 +134,10 @@ func (c *Client) Explain(ctx context.Context, in ExplainInput) (ExplainResult, e
 	if err != nil {
 		return ExplainResult{}, errors.Wrap(err, "decode the call tree")
 	}
-	res := reduce(tree, opts)
+	res, err := reduce(tree, opts)
+	if err != nil {
+		return ExplainResult{}, err
+	}
 	call, err := c.callRow(ctx, ref)
 	if err != nil {
 		return ExplainResult{}, err
@@ -153,14 +172,40 @@ func (c *Client) callRow(ctx context.Context, ref CallRef) (*Call, error) {
 	return nil, nil
 }
 
+// NodeNotFoundError rejects a focus node the call tree does not have.
+type NodeNotFoundError struct {
+	// Node is the requested node reference.
+	Node int
+	// Count is the number of nodes in the tree; references run from 0 to
+	// Count-1.
+	Count int
+}
+
+// Error names the valid range and where a reference comes from.
+func (e *NodeNotFoundError) Error() string {
+	return fmt.Sprintf("the call tree has no node %d: its %d nodes are numbered 0 to %d; "+
+		"take a node reference from an earlier explain result of the same call", e.Node, e.Count, e.Count-1)
+}
+
 type reduceOptions struct {
 	focus     string
+	node      *int
 	threshold float64
 	maxNodes  int
 }
 
 func (in ExplainInput) reduceOptions() (reduceOptions, error) {
 	o := reduceOptions{focus: strings.TrimSpace(in.Focus), threshold: in.Threshold, maxNodes: in.MaxNodes}
+	if in.FocusNode != nil {
+		if o.focus != "" {
+			return o, errors.Errorf("set a focus method or a focus node, not both: the node already names one place in the tree")
+		}
+		if *in.FocusNode < 0 {
+			return o, errors.Errorf("focus node must be 0 or greater: the call's root is node 0")
+		}
+		node := *in.FocusNode
+		o.node = &node
+	}
 	if o.threshold == 0 {
 		o.threshold = DefaultThreshold
 	}
@@ -177,8 +222,9 @@ func (in ExplainInput) reduceOptions() (reduceOptions, error) {
 }
 
 // reduce is the presentation of a tree for a model. It is pure, so tests run
-// it on trees built in memory.
-func reduce(tree *calltree.Tree, o reduceOptions) ExplainResult {
+// it on trees built in memory. It fails only on a focus node the tree does
+// not have.
+func reduce(tree *calltree.Tree, o reduceOptions) (ExplainResult, error) {
 	method := func(n *calltree.Node) string {
 		if n.MethodIdx >= 0 && n.MethodIdx < len(tree.Methods) {
 			return shortMethod(tree.Methods[n.MethodIdx])
@@ -186,9 +232,22 @@ func reduce(tree *calltree.Tree, o reduceOptions) ExplainResult {
 		return "#" + strconv.Itoa(n.MethodIdx)
 	}
 	var res ExplainResult
+	// walk visits in preorder and Decode keeps the wire order of children,
+	// so a node's index here is its node reference.
+	nodes := findNodes(tree.Root, func(*calltree.Node) bool { return true })
+	ids := make(map[*calltree.Node]int, len(nodes))
+	for i, n := range nodes {
+		ids[n] = i
+	}
 
 	root := tree.Root
-	if o.focus != "" {
+	switch {
+	case o.node != nil:
+		if *o.node >= len(nodes) {
+			return ExplainResult{}, &NodeNotFoundError{Node: *o.node, Count: len(nodes)}
+		}
+		root = nodes[*o.node]
+	case o.focus != "":
 		matches := findNodes(tree.Root, func(n *calltree.Node) bool {
 			return n.MethodIdx >= 0 && n.MethodIdx < len(tree.Methods) && strings.Contains(tree.Methods[n.MethodIdx], o.focus)
 		})
@@ -198,18 +257,37 @@ func reduce(tree *calltree.Tree, o reduceOptions) ExplainResult {
 			sort.SliceStable(matches, func(i, j int) bool { return matches[i].DurationMs > matches[j].DurationMs })
 			root = matches[0]
 			if len(matches) > 1 {
-				res.Notes = append(res.Notes, fmt.Sprintf(
-					"%d nodes match %q; showing the slowest, with %d ms of %d ms over all matches",
-					len(matches), o.focus, root.DurationMs, sumDuration(matches)))
+				res.Notes = append(res.Notes, focusMatchesNote(o.focus, matches, ids))
 			}
 		}
 	}
 	res.Focus = method(root)
+	res.FocusNode = ids[root]
 
-	res.HotPath = hotPath(root, method, o, &res.Notes)
+	res.HotPath = hotPath(root, method, ids, o, &res.Notes)
 	res.TopSelf = topSelf(root, method)
 	res.TopSQL = topSQL(root, tree.Params)
-	return res
+	return res, nil
+}
+
+// focusMatchesNote says which of several matches a text focus picked and
+// names the others by node reference, slowest first, so the caller can
+// focus on another one by node.
+func focusMatchesNote(focus string, matches []*calltree.Node, ids map[*calltree.Node]int) string {
+	others := make([]string, 0, focusNoteMatches)
+	for _, n := range matches[1:] {
+		if len(others) == focusNoteMatches {
+			break
+		}
+		others = append(others, fmt.Sprintf("%d (%d ms)", ids[n], n.DurationMs))
+	}
+	list := strings.Join(others, ", ")
+	if rest := len(matches) - 1 - len(others); rest > 0 {
+		list += fmt.Sprintf(", and %d more", rest)
+	}
+	return fmt.Sprintf("%d nodes match %q; showing the slowest, node %d, with %d ms of %d ms over all matches. "+
+		"To explain another, focus on its node: %s",
+		len(matches), focus, ids[matches[0]], matches[0].DurationMs, sumDuration(matches), list)
 }
 
 // passThrough returns the child a node collapses into, or nil: one child
@@ -302,7 +380,7 @@ func (q *pathQueue) Pop() any     { old := *q; it := old[len(old)-1]; *q = old[:
 // at any depth rather than to the first wide level, and every shown node's
 // ancestors are shown before it. Every child of a shown node ends up shown or
 // counted in its parent's Hidden and HiddenMs.
-func hotPath(root *calltree.Node, method func(*calltree.Node) string, o reduceOptions, notes *[]string) *PathNode {
+func hotPath(root *calltree.Node, method func(*calltree.Node) string, ids map[*calltree.Node]int, o reduceOptions, notes *[]string) *PathNode {
 	minMs := int64(o.threshold * float64(root.DurationMs))
 	queue := &pathQueue{}
 	seq, thresholdCut, budgetCut := 0, 0, 0
@@ -310,7 +388,7 @@ func hotPath(root *calltree.Node, method func(*calltree.Node) string, o reduceOp
 	show := func(n *calltree.Node) *PathNode {
 		c := collapse(n, minMs)
 		p := &PathNode{
-			Method: method(c.node), TotalMs: c.node.DurationMs, SelfMs: c.node.SelfDurationMs,
+			Node: ids[c.node], Method: method(c.node), TotalMs: c.node.DurationMs, SelfMs: c.node.SelfDurationMs,
 			SuspendMs: c.node.SuspensionMs, Executions: c.node.SelfExecutions, Skipped: c.skipped,
 			Hidden: c.dropped, HiddenMs: c.droppedMs,
 		}
@@ -345,7 +423,7 @@ func hotPath(root *calltree.Node, method func(*calltree.Node) string, o reduceOp
 			thresholdCut, o.threshold*100, root.DurationMs))
 	}
 	if budgetCut > 0 {
-		*notes = append(*notes, fmt.Sprintf("the node budget of %d is reached and %d nodes are hidden; a larger budget or a focus method shows more",
+		*notes = append(*notes, fmt.Sprintf("the node budget of %d is reached and %d nodes are hidden; a larger budget or a focus node deeper in the tree shows more",
 			o.maxNodes, budgetCut))
 	}
 	return out

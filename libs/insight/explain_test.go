@@ -59,6 +59,28 @@ func opts(threshold float64, maxNodes int) reduceOptions {
 	return reduceOptions{threshold: threshold, maxNodes: maxNodes}
 }
 
+func mustReduce(t *testing.T, tree *calltree.Tree, o reduceOptions) ExplainResult {
+	t.Helper()
+	res, err := reduce(tree, o)
+	require.NoError(t, err)
+	return res
+}
+
+func focusNode(node int) reduceOptions {
+	o := opts(DefaultThreshold, DefaultMaxNodes)
+	o.node = &node
+	return o
+}
+
+// shownNodes lists the hot path's nodes in preorder as "reference method".
+func shownNodes(p *PathNode) []string {
+	out := []string{fmt.Sprintf("%d %s", p.Node, p.Method)}
+	for _, ch := range p.Children {
+		out = append(out, shownNodes(ch)...)
+	}
+	return out
+}
+
 func TestReduceCollapsesADeepPassThroughChain(t *testing.T) {
 	b := &treeBuilder{}
 	leafs := []*calltree.Node{b.node("void a.Repo.load() (Repo.java) [a.jar]", 60), b.node("a.Http.call", 30), b.node("a.Log.write", 2)}
@@ -67,13 +89,17 @@ func TestReduceCollapsesADeepPassThroughChain(t *testing.T) {
 	bb := b.node("a.Filter2.doFilter", 98, c)
 	root := b.node("a.Servlet.service", 100, bb)
 
-	res := reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	res := mustReduce(t, b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
 	assert.Equal(t, "a.Servlet.service", res.Focus)
 	path := res.HotPath
 	assert.Equal(t, "a.Service.handle", path.Method, "three pass-through frames collapse")
 	assert.Equal(t, 3, path.Skipped)
+	assert.Zero(t, res.FocusNode)
+	assert.Equal(t, 3, path.Node, "the landed node keeps its own reference, not the chain head's")
 	require.Len(t, path.Children, 2)
 	assert.Equal(t, "a.Repo.load()", path.Children[0].Method, "slowest first, method shortened")
+	assert.Equal(t, 4, path.Children[0].Node)
+	assert.Equal(t, 5, path.Children[1].Node)
 	assert.Equal(t, int64(60), path.Children[0].TotalMs)
 	assert.Equal(t, int64(1), path.Executions, "a node shows its own executions, not its subtree's")
 	assert.Equal(t, 1, path.Hidden, "a.Log.write is under 5%")
@@ -86,14 +112,14 @@ func TestReduceDoesNotCollapseAFanOutOrANodeWithParams(t *testing.T) {
 	b := &treeBuilder{}
 	// The parent loops: the child runs 10 times per parent call, not a pass-through.
 	root := b.node("a.Service.handle", 100, loop(b.node("a.Repo.load", 95), 10))
-	res := reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	res := mustReduce(t, b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
 	assert.Equal(t, "a.Service.handle", res.HotPath.Method)
 	assert.Zero(t, res.HotPath.Skipped)
 
 	b = &treeBuilder{}
 	root = b.node("a.Service.handle", 100, b.node("a.Repo.load", 95))
 	root.Params = []calltree.Param{{ParamIdx: 0, Groups: []calltree.ParamGroup{{Value: "x", DurationMs: 100, Executions: 1}}}}
-	res = reduce(b.roundTrip(t, root, "user.tenant"), opts(DefaultThreshold, DefaultMaxNodes))
+	res = mustReduce(t, b.roundTrip(t, root, "user.tenant"), opts(DefaultThreshold, DefaultMaxNodes))
 	assert.Equal(t, "a.Service.handle", res.HotPath.Method, "a node with params stays visible")
 }
 
@@ -106,12 +132,12 @@ func TestReduceCutsAWideFanOut(t *testing.T) {
 	root := b.node("a.Batch.run", 1000, children...)
 	tree := b.roundTrip(t, root)
 
-	res := reduce(tree, opts(DefaultThreshold, DefaultMaxNodes))
+	res := mustReduce(t, tree, opts(DefaultThreshold, DefaultMaxNodes))
 	assert.Empty(t, res.HotPath.Children, "every item is 1% of the root")
 	assert.Equal(t, 100, res.HotPath.Hidden)
 	assert.Equal(t, int64(1000), res.HotPath.HiddenMs)
 
-	res = reduce(tree, opts(0.001, DefaultMaxNodes))
+	res = mustReduce(t, tree, opts(0.001, DefaultMaxNodes))
 	assert.Len(t, res.HotPath.Children, DefaultMaxNodes-1, "the root plus 39 children fill the budget")
 	assert.Equal(t, 100-(DefaultMaxNodes-1), res.HotPath.Hidden)
 	require.Len(t, res.Notes, 1)
@@ -129,19 +155,13 @@ func TestReduceSpendsTheBudgetOnTheSlowestBranch(t *testing.T) {
 	fast := b.node("a.Fast.run", 300, b.node("a.Fast.step", 200), b.node("a.Fast.step2", 99))
 	root := b.node("a.Main.run", 1000, slow, fast)
 
-	res := reduce(b.roundTrip(t, root), opts(0.01, 5))
-	var shown []string
-	var visit func(p *PathNode)
-	visit = func(p *PathNode) {
-		shown = append(shown, p.Method)
-		for _, ch := range p.Children {
-			visit(ch)
-		}
-	}
-	visit(res.HotPath)
+	res := mustReduce(t, b.roundTrip(t, root), opts(0.01, 5))
 	// step1 passes 390 of its 400 ms to one child, so it collapses into the
-	// leaf; the budget then takes step2 before Fast's children.
-	assert.Equal(t, []string{"a.Main.run", "a.Slow.run", "a.Slow.leaf", "a.Slow.step2", "a.Fast.run"}, shown)
+	// leaf; the budget then takes step2 before Fast's children. Each shown
+	// node keeps its preorder reference: step1 is 2, other is 4, and Fast's
+	// children, 7 and 8, are past the budget.
+	assert.Equal(t, []string{"0 a.Main.run", "1 a.Slow.run", "3 a.Slow.leaf", "5 a.Slow.step2", "6 a.Fast.run"},
+		shownNodes(res.HotPath))
 	assert.Equal(t, 1, res.HotPath.Children[0].Children[0].Skipped)
 	assert.Equal(t, 2, res.HotPath.Children[1].Hidden, "Fast's children are past the budget")
 }
@@ -158,7 +178,7 @@ func TestReduceChargesTheBudgetWhenANodeIsShown(t *testing.T) {
 	}
 	root := b.node("a.Main.run", 1000, children...)
 
-	res := reduce(b.roundTrip(t, root), opts(0.001, 40))
+	res := mustReduce(t, b.roundTrip(t, root), opts(0.001, 40))
 	path := res.HotPath
 	require.NotEmpty(t, path.Children)
 	slow := path.Children[0]
@@ -180,7 +200,7 @@ func TestReduceKeepsASiblingAboveTheThreshold(t *testing.T) {
 	b := &treeBuilder{}
 	root := b.node("a.Main.run", 1000, b.node("a.Repo.load", 900), b.node("a.Http.call", 100))
 
-	res := reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	res := mustReduce(t, b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
 	path := res.HotPath
 	assert.Equal(t, "a.Main.run", path.Method)
 	assert.Zero(t, path.Skipped)
@@ -194,7 +214,7 @@ func TestReduceKeepsASiblingAboveTheThreshold(t *testing.T) {
 	// reports it as hidden.
 	b = &treeBuilder{}
 	root = b.node("a.Main.run", 1000, b.node("a.Repo.load", 960), b.node("a.Http.call", 40))
-	res = reduce(b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
+	res = mustReduce(t, b.roundTrip(t, root), opts(DefaultThreshold, DefaultMaxNodes))
 	path = res.HotPath
 	assert.Equal(t, "a.Repo.load", path.Method)
 	assert.Equal(t, 1, path.Skipped)
@@ -204,7 +224,7 @@ func TestReduceKeepsASiblingAboveTheThreshold(t *testing.T) {
 	assert.Contains(t, res.Notes[0], "1 nodes under 5% of 1000 ms are hidden")
 
 	// A lower threshold shows that child again.
-	res = reduce(b.roundTrip(t, root), opts(0.01, DefaultMaxNodes))
+	res = mustReduce(t, b.roundTrip(t, root), opts(0.01, DefaultMaxNodes))
 	assert.Equal(t, "a.Main.run", res.HotPath.Method)
 	assert.Len(t, res.HotPath.Children, 2)
 }
@@ -236,7 +256,7 @@ func TestReduceGroupsSQLBySignature(t *testing.T) {
 			calltree.ParamGroup{Value: "sql:3:18", DurationMs: 7, Executions: 1, Unresolved: true}),
 	)
 
-	res := reduce(b.roundTrip(t, root, "sql"), opts(DefaultThreshold, DefaultMaxNodes))
+	res := mustReduce(t, b.roundTrip(t, root, "sql"), opts(DefaultThreshold, DefaultMaxNodes))
 	require.Len(t, res.TopSQL, 5)
 	assert.Equal(t, SQLStat{Statement: "select * from t where id = 22", DurationMs: 80, Executions: 8}, res.TopSQL[0],
 		"literal variants from two nodes fold, shown by the slower one's text")
@@ -264,7 +284,7 @@ func TestReduceRanksSelfTimeAndSQL(t *testing.T) {
 	long.Params = []calltree.Param{{ParamIdx: 0, Groups: []calltree.ParamGroup{{Value: strings.Repeat("x", 400), DurationMs: 10, Executions: 1}}}}
 	root := b.node("a.Service.handle", 600, b.node("a.Repo.load", 500, q1, q2), long)
 
-	res := reduce(b.roundTrip(t, root, "sql"), opts(DefaultThreshold, DefaultMaxNodes))
+	res := mustReduce(t, b.roundTrip(t, root, "sql"), opts(DefaultThreshold, DefaultMaxNodes))
 	require.NotEmpty(t, res.TopSelf)
 	assert.Equal(t, MethodStat{Method: "a.Jdbc.execute", SelfMs: 500, Executions: 2}, res.TopSelf[0], "both nodes of a method add up")
 
@@ -283,16 +303,131 @@ func TestReduceFocusReRootsAtTheSlowestMatch(t *testing.T) {
 		b.node("a.Repo.load", 600, b.node("a.Jdbc.execute", 100), b.node("a.Cache.get", 450)))
 	tree := b.roundTrip(t, root)
 
-	res := reduce(tree, reduceOptions{focus: "Repo.load", threshold: DefaultThreshold, maxNodes: DefaultMaxNodes})
+	res := mustReduce(t, tree, reduceOptions{focus: "Repo.load", threshold: DefaultThreshold, maxNodes: DefaultMaxNodes})
 	assert.Equal(t, "a.Repo.load", res.Focus)
 	assert.Equal(t, int64(600), res.HotPath.TotalMs)
 	assert.Equal(t, "a.Cache.get", res.TopSelf[0].Method, "top lists cover the focus subtree only")
 	require.NotEmpty(t, res.Notes)
-	assert.Contains(t, res.Notes[0], "2 nodes match \"Repo.load\"; showing the slowest, with 600 ms of 900 ms")
+	assert.Contains(t, res.Notes[0], "2 nodes match \"Repo.load\"; showing the slowest, node 3, with 600 ms of 900 ms")
+	assert.Contains(t, res.Notes[0], "focus on its node: 1 (300 ms)")
+	assert.Equal(t, 3, res.FocusNode)
 
-	res = reduce(tree, reduceOptions{focus: "Nope", threshold: DefaultThreshold, maxNodes: DefaultMaxNodes})
+	res = mustReduce(t, tree, reduceOptions{focus: "Nope", threshold: DefaultThreshold, maxNodes: DefaultMaxNodes})
 	assert.Equal(t, "a.Main.run", res.Focus)
+	assert.Zero(t, res.FocusNode)
 	assert.Contains(t, res.Notes[0], "no method contains")
+}
+
+// repeatedMethods is the UI's localHotspots fixture (transforms.test.ts),
+// with the second Query.run made slower: the same method runs under two
+// parents, and Util.recurse calls itself. The comments give each node's
+// preorder reference.
+func repeatedMethods(t *testing.T) *calltree.Tree {
+	b := &treeBuilder{}
+	root := b.node("void e.Entry.handle() (Entry.java:1) [app.jar]", 1000, // 0
+		b.node("s.ServiceA.doWork", 500, // 1
+			loop(b.node("db.Query.run", 250), 30), // 2
+			b.node("u.Util.recurse", 150, // 3
+				b.node("u.Util.recurse", 50))), // 4
+		b.node("s.ServiceB.other", 400, // 5
+			b.node("db.Query.run", 350, // 6
+				b.node("db.Jdbc.fetch", 200)))) // 7
+	return b.roundTrip(t, root)
+}
+
+func TestReduceNumbersNodesInWirePreorder(t *testing.T) {
+	res := mustReduce(t, repeatedMethods(t), opts(0.001, DefaultMaxNodes))
+	// No node is a pass-through and every node is above the threshold, so
+	// the hot path shows the whole tree, slowest sibling first.
+	assert.ElementsMatch(t, []string{
+		"0 e.Entry.handle()", "1 s.ServiceA.doWork", "2 db.Query.run", "3 u.Util.recurse",
+		"4 u.Util.recurse", "5 s.ServiceB.other", "6 db.Query.run", "7 db.Jdbc.fetch",
+	}, shownNodes(res.HotPath))
+}
+
+func TestReduceFocusNodePicksOneOfARepeatedMethod(t *testing.T) {
+	tree := repeatedMethods(t)
+
+	res := mustReduce(t, tree, focusNode(2))
+	assert.Equal(t, "db.Query.run", res.Focus)
+	assert.Equal(t, 2, res.FocusNode)
+	assert.Equal(t, 2, res.HotPath.Node)
+	assert.Equal(t, int64(250), res.HotPath.TotalMs, "the node under ServiceA, not the slower one under ServiceB")
+	assert.Equal(t, int64(30), res.HotPath.Executions)
+	assert.Empty(t, res.HotPath.Children)
+	assert.Equal(t, []MethodStat{{Method: "db.Query.run", SelfMs: 250, Executions: 30}}, res.TopSelf,
+		"top lists cover the selected node only, not every node of the method")
+	assert.Empty(t, res.Notes)
+
+	res = mustReduce(t, tree, focusNode(6))
+	assert.Equal(t, 6, res.FocusNode)
+	assert.Equal(t, int64(350), res.HotPath.TotalMs)
+	require.Len(t, res.HotPath.Children, 1)
+	assert.Equal(t, 7, res.HotPath.Children[0].Node)
+
+	// The text focus takes the slowest match and names the other by node.
+	res = mustReduce(t, tree, reduceOptions{focus: "Query.run", threshold: DefaultThreshold, maxNodes: DefaultMaxNodes})
+	assert.Equal(t, 6, res.FocusNode)
+	require.Len(t, res.Notes, 1)
+	assert.Equal(t, "2 nodes match \"Query.run\"; showing the slowest, node 6, with 350 ms of 600 ms over all matches. "+
+		"To explain another, focus on its node: 2 (250 ms)", res.Notes[0])
+}
+
+func TestReduceFocusNodePicksTheInnerRecursion(t *testing.T) {
+	tree := repeatedMethods(t)
+
+	res := mustReduce(t, tree, focusNode(4))
+	assert.Equal(t, "u.Util.recurse", res.Focus)
+	assert.Equal(t, 4, res.FocusNode)
+	assert.Equal(t, int64(50), res.HotPath.TotalMs)
+	assert.Equal(t, []MethodStat{{Method: "u.Util.recurse", SelfMs: 50, Executions: 1}}, res.TopSelf,
+		"the inner occurrence keeps only its own time")
+
+	res = mustReduce(t, tree, focusNode(3))
+	assert.Equal(t, []MethodStat{{Method: "u.Util.recurse", SelfMs: 150, Executions: 2}}, res.TopSelf,
+		"the outer occurrence folds the recursion under it")
+
+	res = mustReduce(t, tree, reduceOptions{focus: "Util.recurse", threshold: DefaultThreshold, maxNodes: DefaultMaxNodes})
+	assert.Equal(t, 3, res.FocusNode, "the text focus takes the outer, slower occurrence")
+	require.Len(t, res.Notes, 1)
+	assert.Contains(t, res.Notes[0], "focus on its node: 4 (50 ms)")
+}
+
+func TestReduceFocusNodeOnACollapsedChain(t *testing.T) {
+	b := &treeBuilder{}
+	root := b.node("a.Main.run", 1000, // 0
+		b.node("a.Filter.doFilter", 990, // 1
+			b.node("a.Service.handle", 985, // 2
+				b.node("a.Repo.load", 600), b.node("a.Http.call", 385)))) // 3, 4
+
+	res := mustReduce(t, b.roundTrip(t, root), focusNode(1))
+	assert.Equal(t, 1, res.FocusNode, "the result names the node asked for")
+	assert.Equal(t, "a.Filter.doFilter", res.Focus)
+	assert.Equal(t, 2, res.HotPath.Node, "the shown node is the one the chain lands on")
+	assert.Equal(t, 1, res.HotPath.Skipped)
+	assert.Equal(t, []string{"2 a.Service.handle", "3 a.Repo.load", "4 a.Http.call"}, shownNodes(res.HotPath))
+}
+
+func TestReduceListsAtMostFiveOtherMatches(t *testing.T) {
+	b := &treeBuilder{}
+	var children []*calltree.Node
+	for i := 0; i < 8; i++ {
+		children = append(children, b.node("a.Repo.load", int64(100+i)))
+	}
+	res := mustReduce(t, b.roundTrip(t, b.node("a.Main.run", 1000, children...)),
+		reduceOptions{focus: "Repo.load", threshold: DefaultThreshold, maxNodes: DefaultMaxNodes})
+	assert.Equal(t, 8, res.FocusNode)
+	require.NotEmpty(t, res.Notes)
+	assert.Contains(t, res.Notes[0], "focus on its node: 7 (106 ms), 6 (105 ms), 5 (104 ms), 4 (103 ms), 3 (102 ms), and 2 more")
+}
+
+func TestReduceRejectsAFocusNodeOutsideTheTree(t *testing.T) {
+	_, err := reduce(repeatedMethods(t), focusNode(8))
+	var notFound *NodeNotFoundError
+	require.ErrorAs(t, err, &notFound)
+	assert.Equal(t, NodeNotFoundError{Node: 8, Count: 8}, *notFound)
+	assert.EqualError(t, err, "the call tree has no node 8: its 8 nodes are numbered 0 to 7; "+
+		"take a node reference from an earlier explain result of the same call")
 }
 
 // TestReduceDefaultOutputStaysSmall pins the output size of the defaults on
@@ -311,7 +446,7 @@ func TestReduceDefaultOutputStaysSmall(t *testing.T) {
 		}
 		return b.node(fmt.Sprintf("a.Level%d.run", depth), total, kids...)
 	}
-	res := reduce(b.roundTrip(t, build(7, 1_000_000)), opts(DefaultThreshold, DefaultMaxNodes))
+	res := mustReduce(t, b.roundTrip(t, build(7, 1_000_000)), opts(DefaultThreshold, DefaultMaxNodes))
 	count := 0
 	var visit func(p *PathNode)
 	visit = func(p *PathNode) {
@@ -363,10 +498,13 @@ func TestExplainFetchesTheTreeAndTheRow(t *testing.T) {
 
 func TestExplainRejectsBadInputBeforeAnyRequest(t *testing.T) {
 	c, r := newReplay(t, nil)
+	negative, zero := -1, 0
 	for _, in := range []ExplainInput{
 		{Ref: "nope"},
 		{Ref: "a:b:c:1:1:1:1@1@any_error", Threshold: 1.5},
 		{Ref: "a:b:c:1:1:1:1@1@any_error", MaxNodes: MaxNodesCap + 1},
+		{Ref: "a:b:c:1:1:1:1@1@any_error", FocusNode: &negative},
+		{Ref: "a:b:c:1:1:1:1@1@any_error", FocusNode: &zero, Focus: "Repo.load"},
 	} {
 		_, err := c.Explain(context.Background(), in)
 		assert.Error(t, err, "%+v", in)
@@ -379,4 +517,17 @@ func TestExplainReportsATruncatedCall(t *testing.T) {
 	_, err := c.Explain(context.Background(), ExplainInput{Ref: "a:b:c:1:1:1:1@1@any_error"})
 	assert.True(t, IsCode(err, CodeTraceUnavailable))
 	assert.ErrorContains(t, err, "truncated call")
+}
+
+func TestExplainRejectsAFocusNodeOutsideTheTree(t *testing.T) {
+	b := &treeBuilder{}
+	root := b.node("a.Main.run", 10, b.node("a.Repo.load", 5))
+	body := calltree.Encode(&calltree.Tree{Methods: b.methods, Root: root})
+	c, r := newReplay(t, nil, reply{status: http.StatusOK, body: body})
+	node := 2
+	_, err := c.Explain(context.Background(), ExplainInput{Ref: "a:b:c:1:1:1:1@1@any_error", FocusNode: &node})
+	var notFound *NodeNotFoundError
+	require.ErrorAs(t, err, &notFound)
+	assert.Equal(t, 2, notFound.Count)
+	assert.Len(t, r.reqs, 1, "the call row is not fetched for a rejected node")
 }
