@@ -74,29 +74,35 @@ func newCallsCmd(root *rootFlags) *cobra.Command {
 
 func newExplainCmd(root *rootFlags) *cobra.Command {
 	var focus string
+	var node int
 	var threshold float64
 	var maxNodes int
 	cmd := &cobra.Command{
 		Use:   "explain <call-ref>",
 		Short: "Show where a call spent its time: hot path, top methods by self time, and top SQL",
 		Example: "  profiler explain 'prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error'\n" +
-			"  profiler explain <call-ref> --focus Repository.load --threshold 0.01",
+			"  profiler explain <call-ref> --node 12 --threshold 0.01\n" +
+			"  profiler explain <call-ref> --focus Repository.load",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := root.client()
 			if err != nil {
 				return err
 			}
-			res, err := client.Explain(cmd.Context(), insight.ExplainInput{
-				Ref: args[0], Focus: focus, Threshold: threshold, MaxNodes: maxNodes,
-			})
+			in := insight.ExplainInput{Ref: args[0], Focus: focus, Threshold: threshold, MaxNodes: maxNodes}
+			if cmd.Flags().Changed("node") {
+				in.FocusNode = &node
+			}
+			res, err := client.Explain(cmd.Context(), in)
 			if err != nil {
 				return err
 			}
 			return root.print(cmd, res, func(out io.Writer) error { return writeExplain(out, res) })
 		},
 	}
-	cmd.Flags().StringVar(&focus, "focus", "", "re-root at the slowest node whose method contains this text")
+	cmd.Flags().IntVar(&node, "node", 0, "re-root at this node: a #<id> from an earlier explain of the same call")
+	cmd.Flags().StringVar(&focus, "focus", "", "re-root at the slowest node whose method contains this text; the notes list other matches for --node")
+	cmd.MarkFlagsMutuallyExclusive("node", "focus")
 	cmd.Flags().Float64Var(&threshold, "threshold", insight.DefaultThreshold, "hide nodes under this share of the root, 0 to 1")
 	cmd.Flags().IntVar(&maxNodes, "max-nodes", insight.DefaultMaxNodes, "most nodes in the hot path")
 	return cmd
