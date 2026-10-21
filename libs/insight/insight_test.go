@@ -143,30 +143,74 @@ func TestCallsSendsTheFiltersUnchangedAndMapsRows(t *testing.T) {
 	assert.Equal(t, "POST http://billing:8080/charges", call.HTTP)
 	assert.Equal(t, "buffer_full", res.Calls[1].Truncated)
 	assert.Empty(t, res.Calls[1].HTTP)
-	assert.Equal(t, "cursor-page-2", res.NextCursor)
+	cur, err := decodeCallsCursor(res.NextCursor)
+	require.NoError(t, err)
+	assert.Equal(t, "cursor-page-2", cur.Server, "the server's cursor rides inside the client's")
+	assert.Equal(t, q["filter"], cur.Conditions, "the cursor records the conditions page 1 sent")
 	assert.Equal(t, []string{"collector 10.0.0.7 calls: timeout"}, res.Partial)
 }
 
-func TestCallsCursorPageSendsOnlyTheCursor(t *testing.T) {
+func TestCallsCursorPageReSendsTheConditionsButNotTheWindow(t *testing.T) {
 	c, r := newReplay(t, nil, ok("calls.json"))
-	res, err := c.Calls(context.Background(), CallsInput{Cursor: "cursor-page-2", Filters: Filters{Service: "prod/billing"}})
+	cursor := encodeCallsCursor("cursor-page-2", []string{"namespace=prod", "service=billing"})
+	res, err := c.Calls(context.Background(), CallsInput{
+		Cursor: cursor, Filters: Filters{Service: "prod/billing"}, Window: Window{Since: time.Minute},
+	})
 	require.NoError(t, err)
-	assert.Equal(t, url.Values{"cursor": {"cursor-page-2"}, "limit": {"20"}}, r.reqs[0].URL.Query())
+	assert.Equal(t, url.Values{
+		"cursor": {"cursor-page-2"}, "limit": {"20"}, "filter": {"namespace=prod", "service=billing"},
+	}, r.reqs[0].URL.Query(), "the server checks the conditions against its frozen query and keeps its window")
 	assert.Nil(t, res.Window, "a cursor page runs over the window of page 1")
 	assert.False(t, res.Restarted)
+}
+
+func TestCallsCursorPageWithoutFiltersUsesTheCursorFilters(t *testing.T) {
+	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"))
+	cursor := encodeCallsCursor("cursor-page-2", []string{"service=billing", "namespace=prod"})
+	res, err := c.Calls(context.Background(), CallsInput{Cursor: cursor})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"service=billing", "namespace=prod"}, r.reqs[0].URL.Query()["filter"])
+	next, err := decodeCallsCursor(res.NextCursor)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"service=billing", "namespace=prod"}, next.Conditions, "the next cursor keeps them")
+
+	_, err = c.Calls(context.Background(), CallsInput{Cursor: cursor, Filters: Filters{
+		Conditions: []string{"namespace = prod", "service in billing"},
+	}})
+	require.NoError(t, err, "the same conditions in another spelling match")
+	assert.Equal(t, []string{"service=billing", "namespace=prod"}, r.reqs[1].URL.Query()["filter"],
+		"the cursor's own conditions are the ones authorized and sent")
 }
 
 func TestCallsRestartsFromPageOneOnARejectedCursor(t *testing.T) {
 	c, r := newReplay(t, nil,
 		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
 		ok("calls.json"))
-	res, err := c.Calls(context.Background(), CallsInput{Cursor: "stale", Filters: Filters{Service: "prod/billing"}})
+	stale := encodeCallsCursor("stale", []string{"namespace=prod", "service=billing"})
+	res, err := c.Calls(context.Background(), CallsInput{Cursor: stale, Filters: Filters{Service: "prod/billing"}})
 	require.NoError(t, err)
 	assert.True(t, res.Restarted)
 	require.NotNil(t, res.Window)
 	require.Len(t, r.reqs, 2)
 	assert.Empty(t, r.reqs[1].URL.Query().Get("cursor"))
 	assert.Equal(t, []string{"namespace=prod", "service=billing"}, r.reqs[1].URL.Query()["filter"])
+}
+
+func TestCallsRestartsFromPageOneOnACursorThatDoesNotDecode(t *testing.T) {
+	for _, junk := range []string{
+		"cursor-page-2", // a server cursor: Calls did not hand it out
+		"***",
+		encodeCallsCursor("", nil),
+		encodeCallsCursor("x", []string{"service"}),
+	} {
+		c, r := newReplay(t, nil, ok("calls.json"))
+		res, err := c.Calls(context.Background(), CallsInput{Cursor: junk, Filters: Filters{Service: "prod/billing"}})
+		require.NoError(t, err, junk)
+		assert.True(t, res.Restarted, junk)
+		require.Len(t, r.reqs, 1, junk)
+		assert.Empty(t, r.reqs[0].URL.Query().Get("cursor"), junk)
+		assert.Equal(t, []string{"namespace=prod", "service=billing"}, r.reqs[0].URL.Query()["filter"], junk)
+	}
 }
 
 func TestCallsChecksFilterSyntaxBeforeAnyRequest(t *testing.T) {

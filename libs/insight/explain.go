@@ -69,7 +69,8 @@ type PathNode struct {
 	// Skipped counts the pass-through frames collapsed above this node.
 	Skipped int `json:"skipped,omitempty"`
 	// Hidden counts the children cut by the threshold or the node budget,
-	// and HiddenMs their total time.
+	// and HiddenMs their total time. When frames collapsed into this node,
+	// their side children, all below the threshold, count here too.
 	Hidden   int         `json:"hidden,omitempty"`
 	HiddenMs int64       `json:"hidden_ms,omitempty"`
 	Children []*PathNode `json:"children,omitempty"`
@@ -212,9 +213,12 @@ func reduce(tree *calltree.Tree, o reduceOptions) ExplainResult {
 }
 
 // passThrough returns the child a node collapses into, or nil: one child
-// carries at least 90% of the node's time with the same execution count, and
-// the node has no params of its own (08 §5).
-func passThrough(n *calltree.Node) *calltree.Node {
+// carries at least 90% of the node's time with the same execution count, the
+// node has no params of its own (08 §5), and every other child is below
+// minMs. The last rule keeps a branching node whose side child the threshold
+// would show: collapsing it would drop that child where no threshold or
+// budget can bring it back.
+func passThrough(n *calltree.Node, minMs int64) *calltree.Node {
 	if len(n.Params) > 0 || len(n.Children) == 0 || n.DurationMs <= 0 {
 		return nil
 	}
@@ -232,70 +236,109 @@ func passThrough(n *calltree.Node) *calltree.Node {
 	if float64(n.DurationMs-dominant.DurationMs) > passThroughShare*float64(n.DurationMs) {
 		return nil
 	}
+	for _, ch := range n.Children {
+		if ch != dominant && !belowThreshold(ch, minMs) {
+			return nil
+		}
+	}
 	return dominant
 }
 
-// collapse follows pass-through chains from n and returns the node they land
-// on with the count of frames skipped.
-func collapse(n *calltree.Node) (*calltree.Node, int) {
-	skipped := 0
-	for next := passThrough(n); next != nil; next = passThrough(n) {
-		n, skipped = next, skipped+1
+// belowThreshold reports whether the hot path hides n as too small to show.
+func belowThreshold(n *calltree.Node, minMs int64) bool {
+	return n.DurationMs < minMs || n.DurationMs == 0
+}
+
+// collapsed is where a pass-through chain lands: the node shown, the count of
+// frames skipped above it, and the side children of those frames, which are
+// all below the threshold and are reported as hidden on the landed node.
+type collapsed struct {
+	node      *calltree.Node
+	skipped   int
+	dropped   int
+	droppedMs int64
+}
+
+// collapse follows pass-through chains from n.
+func collapse(n *calltree.Node, minMs int64) collapsed {
+	c := collapsed{node: n}
+	for next := passThrough(c.node, minMs); next != nil; next = passThrough(c.node, minMs) {
+		for _, ch := range c.node.Children {
+			if ch != next {
+				c.dropped++
+				c.droppedMs += ch.DurationMs
+			}
+		}
+		c.node, c.skipped = next, c.skipped+1
 	}
-	return n, skipped
+	return c
 }
 
-// pathItem is a frontier entry of the hot-path expansion.
+// pathItem is a frontier entry of the hot-path expansion: a child not yet
+// shown, the shown node it hangs under, and its place in push order.
 type pathItem struct {
-	node *calltree.Node
-	out  *PathNode
+	child  *calltree.Node
+	parent *PathNode
+	seq    int
 }
 
+// pathQueue pops the slowest child first; push order breaks ties, so equal
+// siblings keep the tree's order.
 type pathQueue []pathItem
 
-func (q pathQueue) Len() int           { return len(q) }
-func (q pathQueue) Less(i, j int) bool { return q[i].node.DurationMs > q[j].node.DurationMs }
-func (q pathQueue) Swap(i, j int)      { q[i], q[j] = q[j], q[i] }
-func (q *pathQueue) Push(x any)        { *q = append(*q, x.(pathItem)) }
-func (q *pathQueue) Pop() any          { old := *q; it := old[len(old)-1]; *q = old[:len(old)-1]; return it }
+func (q pathQueue) Len() int { return len(q) }
+func (q pathQueue) Less(i, j int) bool {
+	if q[i].child.DurationMs != q[j].child.DurationMs {
+		return q[i].child.DurationMs > q[j].child.DurationMs
+	}
+	return q[i].seq < q[j].seq
+}
+func (q pathQueue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
+func (q *pathQueue) Push(x any)   { *q = append(*q, x.(pathItem)) }
+func (q *pathQueue) Pop() any     { old := *q; it := old[len(old)-1]; *q = old[:len(old)-1]; return it }
 
-// hotPath expands the tree most-expensive-first, so the node budget is spent
-// on the slowest branches and every shown node's ancestors are shown.
+// hotPath expands the tree most-expensive-first. A node takes a budget slot
+// only when it leaves the frontier, so the budget goes to the slowest nodes
+// at any depth rather than to the first wide level, and every shown node's
+// ancestors are shown before it. Every child of a shown node ends up shown or
+// counted in its parent's Hidden and HiddenMs.
 func hotPath(root *calltree.Node, method func(*calltree.Node) string, o reduceOptions, notes *[]string) *PathNode {
 	minMs := int64(o.threshold * float64(root.DurationMs))
-	newPath := func(n *calltree.Node, skipped int) *PathNode {
-		return &PathNode{
-			Method: method(n), TotalMs: n.DurationMs, SelfMs: n.SelfDurationMs,
-			SuspendMs: n.SuspensionMs, Executions: n.SelfExecutions, Skipped: skipped,
+	queue := &pathQueue{}
+	seq, thresholdCut, budgetCut := 0, 0, 0
+	// show adds the node a chain from n lands on and queues its children.
+	show := func(n *calltree.Node) *PathNode {
+		c := collapse(n, minMs)
+		p := &PathNode{
+			Method: method(c.node), TotalMs: c.node.DurationMs, SelfMs: c.node.SelfDurationMs,
+			SuspendMs: c.node.SuspensionMs, Executions: c.node.SelfExecutions, Skipped: c.skipped,
+			Hidden: c.dropped, HiddenMs: c.droppedMs,
 		}
-	}
-	top, skipped := collapse(root)
-	out := newPath(top, skipped)
-	queue := &pathQueue{{node: top, out: out}}
-	shown, thresholdCut, budgetCut := 1, 0, 0
-	for queue.Len() > 0 {
-		it := heap.Pop(queue).(pathItem)
-		children := append([]*calltree.Node(nil), it.node.Children...)
-		sort.SliceStable(children, func(i, j int) bool { return children[i].DurationMs > children[j].DurationMs })
-		for _, ch := range children {
-			if ch.DurationMs < minMs || ch.DurationMs == 0 {
-				it.out.Hidden++
-				it.out.HiddenMs += ch.DurationMs
+		thresholdCut += c.dropped
+		for _, ch := range c.node.Children {
+			if belowThreshold(ch, minMs) {
+				p.Hidden++
+				p.HiddenMs += ch.DurationMs
 				thresholdCut++
 				continue
 			}
-			if shown >= o.maxNodes {
-				it.out.Hidden++
-				it.out.HiddenMs += ch.DurationMs
-				budgetCut++
-				continue
-			}
-			landed, skip := collapse(ch)
-			p := newPath(landed, skip)
-			it.out.Children = append(it.out.Children, p)
-			shown++
-			heap.Push(queue, pathItem{node: landed, out: p})
+			heap.Push(queue, pathItem{child: ch, parent: p, seq: seq})
+			seq++
 		}
+		return p
+	}
+	out := show(root)
+	shown := 1
+	for queue.Len() > 0 {
+		it := heap.Pop(queue).(pathItem)
+		if shown >= o.maxNodes {
+			it.parent.Hidden++
+			it.parent.HiddenMs += it.child.DurationMs
+			budgetCut++
+			continue
+		}
+		it.parent.Children = append(it.parent.Children, show(it.child))
+		shown++
 	}
 	if thresholdCut > 0 {
 		*notes = append(*notes, fmt.Sprintf("%d nodes under %.0f%% of %d ms are hidden; a lower threshold shows them",
@@ -339,39 +382,57 @@ func topSelf(root *calltree.Node, method func(*calltree.Node) string) []MethodSt
 	return out
 }
 
-// topSQL sums the groups of every `sql` param under root. The server already
-// folded statements that differ only in literals into one group per node.
+// topSQL sums the groups of every `sql` param under root. Each node already
+// folded its statements by calltree.SQLSignature, but it keeps the first
+// value it saw, so two nodes can hold the same statement with different
+// literals; topSQL keys by the same signature to fold them again (as the
+// UI's params-summary.ts does). The ::other bucket and each unresolved
+// reference keep identities of their own. Only the emitted text is
+// truncated, so a shared long prefix cannot merge two statements.
 func topSQL(root *calltree.Node, params []string) []SQLStat {
-	byText := map[string]*SQLStat{}
+	type group struct {
+		stat SQLStat
+		// slowestMs picks the representative text: the value of the
+		// slowest group folded in.
+		slowestMs int64
+	}
+	byKey := map[string]*group{}
+	var order []string
 	walk(root, func(n *calltree.Node) {
 		for _, p := range n.Params {
 			if p.ParamIdx < 0 || p.ParamIdx >= len(params) || params[p.ParamIdx] != "sql" {
 				continue
 			}
 			for _, g := range p.Groups {
-				text := g.Value
+				var key, text string
 				switch {
-				case text == calltree.OtherGroupValue:
-					text = "(other statements)"
+				case g.Value == calltree.OtherGroupValue:
+					key, text = "other", "(other statements)"
 				case g.Unresolved:
-					text = "(statement text unavailable: " + text + ")"
+					key, text = "unresolved:"+g.Value, "(statement text unavailable: "+g.Value+")"
+				default:
+					key, text = "sql:"+calltree.SQLSignature(g.Value), strings.Join(strings.Fields(g.Value), " ")
 				}
-				text = truncate(strings.Join(strings.Fields(text), " "), sqlTextLimit)
-				s := byText[text]
+				s := byKey[key]
 				if s == nil {
-					s = &SQLStat{Statement: text}
-					byText[text] = s
+					s = &group{stat: SQLStat{Statement: text}, slowestMs: g.DurationMs}
+					byKey[key] = s
+					order = append(order, key)
+				} else if g.DurationMs > s.slowestMs {
+					s.stat.Statement, s.slowestMs = text, g.DurationMs
 				}
-				s.DurationMs += g.DurationMs
-				s.Executions += g.Executions
+				s.stat.DurationMs += g.DurationMs
+				s.stat.Executions += g.Executions
 			}
 		}
 	})
-	out := make([]SQLStat, 0, len(byText))
-	for _, s := range byText {
-		out = append(out, *s)
+	out := make([]SQLStat, 0, len(byKey))
+	for _, key := range order {
+		s := byKey[key].stat
+		s.Statement = truncate(s.Statement, sqlTextLimit)
+		out = append(out, s)
 	}
-	sort.Slice(out, func(i, j int) bool {
+	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].DurationMs != out[j].DurationMs {
 			return out[i].DurationMs > out[j].DurationMs
 		}

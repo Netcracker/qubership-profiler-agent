@@ -39,6 +39,11 @@ func checkImplemented(c Condition) error {
 	if !slices.Contains(ops, c.Op) {
 		return errors.Errorf("%s on %s is not implemented", c.Op, c.Field)
 	}
+	// None and Any are special values with = and != only; with any other
+	// operator they are text, which stage A takes (02 §2.3.3).
+	if c.Op != OpEq && c.Op != OpNe {
+		return nil
+	}
 	for _, v := range c.Values {
 		if v == ValueNone || v == ValueAny {
 			return errors.Errorf("the value %s is not implemented", v)
