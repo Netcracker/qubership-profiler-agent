@@ -5,22 +5,42 @@ release:
   name: test
   namespace: test-ns
 tests:
-  - it: default renders PVC without annotations
+  - it: empty annotations map omits the annotations block
     set:
-      cloud.dumpsStorage.storageClassName: nfs-provisioning
+      cloud.dumpsStorage.storageClassName: nfs
     asserts:
+      - hasDocuments:
+          count: 1
       - isKind:
           of: PersistentVolumeClaim
       - notExists:
           path: metadata.annotations
 
-  - it: pvc.metadata.annotations is rendered on the PVC
+  - it: null pvc omits the annotations block
     set:
-      cloud.dumpsStorage.storageClassName: nfs-provisioning
+      cloud.dumpsStorage.storageClassName: nfs
+      pvc: null
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PersistentVolumeClaim
+      - notExists:
+          path: metadata.annotations
+
+  - it: annotations map is copied onto the claim
+    set:
+      cloud.dumpsStorage.storageClassName: nfs
       pvc.metadata.annotations:
         argocd.argoproj.io/sync-options: Prune=false
+        example.com/keep: "yes"
     asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PersistentVolumeClaim
       - equal:
           path: metadata.annotations
           value:
             argocd.argoproj.io/sync-options: Prune=false
+            example.com/keep: "yes"

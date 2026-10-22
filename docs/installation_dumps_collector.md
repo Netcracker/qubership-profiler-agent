@@ -10,8 +10,8 @@
 | Field                   | Description                                                          | Scheme                                    |
 |-------------------------|----------------------------------------------------------------------|-------------------------------------------|
 | cloud.dumpsStorage      | Dumps storage settings                                               | \*[Dumps Storage](#dumps-storage)         |
+| pvc                     | Annotations on the dumps PersistentVolumeClaim                       | \*[PVC](#pvc)                             |
 | dumpsCollector          | Dumps collector service settings                                     | \*[Dumps Collector](#dumps-collector)     |
-| pvc.metadata.annotations | Annotations for the dumps PVC, for example `argocd.argoproj.io/sync-options: Prune=false`. Values must be strings: quote them or use `--set-string`. With `--set`/`--set-string`, escape the dots in the key: `pvc.metadata.annotations.argocd\.argoproj\.io/sync-options=Prune=false`. Default: `{}` | object |
 
 ### Dumps Storage
 
@@ -26,6 +26,12 @@
 | daysDeleteAfter    | Days after which archived data is removed. Default: `14`                                                                                                         | integer |
 | maxHeapDumpsPerPod | Maximum number of heap dumps retained per pod. Default: `10`                                                                                                     | integer |
 | host               | HTTP storage proxy host. When set, diagnostic data is forwarded instead of stored on PV. Default: `http://esc-collector-service:8080`                            | string  |
+
+### PVC
+
+| Field                | Description                                                                                                                                                                                                                                                                                                                                                                                                                          | Scheme |
+|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
+| metadata.annotations | Annotations copied onto the dumps PersistentVolumeClaim. An empty map omits the annotations block. Each pair is copied unchanged. Set `argocd.argoproj.io/sync-options` to `Prune=false` so Argo CD keeps the claim when it prunes the Application. The claim is created only when `cloud.dumpsStorage.name` or a storage class is set (`storageClassName`, or `STORAGE_RWX_CLASS` when cloud integration is enabled). Default: `{}` | object |
 
 ### Dumps Collector
 
