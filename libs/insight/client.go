@@ -1,7 +1,8 @@
 // Package insight holds the task-level operations that agents run against
-// the profiler's read API: list services, find calls, and (in later tasks)
-// explain a call and compute statistics. The `profiler` CLI and the MCP
-// server are thin front ends over it, so both return the same results.
+// the profiler's read API: list services, find calls, explain a call, rank
+// hotspots, count calls over time, and compare two windows. The `profiler`
+// CLI and the MCP server are thin front ends over it, so both return the
+// same results.
 //
 // Every operation talks HTTP to the query service's /api/v1 (02-read-contract
 // §2). The package knows nothing about flags, MCP, or output formats.
