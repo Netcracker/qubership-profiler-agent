@@ -15,10 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/clock"
@@ -204,16 +202,13 @@ func parseAfterDuration(durRaw, pkRaw string) (*model.Position, string) {
 }
 
 // queryCalls walks the call partitions newest-first. Partitions are disjoint
-// ts ranges, so their per-partition sorted runs concatenate into the global
+// ts ranges, so their keyset-ordered runs concatenate into the global
 // (ts_ms DESC, pk ASC) order and the walk stops at limit. The SQL-pushable
-// filters and the page bound run inside the partition (№15) — a request no
-// longer loads a whole bucket; the pages descend by ts until the limit fills
-// or the bucket exhausts, so the Go-side filters (method, the after-PK seek)
-// can reject rows without losing deeper ones. The PK order is applied in Go
-// with the shared model comparator: the partitions key rows by the scalar
-// pod_restart string, whose byte order diverges from the component-wise
-// §2.3.1 collation (a pod name that prefixes another compares through the
-// '/' separator, and restart_time_ms would compare as text).
+// filters, the cursor seek, and the page bound run inside the partition
+// (№15); the pages descend by the full keyset until the limit fills or the
+// partition exhausts, so the Go-side filters (the method among them) can
+// reject rows without losing deeper ones, and no page holds more than limit
+// rows however many calls share a millisecond.
 func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
 	cfg := a.store.Config()
 	buckets, err := a.store.Buckets()
@@ -236,52 +231,20 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 		if start >= toMs || start+cfg.TimeBucket.Milliseconds() <= q.FromMs {
 			continue
 		}
-		var rows []model.CallRow
-		pageToMs := toMs
-		for len(out)+len(rows) < limit {
-			want := limit - len(out) - len(rows)
-			idxRows, err := a.store.CallsPage(bucket, q, q.FromMs, pageToMs, want)
-			if err != nil {
-				return nil, err
-			}
-			if len(idxRows) == 0 {
-				break
-			}
-			for _, idx := range idxRows {
-				row, err := a.toCallRow(idx)
-				if err != nil {
-					return nil, err
-				}
-				if !matcher.Match(&row) {
-					continue
-				}
-				if after != nil && !row.Position().After(*after) {
-					continue
-				}
-				rows = append(rows, row)
-			}
-			// Rows come newest-first with complete tie groups: fewer rows than
-			// asked means the window is exhausted; otherwise the next page
-			// starts strictly below the last ts.
-			pageToMs = idxRows[len(idxRows)-1].TsMs
-			if len(idxRows) < want || pageToMs <= q.FromMs {
-				break
-			}
+		rows, err := a.partitionPage(bucket, q, matcher, model.OrderStartDesc, after, limit-len(out))
+		if err != nil {
+			return nil, err
 		}
-		sort.Slice(rows, func(i, j int) bool { return rows[i].Position().Before(rows[j].Position()) })
 		out = append(out, rows...)
-	}
-	if len(out) > limit {
-		out = out[:limit]
 	}
 	return out, nil
 }
 
 // queryCallsByDuration is queryCalls for duration_desc (02 §2.3.5). A
 // duration order does not follow the partitions, so each partition in the
-// window contributes its own top `limit` rows past the cursor, paged down by
-// duration with the same complete-tie-group rule, and the runs merge with the
-// shared comparator.
+// window contributes its own first `limit` rows past the cursor, and each
+// run merges into the page as it arrives: the request holds at most two
+// runs of `limit` rows at a time, whatever the number of partitions.
 func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
 	cfg := a.store.Config()
 	buckets, err := a.store.Buckets()
@@ -292,48 +255,52 @@ func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, li
 	if err != nil {
 		return nil, err
 	}
-	maxDurationMs := int64(math.MaxInt32)
-	if after != nil {
-		maxDurationMs = int64(after.DurationMs)
-		if after.NoPK {
-			maxDurationMs--
-		}
-	}
-
-	var runs [][]model.CallRow
+	var out []model.CallRow
 	for _, bucket := range buckets {
 		start := cfg.BucketStartMs(bucket)
 		if start >= q.ToMs || start+cfg.TimeBucket.Milliseconds() <= q.FromMs {
 			continue
 		}
-		var rows []model.CallRow
-		pageMax := maxDurationMs
-		for pageMax >= 0 && len(rows) < limit {
-			want := limit - len(rows)
-			idxRows, err := a.store.CallsPageByDuration(bucket, q, q.FromMs, q.ToMs, pageMax, want)
+		rows, err := a.partitionPage(bucket, q, matcher, model.OrderDurationDesc, after, limit)
+		if err != nil {
+			return nil, err
+		}
+		out, _ = model.MergeRunsBy(model.OrderDurationDesc, [][]model.CallRow{out, rows}, limit)
+	}
+	return out, nil
+}
+
+// partitionPage returns up to limit rows of one partition that sit past the
+// after position in the order and meet the query's conditions, already in
+// the order. SQL returns the keyset-ordered rows past the seek; the Go-side
+// matcher drops some, so the read repeats from the last row SQL returned
+// until limit rows match or the partition runs out.
+func (a *API) partitionPage(bucket int64, q model.CallsQuery, matcher *model.Matcher, order model.Order,
+	after *model.Position, limit int) ([]model.CallRow, error) {
+	var rows []model.CallRow
+	seek := after
+	for len(rows) < limit {
+		want := limit - len(rows)
+		idxRows, err := a.store.CallsPageAfter(bucket, q, q.FromMs, q.ToMs, order, seek, want)
+		if err != nil {
+			return nil, err
+		}
+		for _, idx := range idxRows {
+			row, err := a.toCallRow(idx)
 			if err != nil {
 				return nil, err
 			}
-			for _, idx := range idxRows {
-				row, err := a.toCallRow(idx)
-				if err != nil {
-					return nil, err
-				}
-				if !matcher.Match(&row) || (after != nil && !q.Order.Past(row.Position(), *after)) {
-					continue
-				}
+			pos := row.Position()
+			seek = &pos
+			if matcher.Match(&row) {
 				rows = append(rows, row)
 			}
-			if len(idxRows) < want {
-				break
-			}
-			pageMax = int64(idxRows[len(idxRows)-1].DurationMs) - 1
 		}
-		q.Order.SortRows(rows)
-		runs = append(runs, rows)
+		if len(idxRows) < want {
+			break
+		}
 	}
-	out, _ := model.MergeRunsBy(q.Order, runs, limit)
-	return out, nil
+	return rows, nil
 }
 
 // toCallRow maps an index row to the merged row shape: the method comes from

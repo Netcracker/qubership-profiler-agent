@@ -1211,16 +1211,77 @@ func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64,
 	return m.topPage(bucket, "ts_ms", where, args, limit, fromMs)
 }
 
-// CallsPageByDuration is CallsPage for the duration_desc order (02 §2.3.5):
-// the top `limit` durations at or below maxDurationMs plus the complete tie
-// group at the boundary, longest first. The caller pages further down with
-// maxDurationMs = the last row's duration_ms - 1.
-func (m *metaDb) CallsPageByDuration(bucket int64, q model.CallsQuery, fromMs, toMs, maxDurationMs int64, limit int) ([]CallIndexRow, error) {
-	where, args := callsQueryWhere(q, fromMs, toMs)
-	where += " AND duration_ms <= ?"
-	args = append(args, maxDurationMs)
-	return m.topPage(bucket, "duration_ms", where, args, limit, int64(math.MinInt64))
+// podKeySQL and restartSQL split the scalar pod_restart key
+// ("<ns>/<service>/<pod>/<restartMs>") into two sort keys that reproduce the
+// component-wise PK order of 02 §2.3.1 under SQLite's binary collation.
+// Stripping the trailing digits (and a sign) leaves "<ns>/<service>/<pod>/";
+// with each '/' replaced by char(1), which sorts below every byte a
+// Kubernetes name can hold, a name that prefixes another sorts first, as the
+// component comparison has it. The restart time then compares as an integer.
+// Ordering by the raw pod_restart string would get both cases wrong.
+const (
+	podPrefixSQL = `rtrim(pod_restart, '-0123456789')`
+	podKeySQL    = `replace(` + podPrefixSQL + `, '/', char(1))`
+	restartSQL   = `CAST(substr(pod_restart, length(` + podPrefixSQL + `) + 1) AS INTEGER)`
+	pkOrderSQL   = podKeySQL + `, ` + restartSQL + `, trace_file_index, buffer_offset, record_index`
+)
+
+// podSortKey is podKeySQL for a decoded PK, for binding a cursor.
+func podSortKey(pk model.PK) string {
+	return pk.PodNamespace + "\x01" + pk.PodService + "\x01" + pk.PodName + "\x01"
 }
+
+// CallsPageAfter reads one partition's page for the hot /calls path (№15) in
+// the given order (02 §2.3.5): the filters push into SQL, the seek skips
+// every row up to and including after, and the rows come back in the full
+// (sort key DESC, pk ASC) keyset order, at most limit of them. A nil after
+// starts from the top; an after with no PK passes only lower sort keys. The
+// caller pages further with after = the last row's position, so a tie group
+// of any size is read limit rows at a time; fewer than limit rows back means
+// the partition holds no more past the seek.
+func (m *metaDb) CallsPageAfter(bucket int64, q model.CallsQuery, fromMs, toMs int64,
+	order model.Order, after *model.Position, limit int) ([]CallIndexRow, error) {
+	where, args := callsQueryWhere(q, fromMs, toMs)
+	column := "ts_ms"
+	if order.ByDuration() {
+		column = "duration_ms"
+	}
+	if after != nil {
+		key := after.TsMs
+		if order.ByDuration() {
+			key = int64(after.DurationMs)
+		}
+		if after.NoPK {
+			where += " AND " + column + " < ?"
+			args = append(args, key)
+		} else {
+			pk := after.PK
+			// The outer bound lets the column's index serve the range; the
+			// row value carries the PK tiebreak inside the cursor's key.
+			where += " AND " + column + " <= ? AND (" + column + " < ? OR (" + pkOrderSQL +
+				") > (?, ?, ?, ?, ?))"
+			args = append(args, key, key, podSortKey(pk), pk.RestartTimeMs,
+				pk.TraceFileIndex, pk.BufferOffset, pk.RecordIndex)
+		}
+	}
+	sql := `SELECT ` + callIndexColumns + `
+		FROM call_index WHERE ` + where + `
+		ORDER BY ` + column + ` DESC, ` + pkOrderSQL + `
+		LIMIT ?`
+	args = append(args, limit)
+	var rows []CallIndexRow
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		return db.Raw(sql, args...).Scan(&rows).Error
+	})
+	return rows, err
+}
+
+// callIndexColumns are the call_index columns a read page selects.
+const callIndexColumns = `pod_restart, trace_file_index, buffer_offset, record_index,
+		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
+		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
+		transactions, logs_generated, logs_written, file_read, file_written,
+		net_read, net_written, params_json, calls_wal_offset, method_text`
 
 // topPage selects the rows whose sort column is among the top `limit`
 // values, descending. The subquery finds the limit-th value; the outer SELECT
@@ -1228,11 +1289,7 @@ func (m *metaDb) CallsPageByDuration(bucket int64, q model.CallsQuery, fromMs, t
 // pages (splitting one would break the keyset order at the cut). floor is the
 // bound when fewer than `limit` rows match.
 func (m *metaDb) topPage(bucket int64, column, where string, args []any, limit int, floor int64) ([]CallIndexRow, error) {
-	sql := `SELECT pod_restart, trace_file_index, buffer_offset, record_index,
-		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
-		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
-		transactions, logs_generated, logs_written, file_read, file_written,
-		net_read, net_written, params_json, calls_wal_offset, method_text
+	sql := `SELECT ` + callIndexColumns + `
 		FROM call_index WHERE ` + where + `
 		AND ` + column + ` >= COALESCE((SELECT MIN(` + column + `) FROM (
 			SELECT ` + column + ` FROM call_index WHERE ` + where + ` ORDER BY ` + column + ` DESC LIMIT ?)), ?)

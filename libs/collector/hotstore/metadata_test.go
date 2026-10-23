@@ -2,12 +2,14 @@ package hotstore
 
 // №24: the partition handle cache is a bounded LRU with a capped connection
 // pool. №15: CallsPage pushes the /calls filters and the page bound into SQL
-// while keeping tie groups whole.
+// while keeping tie groups whole; CallsPageAfter pages by the full keyset, so
+// a tie group never inflates a page.
 
 import (
 	"fmt"
 	"math"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 
@@ -276,6 +278,67 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 		require.NoError(t, err, name)
 		assert.Empty(t, none, name)
 	}
+}
+
+// TestCallsPageAfterBoundsTies pins the keyset page: 2,000 rows that share
+// one duration and one ts come back at most `limit` rows per page, and
+// paging from each page's last row visits every row once, in the §2.3.1
+// component-wise PK order. The pod_restart strings collate differently from
+// the PKs ("a-b" < "a" and "1000" < "999" as text), so the SQL sort keys
+// must reproduce the comparator, not the string.
+func TestCallsPageAfterBoundsTies(t *testing.T) {
+	const n = 2000
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	bucket := store.cfg.Bucket(janitorCallTs)
+	base := store.cfg.BucketStartMs(bucket)
+
+	podRestarts := []string{"ns/svc/a/999", "ns/svc/a/1000", "ns/svc/a-b/1000", "ns/svc-x/a/5", "ns-x/svc/a/5"}
+	var want []model.PK
+	for i := 0; i < n; i++ {
+		pr := podRestarts[i%len(podRestarts)]
+		require.NoError(t, store.db.InsertCall(bucket, CallIndexRow{
+			PodRestart: pr, TraceFileIndex: 1, BufferOffset: i, TsMs: base + 100, DurationMs: 1,
+			RetentionClass: RetentionShortClean, CallsWalOffset: int64(i),
+		}))
+		want = append(want, pkOf(t, CallIndexRow{PodRestart: pr, TraceFileIndex: 1, BufferOffset: i}))
+	}
+	slices.SortFunc(want, model.PK.Compare)
+
+	window := model.CallsQuery{FromMs: base, ToMs: base + 1000}
+	for _, order := range []model.Order{model.OrderStartDesc, model.OrderDurationDesc} {
+		t.Run(order.String(), func(t *testing.T) {
+			var got []model.PK
+			var after *model.Position
+			for len(got) <= n {
+				page, err := store.CallsPageAfter(bucket, window, window.FromMs, window.ToMs, order, after, 1)
+				require.NoError(t, err)
+				if len(page) == 0 {
+					break
+				}
+				require.Len(t, page, 1, "limit=1 reads one row, however large the tie")
+				pk := pkOf(t, page[0])
+				got = append(got, pk)
+				after = &model.Position{TsMs: page[0].TsMs, DurationMs: int32(page[0].DurationMs), PK: pk}
+			}
+			assert.Equal(t, want, got, "every tied row once, in PK order")
+
+			page, err := store.CallsPageAfter(bucket, window, window.FromMs, window.ToMs, order,
+				&model.Position{TsMs: base + 100, DurationMs: 1, NoPK: true}, 10)
+			require.NoError(t, err)
+			assert.Empty(t, page, "a position with no PK passes only lower sort keys")
+		})
+	}
+}
+
+func pkOf(t *testing.T, row CallIndexRow) model.PK {
+	t.Helper()
+	key, err := ParsePodRestartKey(row.PodRestart)
+	require.NoError(t, err)
+	return model.PK{PodNamespace: key.Namespace, PodService: key.Service, PodName: key.PodName,
+		RestartTimeMs: key.RestartTimeMs, TraceFileIndex: int32(row.TraceFileIndex),
+		BufferOffset: int32(row.BufferOffset), RecordIndex: int32(row.RecordIndex)}
 }
 
 // TestCallsPageDurationAboveTheInt32Maximum checks the SQL bounds for a
