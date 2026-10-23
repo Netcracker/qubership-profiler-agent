@@ -20,7 +20,7 @@ import (
 )
 
 // fakeQuery is an in-memory query service over synthetic calls. It answers
-// /config, /stats for field groupings, /calls in duration_desc order without
+// /config, /stats for field groupings (params included), /calls in duration_desc order without
 // paging, and /tree, filtering with the real model.Matcher. The replay
 // server serves canned answers in order; operations that send requests at
 // once, or whose requests depend on earlier answers, need this one.
@@ -128,15 +128,17 @@ func (f *fakeQuery) isPartial(path string, q url.Values) bool {
 
 func (f *fakeQuery) stats(w http.ResponseWriter, q url.Values) {
 	field := q.Get("group_by")
-	require.Contains(f.t, []string{"method", "service", "pod", "namespace"}, field, "the fake groups by an identity field or method")
+	require.NotEqual(f.t, stats.GroupByTime, field, "the fake groups by a field")
+	grouping := stats.Grouping{Field: field}
 	rows := f.match(q)
 	groups := map[string][]model.CallRow{}
 	var totals stats.Totals
 	for _, r := range rows {
-		key := map[string]string{
-			"method": r.Method, "service": r.PK.PodService, "pod": r.PK.PodName, "namespace": r.PK.PodNamespace,
-		}[field]
-		groups[key] = append(groups[key], r)
+		// A call with several values of a param falls into the group of
+		// each, as on the server.
+		for _, key := range grouping.Keys(&r, nil) {
+			groups[key] = append(groups[key], r)
+		}
 		totals.Count++
 		if r.ErrorFlag {
 			totals.Errors++

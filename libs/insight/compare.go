@@ -390,15 +390,24 @@ func (l *lookup) resolve(ctx context.Context, name string, w ResolvedWindow, st 
 }
 
 // lookUp runs one /stats query restricted to keys by cond and classifies
-// the keys it does not return. An approximate response (a source kept fewer
-// groups than it saw, as Space-Saving does) is no evidence that an omitted
-// key is absent, so the omitted keys are looked up again in two halves until
-// a response is exact. A single key that still comes back approximate, or
-// any key a partial response omits, is unknown. The halving keeps the
-// queries under twice the number of keys.
+// the keys it does not return. Under a multi-valued param grouping the
+// restricted calls also fall into the rows of their other values (02 §2.9),
+// which can outrank a requested key, so the query asks for the largest
+// limit rather than one row per key. A response that still cuts groups into
+// other, or is approximate (a source kept fewer groups than it saw, as
+// Space-Saving does), is no evidence that an omitted key is absent, so the
+// omitted keys are looked up again in two halves until a response is exact.
+// A single key that still comes back cut or approximate, or any key a
+// partial response omits, is unknown. The halving keeps the queries under
+// twice the number of keys.
+//
+// A lookup of one key ranks that key first or tied for first: every call it
+// selects carries the key, so the key's row holds all of them. It can miss
+// the response only when more than stats.MaxLimit co-occurring values tie
+// with it and sort before it.
 func (l *lookup) lookUp(ctx context.Context, name string, w ResolvedWindow, cond string, keys []string,
 	absent string, found map[string]StatsValues, status map[string]string) error {
-	got, err := l.c.Stats(ctx, l.statsIn(w, cond, len(keys)))
+	got, err := l.c.Stats(ctx, l.statsIn(w, cond, stats.MaxLimit))
 	if err != nil {
 		return errors.Wrapf(err, "look up %d groups in the %s", len(keys), name)
 	}

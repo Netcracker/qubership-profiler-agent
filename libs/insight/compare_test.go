@@ -248,7 +248,8 @@ func TestCompareLooksUpOnlyTheMissingKeys(t *testing.T) {
 	assert.Equal(t, []string{"namespace=prod", "service=billing", `method=~^(?:a\.B\.run\(\))$`}, byFrom[fmtInt(baseStart)]["filter"],
 		"the baseline lacks B, the target's top group")
 	assert.Equal(t, []string{"namespace=prod", "service=billing", `method=~^(?:a\.A\.run\(\))$`}, byFrom[fmtInt(targetStart)]["filter"])
-	assert.Equal(t, "1", byFrom[fmtInt(baseStart)].Get("limit"))
+	assert.Equal(t, "1000", byFrom[fmtInt(baseStart)].Get("limit"),
+		"a lookup asks for every row its condition can produce, not one per key")
 
 	require.Len(t, res.Groups, 2)
 	b := res.Groups[0]
@@ -261,6 +262,47 @@ func TestCompareLooksUpOnlyTheMissingKeys(t *testing.T) {
 	assert.Contains(t, res.Notes, "no group got slower by 20% or more and none is new, so no call trees were sampled")
 	assert.Nil(t, res.Sample)
 	assert.Empty(t, f.requests("/api/v1/calls"))
+}
+
+// tenantCall is a call of a.Billing.charge at tsMs that carries the given
+// user.tenant values.
+func tenantCall(tsMs int64, record int32, tenants ...string) fakeCall {
+	c := call("billing", "a.Billing.charge", tsMs, 10, record)
+	c.row.Params = map[string][]string{"user.tenant": tenants}
+	return c
+}
+
+// TestCompareLookupSurvivesCoOccurringParamValues is the case of a lookup
+// under a multi-valued param grouping: the target lookup of z also returns
+// a, which the same call carries and which ties z and sorts before it. A
+// lookup cut to one row would lose z and leave it unknown, or, on a weaker
+// rule, call it vanished.
+func TestCompareLookupSurvivesCoOccurringParamValues(t *testing.T) {
+	c, f := newFake(t,
+		tenantCall(baseStart, 1, "z"),
+		tenantCall(targetStart, 2, "a", "z"),
+		tenantCall(targetStart+1000, 3, "a"),
+	)
+	res, err := c.Compare(background, CompareInput{
+		Target: targetHour, Filters: Filters{Service: "prod/billing"}, GroupBy: "user.tenant", Limit: 1,
+		Order: OrderDurationSumDesc,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"z": StatusCompared, "a": StatusNew}, statusOf(res))
+	for _, g := range res.Groups {
+		if g.Key == "z" {
+			assert.Equal(t, int64(1), g.Baseline.Count)
+			assert.Equal(t, int64(1), g.Target.Count)
+		}
+	}
+	var lookups int
+	for _, q := range f.requests("/api/v1/stats") {
+		if slices.Contains(q["filter"], "user.tenant in z") {
+			lookups++
+			assert.Equal(t, fmtInt(targetStart), q.Get("from"))
+		}
+	}
+	assert.Equal(t, 1, lookups, "one lookup of z in the target")
 }
 
 // slowTree is a call of Billing.charge whose time is in Repo.load and its
