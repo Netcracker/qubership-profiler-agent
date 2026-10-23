@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
@@ -17,18 +19,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// serve answers /api/v1/pods and /api/v1/calls from testdata, a call's
-// /tree with sampleTree, and records the last query.
+// served records the requests of a test server: the last one, and the
+// query of each by path. Hotspots fetches trees at once, so writes lock.
+type served struct {
+	mu     sync.Mutex
+	last   *http.Request
+	byPath map[string][]url.Values
+}
+
+// serve answers /api/v1/pods, /api/v1/calls, and /api/v1/stats (by grouping)
+// from testdata, a call's /tree with sampleTree, and records the last query.
 func serve(t *testing.T) (string, *http.Request) {
+	u, rec := serveRecorded(t)
+	return u, rec.last
+}
+
+func serveRecorded(t *testing.T) (string, *served) {
 	t.Helper()
-	last := &http.Request{}
+	rec := &served{last: &http.Request{}, byPath: map[string][]url.Values{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*last = *r.Clone(context.Background())
+		rec.mu.Lock()
+		*rec.last = *r.Clone(context.Background())
+		rec.byPath[r.URL.Path] = append(rec.byPath[r.URL.Path], r.URL.Query())
+		rec.mu.Unlock()
 		if strings.HasSuffix(r.URL.Path, "/tree") {
 			_, _ = w.Write(calltree.Encode(sampleTree()))
 			return
 		}
 		name := map[string]string{"/api/v1/pods": "pods.json", "/api/v1/calls": "calls.json"}[r.URL.Path]
+		if r.URL.Path == "/api/v1/stats" {
+			name = "stats_" + r.URL.Query().Get("group_by") + ".json"
+		}
 		if name == "" {
 			http.NotFound(w, r)
 			return
@@ -39,7 +60,7 @@ func serve(t *testing.T) (string, *http.Request) {
 		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
-	return srv.URL, last
+	return srv.URL, rec
 }
 
 // sampleTree is a call tree whose node references follow the comments.
@@ -168,4 +189,34 @@ func TestExplainCommandFocusesOnANode(t *testing.T) {
 	assert.Equal(t, 3, res.FocusNode)
 	assert.Equal(t, 3, res.HotPath.Node)
 	assert.Contains(t, out, `"focus_node": 3`)
+}
+
+func TestHotspotsCommandSendsTheGroupingAndLabelsTheSample(t *testing.T) {
+	u, rec := serveRecorded(t)
+	out, err := run(t, "hotspots", "--url", u, "--service", "prod/billing", "--since", "1h",
+		"--group-by", "method", "--limit", "5", "--order", "count_desc", "--sample", "2")
+	require.NoError(t, err)
+	q := rec.byPath["/api/v1/stats"][0]
+	assert.Equal(t, "method", q.Get("group_by"))
+	assert.Equal(t, "5", q.Get("limit"))
+	assert.Equal(t, "count_desc", q.Get("order"))
+	assert.Equal(t, []string{"namespace=prod", "service=billing"}, q["filter"])
+	calls := rec.byPath["/api/v1/calls"][0]
+	assert.Equal(t, "duration_desc", calls.Get("order"))
+	assert.Equal(t, "2", calls.Get("limit"))
+
+	assert.Contains(t, out, "Exact, over all 2 calls (1 errors): 1 method groups, ranked by count_desc.")
+	assert.Contains(t, out, "Sampled, not exact: methods and SQL from the trees of the 2 slowest of 2 calls under the filters; 1 trees merged.")
+	assert.Contains(t, out, "Skipped: 1 calls have no tree (buffer_full)")
+	assert.Contains(t, out, "a.Jdbc.execute")
+}
+
+func TestTimelineCommandSendsTheBuckets(t *testing.T) {
+	u, rec := serveRecorded(t)
+	out, err := run(t, "timeline", "--url", u, "--service", "prod/billing", "--since", "1h", "--buckets", "2")
+	require.NoError(t, err)
+	q := rec.byPath["/api/v1/stats"][0]
+	assert.Equal(t, "time", q.Get("group_by"))
+	assert.Equal(t, "2", q.Get("buckets"))
+	assert.Contains(t, out, "2 calls, 1 errors, in 2 buckets of 30m0s.")
 }
