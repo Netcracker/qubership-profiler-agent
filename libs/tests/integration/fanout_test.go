@@ -261,9 +261,11 @@ func TestHotColdFanout(t *testing.T) {
 	})
 
 	t.Run("stats count each call once across the tiers", func(t *testing.T) {
-		// A1 and E sit in both tiers: the replica counts them and returns
-		// their PK hashes, so the cold scan skips its copies. N1 and N2 are
-		// hot only, C1 and C2 cold only (02 §2.9).
+		// A1 and E sit in both tiers and their seal pass is uploaded, so the
+		// replica leaves them to the cold scan, which counts the sealed
+		// copies: E's error_flag is the one seal re-derived, while the hot
+		// index still holds false. N1 and N2 are hot only, C1 and C2 cold
+		// only (02 §2.9).
 		u := api.URL + "/api/v1/stats?" + url.Values{
 			"from": {fmt.Sprint(windowFrom)}, "to": {fmt.Sprint(windowTo)}, "group_by": {"pod"},
 		}.Encode()
@@ -277,13 +279,15 @@ func TestHotColdFanout(t *testing.T) {
 				Count int64  `json:"count"`
 			} `json:"rows"`
 			Totals struct {
-				Count int64 `json:"count"`
+				Count  int64 `json:"count"`
+				Errors int64 `json:"errors"`
 			} `json:"totals"`
 			Partial bool `json:"partial"`
 		}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 		assert.False(t, body.Partial)
 		assert.Equal(t, int64(6), body.Totals.Count)
+		assert.Equal(t, int64(1), body.Totals.Errors, "E counts from its sealed copy (01 §5.6)")
 		got := map[string]int64{}
 		for _, row := range body.Rows {
 			got[row.Key] = row.Count

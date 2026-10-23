@@ -225,3 +225,46 @@ func (pr *PodRestart) chunkChainFrom(traceFileIndex int, bufferOffset int64) ([]
 	}
 	return nil, 0, false
 }
+
+// UploadedCalls is a snapshot of which indexed calls have a sealed copy
+// confirmed in S3. /internal/v1/stats leaves those calls to the cold scan,
+// which reads the values seal corrected (02 §2.9, 01 §5.6).
+//
+// The call index knows upload state per seal pass, not per row: a pass
+// covers the calls.wal offsets from its start watermark (every file of the
+// pass carries it as wal_offset_lo) up to the next pass's start, and the
+// pass counts as uploaded once each of its files is. Every rule errs toward
+// "not uploaded", which only costs freshness: a call the replica keeps counts
+// from hot and its PK hash still suppresses the cold copy.
+type UploadedCalls struct {
+	// byBucket maps a partition bucket and a pod-restart to its state.
+	byBucket map[int64]map[string]passUploads
+}
+
+type passUploads struct {
+	// watermark is the first calls.wal offset not sealed yet.
+	watermark int64
+	// pending are the [lo, hi) offset spans of the passes with a file not
+	// confirmed in S3: pending upload, quarantined, or manifest pending.
+	pending [][2]int64
+}
+
+// Uploaded reports whether the call at callsWalOffset of podRestart, in
+// partition bucket, is sealed into files that are all confirmed in S3.
+func (u UploadedCalls) Uploaded(bucket int64, podRestart string, callsWalOffset int64) bool {
+	p, ok := u.byBucket[bucket][podRestart]
+	if !ok || callsWalOffset >= p.watermark {
+		return false
+	}
+	for _, span := range p.pending {
+		if callsWalOffset >= span[0] && callsWalOffset < span[1] {
+			return false
+		}
+	}
+	return true
+}
+
+// UploadedCalls snapshots the upload state of every partition.
+func (s *Store) UploadedCalls() (UploadedCalls, error) {
+	return s.db.UploadedCalls()
+}

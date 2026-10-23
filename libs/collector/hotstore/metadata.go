@@ -1296,6 +1296,64 @@ func (m *metaDb) Buckets() ([]int64, error) {
 	return buckets, err
 }
 
+// UploadedCalls reads seal_state and parquet_local in one transaction, so
+// the watermark and the files it is checked against are one consistent state
+// (see UploadedCalls in hotquery.go for the rules).
+func (m *metaDb) UploadedCalls() (UploadedCalls, error) {
+	var marks []struct {
+		PodRestart string
+		Bucket     int64
+		Watermark  int64
+	}
+	var passes []struct {
+		PodRestart   string
+		TimeBucketMs int64
+		WalOffsetLo  int64
+		Pending      bool
+	}
+	err := m.meta.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Raw(`SELECT pod_restart, bucket, MAX(watermark) AS watermark
+			FROM seal_state GROUP BY pod_restart, bucket`).Scan(&marks).Error; err != nil {
+			return errors.Wrap(err, "read seal watermarks")
+		}
+		return errors.Wrap(tx.Raw(`SELECT pod_restart, time_bucket_ms, wal_offset_lo,
+			MAX(uploaded_at IS NULL) AS pending
+			FROM parquet_local GROUP BY pod_restart, time_bucket_ms, wal_offset_lo
+			ORDER BY pod_restart, time_bucket_ms, wal_offset_lo`).Scan(&passes).Error,
+			"read sealed passes")
+	})
+	if err != nil {
+		return UploadedCalls{}, err
+	}
+	out := UploadedCalls{byBucket: map[int64]map[string]passUploads{}}
+	for _, w := range marks {
+		if out.byBucket[w.Bucket] == nil {
+			out.byBucket[w.Bucket] = map[string]passUploads{}
+		}
+		out.byBucket[w.Bucket][w.PodRestart] = passUploads{watermark: w.Watermark}
+	}
+	for i, p := range passes {
+		if !p.Pending {
+			continue
+		}
+		bucket := m.cfg.Bucket(p.TimeBucketMs)
+		state, ok := out.byBucket[bucket][p.PodRestart]
+		if !ok {
+			continue // no watermark: Uploaded already answers false
+		}
+		// A pass ends where the next one starts. The janitor deletes the rows
+		// of aged, uploaded files, which only widens a pending span: safe.
+		hi := int64(math.MaxInt64)
+		if next := i + 1; next < len(passes) && passes[next].PodRestart == p.PodRestart &&
+			passes[next].TimeBucketMs == p.TimeBucketMs {
+			hi = passes[next].WalOffsetLo
+		}
+		state.pending = append(state.pending, [2]int64{p.WalOffsetLo, hi})
+		out.byBucket[bucket][p.PodRestart] = state
+	}
+	return out, nil
+}
+
 // Calls reads a bucket's call_index rows ordered by the primary time axis.
 func (m *metaDb) Calls(bucket int64) ([]CallIndexRow, error) {
 	var rows []CallIndexRow

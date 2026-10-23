@@ -34,11 +34,13 @@ type hotStats struct {
 
 // handleStats serves GET /api/v1/stats (02 §2.9). It splits the window at
 // t_lo, the earliest hot window of the replicas that answered the health
-// probe: below it the cold tier holds every call and aggregates alone; from
-// it on each replica aggregates its own calls and returns their PK hashes,
-// and the cold scan counts only the calls no replica counted. Nothing is
-// deduplicated row by row, so the response holds no cursor and no row
-// merge.
+// probe: below it the cold tier holds every call and aggregates alone. From
+// it on each replica aggregates the calls it has not uploaded yet and returns
+// their PK hashes, and the cold scan counts every call no replica counted, so
+// an uploaded call counts once, from its sealed copy. The fan-out completes
+// before the cold LIST starts: a call a replica left out as uploaded is then
+// in S3 when the LIST runs. Nothing is deduplicated row by row, so the
+// response holds no cursor and no row merge.
 func (s *Service) handleStats(c echo.Context) error {
 	ctx := c.Request().Context()
 	req, detail := stats.ParseRequest(c.QueryParams())
@@ -62,6 +64,9 @@ func (s *Service) handleStats(c echo.Context) error {
 		return lease.Grow(ctx, n)
 	}
 
+	// The hot fan-out runs to completion before the cold discovery: a
+	// replica skips the calls it has uploaded, and S3 read-after-write
+	// consistency makes them visible to the LIST below (02 §2.9).
 	h := s.hotStats(ctx, req, lease)
 	partial := append([]string{}, h.partialReasons...)
 	succeeded, failed := h.succeeded, h.failed
