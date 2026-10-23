@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"maps"
 	"math"
 	"net/url"
 	"slices"
@@ -55,7 +56,11 @@ func ParseRequest(params url.Values) (Request, string) {
 	if params.Has("cursor") {
 		return Request{}, "cursor does not apply to /stats"
 	}
-	q, detail := model.ParseCallsQuery(params)
+	// order names a /stats ranking here, not a /calls order, so the
+	// condition parser must not see it.
+	callParams := maps.Clone(params)
+	delete(callParams, "order")
+	q, detail := model.ParseCallsQuery(callParams)
 	if detail != "" {
 		return Request{}, detail
 	}

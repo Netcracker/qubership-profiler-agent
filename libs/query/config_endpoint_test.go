@@ -67,7 +67,7 @@ func TestConfigEndpoint(t *testing.T) {
 		assert.Equal(t, []string{"="}, caps.Fields["request_id"])
 		assert.Equal(t, []string{"="}, caps.ParamOperators)
 		assert.NotNil(t, caps.SpecialValues, "an empty list, not null")
-		assert.Equal(t, []string{"start_desc"}, caps.Orders)
+		assert.Equal(t, []string{"start_desc", "duration_desc"}, caps.Orders)
 		assert.Equal(t, []string{"time", "method", "namespace", "service", "pod"}, caps.GroupBy)
 	})
 

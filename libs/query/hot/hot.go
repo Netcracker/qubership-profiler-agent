@@ -80,6 +80,7 @@ type (
 
 	callsBody struct {
 		Calls []model.CallJSON `json:"calls"`
+		Order string           `json:"order"`
 	}
 
 	podsBody struct {
@@ -126,6 +127,10 @@ func (d DNSDiscovery) Replicas(ctx context.Context) ([]string, error) {
 	return urls, nil
 }
 
+// ErrOrderUnsupported marks a replica that does not implement the requested
+// /calls order: an older collector during a rolling upgrade.
+var ErrOrderUnsupported = errors.New("the collector does not implement this order")
+
 // NewClient builds the fan-out HTTP client (PROFILER_FANOUT_TIMEOUT, §7.2)
 // drawing large response bodies from b (02 §7.5; nil disables charging).
 func NewClient(timeout time.Duration, b *budget.Budget) *Client {
@@ -141,8 +146,14 @@ func (c *Client) HotWindow(ctx context.Context, baseURL string) (Window, error) 
 
 // Calls fetches one replica's rows past the cursor position: the same
 // parameters as /api/v1/calls plus the keyset (02 §3, §2.3.1). The replica
-// returns them already in the shared (ts_ms DESC, pk ASC) order, so the
-// result plugs into the k-way merge as one run.
+// returns them already in the query's order, so the result plugs into the
+// k-way merge as one run.
+//
+// A collector that predates duration_desc ignores `order` and returns rows
+// in start order, which no merge can use: its page holds the newest rows, not
+// the longest. The response echoes the order, so such a replica fails with
+// ErrOrderUnsupported and the caller reports it as a partial source
+// (02 §2.3.5, §7.4).
 //
 // The response body is read through the budget and the returned lease owns
 // the decoded rows' footprint (02 §7.5); the caller moves it into the
@@ -150,7 +161,14 @@ func (c *Client) HotWindow(ctx context.Context, baseURL string) (Window, error) 
 // released.
 func (c *Client) Calls(ctx context.Context, baseURL string, q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, *budget.Lease, error) {
 	v := q.Values()
-	if after != nil {
+	switch {
+	case after == nil:
+	case q.Order.ByDuration():
+		v.Set("after_duration_ms", strconv.FormatInt(int64(after.DurationMs), 10))
+		if !after.NoPK {
+			v.Set("after_pk", after.PK.PathString())
+		}
+	default:
 		v.Set("after_ts_ms", strconv.FormatInt(after.TsMs, 10))
 		v.Set("after_pk", after.PK.PathString())
 	}
@@ -174,6 +192,10 @@ func (c *Client) Calls(ctx context.Context, baseURL string, q model.CallsQuery, 
 	if err := json.Unmarshal(raw, &body); err != nil {
 		lease.Release()
 		return nil, nil, errors.Wrapf(err, "decode %s", u)
+	}
+	if q.Order.ByDuration() && body.Order != q.Order.String() {
+		lease.Release()
+		return nil, nil, errors.Wrapf(ErrOrderUnsupported, "order=%s", q.Order)
 	}
 	rows := make([]model.CallRow, 0, len(body.Calls))
 	for _, call := range body.Calls {
