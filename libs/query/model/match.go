@@ -86,15 +86,23 @@ func fieldOf(name string) fieldDef {
 }
 
 // A method text that names no class leaves the call without one, so it falls
-// into no /stats row and matches only negative conditions.
+// into no /stats row and matches only negative conditions. An absent derived
+// field has no values, not an empty one, so a regex that matches the empty
+// string does not select the call (02 §2.3.3).
 func deriveClass(r *CallRow) ([]string, bool) {
 	class := CallClass(r.Method)
-	return []string{class}, class != ""
+	if class == "" {
+		return nil, false
+	}
+	return []string{class}, true
 }
 
 func deriveEndpoint(r *CallRow) ([]string, bool) {
 	endpoint, ok := CallEndpoint(r.Params)
-	return []string{endpoint}, ok
+	if !ok {
+		return nil, false
+	}
+	return []string{endpoint}, true
 }
 
 // FieldValues returns the values of a text field on a row, and false when
@@ -219,7 +227,8 @@ func compileError(c Condition) (rowPredicate, error) {
 // compileText builds the predicate of a field with text values. values returns
 // the field's values on a row and whether the row has the field at all. A
 // negative operator is the negation of its positive form, so it matches a row
-// without the field (02 §2.3.3).
+// without the field (02 §2.3.3). A positive operator other than `= None`
+// never matches a row without the field, whatever values the reader returns.
 func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPredicate, error) {
 	var positive rowPredicate
 	switch c.Op {
@@ -231,7 +240,7 @@ func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPred
 		case ValueAny:
 			positive = func(r *CallRow) bool { _, has := values(r); return has }
 		default:
-			positive = func(r *CallRow) bool { vs, _ := values(r); return slices.Contains(vs, want) }
+			positive = func(r *CallRow) bool { vs, has := values(r); return has && slices.Contains(vs, want) }
 		}
 	case OpIn, OpNotIn:
 		set := make(map[string]struct{}, len(c.Values))
@@ -239,7 +248,10 @@ func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPred
 			set[v] = struct{}{}
 		}
 		positive = func(r *CallRow) bool {
-			vs, _ := values(r)
+			vs, has := values(r)
+			if !has {
+				return false
+			}
 			for _, v := range vs {
 				if _, ok := set[v]; ok {
 					return true
@@ -253,8 +265,8 @@ func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPred
 			return nil, errors.Errorf("%q is not a valid regular expression: %s", c.Values[0], c)
 		}
 		positive = func(r *CallRow) bool {
-			vs, _ := values(r)
-			return slices.ContainsFunc(vs, re.MatchString)
+			vs, has := values(r)
+			return has && slices.ContainsFunc(vs, re.MatchString)
 		}
 	}
 	if c.Op.IsNegative() {

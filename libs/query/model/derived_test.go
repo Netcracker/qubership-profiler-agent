@@ -79,6 +79,22 @@ func TestMatcherDerivedFields(t *testing.T) {
 		{noURL, "endpoint!=Any", true},
 		{noURL, "endpoint!=GET /", true},
 		{noURL, "endpoint=~.", false},
+		// An absent derived field has no values, not an empty one: a regex
+		// that matches the empty string does not select the call, and its
+		// negation does (02 §2.3.3).
+		{noClass, "class=~.*", false},
+		{noClass, "class=~^$", false},
+		{noClass, "class!~.*", true},
+		{noClass, "class!~^$", true},
+		{noClass, "class in com.example.Billing", false},
+		{noClass, "class not in com.example.Billing", true},
+		{noURL, "endpoint=~.*", false},
+		{noURL, "endpoint=~^$", false},
+		{noURL, "endpoint!~.*", true},
+		{noURL, "endpoint!~^$", true},
+		{noURL, "endpoint=Any", false},
+		{noURL, "endpoint!=None", false},
+		{noURL, "endpoint not in GET /", true},
 	} {
 		assert.Equal(t, tc.want, matches(t, tc.r, tc.text), tc.text)
 	}
@@ -100,7 +116,12 @@ func TestFieldValues(t *testing.T) {
 		assert.Equal(t, want, got, field)
 	}
 	for _, field := range []string{"duration", "endpoint", "missing", "empty"} {
-		_, ok := FieldValues(field, &r)
+		got, ok := FieldValues(field, &r)
 		assert.False(t, ok, field)
+		assert.Empty(t, got, field)
 	}
+	r.Method = "#42"
+	got, ok := FieldValues("class", &r)
+	assert.False(t, ok, "a method that names no class")
+	assert.Empty(t, got, "an absent class has no values, not an empty one")
 }
