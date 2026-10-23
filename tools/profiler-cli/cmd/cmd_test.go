@@ -253,6 +253,20 @@ func TestCallsCommandSendsFlagsAsConditions(t *testing.T) {
 	assert.Empty(t, q.Get("from"))
 }
 
+func TestCallsCommandSendsTheOrder(t *testing.T) {
+	url, last := serve(t)
+	_, err := run(t, "calls", "--url", url, "--since", "1h", "--order", "duration_desc")
+	require.NoError(t, err)
+	assert.Equal(t, "duration_desc", last.URL.Query().Get("order"))
+
+	_, err = run(t, "calls", "--url", url, "--since", "1h")
+	require.NoError(t, err)
+	assert.False(t, last.URL.Query().Has("order"), "the default sends no order")
+
+	_, err = run(t, "calls", "--url", url, "--order", "slowest")
+	assert.ErrorContains(t, err, "order must be start_desc or duration_desc")
+}
+
 func TestJSONFlagPrintsTheTypedResult(t *testing.T) {
 	url, _ := serve(t)
 	out, err := run(t, "services", "--url", url, "--json")

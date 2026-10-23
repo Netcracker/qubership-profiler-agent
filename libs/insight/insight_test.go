@@ -196,6 +196,26 @@ func TestCallsRestartsFromPageOneOnARejectedCursor(t *testing.T) {
 	assert.Equal(t, []string{"namespace=prod", "service=billing"}, r.reqs[1].URL.Query()["filter"])
 }
 
+func TestCallsSendsTheOrder(t *testing.T) {
+	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"), ok("calls.json"))
+	_, err := c.Calls(context.Background(), CallsInput{Order: OrderSlowest})
+	require.NoError(t, err)
+	assert.Equal(t, "duration_desc", r.reqs[0].URL.Query().Get("order"))
+
+	_, err = c.Calls(context.Background(), CallsInput{})
+	require.NoError(t, err)
+	assert.False(t, r.reqs[1].URL.Query().Has("order"), "the default order sends nothing")
+
+	cursor := encodeCallsCursor("cursor-page-2", nil)
+	_, err = c.Calls(context.Background(), CallsInput{Cursor: cursor, Order: OrderSlowest})
+	require.NoError(t, err)
+	assert.Equal(t, "duration_desc", r.reqs[2].URL.Query().Get("order"),
+		"a cursor page re-sends the order, so the server checks it against page 1")
+
+	_, err = c.Calls(context.Background(), CallsInput{Order: "cpu_desc"})
+	assert.ErrorContains(t, err, `not "cpu_desc"`)
+}
+
 func TestCallsRestartsFromPageOneOnACursorThatDoesNotDecode(t *testing.T) {
 	for _, junk := range []string{
 		"cursor-page-2", // a server cursor: Calls did not hand it out

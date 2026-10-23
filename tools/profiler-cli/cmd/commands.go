@@ -39,12 +39,13 @@ func newCallsCmd(root *rootFlags) *cobra.Command {
 	var window windowFlags
 	var filters filterFlags
 	var limit int
-	var cursor string
+	var cursor, order string
 	cmd := &cobra.Command{
 		Use:   "calls",
-		Short: "Find calls by service, duration, error, or a request or trace ID, newest first",
+		Short: "Find calls by service, duration, error, or a request or trace ID, newest or slowest first",
 		Example: "  profiler calls --since 30m --filter 'request_id=abc123'\n" +
 			"  profiler calls --service prod/billing --filter 'duration>2s' --since 6h\n" +
+			"  profiler calls --service prod/billing --order duration_desc --since 24h\n" +
 			"  profiler calls --cursor <next cursor from the previous page>",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -57,7 +58,7 @@ func newCallsCmd(root *rootFlags) *cobra.Command {
 				return err
 			}
 			res, err := client.Calls(cmd.Context(), insight.CallsInput{
-				Window: w, Filters: filters.filters(), Limit: limit, Cursor: cursor,
+				Window: w, Filters: filters.filters(), Limit: limit, Cursor: cursor, Order: order,
 			})
 			if err != nil {
 				return err
@@ -68,6 +69,7 @@ func newCallsCmd(root *rootFlags) *cobra.Command {
 	window.add(cmd)
 	filters.add(cmd)
 	cmd.Flags().IntVar(&limit, "limit", insight.DefaultCallsLimit, "calls per page")
+	cmd.Flags().StringVar(&order, "order", "", "start_desc lists the newest calls first (the default), duration_desc the slowest")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "continue from the cursor a previous page printed; the page keeps that page's filters, so repeat them or leave them out")
 	return cmd
 }

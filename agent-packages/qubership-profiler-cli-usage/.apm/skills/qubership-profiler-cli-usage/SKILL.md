@@ -60,6 +60,8 @@ A field or operator the server does not implement yet fails with an error that n
    profiler calls --service prod/billing --from 2026-10-14T11:58:00Z --to 2026-10-14T12:02:00Z --filter 'duration>1s'
    ```
 
+   Add `--order duration_desc` to list the slowest calls first instead of the newest.
+
    `request_id` reads the `x-request-id` header only. When it finds nothing (`No calls match.`), the service may
    record its request ID under a call parameter of its own. The CLI does not print other parameters, so read them
    from the query service for a few recent calls of the service:
