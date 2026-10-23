@@ -85,9 +85,13 @@ func (s *Service) handleStats(c echo.Context) error {
 	partial = append(partial, discovery.PartialReasons...)
 	partial = append(partial, lineageReasons...)
 
+	// Every hot aggregate merged below keeps its hash suppression, whichever
+	// replicas failed. Only with no hot aggregate does the scan read the
+	// window without a hash check (02 §2.9).
+	suppress := len(h.results) > 0
 	coldAgg := stats.NewAggregator(req.Grouping(), req.Order, s.cfg.StatsMaxGroups, charge)
 	scanReasons, err := s.cold.EachRow(ctx, files, q, func(row *model.CallRow) error {
-		if row.TsMs >= h.tLoMs && len(h.hashes) > 0 && h.hashes.Contains(stats.PKHash(row.PK)) {
+		if suppress && row.TsMs >= h.tLoMs && h.hashes.Contains(stats.PKHash(row.PK)) {
 			return nil // a replica counted this call (02 §2.9)
 		}
 		return coldAgg.Add(row)

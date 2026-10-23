@@ -331,6 +331,22 @@ func TestStatsDegradedHotTier(t *testing.T) {
 		require.Len(t, resp.PartialReasons, 1)
 		assert.Contains(t, resp.PartialReasons[0], "stats")
 	})
+	t.Run("a failed replica keeps the hash suppression of one that answered", func(t *testing.T) {
+		// A answers, with one overlap call left to cold as uploaded and one
+		// counted hot; B fails. A's hashes must still suppress the cold copy
+		// of the call A counted, or it counts twice.
+		f := tieredFixture(t)
+		f.replicas[1].failStats = true
+		resp := getStats(t, f.serve(t), "group_by", "service")
+		assert.Equal(t, int64(9), resp.Totals.Count, "B's hot-only call is lost; nothing counts twice")
+		assert.Equal(t, int64(3), resp.Totals.Errors)
+		byKey := rowsByKey(resp)
+		assert.Equal(t, int64(6), byKey["billing"].Count)
+		assert.Equal(t, int64(10+20+30+100+200+400), byKey["billing"].DurationMsSum)
+		assert.True(t, resp.Partial)
+		require.Len(t, resp.PartialReasons, 1)
+		assert.Contains(t, resp.PartialReasons[0], "stats")
+	})
 	t.Run("the hash sets outgrow the budget", func(t *testing.T) {
 		f := tieredFixture(t)
 		f.cfg = Config{ReadMemoryBudget: 1 << 20, ReadBudgetWait: 20 * time.Millisecond}
