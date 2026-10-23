@@ -11,8 +11,8 @@ import (
 
 // Hotspots defaults and caps.
 const (
-	// DefaultGroupBy groups by the root method, the only call-level field
-	// that names code.
+	// DefaultGroupBy groups by the root method, the entry point a
+	// developer looks for first; class and endpoint group coarser.
 	DefaultGroupBy      = "method"
 	DefaultHotspotLimit = 10
 	MaxHotspotLimit     = 50
@@ -177,6 +177,9 @@ func (c *Client) sampleScope(ctx context.Context, st StatsResult, field string, 
 			of += row.Count
 		}
 	}
+	// A call with several values of a param counts in the row of each, so
+	// the sum can pass the number of calls the condition selects.
+	of = min(of, st.Totals.Count)
 	return append(slices.Clone(conditions), cond), covered, of, nil
 }
 

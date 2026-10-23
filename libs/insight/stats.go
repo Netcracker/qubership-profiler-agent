@@ -11,8 +11,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-// The groupings and orders of /stats (02 §2.9). A field grouping takes any
-// field the build lists in filter_capabilities.group_by.
+// The groupings and orders of /stats (02 §2.9). A grouping is a name the
+// build lists in filter_capabilities.group_by, or, when the build reports
+// group_by_params, the name of a call param.
 const (
 	GroupByTime          = stats.GroupByTime
 	OrderCountDesc       = stats.OrderCountDesc
@@ -23,7 +24,10 @@ const (
 type StatsInput struct {
 	Window  Window
 	Filters Filters
-	// GroupBy is GroupByTime or a field such as method or service.
+	// GroupBy is GroupByTime, a field such as method, service, or
+	// endpoint, model.GroupByParamName, or a call param name. A call with
+	// several values of a param counts in the row of each, so the rows of
+	// a param grouping can add up to more than the totals.
 	GroupBy string
 	// Buckets is the bucket count of a time grouping; zero means the
 	// server's default of 60.

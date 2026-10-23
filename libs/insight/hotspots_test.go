@@ -201,6 +201,17 @@ func TestGroupConditionPicksTheOperatorTheBuildHas(t *testing.T) {
 	assert.Equal(t, "user.tenant in acme,zeta", cond)
 	assert.Equal(t, []string{"acme", "zeta"}, covered)
 
+	cond, _ = groupCondition(model.Capabilities(), "endpoint", []string{"GET /orders/{id}", "POST /orders"})
+	assert.Equal(t, "endpoint in GET /orders/{id},POST /orders", cond)
+
+	cond, covered = groupCondition(model.Capabilities(), "trace_id", []string{"ab", "cd"})
+	assert.Equal(t, "trace_id=~^(?:ab|cd)$", cond, "trace_id has =~ and no in")
+	assert.Equal(t, []string{"ab", "cd"}, covered)
+
+	cond, covered = groupCondition(model.Capabilities(), model.GroupByParamName, []string{"user.tenant", "web.url"})
+	assert.Empty(t, cond, "param_name keys are param names, which no one condition selects")
+	assert.Nil(t, covered)
+
 	cond, covered = groupCondition(model.FilterCapabilities{}, "service", []string{"billing"})
 	assert.Empty(t, cond, "a build without filter capabilities has no set condition")
 	assert.Nil(t, covered)

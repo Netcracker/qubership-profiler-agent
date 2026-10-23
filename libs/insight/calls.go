@@ -3,6 +3,7 @@ package insight
 import (
 	"context"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,8 @@ const (
 	MaxCallsLimit     = 1000
 )
 
-// Call orders (02-read-contract §2.3.5).
+// Call orders (02-read-contract §2.3.5). An order is
+// `<field>_<asc|desc>`; these two are the ones the operations use.
 const (
 	// OrderNewest lists the newest calls first; it is the default.
 	OrderNewest = "start_desc"
@@ -26,11 +28,28 @@ const (
 	OrderSlowest = "duration_desc"
 )
 
+// CallOrderFields are the sort fields of 02 §2.3.5.
+var CallOrderFields = []string{
+	model.OrderFieldStart, model.OrderFieldDuration, model.OrderFieldCPU,
+	model.OrderFieldQueue, model.OrderFieldCalls, model.OrderFieldNet,
+}
+
+// CallOrders lists every order the contract defines, each field descending
+// then ascending. A build may implement a subset; the query service names
+// an order it does not implement.
+var CallOrders = func() []string {
+	out := make([]string, 0, 2*len(CallOrderFields))
+	for _, f := range CallOrderFields {
+		out = append(out, f+"_desc", f+"_asc")
+	}
+	return out
+}()
+
 // CallsInput selects calls, newest first unless Order says otherwise.
 type CallsInput struct {
 	Window  Window
 	Filters Filters
-	// Order is OrderNewest or OrderSlowest; empty means OrderNewest. On a
+	// Order is one of CallOrders; empty means OrderNewest. On a
 	// cursor page it must be the order of page 1, or be left empty: another
 	// order restarts the listing at page 1 in that order.
 	Order string
@@ -91,8 +110,8 @@ type callsResponse struct {
 }
 
 // Calls lists the calls that match the filters in the window, newest first
-// or slowest first. A request or trace ID condition finds one request's
-// calls; a service with OrderSlowest finds its slowest calls.
+// unless Order says otherwise. A request or trace ID condition finds one
+// request's calls; a service with OrderSlowest finds its slowest calls.
 func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) {
 	window, err := in.Window.Resolve()
 	if err != nil {
@@ -109,8 +128,11 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 	if limit < 0 || limit > MaxCallsLimit {
 		return CallsResult{}, errors.Errorf("limit must be between 1 and %d", MaxCallsLimit)
 	}
-	if in.Order != "" && in.Order != OrderNewest && in.Order != OrderSlowest {
-		return CallsResult{}, errors.Errorf("order must be %s or %s, not %q", OrderNewest, OrderSlowest, in.Order)
+	// Only the form is checked here: which orders work is the server's to
+	// say, and it names an order it does not implement.
+	if in.Order != "" && !slices.Contains(CallOrders, in.Order) {
+		return CallsResult{}, errors.Errorf("order must be <field>_asc or <field>_desc with a field of %s, not %q",
+			strings.Join(CallOrderFields, ", "), in.Order)
 	}
 	// The conditions a cursor page runs under are the cursor's own: authorize
 	// those, not the ones passed beside it (see callsCursor).

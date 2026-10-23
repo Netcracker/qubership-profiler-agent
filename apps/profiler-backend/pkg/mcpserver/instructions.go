@@ -12,7 +12,7 @@ Why was a request slow:
 4. Go deeper only where the time is: pass node with a #node of the hot path to re-root there. A lower threshold or a larger max_nodes shows more. The notes say what was cut and which input shows it.
 
 What is slow in a service:
-1. profiler_hotspots with service groups the calls by root method and ranks them by total time. A large total with a small mean is called often; a large mean or p95 is slow per call. group_by pod shows whether one pod is worse; order count_desc ranks by call count.
+1. profiler_hotspots with service groups the calls by root method and ranks them by total time. A large total with a small mean is called often; a large mean or p95 is slow per call. group_by pod shows whether one pod is worse, group_by endpoint or class gives coarser groups, and group_by a parameter name such as user.tenant splits by its values; order count_desc ranks by call count. A call with several values of a parameter counts in each value's group, so those groups can add up to more than the totals.
 2. Its sampled part lists the inner methods with the most self time and the slowest SQL across the slowest calls.
 3. Explain one of the sampled calls it lists to see the path to the hot method. To study one group, profiler_find_calls with {"field": "method", "op": "=~", "value": "<part of its name>"} and order duration_desc lists its slowest calls.
 
@@ -34,7 +34,9 @@ Reading the results:
 
 Rules for queries:
 - Pass a service or namespace whenever you know it.
-- Keep the window at 6 hours or less unless a condition narrows the data: duration of 1s or more, error = true, or a service or pod. A request or trace ID does not narrow the scan, so bracket the time when you know it.
+- Keep the window at 6 hours or less unless a condition narrows the data: duration of 1s or more, error = true, or a namespace, service, or pod with = or in. A request or trace ID, a parameter, class, endpoint, method, a negation (!=, not in, !~), or a regular expression does not narrow the scan, so bracket the time when you know it.
+- Of the profiler_find_calls orders, duration_desc narrows a wide window by itself; every other order needs one of the narrowing conditions above.
+- The value None or Any with = matches a call without or with a field it can lack, such as a parameter or trace_id: {"field": "trace_id", "op": "=", "value": "None"} finds the calls without a trace ID.
 - Hotspots, timeline, and compare count every call of their windows, so a service or a short window matters more for them.
 - Keep both windows of a compare within the last two days, or add a duration >= 100ms condition: fast successful calls age out, so an older baseline holds only the slower calls.
 - "the query is too wide to scan" lists the conditions that would make it fit. Add one or shorten the window; the same query fails again.

@@ -197,7 +197,7 @@ func TestCallsRestartsFromPageOneOnARejectedCursor(t *testing.T) {
 }
 
 func TestCallsSendsTheOrder(t *testing.T) {
-	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"), ok("calls.json"))
+	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"), ok("calls.json"), ok("calls.json"))
 	_, err := c.Calls(context.Background(), CallsInput{Order: OrderSlowest})
 	require.NoError(t, err)
 	assert.Equal(t, "duration_desc", r.reqs[0].URL.Query().Get("order"))
@@ -212,8 +212,13 @@ func TestCallsSendsTheOrder(t *testing.T) {
 	assert.Equal(t, "duration_desc", r.reqs[2].URL.Query().Get("order"),
 		"a cursor page re-sends the order, so the server checks it against page 1")
 
-	_, err = c.Calls(context.Background(), CallsInput{Order: "cpu_desc"})
-	assert.ErrorContains(t, err, `not "cpu_desc"`)
+	_, err = c.Calls(context.Background(), CallsInput{Order: "cpu_asc"})
+	require.NoError(t, err, "the server decides which orders work")
+	assert.Equal(t, "cpu_asc", r.reqs[3].URL.Query().Get("order"))
+
+	_, err = c.Calls(context.Background(), CallsInput{Order: "slowest"})
+	assert.ErrorContains(t, err, `not "slowest"`)
+	assert.Len(t, r.reqs, 4, "a malformed order sends no request")
 }
 
 func TestCallsRestartsFromPageOneOnACursorThatDoesNotDecode(t *testing.T) {

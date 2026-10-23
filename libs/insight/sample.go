@@ -275,9 +275,11 @@ func (c *Client) fetchTrees(ctx context.Context, refs []CallRef) ([]*calltree.Tr
 // matches the whole value against an alternation of the quoted keys, which
 // selects exactly those groups in one scan. With `=` only it covers the first
 // key. It returns an empty condition when the build has none of these
-// operators on the field.
+// operators on the field, and for param_name, whose keys are param names
+// rather than values: no one condition selects the calls that carry any of
+// several params.
 func groupCondition(caps model.FilterCapabilities, field string, keys []string) (string, []string) {
-	if len(keys) == 0 {
+	if len(keys) == 0 || field == model.GroupByParamName {
 		return "", nil
 	}
 	ops := caps.Fields[field]
