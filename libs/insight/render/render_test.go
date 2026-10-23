@@ -203,7 +203,7 @@ func sampleHotspots() insight.HotspotsResult {
 		Sample: &insight.HotspotsSample{
 			SampleInfo: insight.SampleInfo{
 				Conditions: []string{"namespace=prod", "service=billing", `method=~^(?:x|y)$`},
-				Requested:  20, Listed: 20, Trees: 19, Of: 1220, Calls: calls[:1],
+				Requested:  20, Listed: 20, Trees: 19, Of: i64(1220), Calls: calls[:1],
 				Skipped: []string{"1 calls have no tree (buffer_full)"},
 			},
 			Groups: []string{"void com.example.Billing.charge(long) (Billing.java) [billing.jar]", "com.example.Health.check"},
@@ -284,8 +284,8 @@ func sampleCompare() insight.CompareResult {
 		Partial: []string{"target lookup: collector 10.0.0.7 stats: timeout"},
 		Sample: &insight.CompareSample{
 			Groups:   []string{"void com.example.Billing.charge(long) (Billing.java) [billing.jar]", "com.example.Export.run"},
-			Baseline: &insight.SampleInfo{Requested: 10, Listed: 10, Trees: 10, Of: 100},
-			Target:   insight.SampleInfo{Requested: 10, Listed: 10, Trees: 9, Of: 113, Calls: calls[:1], Skipped: []string{"1 calls have no tree (buffer_full)"}},
+			Baseline: &insight.SampleInfo{Requested: 10, Listed: 10, Trees: 10, Of: i64(100)},
+			Target:   insight.SampleInfo{Requested: 10, Listed: 10, Trees: 9, Of: i64(113), Calls: calls[:1], Skipped: []string{"1 calls have no tree (buffer_full)"}},
 			Methods: []insight.MethodChange{
 				{Method: "a.Jdbc.execute", BaselineSelfMsPerCall: 210, TargetSelfMsPerCall: 1650.5, DeltaMsPerCall: 1440.5, BaselineCalls: 10, TargetCalls: 9},
 				{Method: "com.example.Http.call()", BaselineSelfMsPerCall: 40, TargetSelfMsPerCall: 12, DeltaMsPerCall: -28, BaselineCalls: 4, TargetCalls: 2},

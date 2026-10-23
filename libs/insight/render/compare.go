@@ -80,12 +80,12 @@ func Compare(w io.Writer, res insight.CompareResult) error {
 		out.printf("\nSampled, not exact: inner methods and SQL from the trees of the slowest calls of %d changed groups, per sampled call.\n",
 			len(s.Groups))
 		if s.Baseline != nil {
-			out.printf("  baseline: the %d slowest of %d calls, %d trees merged\n", s.Baseline.Listed, s.Baseline.Of, s.Baseline.Trees)
+			out.printf("  baseline: the %d slowest of %s calls, %d trees merged\n", s.Baseline.Listed, callsOf(s.Baseline.Of), s.Baseline.Trees)
 			writeSampleInfo(out, *s.Baseline)
 		} else {
 			out.println("  baseline: none of these groups has calls there")
 		}
-		out.printf("  target: the %d slowest of %d calls, %d trees merged\n", s.Target.Listed, s.Target.Of, s.Target.Trees)
+		out.printf("  target: the %d slowest of %s calls, %d trees merged\n", s.Target.Listed, callsOf(s.Target.Of), s.Target.Trees)
 		writeSampleInfo(out, s.Target)
 		if len(s.Methods) > 0 {
 			out.println("\nInner methods, self ms per sampled call (baseline -> target, change):")

@@ -42,8 +42,9 @@ type SampleInfo struct {
 	Listed int `json:"listed"`
 	// Trees is how many call trees were merged.
 	Trees int `json:"trees"`
-	// Of is how many calls the sample was drawn from, from the exact layer.
-	Of int64 `json:"of"`
+	// Of is how many calls the sample was drawn from, each counted once; nil
+	// when the count failed.
+	Of *int64 `json:"of"`
 	// Calls are the slowest sampled calls, for the explain operation.
 	Calls []Call `json:"calls,omitempty"`
 	// Skipped says why listed calls were left out of the merge.
@@ -300,6 +301,25 @@ func groupCondition(caps model.FilterCapabilities, field string, keys []string) 
 		return model.Condition{Field: field, Op: model.OpEq, Values: keys[:1]}.String(), keys[:1]
 	}
 	return "", nil
+}
+
+// callCount counts the calls conds select in w, each once: the totals of a
+// /stats query with one time bucket. The rows of a multi-valued grouping
+// overlap, so summing them overcounts a call that carries several selected
+// values. A failed count is no failure of the sample: it returns nil and the
+// note to add.
+func (c *Client) callCount(ctx context.Context, w ResolvedWindow, conds []string) (*int64, []string, string, error) {
+	st, err := c.Stats(ctx, StatsInput{
+		Window: Window{From: w.From, To: w.To}, Filters: Filters{Conditions: conds}, GroupBy: GroupByTime, Buckets: 1,
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, nil, "", err
+		}
+		return nil, nil, "the number of calls the sample is drawn from is unknown: " + err.Error(), nil
+	}
+	n := st.Totals.Count
+	return &n, prefixed("count", st.Partial), "", nil
 }
 
 // configResponse is the part of /config the operations read.

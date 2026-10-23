@@ -199,3 +199,12 @@ func TestNegationViews(t *testing.T) {
 	assert.Equal(t, []Condition{{"namespace", OpEq, []string{"prod"}}}, q.WithoutNegations().Filters)
 	assert.Len(t, q.Filters, 5, "the view does not change the query")
 }
+
+func TestIsSingleValued(t *testing.T) {
+	for _, name := range []string{"method", "service", "class", "endpoint", "error", "retention_class"} {
+		assert.True(t, IsSingleValued(name), name)
+	}
+	for _, name := range []string{"user.tenant", "trace_id", "request_id", GroupByParamName} {
+		assert.False(t, IsSingleValued(name), name)
+	}
+}

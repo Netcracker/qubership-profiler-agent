@@ -356,8 +356,8 @@ func TestCompareSamplesTheGroupsThatGotSlower(t *testing.T) {
 	require.NotNil(t, s)
 	assert.Equal(t, []string{"a.Billing.charge", "a.Export.run"}, s.Groups)
 	require.NotNil(t, s.Baseline)
-	assert.Equal(t, int64(10), s.Baseline.Of)
-	assert.Equal(t, int64(12), s.Target.Of)
+	assert.Equal(t, callCountOf(10), s.Baseline.Of)
+	assert.Equal(t, callCountOf(12), s.Target.Of)
 	assert.Equal(t, 4, s.Target.Trees)
 
 	require.NotEmpty(t, s.Methods)
@@ -396,4 +396,30 @@ func TestCompareWindows(t *testing.T) {
 		assert.Error(t, err, "%+v", in)
 	}
 	assert.Len(t, f.reqs, n, "bad input sends no request")
+}
+
+// TestCompareCountsTheSampledCallsOnce samples two groups of a multi-valued
+// grouping that got slower. In each window their rows add up to four, but
+// only two calls carry a or b.
+func TestCompareCountsTheSampledCallsOnce(t *testing.T) {
+	calls := append(overlappingTenantCalls(baseStart, 0, 20, 10), overlappingTenantCalls(targetStart, 10, 100, 10)...)
+	c, f := newFake(t, calls...)
+	res, err := c.Compare(background, CompareInput{
+		Target: targetHour, Filters: Filters{Service: "prod/billing"}, GroupBy: "user.tenant", Limit: 3, Sample: 5,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res.Sample)
+	assert.Equal(t, []string{"a", "b"}, res.Sample.Groups)
+	assert.Equal(t, callCountOf(2), res.Sample.Target.Of, "two target calls carry a or b, though their rows count four")
+	require.NotNil(t, res.Sample.Baseline)
+	assert.Equal(t, callCountOf(2), res.Sample.Baseline.Of)
+
+	counts := map[string]int{}
+	for _, q := range f.requests("/api/v1/stats") {
+		if q.Get("group_by") == GroupByTime {
+			counts[q.Get("from")]++
+			assert.Equal(t, []string{"namespace=prod", "service=billing", "user.tenant in a,b"}, q["filter"])
+		}
+	}
+	assert.Equal(t, map[string]int{fmtInt(baseStart): 1, fmtInt(targetStart): 1}, counts, "one count per window")
 }

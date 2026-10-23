@@ -112,7 +112,7 @@ func TestHotspotsRanksGroupsAndSamplesTheListedOnes(t *testing.T) {
 	s := res.Sample
 	require.NotNil(t, s)
 	assert.Equal(t, []string{"com.example.Billing.charge(long)", "com.example.Billing.refund(long)"}, s.Groups)
-	assert.Equal(t, int64(8), s.Of, "the sample is drawn from the listed groups' calls")
+	assert.Equal(t, callCountOf(8), s.Of, "the sample is drawn from the listed groups' calls")
 	assert.Equal(t, 3, s.Trees)
 	require.Len(t, s.Calls, 3)
 	assert.Equal(t, int32(2004), s.Calls[0].DurationMs, "the slowest calls")
@@ -130,7 +130,7 @@ func TestHotspotsSamplesEveryCallWhenEveryGroupIsListed(t *testing.T) {
 	assert.Empty(t, f.requests("/api/v1/config"), "no group was cut, so no restriction is needed")
 	assert.Equal(t, []string{"namespace=prod", "service=billing"}, f.requests("/api/v1/calls")[0]["filter"])
 	assert.Empty(t, res.Sample.Groups)
-	assert.Equal(t, int64(58), res.Sample.Of)
+	assert.Equal(t, callCountOf(58), res.Sample.Of)
 	assert.Equal(t, DefaultSample, res.Sample.Requested)
 }
 
@@ -141,7 +141,7 @@ func TestHotspotsSampleWithoutASetConditionIsUnrestricted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, f.requests("/api/v1/calls")[0]["filter"])
 	assert.Empty(t, res.Sample.Groups)
-	assert.Equal(t, int64(58), res.Sample.Of)
+	assert.Equal(t, callCountOf(58), res.Sample.Of)
 	assert.Contains(t, res.Notes, "the sample is drawn from every call under the filters, not only the listed groups: "+
 		"the server cannot select method values in one condition")
 }
@@ -233,4 +233,63 @@ func TestTimelineMapsTheTimeBuckets(t *testing.T) {
 	assert.Equal(t, time.UnixMilli(1760432400000).UTC(), res.Buckets[0].Start)
 	assert.Equal(t, to, res.Buckets[1].End)
 	assert.Nil(t, res.Buckets[1].P95Ms)
+}
+
+// overlappingTenantCalls are two calls that carry user.tenant a and b, and
+// three that carry c. a and b each hold 200 ms and c holds 30 ms, so a and
+// b rank above c by time, and their rows count the same two calls.
+func overlappingTenantCalls(start int64, record int32, abMs, cMs int32) []fakeCall {
+	var calls []fakeCall
+	add := func(durationMs int32, tenants ...string) {
+		record++
+		c := call("billing", "a.Billing.charge", start+int64(record)*1000, durationMs, record)
+		c.row.Params = map[string][]string{"user.tenant": tenants}
+		calls = append(calls, c)
+	}
+	add(abMs, "a", "b")
+	add(abMs, "a", "b")
+	for range 3 {
+		add(cMs, "c")
+	}
+	return calls
+}
+
+// TestHotspotsCountsTheSampledCallsOnce samples the top two groups of a
+// multi-valued grouping. Their rows add up to four, but only two calls carry
+// a or b, and the sample is drawn from those two.
+func TestHotspotsCountsTheSampledCallsOnce(t *testing.T) {
+	c, f := newFake(t, overlappingTenantCalls(t0, 0, 100, 10)...)
+	res, err := c.Hotspots(background, HotspotsInput{
+		Window: hour, Filters: Filters{Service: "prod/billing"}, GroupBy: "user.tenant", Limit: 2, Sample: 5,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Groups, 2)
+	assert.Equal(t, []string{"a", "b"}, []string{res.Groups[0].Key, res.Groups[1].Key})
+	require.NotNil(t, res.Sample)
+	assert.Equal(t, []string{"a", "b"}, res.Sample.Groups)
+	assert.Equal(t, callCountOf(2), res.Sample.Of, "two calls carry a or b, though their rows count four")
+	assert.Equal(t, 2, res.Sample.Listed)
+
+	var counts int
+	for _, q := range f.requests("/api/v1/stats") {
+		if q.Get("group_by") == GroupByTime {
+			counts++
+			assert.Equal(t, []string{"namespace=prod", "service=billing", "user.tenant in a,b"}, q["filter"])
+		}
+	}
+	assert.Equal(t, 1, counts, "one count under the sample's conditions")
+}
+
+func TestHotspotsReportsAFailedCountAsUnknown(t *testing.T) {
+	c, f := newFake(t, overlappingTenantCalls(t0, 0, 100, 10)...)
+	f.failCount = true
+	res, err := c.Hotspots(background, HotspotsInput{
+		Window: hour, Filters: Filters{Service: "prod/billing"}, GroupBy: "user.tenant", Limit: 2, Sample: 5,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res.Sample)
+	assert.Nil(t, res.Sample.Of)
+	assert.Equal(t, 2, res.Sample.Listed, "the sample stands without its count")
+	require.NotEmpty(t, res.Notes)
+	assert.Contains(t, res.Notes[len(res.Notes)-1], "the number of calls the sample is drawn from is unknown: ")
 }

@@ -17,6 +17,16 @@ var StatsGroupings = []string{
 // GroupByParamName groups the calls by the names of the params they carry.
 const GroupByParamName = "param_name"
 
+// IsSingleValued reports whether a call has at most one value of a field, so
+// the /stats rows of a grouping by it are disjoint and the counts of any set
+// of rows add up to the calls in them. A call param, trace_id, request_id,
+// and param_name can have several values per call; a name outside the field
+// table is a param.
+func IsSingleValued(name string) bool {
+	def, ok := fields[name]
+	return ok && def.kind != kindParam
+}
+
 // IsStatsGrouping reports whether group_by names a grouping: a named one or
 // a call param. `duration` is a field without text values, so nothing groups
 // by it.

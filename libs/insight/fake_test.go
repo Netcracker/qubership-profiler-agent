@@ -34,6 +34,8 @@ type fakeQuery struct {
 	// Space-Saving summary does; a negative value or nil keeps every group.
 	// A capped answer drops the lightest groups and is approximate.
 	groupCap func(q url.Values) int
+	// failCount makes a time grouping, the call count, answer 500.
+	failCount bool
 
 	mu   sync.Mutex
 	reqs []*url.URL
@@ -128,7 +130,10 @@ func (f *fakeQuery) isPartial(path string, q url.Values) bool {
 
 func (f *fakeQuery) stats(w http.ResponseWriter, q url.Values) {
 	field := q.Get("group_by")
-	require.NotEqual(f.t, stats.GroupByTime, field, "the fake groups by a field")
+	if field == stats.GroupByTime {
+		f.count(w, q)
+		return
+	}
 	grouping := stats.Grouping{Field: field}
 	rows := f.match(q)
 	groups := map[string][]model.CallRow{}
@@ -184,6 +189,34 @@ func (f *fakeQuery) stats(w http.ResponseWriter, q url.Values) {
 	}
 	if resp.Rows == nil {
 		resp.Rows = []stats.Row{}
+	}
+	if f.isPartial("/stats", q) {
+		resp.Partial, resp.PartialReasons = true, []string{"collector 10.0.0.7 stats: timeout"}
+	}
+	f.json(w, resp)
+}
+
+// count answers a time grouping of one bucket, the count of the calls
+// under the conditions that callCount asks for.
+func (f *fakeQuery) count(w http.ResponseWriter, q url.Values) {
+	require.Equal(f.t, "1", q.Get("buckets"), "the fake answers one time bucket only")
+	if f.failCount {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"title":"Internal error","status":500,"code":"internal"}`))
+		return
+	}
+	rows := f.match(q)
+	from, err := strconv.ParseInt(q.Get("from"), 10, 64)
+	require.NoError(f.t, err)
+	to, err := strconv.ParseInt(q.Get("to"), 10, 64)
+	require.NoError(f.t, err)
+	v := values(rows)
+	bucket := to - from
+	resp := stats.Response{
+		GroupBy: stats.GroupByTime, BucketMs: &bucket, Distinct: 1,
+		Rows:   []stats.Row{{Key: from, RowValues: v}},
+		Totals: stats.Totals{Count: v.Count, Errors: v.Errors},
 	}
 	if f.isPartial("/stats", q) {
 		resp.Partial, resp.PartialReasons = true, []string{"collector 10.0.0.7 stats: timeout"}
@@ -258,3 +291,6 @@ func (f *fakeQuery) tree(w http.ResponseWriter, pkPath string) {
 
 // background is a test context.
 var background = context.Background()
+
+// callCountOf is a SampleInfo.Of of n calls.
+func callCountOf(n int64) *int64 { return &n }
