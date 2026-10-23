@@ -73,7 +73,15 @@ func Capabilities() FilterCapabilities {
 		Fields:         fields,
 		ParamOperators: slices.Clone(stageAParamOps),
 		SpecialValues:  []string{},
-		Orders:         []string{"start_desc"},
+		Orders:         orderNames(),
 		GroupBy:        []string{},
 	}
+}
+
+func orderNames() []string {
+	out := make([]string, len(ImplementedOrders))
+	for i, o := range ImplementedOrders {
+		out[i] = o.String()
+	}
+	return out
 }

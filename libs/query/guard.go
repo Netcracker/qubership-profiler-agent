@@ -37,8 +37,11 @@ type guardRejection struct {
 // duration_min_ms below the first tier bound, or a retention_class list
 // naming every class — no longer buys a guard exemption (№28). method and
 // params filter rows inside already-listed files, so they do not exempt.
+// order=duration_desc exempts too: its first page lists only the longest band
+// and the error classes, and the cost layer checks every band before it
+// opens (02 §2.3.5).
 func (s *Service) hasNarrowingFilter(q model.CallsQuery) bool {
-	return hasPodFilter(q) || len(s.cold.ClassesFor(q)) < len(model.RetentionClasses)
+	return hasPodFilter(q) || q.Order.ByDuration() || len(s.cold.ClassesFor(q)) < len(model.RetentionClasses)
 }
 
 // hasPodFilter reports a `pod` filter or a namespace, service, or pod

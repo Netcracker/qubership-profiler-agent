@@ -116,7 +116,9 @@ func (t hotTier) coldToMs(q model.CallsQuery, overlapMs int64) int64 {
 // model ignores `filter` and returns a superset (model.CallsQuery.Values).
 // A replica that filled its page may hold unseen rows past its last one, so
 // that row's position comes back in fullAt even when the re-check dropped it;
-// the caller must not page past it.
+// the caller must not page past it. A replica that ignores `order`, an older
+// build, fails with hot.ErrOrderUnsupported and counts as a failed source:
+// its newest rows cannot stand in for its longest ones (02 §2.3.5).
 func (s *Service) hotCalls(ctx context.Context, tier hotTier, q model.CallsQuery, match *model.Matcher,
 	after *model.Position, limit int, page *budget.Lease) (runs [][]model.CallRow, fullAt []model.Position, succeeded, failed int, reasons []string, budgetDenied error) {
 

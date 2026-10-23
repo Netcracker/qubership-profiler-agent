@@ -26,8 +26,7 @@ var (
 // trace_blob and big_params_json column chunks are never read on the list
 // path (02 §5.4, §2.3.2) — applies the row filter ts_ms ∈ [from, to) plus the
 // §2.3 predicates and the keyset seek, and returns the surviving rows in the
-// file's native (ts_ms DESC, pk ASC) order (01 §5.2), ready to be one merge
-// run. A listed-but-deleted object returns an empty result (§5.1).
+// query's order, ready to be one merge run. A listed-but-deleted object returns an empty result (§5.1).
 //
 // This is the unbudgeted compatibility surface for tests and tools; the
 // budgeted production path is Source.Calls, which streams the same batches
@@ -45,7 +44,7 @@ func ScanFile(ctx context.Context, store ObjectStore, ref FileRef, q model.Calls
 				if !matcher.Match(&row) {
 					continue
 				}
-				if after != nil && !row.Position().After(*after) {
+				if after != nil && !q.Order.Past(row.Position(), *after) {
 					continue
 				}
 				out = append(out, copyCallRow(&row))
@@ -54,6 +53,9 @@ func ScanFile(ctx context.Context, store ObjectStore, ref FileRef, q model.Calls
 		})
 	if err != nil {
 		return nil, err
+	}
+	if q.Order.ByDuration() {
+		q.Order.SortRows(out)
 	}
 	return out, nil
 }

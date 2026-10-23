@@ -18,7 +18,7 @@ func TestCursorRoundTrip(t *testing.T) {
 	}
 	pos := model.Position{TsMs: 150, PK: model.PK{PodNamespace: "ns", PodName: "pod", RecordIndex: 3}}
 
-	tok, err := decodeCursor(encodeCursor(params, pos), 15*time.Minute)
+	tok, err := decodeCursor(encodeCursor(params, pos, ""), 15*time.Minute)
 	require.NoError(t, err)
 	assert.Equal(t, url.Values{"from": {"100"}, "to": {"200"}, "pod": {"ns/svc/pod"}, "error_only": {"true"}}, tok.Params,
 		"the cursor freezes the query parameters and nothing else")
@@ -26,12 +26,40 @@ func TestCursorRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.CallsQuery{FromMs: 100, ToMs: 200, Filters: []model.Condition{
 		model.PodTuplesCondition("ns/svc/pod"), model.ErrorCondition(true),
-	}}, q, "the frozen query survives the round trip")
+	}, Order: model.OrderStartDesc}, q, "the frozen query survives the round trip")
 	assert.Equal(t, pos, tok.Pos)
 }
 
+func TestCursorFreezesTheDurationOrder(t *testing.T) {
+	params := url.Values{"from": {"100"}, "to": {"200"}, "order": {"duration_desc"}}
+	pos := model.Position{DurationMs: 1000, NoPK: true}
+
+	tok, err := decodeCursor(encodeCursor(params, pos, model.RetentionNormalClean), time.Minute)
+	require.NoError(t, err)
+	q, err := tok.query()
+	require.NoError(t, err)
+	assert.Equal(t, model.OrderDurationDesc, q.Order)
+	assert.Equal(t, pos, tok.Pos, "a position with no PK survives the round trip")
+	assert.Equal(t, model.RetentionNormalClean, tok.Band)
+
+	band, err := cursorBand(model.DurationBands(nil), tok)
+	require.NoError(t, err)
+	assert.Equal(t, model.RetentionNormalClean, band)
+	tok.Band = model.RetentionAnyError
+	_, err = cursorBand(model.DurationBands(nil), tok)
+	assert.ErrorContains(t, err, "not a clean retention class")
+	tok.Band = ""
+	band, err = cursorBand(model.DurationBands(nil), tok)
+	require.NoError(t, err)
+	assert.Equal(t, model.RetentionNormalClean, band, "a cursor without a band resumes below its position")
+
+	assert.Empty(t, frozenQueryMismatch(tok.Params, q, url.Values{"order": {"duration_desc"}}))
+	assert.NotEmpty(t, frozenQueryMismatch(tok.Params, q, url.Values{"order": {"start_desc"}}),
+		"a re-sent order must match the frozen one (02 §2.3.5)")
+}
+
 func TestCursorExpiry(t *testing.T) {
-	cur := encodeCursor(url.Values{"from": {"1"}, "to": {"2"}}, model.Position{})
+	cur := encodeCursor(url.Values{"from": {"1"}, "to": {"2"}}, model.Position{}, "")
 
 	_, err := decodeCursor(cur, 15*time.Minute)
 	require.NoError(t, err, "a fresh cursor validates")
@@ -82,7 +110,7 @@ func TestFrozenQueryMismatch(t *testing.T) {
 }
 
 func TestCursorWithAQueryThatDoesNotParseIsRejected(t *testing.T) {
-	tok, err := decodeCursor(encodeCursor(url.Values{"from": {"200"}, "to": {"100"}}, model.Position{}), time.Minute)
+	tok, err := decodeCursor(encodeCursor(url.Values{"from": {"200"}, "to": {"100"}}, model.Position{}, ""), time.Minute)
 	require.NoError(t, err)
 	_, err = tok.query()
 	assert.ErrorContains(t, err, "does not parse")
