@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,9 +60,9 @@ type (
 )
 
 // ClassesFor prunes the retention classes a query has to list (02 §2.3.2,
-// §5.5): a retention_class condition selects key prefixes verbatim,
-// error=true keeps only the error classes, and a lower duration bound drops
-// every clean class whose duration range sits entirely below it.
+// §5.5): a retention_class condition selects or excludes key prefixes
+// verbatim, error=true keeps only the error classes, and a lower duration
+// bound drops every clean class whose duration range sits entirely below it.
 func (s *Source) ClassesFor(q model.CallsQuery) []string {
 	cleanUpperMs := s.cleanClassUpperMs()
 	classes, ok := q.RetentionClassSet()
@@ -70,8 +71,12 @@ func (s *Source) ClassesFor(q model.CallsQuery) []string {
 	}
 	minMs, _ := q.DurationBounds()
 	errorOnly := q.ErrorRequired()
+	excluded := q.ExcludedRetentionClasses()
 	var out []string
 	for _, c := range classes {
+		if slices.Contains(excluded, c) {
+			continue
+		}
 		if errorOnly && c != model.RetentionAnyError && c != model.RetentionCorrupted {
 			continue
 		}

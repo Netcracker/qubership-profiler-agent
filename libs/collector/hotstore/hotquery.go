@@ -51,9 +51,10 @@ func (s *Store) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, 
 	return s.db.CallsPage(bucket, q, fromMs, toMs, limit)
 }
 
-// CallsPageAfter reads one partition's page for the hot /calls path in the
-// given order (02 §2.3.5): up to limit rows past the after position, in the
-// full (sort key DESC, pk ASC) keyset order, so no tie group is read whole.
+// CallsPageAfter reads one partition's page for the hot /calls path in any
+// order (02 §2.3.5): up to limit rows past the after position, in the full
+// keyset order (sort key in the order's direction, then pk ASC), so no tie
+// group is read whole.
 func (s *Store) CallsPageAfter(bucket int64, q model.CallsQuery, fromMs, toMs int64,
 	order model.Order, after *model.Position, limit int) ([]CallIndexRow, error) {
 	return s.db.CallsPageAfter(bucket, q, fromMs, toMs, order, after, limit)

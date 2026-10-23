@@ -100,6 +100,25 @@ func TestGuardSpanFilterConditions(t *testing.T) {
 	}
 	assert.Nil(t, s.guardSpan(query(7*hour, "duration>2s"), wide, podLimit), "a lower duration bound prunes classes")
 
+	// Stage B shapes: no negation, regular expression, derived field, or
+	// param condition exempts, whatever it is combined with.
+	for _, text := range []string{
+		"namespace!=prod", "service not in billing,orders", "pod!~^billing", "namespace=~^prod$", "service=~billing",
+		"method!=x", "method=x", "method!~Order", "class=com.example.Foo", "class in a.B,c.D", "class!~Foo",
+		"endpoint=GET /orders/{id}", "endpoint=Any", "endpoint=None", "endpoint not in GET /",
+		"user.tenant in acme,globex", "user.tenant!=acme", "user.tenant=~^ac", "user.tenant=None", "user.tenant=Any",
+		"trace_id!=abc", "trace_id=~^4b", "request_id=None", "request_id!=Any",
+		"retention_class!=short_clean", "retention_class not in short_clean,normal_clean,long_clean",
+	} {
+		assert.NotNil(t, s.guardSpan(query(7*hour, text), wide, podLimit), "%s does not exempt", text)
+	}
+	assert.Nil(t, s.guardSpan(query(7*hour, "service=billing", "service!=orders"), wide, podLimit),
+		"a negation beside an identity filter keeps the identity exemption")
+	assert.NotNil(t, s.guardSpan(query(400*day, "service=billing", "class=a.B"), wide, podLimit),
+		"and the pods-range cap")
+	assert.Nil(t, s.guardSpan(query(7*hour, "retention_class in any_error,corrupted", "retention_class!=corrupted"), wide, podLimit),
+		"a negation beside a positive class filter keeps the positive exemption")
+
 	rej := s.guardSpan(query(7*hour, "request_id=abc"), wide, podLimit)
 	require.NotNil(t, rej)
 	assert.Contains(t, rej.SuggestedFilters, "service")

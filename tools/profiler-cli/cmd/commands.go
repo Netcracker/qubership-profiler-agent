@@ -70,7 +70,9 @@ func newCallsCmd(root *rootFlags) *cobra.Command {
 	window.add(cmd)
 	filters.add(cmd)
 	cmd.Flags().IntVar(&limit, "limit", insight.DefaultCallsLimit, "calls per page")
-	cmd.Flags().StringVar(&order, "order", "", "start_desc lists the newest calls first (the default), duration_desc the slowest")
+	cmd.Flags().StringVar(&order, "order", "", "<field>_desc or <field>_asc, with a field of start, duration, cpu, queue, calls, or net; "+
+		"start_desc lists the newest calls first (the default), duration_desc the slowest; "+
+		"only duration_desc narrows a wide window by itself")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "continue from the cursor a previous page printed; the page keeps that page's filters, so repeat them or leave them out")
 	return cmd
 }

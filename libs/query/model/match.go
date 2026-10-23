@@ -3,6 +3,7 @@ package model
 import (
 	"regexp"
 	"slices"
+	"strconv"
 
 	"github.com/pkg/errors"
 )
@@ -27,6 +28,11 @@ type fieldDef struct {
 	params []string
 	// value reads a kindString field from a row.
 	value func(r *CallRow) string
+	// derive reads a kindDerived field: its values and whether the row has
+	// the field at all.
+	derive func(r *CallRow) ([]string, bool)
+	// optional marks a field a call can lack, which takes None and Any.
+	optional bool
 }
 
 var (
@@ -53,12 +59,12 @@ var fields = map[string]fieldDef{
 	"service":         {kind: kindString, ops: enumOps, value: func(r *CallRow) string { return r.PK.PodService }},
 	"pod":             {kind: kindString, ops: enumOps, value: func(r *CallRow) string { return r.PK.PodName }},
 	"method":          {kind: kindString, ops: textOps, value: func(r *CallRow) string { return r.Method }},
-	"class":           {kind: kindDerived, ops: enumOps},
-	"endpoint":        {kind: kindDerived, ops: enumOps},
+	"class":           {kind: kindDerived, ops: enumOps, derive: deriveClass},
+	"endpoint":        {kind: kindDerived, ops: enumOps, derive: deriveEndpoint, optional: true},
 	"error":           {kind: kindBool, ops: []Op{OpEq}},
 	"retention_class": {kind: kindString, ops: []Op{OpEq, OpNe, OpIn, OpNotIn}, value: func(r *CallRow) string { return r.RetentionClass }},
-	"trace_id":        {kind: kindParam, ops: idOps, params: TraceIDParams},
-	"request_id":      {kind: kindParam, ops: idOps, params: []string{"x-request-id"}},
+	"trace_id":        {kind: kindParam, ops: idOps, params: TraceIDParams, optional: true},
+	"request_id":      {kind: kindParam, ops: idOps, params: []string{"x-request-id"}, optional: true},
 	FieldPodTuple:     {kind: kindString, ops: []Op{OpIn}, value: podTuple},
 }
 
@@ -76,7 +82,65 @@ func fieldOf(name string) fieldDef {
 	if def, ok := fields[name]; ok {
 		return def
 	}
-	return fieldDef{kind: kindParam, ops: enumOps, params: []string{name}}
+	return fieldDef{kind: kindParam, ops: enumOps, params: []string{name}, optional: true}
+}
+
+// A method text that names no class leaves the call without one, so it falls
+// into no /stats row and matches only negative conditions. An absent derived
+// field has no values, not an empty one, so a regex that matches the empty
+// string does not select the call (02 §2.3.3).
+func deriveClass(r *CallRow) ([]string, bool) {
+	class := CallClass(r.Method)
+	if class == "" {
+		return nil, false
+	}
+	return []string{class}, true
+}
+
+func deriveEndpoint(r *CallRow) ([]string, bool) {
+	endpoint, ok := CallEndpoint(r.Params)
+	if !ok {
+		return nil, false
+	}
+	return []string{endpoint}, true
+}
+
+// FieldValues returns the values of a text field on a row, and false when
+// the row lacks the field: the values a condition on the field compares and
+// the keys a /stats grouping by it places the row under (02 §2.3.3, §2.9).
+// A param with several values returns each of them. `error` reads as `true`
+// or `false`. `duration` has no text values and reports false.
+func FieldValues(name string, r *CallRow) ([]string, bool) {
+	return fieldValues(fieldOf(name))(r)
+}
+
+func fieldValues(def fieldDef) func(r *CallRow) ([]string, bool) {
+	switch def.kind {
+	case kindDuration:
+		return func(*CallRow) ([]string, bool) { return nil, false }
+	case kindBool:
+		return func(r *CallRow) ([]string, bool) { return []string{strconv.FormatBool(r.ErrorFlag)}, true }
+	case kindDerived:
+		return def.derive
+	case kindString:
+		value := def.value
+		return func(r *CallRow) ([]string, bool) { return []string{value(r)}, true }
+	}
+	names := def.params
+	if len(names) == 1 {
+		name := names[0]
+		return func(r *CallRow) ([]string, bool) {
+			vs := r.Params[name]
+			return vs, len(vs) > 0
+		}
+	}
+	return func(r *CallRow) ([]string, bool) {
+		var vs []string
+		for _, name := range names {
+			vs = append(vs, r.Params[name]...)
+		}
+		return vs, len(vs) > 0
+	}
 }
 
 // rowPredicate reports whether a row meets one condition.
@@ -106,7 +170,7 @@ func compileCondition(c Condition) (rowPredicate, error) {
 		// operator they are literal text, so the legacy method=Any, which
 		// becomes method=~Any, is still a substring search (02 §2.3.3).
 		special := (v == ValueNone || v == ValueAny) && (c.Op == OpEq || c.Op == OpNe)
-		if special && def.kind != kindParam {
+		if special && !def.optional {
 			return nil, errors.Errorf("every call has a %s, so %s does not apply: %s", c.Field, v, c)
 		}
 	}
@@ -115,35 +179,15 @@ func compileCondition(c Condition) (rowPredicate, error) {
 		return compileDuration(c)
 	case kindBool:
 		return compileError(c)
-	case kindDerived:
-		return nil, errors.Errorf("the field %s is not implemented", c.Field)
-	case kindString:
-		if c.Field == "retention_class" {
-			for _, v := range c.Values {
-				if !IsRetentionClass(v) {
-					return nil, errors.Errorf("%q is not a retention class: %s", v, c)
-				}
-			}
-		}
-		value := def.value
-		return compileText(c, func(r *CallRow) ([]string, bool) { return []string{value(r)}, true })
-	default:
-		names := def.params
-		if len(names) == 1 {
-			name := names[0]
-			return compileText(c, func(r *CallRow) ([]string, bool) {
-				vs := r.Params[name]
-				return vs, len(vs) > 0
-			})
-		}
-		return compileText(c, func(r *CallRow) ([]string, bool) {
-			var vs []string
-			for _, name := range names {
-				vs = append(vs, r.Params[name]...)
-			}
-			return vs, len(vs) > 0
-		})
 	}
+	if c.Field == "retention_class" {
+		for _, v := range c.Values {
+			if !IsRetentionClass(v) {
+				return nil, errors.Errorf("%q is not a retention class: %s", v, c)
+			}
+		}
+	}
+	return compileText(c, fieldValues(def))
 }
 
 func compileDuration(c Condition) (rowPredicate, error) {
@@ -183,7 +227,8 @@ func compileError(c Condition) (rowPredicate, error) {
 // compileText builds the predicate of a field with text values. values returns
 // the field's values on a row and whether the row has the field at all. A
 // negative operator is the negation of its positive form, so it matches a row
-// without the field (02 §2.3.3).
+// without the field (02 §2.3.3). A positive operator other than `= None`
+// never matches a row without the field, whatever values the reader returns.
 func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPredicate, error) {
 	var positive rowPredicate
 	switch c.Op {
@@ -195,7 +240,7 @@ func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPred
 		case ValueAny:
 			positive = func(r *CallRow) bool { _, has := values(r); return has }
 		default:
-			positive = func(r *CallRow) bool { vs, _ := values(r); return slices.Contains(vs, want) }
+			positive = func(r *CallRow) bool { vs, has := values(r); return has && slices.Contains(vs, want) }
 		}
 	case OpIn, OpNotIn:
 		set := make(map[string]struct{}, len(c.Values))
@@ -203,7 +248,10 @@ func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPred
 			set[v] = struct{}{}
 		}
 		positive = func(r *CallRow) bool {
-			vs, _ := values(r)
+			vs, has := values(r)
+			if !has {
+				return false
+			}
 			for _, v := range vs {
 				if _, ok := set[v]; ok {
 					return true
@@ -217,11 +265,11 @@ func compileText(c Condition, values func(r *CallRow) ([]string, bool)) (rowPred
 			return nil, errors.Errorf("%q is not a valid regular expression: %s", c.Values[0], c)
 		}
 		positive = func(r *CallRow) bool {
-			vs, _ := values(r)
-			return slices.ContainsFunc(vs, re.MatchString)
+			vs, has := values(r)
+			return has && slices.ContainsFunc(vs, re.MatchString)
 		}
 	}
-	if c.Op == OpNe || c.Op == OpNotIn || c.Op == OpNotMatch {
+	if c.Op.IsNegative() {
 		return func(r *CallRow) bool { return !positive(r) }, nil
 	}
 	return positive, nil

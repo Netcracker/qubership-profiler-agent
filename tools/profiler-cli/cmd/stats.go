@@ -42,7 +42,8 @@ func newHotspotsCmd(root *rootFlags) *cobra.Command {
 	}
 	window.add(cmd)
 	filters.add(cmd)
-	cmd.Flags().StringVar(&groupBy, "group-by", insight.DefaultGroupBy, "group by method (the root method), service, pod, or namespace")
+	cmd.Flags().StringVar(&groupBy, "group-by", insight.DefaultGroupBy, "group by method (the root method), class, endpoint, service, pod, namespace, error, retention_class, "+
+		"trace_id, request_id, param_name, or a call parameter name; a call with several values of a parameter counts in each value's group")
 	cmd.Flags().IntVar(&limit, "limit", insight.DefaultHotspotLimit, "groups to list; the rest are summed as other")
 	cmd.Flags().StringVar(&order, "order", string(insight.OrderDurationSumDesc), "duration_sum_desc ranks by total time, count_desc by call count")
 	cmd.Flags().IntVar(&sample, "sample", insight.DefaultSample, "slowest calls whose trees the sampled layer reads")
@@ -135,7 +136,8 @@ func newCompareCmd(root *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&baseShift, "baseline-shift", "", "baseline is the target moved back by this much, such as 1d (default: the target's length)")
 	cmd.MarkFlagsMutuallyExclusive("baseline-shift", "baseline-from")
 	cmd.MarkFlagsMutuallyExclusive("baseline-shift", "baseline-to")
-	cmd.Flags().StringVar(&groupBy, "group-by", insight.DefaultGroupBy, "group by method (the root method), service, pod, or namespace")
+	cmd.Flags().StringVar(&groupBy, "group-by", insight.DefaultGroupBy, "group by method (the root method), class, endpoint, service, pod, namespace, error, retention_class, "+
+		"trace_id, request_id, param_name, or a call parameter name; a call with several values of a parameter counts in each value's group")
 	cmd.Flags().IntVar(&limit, "limit", insight.DefaultHotspotLimit, "top groups each window lists")
 	cmd.Flags().StringVar(&order, "order", string(insight.OrderDurationSumDesc), "duration_sum_desc ranks by total time, count_desc by call count")
 	cmd.Flags().IntVar(&sample, "sample", insight.DefaultCompareSample, "slowest calls of the changed groups whose trees each window's sample reads")

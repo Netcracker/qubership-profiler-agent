@@ -88,6 +88,14 @@ func TestClassesForPrunes(t *testing.T) {
 	assert.Equal(t, []string{model.RetentionAnyError},
 		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.RetentionClassCondition(model.RetentionShortClean, model.RetentionAnyError), model.ErrorCondition(true)}}),
 		"filters intersect")
+
+	notIn := model.Condition{Field: "retention_class", Op: model.OpNotIn,
+		Values: []string{model.RetentionShortClean, model.RetentionCorrupted}}
+	assert.Equal(t, []string{model.RetentionNormalClean, model.RetentionLongClean, model.RetentionHugeClean, model.RetentionAnyError},
+		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{notIn}}), "a negated class is not listed")
+	assert.Equal(t, []string{model.RetentionAnyError},
+		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{notIn, model.ErrorCondition(true)}}),
+		"a negation intersects with the other filters")
 }
 
 // TestClassesForMatchesClassification is the №10 round-trip: for every

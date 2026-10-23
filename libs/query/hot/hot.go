@@ -153,7 +153,8 @@ func (c *Client) HotWindow(ctx context.Context, baseURL string) (Window, error) 
 // in start order, which no merge can use: its page holds the newest rows, not
 // the longest. The response echoes the order, so such a replica fails with
 // ErrOrderUnsupported and the caller reports it as a partial source
-// (02 §2.3.5, §7.4).
+// (02 §2.3.5, §7.4). A collector that knows `order` but not this one answers
+// 400, which fails the replica the same way.
 //
 // The response body is read through the budget and the returned lease owns
 // the decoded rows' footprint (02 §7.5); the caller moves it into the
@@ -161,16 +162,11 @@ func (c *Client) HotWindow(ctx context.Context, baseURL string) (Window, error) 
 // released.
 func (c *Client) Calls(ctx context.Context, baseURL string, q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, *budget.Lease, error) {
 	v := q.Values()
-	switch {
-	case after == nil:
-	case q.Order.ByDuration():
-		v.Set("after_duration_ms", strconv.FormatInt(int64(after.DurationMs), 10))
+	if after != nil {
+		v.Set(model.AfterKeyParam(q.Order), strconv.FormatInt(q.Order.Key(*after), 10))
 		if !after.NoPK {
 			v.Set("after_pk", after.PK.PathString())
 		}
-	default:
-		v.Set("after_ts_ms", strconv.FormatInt(after.TsMs, 10))
-		v.Set("after_pk", after.PK.PathString())
 	}
 	v.Set("limit", strconv.Itoa(limit))
 	u := baseURL + "/internal/v1/calls?" + v.Encode()
@@ -193,7 +189,7 @@ func (c *Client) Calls(ctx context.Context, baseURL string, q model.CallsQuery, 
 		lease.Release()
 		return nil, nil, errors.Wrapf(err, "decode %s", u)
 	}
-	if q.Order.ByDuration() && body.Order != q.Order.String() {
+	if q.Order.NeedsSort() && body.Order != q.Order.String() {
 		lease.Release()
 		return nil, nil, errors.Wrapf(ErrOrderUnsupported, "order=%s", q.Order)
 	}

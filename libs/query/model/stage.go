@@ -2,58 +2,40 @@ package model
 
 import (
 	"slices"
-
-	"github.com/pkg/errors"
 )
 
-// stageA is the part of the filter model the `filter` parameter accepts in
-// this build (02 §2.3.4): each field with its implemented operators.
-// Matcher implements more than this, because the legacy `pod` parameter
-// needs an internal pod-tuple field; the public gate is this table.
-var stageA = map[string][]Op{
-	"duration":        durationOps,
-	"namespace":       {OpEq, OpIn},
-	"service":         {OpEq, OpIn},
-	"pod":             {OpEq, OpIn},
-	"retention_class": {OpEq, OpIn},
-	"method":          {OpMatch},
-	"error":           {OpEq},
-	"trace_id":        {OpEq},
-	"request_id":      {OpEq},
+// The filter model is implemented in full (02 §2.3.4, stage B): the field
+// table of match.go is the gate, and Capabilities reports it.
+
+// StatsGroupings are the named /stats groupings this build implements
+// (02 §2.9). Besides them, group_by takes the name of any call param.
+var StatsGroupings = []string{
+	"time", "method", "namespace", "service", "pod", "class", "endpoint", "error", "retention_class",
+	"trace_id", "request_id", GroupByParamName,
 }
 
-// StatsGroupings are the /stats groupings this build implements
-// (02 §2.9, stage A).
-var StatsGroupings = []string{"time", "method", "namespace", "service", "pod"}
+// GroupByParamName groups the calls by the names of the params they carry.
+const GroupByParamName = "param_name"
 
-// stageAParamOps are the operators the `filter` parameter accepts on a call
-// param.
-var stageAParamOps = []Op{OpEq}
+// IsSingleValued reports whether a call has at most one value of a field, so
+// the /stats rows of a grouping by it are disjoint and the counts of any set
+// of rows add up to the calls in them. A call param, trace_id, request_id,
+// and param_name can have several values per call; a name outside the field
+// table is a param.
+func IsSingleValued(name string) bool {
+	def, ok := fields[name]
+	return ok && def.kind != kindParam
+}
 
-// checkImplemented rejects a valid condition that the `filter` parameter does
-// not accept yet. The error text is the 400 detail of 02 §2.3.4.
-func checkImplemented(c Condition) error {
-	ops, known := stageA[c.Field]
-	if !known {
-		if _, field := fields[c.Field]; field {
-			return errors.Errorf("the field %s is not implemented", c.Field)
-		}
-		ops = stageAParamOps
+// IsStatsGrouping reports whether group_by names a grouping: a named one or
+// a call param. `duration` is a field without text values, so nothing groups
+// by it.
+func IsStatsGrouping(name string) bool {
+	if slices.Contains(StatsGroupings, name) {
+		return true
 	}
-	if !slices.Contains(ops, c.Op) {
-		return errors.Errorf("%s on %s is not implemented", c.Op, c.Field)
-	}
-	// None and Any are special values with = and != only; with any other
-	// operator they are text, which stage A takes (02 §2.3.3).
-	if c.Op != OpEq && c.Op != OpNe {
-		return nil
-	}
-	for _, v := range c.Values {
-		if v == ValueNone || v == ValueAny {
-			return errors.Errorf("the value %s is not implemented", v)
-		}
-	}
-	return nil
+	_, field := fields[name]
+	return !field && fieldName.MatchString(name)
 }
 
 // FilterCapabilities is the `filter_capabilities` member of /api/v1/config
@@ -65,20 +47,26 @@ type FilterCapabilities struct {
 	SpecialValues  []string        `json:"special_values"`
 	Orders         []string        `json:"orders"`
 	GroupBy        []string        `json:"group_by"`
+	// GroupByParams reports that group_by also takes the name of any call
+	// param, which a list cannot enumerate.
+	GroupByParams bool `json:"group_by_params"`
 }
 
-// Capabilities reports the stage this build implements.
+// Capabilities reports what this build implements.
 func Capabilities() FilterCapabilities {
-	fields := make(map[string][]Op, len(stageA))
-	for name, ops := range stageA {
-		fields[name] = slices.Clone(ops)
+	out := make(map[string][]Op, len(fields))
+	for name, def := range fields {
+		if name != FieldPodTuple {
+			out[name] = slices.Clone(def.ops)
+		}
 	}
 	return FilterCapabilities{
-		Fields:         fields,
-		ParamOperators: slices.Clone(stageAParamOps),
-		SpecialValues:  []string{},
+		Fields:         out,
+		ParamOperators: slices.Clone(fieldOf("").ops),
+		SpecialValues:  []string{ValueNone, ValueAny},
 		Orders:         orderNames(),
 		GroupBy:        slices.Clone(StatsGroupings),
+		GroupByParams:  true,
 	}
 }
 

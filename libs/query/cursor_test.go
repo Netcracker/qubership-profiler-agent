@@ -42,14 +42,14 @@ func TestCursorFreezesTheDurationOrder(t *testing.T) {
 	assert.Equal(t, pos, tok.Pos, "a position with no PK survives the round trip")
 	assert.Equal(t, model.RetentionNormalClean, tok.Band)
 
-	band, err := cursorBand(model.DurationBands(nil), tok)
+	band, err := cursorBand(model.OrderDurationDesc, model.DurationBands(nil), tok)
 	require.NoError(t, err)
 	assert.Equal(t, model.RetentionNormalClean, band)
 	tok.Band = model.RetentionAnyError
-	_, err = cursorBand(model.DurationBands(nil), tok)
+	_, err = cursorBand(model.OrderDurationDesc, model.DurationBands(nil), tok)
 	assert.ErrorContains(t, err, "not a clean retention class")
 	tok.Band = ""
-	band, err = cursorBand(model.DurationBands(nil), tok)
+	band, err = cursorBand(model.OrderDurationDesc, model.DurationBands(nil), tok)
 	require.NoError(t, err)
 	assert.Equal(t, model.RetentionNormalClean, band, "a cursor without a band resumes below its position")
 

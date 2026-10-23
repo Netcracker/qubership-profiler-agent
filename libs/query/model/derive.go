@@ -91,6 +91,34 @@ func (q CallsQuery) RetentionClassSet() (classes []string, ok bool) {
 	return q.intersectValues("retention_class", RetentionClasses)
 }
 
+// ExcludedRetentionClasses returns the classes a `!=` or `not in`
+// retention_class condition rules out, without repeats. Discovery skips
+// them; the guard does not count them as narrowing (02 §2.3.2).
+func (q CallsQuery) ExcludedRetentionClasses() []string {
+	var out []string
+	for _, c := range q.Filters {
+		if c.Field == "retention_class" && (c.Op == OpNe || c.Op == OpNotIn) {
+			out = append(out, c.Values...)
+		}
+	}
+	return distinct(out)
+}
+
+// IsNegative reports whether the operator negates another: `!=`, `not in`,
+// or `!~`.
+func (op Op) IsNegative() bool {
+	return op == OpNe || op == OpNotIn || op == OpNotMatch
+}
+
+// WithoutNegations returns the query without its negative conditions. The
+// guard derives its exemption from this view, because no negation exempts a
+// query (02 §2.3.2).
+func (q CallsQuery) WithoutNegations() CallsQuery {
+	out := q
+	out.Filters = slices.DeleteFunc(slices.Clone(q.Filters), func(c Condition) bool { return c.Op.IsNegative() })
+	return out
+}
+
 // PodTuples returns the "<namespace>/<service>/<pod>" tuples every pod-tuple
 // condition allows, in the order the first condition lists them. ok is false
 // when the query has no pod-tuple condition.

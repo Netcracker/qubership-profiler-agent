@@ -128,8 +128,12 @@ func TestCallsCommandSendsTheOrder(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, last.URL.Query().Has("order"), "the default sends no order")
 
+	_, err = run(t, "calls", "--url", url, "--since", "1h", "--order", "cpu_asc")
+	require.NoError(t, err)
+	assert.Equal(t, "cpu_asc", last.URL.Query().Get("order"), "the server decides which orders work")
+
 	_, err = run(t, "calls", "--url", url, "--order", "slowest")
-	assert.ErrorContains(t, err, "order must be start_desc or duration_desc")
+	assert.ErrorContains(t, err, "order must be <field>_asc or <field>_desc")
 }
 
 func TestJSONFlagPrintsTheTypedResult(t *testing.T) {

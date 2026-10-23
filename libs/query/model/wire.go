@@ -233,9 +233,6 @@ func ParseCallsQuery(params url.Values) (CallsQuery, string) {
 		if err == nil {
 			_, err = compileCondition(c)
 		}
-		if err == nil {
-			err = checkImplemented(c)
-		}
 		if err != nil {
 			return q, "filter " + strconv.Quote(text) + ": " + err.Error()
 		}
@@ -313,10 +310,61 @@ func (q CallsQuery) Values() url.Values {
 			v.Add("filter", c.String())
 		}
 	}
-	if q.Order.ByDuration() {
+	if q.Order.NeedsSort() {
 		v.Set("order", q.Order.String())
 	}
 	return v
+}
+
+// AfterKeyParam names the /internal/v1/calls parameter that carries the sort
+// key of the keyset position (02 §3): after_ts_ms for the start orders,
+// after_duration_ms for the duration orders, and after_key for the others.
+func AfterKeyParam(o Order) string {
+	switch o.Field() {
+	case OrderFieldStart:
+		return "after_ts_ms"
+	case OrderFieldDuration:
+		return "after_duration_ms"
+	}
+	return "after_key"
+}
+
+// ParseAfter reads the keyset position of /internal/v1/calls: the sort key
+// in AfterKeyParam(o) and an optional after_pk. A position without after_pk
+// passes only keys strictly later in the order (02 §2.3.5); the start orders
+// never stop at a band, so they need both. The second return is the 400
+// detail.
+func ParseAfter(o Order, params url.Values) (*Position, string) {
+	name := AfterKeyParam(o)
+	keyRaw, pkRaw := params.Get(name), params.Get("after_pk")
+	if keyRaw == "" {
+		if pkRaw != "" {
+			return nil, "after_pk needs " + name + " with order=" + o.String()
+		}
+		return nil, ""
+	}
+	if o.Field() == OrderFieldStart && pkRaw == "" {
+		return nil, name + " and after_pk must be sent together"
+	}
+	key, err := strconv.ParseInt(keyRaw, 10, 64)
+	if err != nil {
+		return nil, name + " must be an integer"
+	}
+	if o.Field() == OrderFieldDuration && (key < 0 || key > math.MaxInt32) {
+		return nil, name + " must be a duration in milliseconds"
+	}
+	if (o.Field() == OrderFieldQueue || o.Field() == OrderFieldCalls) && (key < math.MinInt32 || key > math.MaxInt32) {
+		return nil, name + " is out of range"
+	}
+	pos := o.PositionAt(key)
+	if pkRaw != "" {
+		pk, err := ParsePKPath(pkRaw)
+		if err != nil {
+			return nil, err.Error()
+		}
+		pos.PK, pos.NoPK = pk, false
+	}
+	return &pos, ""
 }
 
 // hasLegacyForm reports whether Values carries the condition exactly through

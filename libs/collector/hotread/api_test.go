@@ -292,16 +292,17 @@ func TestInternalCallsDurationOrder(t *testing.T) {
 	params := url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"duration_desc"},
 		"after_pk": {pk(0)}}
 	assert.Equal(t, http.StatusBadRequest, getJSON(t, srv, "/internal/v1/calls", params, nil))
-	params = url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"cpu_desc"}}
+	params = url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"size_desc"}}
 	assert.Equal(t, http.StatusBadRequest, getJSON(t, srv, "/internal/v1/calls", params, nil))
 }
 
 // TestInternalCallsTiePaging pins the bounded page under large ties: 2,000
-// calls that share one duration (and, for start_desc, one ts) must come back
-// one row per limit=1 page, in the §2.3.1 component-wise order, with no
-// repeat and no gap. The pods collate differently as pod_restart strings
-// than as PKs, and the duration calls span two partitions, so the SQL
-// keyset must reproduce the comparator and the merge must keep it.
+// calls that share the sort key must come back one row per limit=1 page, in
+// the §2.3.1 component-wise PK order, with no repeat and no gap, in both
+// directions of the key. The pods collate differently as pod_restart strings
+// than as PKs, and the calls of the orders other than start span two
+// partitions, so the SQL keyset must reproduce the comparator and the merge
+// must keep it.
 func TestInternalCallsTiePaging(t *testing.T) {
 	const n = 2000
 	pods := []struct {
@@ -313,6 +314,7 @@ func TestInternalCallsTiePaging(t *testing.T) {
 		PK         model.PK `json:"pk"`
 		TsMs       int64    `json:"ts_ms"`
 		DurationMs int32    `json:"duration_ms"`
+		CpuTimeMs  int64    `json:"cpu_time_ms"`
 	}
 	type rowsPage struct {
 		Calls []pageRow `json:"calls"`
@@ -326,7 +328,7 @@ func TestInternalCallsTiePaging(t *testing.T) {
 		var want []model.PK
 		for i := 0; i < n; i++ {
 			p := i % len(pods)
-			addCall(t, prs[p], tsOf(i), data.Call{Method: 0, Duration: 1, ThreadName: "t",
+			addCall(t, prs[p], tsOf(i), data.Call{Method: 0, Duration: 1, CpuTime: 2, ThreadName: "t",
 				TraceFileIndex: 1, BufferOffset: i, RecordIndex: 0})
 			want = append(want, model.PK{PodNamespace: testNs, PodService: testSvc, PodName: pods[p].name,
 				RestartTimeMs: pods[p].restart, TraceFileIndex: 1, BufferOffset: int32(i)})
@@ -348,21 +350,22 @@ func TestInternalCallsTiePaging(t *testing.T) {
 			last := p.Calls[0]
 			got = append(got, last.PK)
 			params.Set("after_pk", last.PK.PathString())
-			if order == "duration_desc" {
-				params.Set("after_duration_ms", fmt.Sprint(last.DurationMs))
-			} else {
-				params.Set("after_ts_ms", fmt.Sprint(last.TsMs))
-			}
+			o := model.Order(order)
+			pos := model.Position{TsMs: last.TsMs, DurationMs: last.DurationMs, CpuTimeMs: last.CpuTimeMs}
+			params.Set(model.AfterKeyParam(o), fmt.Sprint(o.Key(pos)))
 		}
 		assert.Equal(t, want, got, "every tied call once, in PK order")
 	}
 
-	t.Run("duration_desc", func(t *testing.T) {
-		run(t, "duration_desc", func(i int) int64 { return baseMs + int64(i%2)*6*60_000 + int64(i) })
-	})
-	t.Run("start_desc", func(t *testing.T) {
-		run(t, "start_desc", func(int) int64 { return baseMs + 1 })
-	})
+	// The orders other than start tie across two partitions; cpu has no
+	// index.
+	spread := func(i int) int64 { return baseMs + int64(i%2)*6*60_000 + int64(i) }
+	for _, order := range []string{"duration_desc", "duration_asc", "cpu_desc"} {
+		t.Run(order, func(t *testing.T) { run(t, order, spread) })
+	}
+	for _, order := range []string{"start_desc", "start_asc"} {
+		t.Run(order, func(t *testing.T) { run(t, order, func(int) int64 { return baseMs + 1 }) })
+	}
 }
 
 // TestInternalEmptyWindow pins the empty-replica report: oldest == now, so

@@ -310,8 +310,11 @@ func TestParseRequest(t *testing.T) {
 	assert.Equal(t, OrderDurationSumDesc, ok(params("group_by", "method", "order", "duration_sum_desc", "limit", "1000")).Order)
 
 	bad(params(), "group_by is required")
-	bad(params("group_by", "user.tenant"), "group_by=user.tenant is not implemented")
-	bad(params("group_by", "class"), "group_by=class is not implemented")
+	for _, g := range []string{"user.tenant", "class", "endpoint", "error", "retention_class", "param_name", "trace_id"} {
+		assert.Equal(t, g, ok(params("group_by", g)).GroupBy)
+	}
+	bad(params("group_by", "duration"), "group_by=duration is not a grouping")
+	bad(params("group_by", "9x"), "group_by=9x is not a grouping")
 	bad(params("group_by", "time", "buckets", "0"), "buckets must be")
 	bad(params("group_by", "time", "buckets", "1001"), "buckets must be")
 	bad(params("group_by", "time", "buckets", "x"), "buckets must be")
@@ -322,7 +325,7 @@ func TestParseRequest(t *testing.T) {
 	bad(params("group_by", "service", "limit", "1001"), "limit must be")
 	bad(params("group_by", "service", "order", "start_desc"), "order must be count_desc or duration_sum_desc")
 	bad(params("group_by", "service", "cursor", "x"), "cursor does not apply")
-	bad(params("group_by", "service", "filter", "service!=x"), "is not implemented")
+	bad(params("group_by", "service", "filter", "service=~("), "is not a valid regular expression")
 	_, detail := ParseRequest(url.Values{"group_by": {"time"}})
 	assert.Contains(t, detail, "from and to are required")
 
@@ -353,4 +356,79 @@ func TestInternalRequestKeepsTheExternalGrid(t *testing.T) {
 	assert.Contains(t, detail, "bucket_ms")
 	_, detail = ParseInternalRequest(params("group_by", "time", "bucket_origin_ms", "1500"))
 	assert.Contains(t, detail, "bucket_origin_ms")
+}
+
+// TestStageBGroupings places calls by params, the derived fields, error,
+// retention_class, and param names (02 §2.9), with exact counts.
+func TestStageBGroupings(t *testing.T) {
+	row := func(method, class string, isError bool, params map[string][]string) model.CallRow {
+		r := call("svc", method, 1, 10, isError)
+		r.RetentionClass = class
+		r.Params = params
+		return r
+	}
+	rows := []model.CallRow{
+		row("void a.B.run()", model.RetentionShortClean, false, map[string][]string{
+			"user.tenant": {"acme", "globex", "acme"}, "web.url": {"http://h/orders/1"}, "web.method": {"GET"}}),
+		row("a.B.stop", model.RetentionAnyError, true, map[string][]string{
+			"user.tenant": {"acme"}, "web.url": {"/orders/2?x"}, "web.method": {"GET"}, "flag": {}}),
+		row("#7", model.RetentionShortClean, false, map[string][]string{"user.tenant": {""}, "trace.id": {"t1"}}),
+		row("c.D.go", model.RetentionLongClean, false, nil),
+	}
+	counts := func(groupBy string) (map[string]int64, Totals) {
+		resp := merged(t, fieldRequest(groupBy, 100, OrderCountDesc), rows...)
+		out := map[string]int64{}
+		for _, r := range resp.Rows {
+			out[r.Key.(string)] = r.Count
+		}
+		assert.Equal(t, len(out), resp.Distinct, groupBy)
+		return out, resp.Totals
+	}
+
+	got, totals := counts("user.tenant")
+	assert.Equal(t, map[string]int64{"acme": 2, "globex": 1}, got,
+		"a call counts once in the row of each distinct value; an empty value is no key")
+	assert.Equal(t, Totals{Count: 4, Errors: 1}, totals, "every call counts once in the totals")
+
+	got, _ = counts("class")
+	assert.Equal(t, map[string]int64{"a.B": 2, "c.D": 1}, got, "a method that names no class falls into no row")
+	got, _ = counts("endpoint")
+	assert.Equal(t, map[string]int64{"GET /orders/{id}": 2}, got)
+	got, _ = counts("error")
+	assert.Equal(t, map[string]int64{"true": 1, "false": 3}, got)
+	got, _ = counts("retention_class")
+	assert.Equal(t, map[string]int64{model.RetentionShortClean: 2, model.RetentionAnyError: 1, model.RetentionLongClean: 1}, got)
+	got, _ = counts("trace_id")
+	assert.Equal(t, map[string]int64{"t1": 1}, got)
+	got, _ = counts(model.GroupByParamName)
+	assert.Equal(t, map[string]int64{"user.tenant": 3, "web.url": 2, "web.method": 2, "trace.id": 1}, got,
+		"a param recorded with no value is absent")
+}
+
+// TestSpaceSavingOverAParam bounds a high-cardinality param grouping, the
+// expected case of 02 §2.9: the heaviest values stay, and the result is
+// approximate.
+func TestSpaceSavingOverAParam(t *testing.T) {
+	agg := NewAggregator(Grouping{Field: "request.id"}, OrderCountDesc, 10, nil)
+	add := func(id string, n int) {
+		for range n {
+			r := call("svc", "a.B.c", 1, 10, false)
+			r.Params = map[string][]string{"request.id": {id}}
+			require.NoError(t, agg.Add(&r))
+		}
+	}
+	add("hot", 50)
+	add("warm", 20)
+	for i := range 100 {
+		add(strconv.Itoa(i), 1)
+	}
+	assert.True(t, agg.Approximate())
+	keys := map[string]int64{}
+	for _, g := range agg.Groups() {
+		keys[g.Key] = g.Count
+	}
+	assert.Len(t, keys, 10)
+	assert.Equal(t, int64(50), keys["hot"], "the error bound, 170/10, is below the heavy values")
+	assert.Equal(t, int64(20), keys["warm"])
+	assert.Equal(t, Totals{Count: 170}, agg.Totals())
 }

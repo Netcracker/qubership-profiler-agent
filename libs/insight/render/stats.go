@@ -47,8 +47,8 @@ func Hotspots(w io.Writer, res insight.HotspotsResult) error {
 		if len(s.Groups) > 0 {
 			scope = fmt.Sprintf("in the top %d groups", len(s.Groups))
 		}
-		out.printf("\nSampled, not exact: methods and SQL from the trees of the %d slowest of %d calls %s; %d trees merged.\n",
-			s.Listed, s.Of, scope, s.Trees)
+		out.printf("\nSampled, not exact: methods and SQL from the trees of the %d slowest of %s calls %s; %d trees merged.\n",
+			s.Listed, callsOf(s.Of), scope, s.Trees)
 		writeSampleInfo(out, s.SampleInfo)
 		writeSampledMethods(out, "Inner methods by self time, summed over the sample", s.Methods)
 		writeSampledSQL(out, "SQL, summed over the sample", s.SQL)
@@ -95,6 +95,14 @@ func groupKey(field, key string) string {
 		return insight.ShortMethod(key)
 	}
 	return key
+}
+
+// callsOf renders the number of calls a sample is drawn from.
+func callsOf(of *int64) string {
+	if of == nil {
+		return "an unknown number of"
+	}
+	return fmt.Sprint(*of)
 }
 
 func writeSampleInfo(out *errWriter, s insight.SampleInfo) {

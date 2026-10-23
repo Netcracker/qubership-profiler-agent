@@ -2,39 +2,54 @@ package stats
 
 import (
 	"container/heap"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 )
 
-// Grouping places a call into a group. A time grouping keys a call by the
+// Grouping places a call into groups. A time grouping keys a call by the
 // start of its bucket in Unix ms, written in decimal; a field grouping keys
-// it by the field's value (02 §2.9).
+// it by the field's value as 02 §2.3.3 defines it, so `<field>=<key>`
+// selects the group's calls; param_name keys it by the names of the params
+// it carries (02 §2.9).
 type Grouping struct {
-	// Field is GroupByTime or a field of 02 §2.3.3.
+	// Field is GroupByTime, model.GroupByParamName, or a field of 02 §2.3.3.
 	Field string
 	// OriginMs and BucketMs are the bucket grid of a time grouping.
 	OriginMs int64
 	BucketMs int64
 }
 
-// Key returns the group of a row, and false when the row lacks the field.
-func (g Grouping) Key(r *model.CallRow) (string, bool) {
+// Keys appends the groups of a row to buf[:0] and returns it. A row has one
+// key, none when it lacks the field, and one per distinct value under a
+// multi-valued param or param_name. An empty value is no key: `<field>=`
+// is not a condition.
+func (g Grouping) Keys(r *model.CallRow, buf []string) []string {
+	buf = buf[:0]
 	switch g.Field {
 	case GroupByTime:
 		i := (r.TsMs - g.OriginMs) / g.BucketMs
-		return strconv.FormatInt(g.OriginMs+i*g.BucketMs, 10), true
-	case "method":
-		return r.Method, true
-	case "namespace":
-		return r.PK.PodNamespace, true
-	case "service":
-		return r.PK.PodService, true
-	case "pod":
-		return r.PK.PodName, true
+		return append(buf, strconv.FormatInt(g.OriginMs+i*g.BucketMs, 10))
+	case model.GroupByParamName:
+		for name, vs := range r.Params {
+			if len(vs) > 0 {
+				buf = append(buf, name)
+			}
+		}
+		return buf
 	}
-	return "", false
+	values, ok := model.FieldValues(g.Field, r)
+	if !ok {
+		return buf
+	}
+	for _, v := range values {
+		if v != "" && !slices.Contains(buf, v) {
+			buf = append(buf, v)
+		}
+	}
+	return buf
 }
 
 // Values are the aggregates of one group: the members of a /stats row
@@ -133,6 +148,7 @@ type Aggregator struct {
 	heap        slotHeap
 	totals      Totals
 	approximate bool
+	keys        []string // reused by Add
 }
 
 type slot struct {
@@ -160,30 +176,30 @@ func (a *Aggregator) reserve(n int64) error {
 	return a.charge(n)
 }
 
-// Add records one call that matched the conditions. The row may be reused
-// by the caller after Add returns: the aggregator copies the key.
+// Add records one call that matched the conditions: once in the totals and
+// once in each of its groups. The row may be reused by the caller after Add
+// returns: the aggregator copies the keys.
 func (a *Aggregator) Add(r *model.CallRow) error {
 	a.totals.Count++
 	if r.ErrorFlag {
 		a.totals.Errors++
 	}
-	key, ok := a.grouping.Key(r)
-	if !ok {
-		return nil
-	}
-	s, ok := a.groups[key]
-	if !ok {
-		var err error
-		if s, err = a.open(key); err != nil {
-			return err
+	a.keys = a.grouping.Keys(r, a.keys)
+	for _, key := range a.keys {
+		s, ok := a.groups[key]
+		if !ok {
+			var err error
+			if s, err = a.open(key); err != nil {
+				return err
+			}
 		}
-	}
-	if s.add(r) {
-		if err := a.reserve(BinBytes); err != nil {
-			return err
+		if s.add(r) {
+			if err := a.reserve(BinBytes); err != nil {
+				return err
+			}
 		}
+		heap.Fix(&a.heap, s.index)
 	}
-	heap.Fix(&a.heap, s.index)
 	return nil
 }
 

@@ -4,8 +4,8 @@ import (
 	"maps"
 	"math"
 	"net/url"
-	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 )
@@ -68,8 +68,8 @@ func ParseRequest(params url.Values) (Request, string) {
 	switch {
 	case r.GroupBy == "":
 		return Request{}, "group_by is required: " + groupingList()
-	case !slices.Contains(model.StatsGroupings, r.GroupBy):
-		return Request{}, "group_by=" + r.GroupBy + " is not implemented; this build groups by " + groupingList()
+	case !model.IsStatsGrouping(r.GroupBy):
+		return Request{}, "group_by=" + r.GroupBy + " is not a grouping: " + groupingList()
 	}
 	if r.GroupBy == GroupByTime {
 		for _, name := range []string{"limit", "order"} {
@@ -114,14 +114,7 @@ func ParseRequest(params url.Values) (Request, string) {
 }
 
 func groupingList() string {
-	out := ""
-	for i, g := range model.StatsGroupings {
-		if i > 0 {
-			out += ", "
-		}
-		out += g
-	}
-	return out
+	return "group by " + strings.Join(model.StatsGroupings, ", ") + ", or the name of a call param"
 }
 
 // bucketMs is max(1, ceil((to − from) / buckets)) (02 §2.9). The span is

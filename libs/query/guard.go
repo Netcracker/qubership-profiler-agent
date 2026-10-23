@@ -36,12 +36,15 @@ type guardRejection struct {
 // derivation discovery uses, so a filter that prunes nothing — a
 // duration_min_ms below the first tier bound, or a retention_class list
 // naming every class — no longer buys a guard exemption (№28). method and
-// params filter rows inside already-listed files, so they do not exempt.
+// params filter rows inside already-listed files, so they do not exempt. No
+// negation exempts either, not even a retention_class one that discovery
+// prunes by, so the class check runs without the negative conditions.
 // order=duration_desc exempts too: its first page lists only the longest band
 // and the error classes, and the cost layer checks every band before it
-// opens (02 §2.3.5).
+// opens (02 §2.3.5). duration_asc does not: its first band, short_clean, is
+// the largest class.
 func (s *Service) hasNarrowingFilter(q model.CallsQuery) bool {
-	return hasPodFilter(q) || q.Order.ByDuration() || len(s.cold.ClassesFor(q)) < len(model.RetentionClasses)
+	return hasPodFilter(q) || q.Order == model.OrderDurationDesc || len(s.cold.ClassesFor(q.WithoutNegations())) < len(model.RetentionClasses)
 }
 
 // hasPodFilter reports a `pod` filter or a namespace, service, or pod

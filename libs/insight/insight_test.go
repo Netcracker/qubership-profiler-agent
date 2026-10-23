@@ -198,7 +198,7 @@ func TestCallsRestartsFromPageOneOnARejectedCursor(t *testing.T) {
 }
 
 func TestCallsSendsTheOrder(t *testing.T) {
-	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"), ok("calls.json"))
+	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"), ok("calls.json"), ok("calls.json"))
 	_, err := c.Calls(context.Background(), CallsInput{Order: OrderSlowest})
 	require.NoError(t, err)
 	assert.Equal(t, "duration_desc", r.reqs[0].URL.Query().Get("order"))
@@ -213,8 +213,13 @@ func TestCallsSendsTheOrder(t *testing.T) {
 	assert.Equal(t, "duration_desc", r.reqs[2].URL.Query().Get("order"),
 		"a cursor page re-sends the order, so the server checks it against page 1")
 
-	_, err = c.Calls(context.Background(), CallsInput{Order: "cpu_desc"})
-	assert.ErrorContains(t, err, `not "cpu_desc"`)
+	_, err = c.Calls(context.Background(), CallsInput{Order: "cpu_asc"})
+	require.NoError(t, err, "the server decides which orders work")
+	assert.Equal(t, "cpu_asc", r.reqs[3].URL.Query().Get("order"))
+
+	_, err = c.Calls(context.Background(), CallsInput{Order: "slowest"})
+	assert.ErrorContains(t, err, `not "slowest"`)
+	assert.Len(t, r.reqs, 4, "a malformed order sends no request")
 }
 
 func TestCallsRestartKeepsTheOrderOfPageOne(t *testing.T) {
@@ -241,6 +246,19 @@ func TestCallsRestartKeepsTheOrderOfPageOne(t *testing.T) {
 	assert.Equal(t, OrderSlowest, next.Order, "the restarted listing's cursor keeps the order")
 }
 
+func TestCallsCursorKeepsAStageBOrder(t *testing.T) {
+	c, r := newReplay(t, nil,
+		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
+		ok("calls.json"))
+	cursor := encodeCallsCursor("stale", nil, "cpu_asc")
+	res, err := c.Calls(context.Background(), CallsInput{Cursor: cursor})
+	require.NoError(t, err)
+	assert.True(t, res.Restarted)
+	assert.Equal(t, "stale", r.reqs[0].URL.Query().Get("cursor"), "an order beyond newest and slowest decodes")
+	assert.Equal(t, "cpu_asc", r.reqs[0].URL.Query().Get("order"))
+	assert.Equal(t, "cpu_asc", r.reqs[1].URL.Query().Get("order"), "the restart keeps the recorded order")
+}
+
 func TestCallsAcceptsACursorWithoutAnOrder(t *testing.T) {
 	c, r := newReplay(t, nil,
 		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
@@ -261,6 +279,7 @@ func TestCallsRestartsFromPageOneOnACursorThatDoesNotDecode(t *testing.T) {
 		"***",
 		encodeCallsCursor("", nil, ""),
 		encodeCallsCursor("x", []string{"service"}, ""),
+		encodeCallsCursor("x", nil, "slowest"), // not <field>_<asc|desc>
 	} {
 		c, r := newReplay(t, nil, ok("calls.json"))
 		res, err := c.Calls(context.Background(), CallsInput{Cursor: junk, Filters: Filters{Service: "prod/billing"}})

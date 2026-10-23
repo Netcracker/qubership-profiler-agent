@@ -32,21 +32,30 @@ func TestParseCallsQueryAcceptsStageAFilters(t *testing.T) {
 		q.Filters, "legacy parameters and filter mix")
 }
 
-func TestParseCallsQueryRejectsWhatStageADoesNotImplement(t *testing.T) {
+func TestParseCallsQueryAcceptsStageBFilters(t *testing.T) {
+	q, detail := ParseCallsQuery(window(
+		"service!=billing", "pod not in a,b", "namespace=~^prod", "method!~Order", "method=x", "method!=y",
+		"class=com.example.Foo", "endpoint=GET /x", "user.tenant in a,b", "trace_id=None", "user.tenant!=Any",
+		"endpoint=None", "retention_class not in short_clean", "request_id!=abc", "trace_id=~^4b",
+	))
+	require.Empty(t, detail)
+	assert.Len(t, q.Filters, 15)
+}
+
+func TestParseCallsQueryRejectsWhatTheModelDoesNotHave(t *testing.T) {
 	for text, message := range map[string]string{
-		"service!=billing":   "!= on service is not implemented",
-		"pod not in a":       "not in on pod is not implemented",
-		"namespace=~prod":    "=~ on namespace is not implemented",
-		"method!~Order":      "!~ on method is not implemented",
-		"method=x":           "= on method is not implemented",
-		"class=Foo":          "the field class is not implemented",
-		"endpoint=GET /x":    "the field endpoint is not implemented",
-		"user.tenant in a,b": "in on user.tenant is not implemented",
-		"trace_id=None":      "the value None is not implemented",
-		"user.tenant!=Any":   "!= on user.tenant is not implemented",
-		"duration=1s":        "does not take the operator =",
-		"duration>soon":      "is not a duration",
-		"service":            "has no operator",
+		"duration=1s":                "does not take the operator =",
+		"duration>soon":              "is not a duration",
+		"service":                    "has no operator",
+		"method in a,b":              "the field method does not take the operator in",
+		"trace_id in a,b":            "the field trace_id does not take the operator in",
+		"request_id!~a":              "the field request_id does not take the operator !~",
+		"retention_class=~clean":     "the field retention_class does not take the operator =~",
+		"error!=true":                "the field error does not take the operator !=",
+		"class=None":                 "every call has a class, so None does not apply",
+		"service!=Any":               "every call has a service, so Any does not apply",
+		"retention_class!=sometimes": "is not a retention class",
+		"user.tenant=~(":             "is not a valid regular expression",
 	} {
 		_, detail := ParseCallsQuery(window(text))
 		assert.Contains(t, detail, message, text)
@@ -150,18 +159,52 @@ func TestIdentityPrefixesCountBeforeBuilding(t *testing.T) {
 		"an empty pod list stops the join before it starts")
 }
 
-func TestCapabilitiesMatchTheGate(t *testing.T) {
+func TestCapabilitiesMatchTheModel(t *testing.T) {
 	caps := Capabilities()
-	assert.Equal(t, []Op{OpEq, OpIn}, caps.Fields["service"])
-	assert.Equal(t, []Op{OpEq}, caps.ParamOperators)
-	assert.Equal(t, []Op{OpMatch}, caps.Fields["method"])
-	assert.NotContains(t, caps.Fields, "class")
+	assert.Equal(t, []Op{OpEq, OpNe, OpMatch, OpNotMatch, OpIn, OpNotIn}, caps.Fields["service"])
+	assert.Equal(t, []Op{OpEq, OpNe, OpMatch, OpNotMatch, OpIn, OpNotIn}, caps.ParamOperators)
+	assert.Equal(t, []Op{OpEq, OpNe, OpMatch, OpNotMatch}, caps.Fields["method"])
+	assert.Equal(t, []string{ValueNone, ValueAny}, caps.SpecialValues)
+	assert.Contains(t, caps.Fields, "class")
+	assert.Contains(t, caps.Fields, "endpoint")
 	assert.NotContains(t, caps.Fields, FieldPodTuple)
 	for field, ops := range caps.Fields {
 		for _, op := range ops {
-			assert.NoError(t, checkImplemented(Condition{field, op, []string{"x"}}), "%s %s", field, op)
+			value := "x"
+			if field == "duration" {
+				value = "1s"
+				if op == OpBetween {
+					value = "1s..2s"
+				}
+			}
+			if field == "error" {
+				value = "true"
+			}
+			if field == "retention_class" {
+				value = RetentionAnyError
+			}
+			text := Condition{field, op, []string{value}}.String()
+			_, detail := ParseCallsQuery(window(text))
+			assert.Empty(t, detail, text)
 		}
 	}
 	caps.Fields["service"][0] = OpNe
-	assert.Equal(t, OpEq, Capabilities().Fields["service"][0], "a caller cannot change the gate")
+	assert.Equal(t, OpEq, Capabilities().Fields["service"][0], "a caller cannot change the model")
+}
+
+func TestNegationViews(t *testing.T) {
+	q := conds(t, "retention_class not in short_clean,normal_clean", "retention_class!=short_clean",
+		"service!=billing", "user.tenant!~a", "namespace=prod")
+	assert.Equal(t, []string{RetentionShortClean, RetentionNormalClean}, q.ExcludedRetentionClasses())
+	assert.Equal(t, []Condition{{"namespace", OpEq, []string{"prod"}}}, q.WithoutNegations().Filters)
+	assert.Len(t, q.Filters, 5, "the view does not change the query")
+}
+
+func TestIsSingleValued(t *testing.T) {
+	for _, name := range []string{"method", "service", "class", "endpoint", "error", "retention_class"} {
+		assert.True(t, IsSingleValued(name), name)
+	}
+	for _, name := range []string{"user.tenant", "trace_id", "request_id", GroupByParamName} {
+		assert.False(t, IsSingleValued(name), name)
+	}
 }

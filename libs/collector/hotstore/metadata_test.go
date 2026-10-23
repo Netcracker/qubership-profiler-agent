@@ -281,9 +281,9 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 }
 
 // TestCallsPageAfterBoundsTies pins the keyset page: 2,000 rows that share
-// one duration and one ts come back at most `limit` rows per page, and
+// every sort key come back at most `limit` rows per page in each order, and
 // paging from each page's last row visits every row once, in the §2.3.1
-// component-wise PK order. The pod_restart strings collate differently from
+// component-wise PK order, whatever the direction of the sort key. The pod_restart strings collate differently from
 // the PKs ("a-b" < "a" and "1000" < "999" as text), so the SQL sort keys
 // must reproduce the comparator, not the string.
 func TestCallsPageAfterBoundsTies(t *testing.T) {
@@ -300,6 +300,7 @@ func TestCallsPageAfterBoundsTies(t *testing.T) {
 		pr := podRestarts[i%len(podRestarts)]
 		require.NoError(t, store.db.InsertCall(bucket, CallIndexRow{
 			PodRestart: pr, TraceFileIndex: 1, BufferOffset: i, TsMs: base + 100, DurationMs: 1,
+			CpuTimeMs: 5, NetRead: 3, NetWritten: 4,
 			RetentionClass: RetentionShortClean, CallsWalOffset: int64(i),
 		}))
 		want = append(want, pkOf(t, CallIndexRow{PodRestart: pr, TraceFileIndex: 1, BufferOffset: i}))
@@ -307,7 +308,10 @@ func TestCallsPageAfterBoundsTies(t *testing.T) {
 	slices.SortFunc(want, model.PK.Compare)
 
 	window := model.CallsQuery{FromMs: base, ToMs: base + 1000}
-	for _, order := range []model.Order{model.OrderStartDesc, model.OrderDurationDesc} {
+	// cpu_desc and net_asc sort by keys with no index; net is a sum in SQL.
+	orders := []model.Order{model.OrderStartDesc, model.OrderDurationDesc, "start_asc",
+		model.OrderDurationAsc, "cpu_desc", "net_asc"}
+	for _, order := range orders {
 		t.Run(order.String(), func(t *testing.T) {
 			var got []model.PK
 			var after *model.Position
@@ -320,17 +324,30 @@ func TestCallsPageAfterBoundsTies(t *testing.T) {
 				require.Len(t, page, 1, "limit=1 reads one row, however large the tie")
 				pk := pkOf(t, page[0])
 				got = append(got, pk)
-				after = &model.Position{TsMs: page[0].TsMs, DurationMs: int32(page[0].DurationMs), PK: pk}
+				after = &model.Position{TsMs: page[0].TsMs, DurationMs: int32(page[0].DurationMs),
+					CpuTimeMs: page[0].CpuTimeMs, NetBytes: page[0].NetRead + page[0].NetWritten, PK: pk}
 			}
 			assert.Equal(t, want, got, "every tied row once, in PK order")
 
+			key := order.Key(*after)
 			page, err := store.CallsPageAfter(bucket, window, window.FromMs, window.ToMs, order,
-				&model.Position{TsMs: base + 100, DurationMs: 1, NoPK: true}, 10)
+				ptr(order.PositionAt(key)), 10)
 			require.NoError(t, err)
-			assert.Empty(t, page, "a position with no PK passes only lower sort keys")
+			assert.Empty(t, page, "a position with no PK passes only keys strictly later in the order")
+
+			earlier := key + 1
+			if !order.Desc() {
+				earlier = key - 1
+			}
+			page, err = store.CallsPageAfter(bucket, window, window.FromMs, window.ToMs, order,
+				ptr(order.PositionAt(earlier)), 10)
+			require.NoError(t, err)
+			assert.Len(t, page, 10, "a position with no PK before the tie admits the whole tie")
 		})
 	}
 }
+
+func ptr[T any](v T) *T { return &v }
 
 func pkOf(t *testing.T, row CallIndexRow) model.PK {
 	t.Helper()

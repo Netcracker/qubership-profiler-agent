@@ -44,8 +44,9 @@ var operations = []operation{
 	{name: "calls", add: tool(&mcp.Tool{
 		Name:  "profiler_find_calls",
 		Title: "Find calls",
-		Description: "Find profiled calls, newest first or slowest first, by service, duration, error, or a " +
-			"request or trace ID. Each call has a ref to pass to profiler_explain_call.",
+		Description: "Find profiled calls by service, duration, error, or a request or trace ID, newest first " +
+			"unless order sorts them by duration, CPU, queue wait, child calls, or network bytes. Each call has a " +
+			"ref to pass to profiler_explain_call.",
 	}, func(ctx context.Context, c *insight.Client, in CallsArgs) (insight.CallsResult, error) {
 		w, f, err := parseScope(in.WindowArgs, in.FilterArgs)
 		if err != nil {
@@ -71,7 +72,7 @@ var operations = []operation{
 		Name:  "profiler_hotspots",
 		Title: "Hotspots",
 		Description: "Rank where a service's time goes: exact per-group statistics (calls, errors, total time, " +
-			"percentiles) by root method, service, pod, or namespace, plus the inner methods and SQL from a sample " +
+			"percentiles) by root method, class, endpoint, pod, a call parameter, or another field, plus the inner methods and SQL from a sample " +
 			"of the slowest calls. Use it for what is slow in a service, before explaining single calls.",
 	}, func(ctx context.Context, c *insight.Client, in HotspotsArgs) (insight.HotspotsResult, error) {
 		w, f, err := parseScope(in.WindowArgs, in.FilterArgs)
@@ -147,9 +148,9 @@ type FilterArgs struct {
 // Condition is the structured form of one filter condition (02 §2.3.3): the
 // same condition the CLI takes as the text "<field><op><value>".
 type Condition struct {
-	Field string `json:"field" jsonschema:"duration, namespace, service, pod, error, request_id, trace_id, method, or a call parameter name"`
-	Op    string `json:"op" jsonschema:"the operator"`
-	Value string `json:"value" jsonschema:"such as 1s or 500ms for duration, true for error, a,b for in, or 100ms..2s for between"`
+	Field string `json:"field" jsonschema:"duration, namespace, service, pod, method, class, endpoint, error, retention_class, request_id, trace_id, or a call parameter name"`
+	Op    string `json:"op" jsonschema:"the operator; =~ and !~ take an RE2 regular expression matched anywhere in the value"`
+	Value string `json:"value" jsonschema:"such as 1s or 500ms for duration, true for error, a,b for in, or 100ms..2s for between; None or Any with = or != match a call without or with the field"`
 }
 
 // ops are the operators the filter model defines. A build may implement a
@@ -205,7 +206,7 @@ type ServicesArgs struct {
 type CallsArgs struct {
 	WindowArgs
 	FilterArgs
-	Order  string `json:"order,omitempty" jsonschema:"start_desc lists the newest calls first, duration_desc the slowest; the default is start_desc"`
+	Order  string `json:"order,omitempty" jsonschema:"start_desc lists the newest calls first, duration_desc the slowest; the default is start_desc. The other orders sort by cpu, queue, calls, or net, or ascend, and only duration_desc narrows a wide window by itself"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"calls per page; the default is 20"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"continue the listing from an earlier result's next_cursor, with the same filters or none"`
 }
@@ -221,7 +222,7 @@ type ExplainArgs struct {
 
 // StatsArgs are the grouping inputs of hotspots and compare.
 type StatsArgs struct {
-	GroupBy string `json:"group_by,omitempty" jsonschema:"group by method (the root method), service, pod, or namespace; the default is method"`
+	GroupBy string `json:"group_by,omitempty" jsonschema:"group by method (the root method), class, endpoint, service, pod, namespace, error, retention_class, trace_id, request_id, param_name, or a call parameter name; the default is method. A call with several values of a parameter counts in each value's group"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"top groups to list, in each window for compare; the default is 10"`
 	Order   string `json:"order,omitempty" jsonschema:"duration_sum_desc ranks by total time, count_desc by call count; the default is duration_sum_desc"`
 }
@@ -308,7 +309,10 @@ func inputSchema[In any]() (*jsonschema.Schema, error) {
 		}
 	}
 	if order, ok := schema.Properties["order"]; ok {
-		order.Enum = []any{insight.OrderNewest, insight.OrderSlowest}
+		order.Enum = nil
+		for _, o := range insight.CallOrders {
+			order.Enum = append(order.Enum, o)
+		}
 		if _, grouped := schema.Properties["group_by"]; grouped {
 			order.Enum = []any{string(insight.OrderDurationSumDesc), string(insight.OrderCountDesc)}
 		}

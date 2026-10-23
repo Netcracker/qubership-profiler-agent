@@ -129,12 +129,13 @@ func gatewayTimeout(c echo.Context, reasons []string) error {
 func (s *Service) handleCalls(c echo.Context) error {
 	ctx := c.Request().Context()
 	params := c.QueryParams()
-	bands := model.DurationBands(s.cold.DurationThresholds)
+	allBands := model.DurationBands(s.cold.DurationThresholds)
 
 	var q model.CallsQuery
 	var after *model.Position
+	var bands []model.DurationBand
 	frozen := params
-	band := bands[0].Class // a first page reads the longest band (02 §2.3.5)
+	band := ""
 	firstPage := !params.Has("cursor")
 	if firstPage {
 		parsed, errDetail := model.ParseCallsQuery(params)
@@ -142,6 +143,9 @@ func (s *Service) handleCalls(c echo.Context) error {
 			return badRequest(c, errDetail)
 		}
 		q = parsed
+		// A first page reads the first band of the walk (02 §2.3.5).
+		bands = q.Order.WalkBands(allBands)
+		band = bands[0].Class
 	} else {
 		tok, err := decodeCursor(params.Get("cursor"), s.cfg.CursorTTL)
 		if err != nil {
@@ -156,8 +160,9 @@ func (s *Service) handleCalls(c echo.Context) error {
 		if detail := frozenQueryMismatch(tok.Params, frozenQ, params); detail != "" {
 			return cursorRejected(c, detail)
 		}
+		bands = frozenQ.Order.WalkBands(allBands)
 		if frozenQ.Order.ByDuration() {
-			if band, err = cursorBand(bands, tok); err != nil {
+			if band, err = cursorBand(frozenQ.Order, bands, tok); err != nil {
 				return cursorRejected(c, err.Error())
 			}
 		}
@@ -291,7 +296,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 	if more && cursorAt != nil {
 		nextBand := ""
 		if q.Order.ByDuration() {
-			nextBand = model.BandFor(bands, *cursorAt)
+			nextBand = model.BandFor(q.Order, bands, *cursorAt)
 		}
 		cur := encodeCursor(frozen, *cursorAt, nextBand)
 		resp.NextCursor = &cur

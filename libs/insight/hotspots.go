@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/stats"
 	"github.com/pkg/errors"
 )
 
 // Hotspots defaults and caps.
 const (
-	// DefaultGroupBy groups by the root method, the only call-level field
-	// that names code.
+	// DefaultGroupBy groups by the root method, the entry point a
+	// developer looks for first; class and endpoint group coarser.
 	DefaultGroupBy      = "method"
 	DefaultHotspotLimit = 10
 	MaxHotspotLimit     = 50
@@ -124,7 +125,16 @@ func (c *Client) Hotspots(ctx context.Context, in HotspotsInput) (HotspotsResult
 		res.Notes = append(res.Notes, "the sampled layer failed: "+err.Error())
 		return res, nil
 	}
-	info.Of = of
+	if info.Of = of; of == nil {
+		n, partial, note, err := c.callCount(ctx, window, sampleConditions)
+		if err != nil {
+			return HotspotsResult{}, err
+		}
+		info.Of, info.Partial = n, append(info.Partial, partial...)
+		if note != "" {
+			res.Notes = append(res.Notes, note)
+		}
+	}
 	sample := &HotspotsSample{
 		SampleInfo: info, Groups: groups,
 		Methods: agg.rankedMethods(), SQL: agg.rankedSQL(),
@@ -137,8 +147,8 @@ func (c *Client) Hotspots(ctx context.Context, in HotspotsInput) (HotspotsResult
 		sample.SQL = sample.SQL[:topListSize]
 		res.Notes = append(res.Notes, fmt.Sprintf("the sampled SQL lists the top %d of %d statements; explain a sampled call to see the rest", topListSize, n))
 	}
-	if int64(in.Sample) < of {
-		res.Notes = append(res.Notes, fmt.Sprintf("the sample reads %d of %d calls; a larger sample reads more", in.Sample, of))
+	if info.Of != nil && int64(in.Sample) < *info.Of {
+		res.Notes = append(res.Notes, fmt.Sprintf("the sample reads %d of %d calls; a larger sample reads more", in.Sample, *info.Of))
 	}
 	res.Sample = sample
 	return res, nil
@@ -150,9 +160,16 @@ func (c *Client) Hotspots(ctx context.Context, in HotspotsInput) (HotspotsResult
 // shown rather than a group past the cut; it returns the keys and their
 // exact call count. A build that cannot select the groups in one condition
 // leaves the sample unrestricted, with a note.
-func (c *Client) sampleScope(ctx context.Context, st StatsResult, field string, conditions []string, notes *[]string) ([]string, []string, int64, error) {
+//
+// The count is nil when the groups' counts cannot give it: the rows of a
+// multi-valued grouping overlap, and an approximate row may be overcounted.
+// The caller then counts the calls under the returned conditions. For a
+// single-valued grouping the sum of exact rows is the count, which saves a
+// second scan of the window.
+func (c *Client) sampleScope(ctx context.Context, st StatsResult, field string, conditions []string, notes *[]string) ([]string, []string, *int64, error) {
+	all := st.Totals.Count
 	if st.Other == nil {
-		return conditions, nil, st.Totals.Count, nil
+		return conditions, nil, &all, nil
 	}
 	keys := make([]string, 0, min(len(st.Rows), sampleGroupsMax))
 	for _, row := range capList(st.Rows, sampleGroupsMax) {
@@ -160,16 +177,20 @@ func (c *Client) sampleScope(ctx context.Context, st StatsResult, field string, 
 	}
 	caps, err := c.capabilities(ctx)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, err
 	}
 	cond, covered := groupCondition(caps, field, keys)
 	if cond == "" {
 		*notes = append(*notes, fmt.Sprintf("the sample is drawn from every call under the filters, not only the listed groups: "+
 			"the server cannot select %s values in one condition", field))
-		return conditions, nil, st.Totals.Count, nil
+		return conditions, nil, &all, nil
 	}
 	if len(covered) < len(st.Rows) {
 		*notes = append(*notes, fmt.Sprintf("the sample is drawn from the top %d of the %d listed groups", len(covered), len(st.Rows)))
+	}
+	sampleConditions := append(slices.Clone(conditions), cond)
+	if !model.IsSingleValued(field) || st.Approximate {
+		return sampleConditions, covered, nil, nil
 	}
 	var of int64
 	for _, row := range st.Rows {
@@ -177,7 +198,7 @@ func (c *Client) sampleScope(ctx context.Context, st StatsResult, field string, 
 			of += row.Count
 		}
 	}
-	return append(slices.Clone(conditions), cond), covered, of, nil
+	return sampleConditions, covered, &of, nil
 }
 
 func (in HotspotsInput) withDefaults() (HotspotsInput, error) {

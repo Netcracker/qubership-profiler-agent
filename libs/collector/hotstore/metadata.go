@@ -1138,12 +1138,15 @@ func (m *metaDb) MinTsMs(bucket int64) (*int64, error) {
 }
 
 // callsQueryWhere renders the SQL-pushable predicates of q (№15): the ts
-// window, the duration bounds, the error flag, the retention classes, and
-// the pod and identity filters (pod_restart is "<pod_id>/<restartMs>", so a
-// pod, a service, or a namespace matches by prefix), each from the
-// conditions' narrowed views. Every other condition,
-// the method filter among them, stays in Go — it matches the
-// dictionary-resolved name, which SQL does not have.
+// window, the duration bounds, the error flag, the retention classes a
+// condition selects or excludes, and the pod and identity filters with `=`
+// or `in` (pod_restart is "<pod_id>/<restartMs>", so a pod, a service, or a
+// namespace matches by prefix), each from the conditions' narrowed views.
+// Every other condition stays in Go, which re-checks every row anyway:
+// method and class match the dictionary-resolved name, which SQL does not
+// have; params, trace_id, request_id, and endpoint live in params_json; and
+// an identity negation or regular expression cannot be written as a prefix
+// of the composite pod_restart key.
 func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
 	where := "ts_ms >= ? AND ts_ms < ?"
 	args := []any{fromMs, toMs}
@@ -1165,6 +1168,12 @@ func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
 		}
 		where += " AND retention_class IN (?" + strings.Repeat(",?", len(classes)-1) + ")"
 		for _, c := range classes {
+			args = append(args, c)
+		}
+	}
+	if excluded := q.ExcludedRetentionClasses(); len(excluded) > 0 {
+		where += " AND retention_class NOT IN (?" + strings.Repeat(",?", len(excluded)-1) + ")"
+		for _, c := range excluded {
 			args = append(args, c)
 		}
 	}
@@ -1211,6 +1220,22 @@ func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64,
 	return m.topPage(bucket, "ts_ms", where, args, limit, fromMs)
 }
 
+// sortColumns are the SQL sort keys of the /calls orders (02 §2.3.5); each
+// computes what model.Order.Key reads from a row, so SQL and the Go merge
+// agree on the order. Only ts_ms and duration_ms have an index. A page in
+// another order scans the partition's matching rows and keeps the first
+// `limit` in SQLite's bounded sorter: a partition holds one time bucket of
+// one replica, so the cost is bounded, and an index per key would slow
+// every insert of the write path for an order the UI seldom asks for.
+var sortColumns = map[string]string{
+	model.OrderFieldStart:    "ts_ms",
+	model.OrderFieldDuration: "duration_ms",
+	model.OrderFieldCPU:      "cpu_time_ms",
+	model.OrderFieldQueue:    "queue_wait_ms",
+	model.OrderFieldCalls:    "child_calls",
+	model.OrderFieldNet:      "(net_read + net_written)",
+}
+
 // podKeySQL and restartSQL split the scalar pod_restart key
 // ("<ns>/<service>/<pod>/<restartMs>") into two sort keys that reproduce the
 // component-wise PK order of 02 §2.3.1 under SQLite's binary collation.
@@ -1232,41 +1257,40 @@ func podSortKey(pk model.PK) string {
 }
 
 // CallsPageAfter reads one partition's page for the hot /calls path (№15) in
-// the given order (02 §2.3.5): the filters push into SQL, the seek skips
-// every row up to and including after, and the rows come back in the full
-// (sort key DESC, pk ASC) keyset order, at most limit of them. A nil after
-// starts from the top; an after with no PK passes only lower sort keys. The
-// caller pages further with after = the last row's position, so a tie group
-// of any size is read limit rows at a time; fewer than limit rows back means
-// the partition holds no more past the seek.
+// any order (02 §2.3.5): the filters push into SQL, the seek skips every row
+// up to and including after, and the rows come back in the full keyset
+// order (sort key in the order's direction, then pk ASC), at most limit of
+// them. A nil after starts from the top; an after with no PK passes only
+// sort keys strictly later in the order. The caller pages further with
+// after = the last row's position, so a tie group of any size is read limit
+// rows at a time; fewer than limit rows back means the partition holds no
+// more past the seek.
 func (m *metaDb) CallsPageAfter(bucket int64, q model.CallsQuery, fromMs, toMs int64,
 	order model.Order, after *model.Position, limit int) ([]CallIndexRow, error) {
 	where, args := callsQueryWhere(q, fromMs, toMs)
-	column := "ts_ms"
-	if order.ByDuration() {
-		column = "duration_ms"
+	column := sortColumns[order.Field()]
+	dir, later := "DESC", "<"
+	if !order.Desc() {
+		dir, later = "ASC", ">"
 	}
 	if after != nil {
-		key := after.TsMs
-		if order.ByDuration() {
-			key = int64(after.DurationMs)
-		}
+		key := order.Key(*after)
 		if after.NoPK {
-			where += " AND " + column + " < ?"
+			where += " AND " + column + " " + later + " ?"
 			args = append(args, key)
 		} else {
 			pk := after.PK
-			// The outer bound lets the column's index serve the range; the
+			// The outer bound lets an indexed column serve the range; the
 			// row value carries the PK tiebreak inside the cursor's key.
-			where += " AND " + column + " <= ? AND (" + column + " < ? OR (" + pkOrderSQL +
-				") > (?, ?, ?, ?, ?))"
+			where += " AND " + column + " " + later + "= ? AND (" + column + " " + later + " ? OR (" +
+				pkOrderSQL + ") > (?, ?, ?, ?, ?))"
 			args = append(args, key, key, podSortKey(pk), pk.RestartTimeMs,
 				pk.TraceFileIndex, pk.BufferOffset, pk.RecordIndex)
 		}
 	}
 	sql := `SELECT ` + callIndexColumns + `
 		FROM call_index WHERE ` + where + `
-		ORDER BY ` + column + ` DESC, ` + pkOrderSQL + `
+		ORDER BY ` + column + ` ` + dir + `, ` + pkOrderSQL + `
 		LIMIT ?`
 	args = append(args, limit)
 	var rows []CallIndexRow

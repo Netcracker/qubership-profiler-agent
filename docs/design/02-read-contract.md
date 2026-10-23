@@ -248,11 +248,17 @@ param, so a trace ID the UI shows for a call always finds that call. Each name a
 `class` is the declaring class of the root method. Take the `method` text before its first `(`, then its last
 whitespace-separated word, which is the qualified method name; the class is that name up to its last `.`. For
 `void com.example.OrderService.place(long) (OrderService.java) [orders.jar]` the class is `com.example.OrderService`.
+A qualified name without a `.`, such as the `#<id>` placeholder of a method missing from the dictionary, names no
+class. Such a call lacks the field, like a call without a param: it meets only negative conditions on `class` and
+falls into no `/stats` row. `None` and `Any` still do not apply to `class`, because the UI offers them only for
+fields a call is expected to lack.
 
 `endpoint` is `<web.method> <path>`, for example `GET /orders/{id}`. `<path>` is the path of the `web.url` value, with
-the scheme, the authority, and any query string removed. Each path segment that is all digits, a UUID, or 16 or more
-hex digits is replaced by `{id}`, which keeps the number of distinct endpoints small enough to group by. A call
-without `web.url` has no endpoint. A call with `web.url` and no `web.method` has the path alone.
+the scheme, the authority, any query string, and any fragment removed; a URL without a path has the path `/`. Each
+path segment that is all digits, a UUID, or 16 or more hex digits is replaced by `{id}`, which keeps the number of
+distinct endpoints small enough to group by. A call without `web.url` has no endpoint. A call with `web.url` and no
+`web.method` has the path alone. When either param has several values, the first one counts, as in the UI's call
+title.
 
 **Matching.**
 
@@ -314,7 +320,8 @@ UI's filter bar turns a typed word into `method=~<word>`.
     "param_operators": ["="],
     "special_values": [],
     "orders": ["start_desc"],
-    "group_by": []
+    "group_by": [],
+    "group_by_params": false
   }
 }
 ```
@@ -322,8 +329,10 @@ UI's filter bar turns a typed word into `method=~<word>`.
 - `fields` maps each implemented field to its implemented operators. A field that is missing is not implemented.
 - `param_operators` lists the operators that work on call params.
 - `special_values` lists `None` and `Any` once they work.
-- `orders` lists the `/calls` orders the build implements (§2.3.5), and `group_by` the `/stats` groupings (§2.9). A
-  build without either holds only `start_desc` and no grouping, as the example shows.
+- `orders` lists the `/calls` orders the build implements (§2.3.5), and `group_by` the named `/stats` groupings
+  (§2.9). A build without either holds only `start_desc` and no grouping, as the example shows.
+- `group_by_params` is `true` when `group_by` also takes the name of a call param (§2.9). A build that does not
+  report it groups by no param.
 
 A client that finds no `filter_capabilities`, from a build older than the filter model, assumes the legacy parameters
 only.
@@ -356,8 +365,10 @@ so a call that migrates from the hot tier to the cold tier keeps its place in ev
 | A | `start_desc`, `duration_desc` |
 | B | Every other field and direction of the table above |
 
-No retention class bounds `cpu`, `queue`, `calls`, or `net`, so a stage B order other than `duration_asc` reads every
-file of the window and works only inside the wide-query guard (§2.3.2).
+No retention class bounds `start`, `cpu`, `queue`, `calls`, or `net`, so an order on one of them reads every file of
+the window, as `start_desc` does, and works only inside the wide-query guard (§2.3.2): it is no narrowing filter, and
+the cost layer charges the whole discovery. Ascending or descending, the cold scan sorts each batch it reads, because
+a file holds its rows in start order.
 
 **`duration_desc` reads the duration bands from the top.** The clean retention classes are disjoint duration bands of
 the tier table (`01-write-contract.md` §6.4): `huge_clean`, `long_clean`, `normal_clean`, and `short_clean`, from the
@@ -399,6 +410,24 @@ Every page therefore either returns a row or moves `band` to a shorter band, so 
 `next_cursor` is `null` once every band the conditions allow and the error classes hold no row past the cursor. The
 hot tier needs no bands: a hot source returns up to `limit` rows past the cursor in `(duration_ms DESC, pk ASC)` order,
 and `query` merges them with the cold rows by the same comparator.
+
+**`duration_asc` is the same walk from the bottom.** It reads the clean bands from `short_clean` up, with the error
+classes alongside the first band, and its cursor records `band` as the shortest band the next page may still need; a
+first page has `short_clean`. A band's frontier is its last duration, `upper − 1`, where `duration_desc` uses the
+lower bound: a page ends once `limit` merged rows sit at or below the frontier of the band just read, and a page the
+cost layer stops before a band returns the rows at or below the frontier of the last band it read, with a
+`next_cursor` at that frontier with no PK. A position with no PK passes only longer calls. The walk saves no file
+the way `duration_desc` does, because the shortest band, `short_clean`, is the largest class: `duration_asc` is no
+narrowing filter for the span layer, and a lower bound on `duration` is what makes its first band cheap.
+
+**Hot tier.** Every order reads the hot store per call-index partition by the full keyset of §2.3.1: each partition
+returns up to `limit` rows past the cursor, the sort key in the order's direction and the PK ascending, and never
+reads a tie group whole. Each partition's run merges into the page by the shared comparator as it arrives, so a
+request holds at most two runs of `limit` rows whatever the number of partitions. The partitions index `ts_ms` and
+`duration_ms` only. For `cpu`, `queue`, `calls`, and `net`, SQLite scans the rows of a partition that meet the
+pushed-down conditions on every page and keeps the first `limit` of them; a partition holds one time bucket of one
+replica, so the cost is bounded, and an index per key would slow every insert on the write path for orders the UI
+rarely asks for.
 
 ### 2.4 Trace blob — lazy endpoint
 
@@ -654,9 +683,13 @@ ascending. `count_desc` ranks by call count, and `duration_sum_desc` by the sum 
 does the time go" ranking of `hotspots`. `other` is a row without a key that aggregates every value past the top
 `limit`, or `null` when there is none. `distinct` is the number of distinct values. A key is the field's value as
 §2.3.3 defines it, so `<field>=<key>` is a condition that selects the row's calls. A call that lacks the field (a
-param it does not carry) falls into no row; it still counts in the totals.
+param it does not carry) falls into no row; it still counts in the totals. A call with several distinct values of a
+param, or of `trace_id`, counts once in the row of each, because `<param>=<value>` selects it for each, so the rows of
+such a grouping can add up to more than the totals. An empty value is no key, because `<field>=` is no condition.
+`duration` has no such values and is no grouping.
 
-**Totals.** `totals` counts the calls and the errors under the conditions, across every row and `other`.
+**Totals.** `totals` counts the calls and the errors under the conditions, each call once, whatever rows it falls
+into.
 
 **Percentiles.** Each group keeps a DDSketch with a relative accuracy of 1%: logarithmic bins of ratio
 `γ = 1.01 / 0.99`, plus one bin for `duration_ms = 0`. A reported percentile is within 1% of the exact value of that
@@ -753,10 +786,15 @@ implemented ones.
 | Stage | Groupings |
 |---|---|
 | A | `time`, `method`, `namespace`, `service`, `pod` |
-| B | Call params, the derived fields `class` and `endpoint`, `error`, `retention_class`, and `param_name` |
+| B | Call params, `trace_id`, `request_id`, the derived fields `class` and `endpoint`, `error`, `retention_class`, and `param_name` |
 
 `group_by=param_name` counts, for each call-param name in the window, the calls that carry it; the UI's filter bar
-offers those names as fields. It takes `limit` and `order` like a field grouping.
+offers those names as fields. A param recorded with no value counts as absent, as in §2.3.3, and a call counts once
+under each name it carries. It takes `limit` and `order` like a field grouping. A call param named `param_name` or
+`time` cannot be grouped by, as a param that shares a name with a field cannot be filtered on.
+
+`filter_capabilities.group_by` (§2.3.4) lists the named groupings, and `group_by_params: true` reports that `group_by`
+also takes the name of any call param, which a list cannot enumerate.
 
 ## 3. Internal hot-read API on collector
 
@@ -768,7 +806,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 | GET | `/internal/v1/pods/{pod-restart}/dictionary` | Same shape as `/api/v1/pods/{pod-restart}/dictionary` (§2.6). For live pod-restarts hosted by this replica. |
 | GET | `/internal/v1/pods/{pod-restart}/suspend` | The pod-restart's stop-the-world timeline from the replica's `suspend.wal` mirror: `{ "events": [{ "end_ms": ..., "duration_ms": ... }] }` — the same event shape the sealed rows inline as `suspend_json` (`01-write-contract.md` §3.6, §5.2), so a consumer parses one format on either tier. `query` intersects it with node work intervals for the per-node suspension of `/tree` (§2.5.3, `08-ui-backend-requirements.md` R7). |
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
-| GET | `/internal/v1/calls` | Same params as `/api/v1/calls`, with the keyset in place of `cursor`: `after_ts_ms` and `after_pk` for `start_desc`, `after_duration_ms` and an optional `after_pk` for `duration_desc` (no `after_pk` is a position with no PK, §2.3.5). Returns only rows this replica holds, and echoes the order it sorted by as `order`. A replica without the echo predates `order` and returns its newest rows, so for any other order `query` counts it as a failed source and marks the page partial (§7.4) instead of merging rows in the wrong order. |
+| GET | `/internal/v1/calls` | Same params as `/api/v1/calls`, with the keyset in place of `cursor`: the position's sort key in `after_ts_ms` for the `start` orders, in `after_duration_ms` for the `duration` orders, and in `after_key` for the others (`net_read + net_written` for `net`), with `after_pk`. Only a duration order leaves `after_pk` out, for a position with no PK (§2.3.5). Returns only rows this replica holds, and echoes the order it sorted by as `order`. A replica without the echo predates `order` and returns its newest rows, so for any other order `query` counts it as a failed source and marks the page partial (§7.4) instead of merging rows in the wrong order. A replica that knows `order` but not the one asked for answers `400`, which counts the same way. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |
 | GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Aggregates only the rows whose seal pass is not yet confirmed in S3, leaving the uploaded ones to the cold scan (§2.9). Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, no `other` row, and the PK hashes of exactly the rows it aggregated, so `query` can merge the replicas and the cold scan, skipping cold rows a replica already counted, before it ranks and cuts to `limit` (§2.9). Three more parameters serve the fan-out: `bucket_origin_ms` and `bucket_ms` place the calls of `[t_lo, to)` on the buckets of the external window, and `max_groups` passes `query`'s `PROFILER_STATS_MAX_GROUPS`. The hashes travel as `pk_hashes`, the base64 of their 8-byte big-endian forms. |
 | GET | `/internal/v1/calls/{pk}/trace` | Blob from this replica. |

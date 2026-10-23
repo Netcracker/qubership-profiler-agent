@@ -13,29 +13,83 @@ func TestParseOrder(t *testing.T) {
 		"":              OrderStartDesc,
 		"start_desc":    OrderStartDesc,
 		"duration_desc": OrderDurationDesc,
+		"duration_asc":  OrderDurationAsc,
+		"start_asc":     "start_asc",
+		"cpu_desc":      "cpu_desc",
+		"queue_asc":     "queue_asc",
+		"calls_desc":    "calls_desc",
+		"net_asc":       "net_asc",
 	} {
 		got, err := ParseOrder(raw)
 		require.NoError(t, err, raw)
 		assert.Equal(t, want, got, raw)
 	}
 	for raw, detail := range map[string]string{
-		"duration_asc": "order duration_asc is not implemented",
-		"cpu_desc":     "order cpu_desc is not implemented",
-		"start":        "unknown order start",
-		"size_desc":    "unknown order size_desc",
-		"start_down":   "unknown order start_down",
+		"start":      "unknown order start",
+		"size_desc":  "unknown order size_desc",
+		"start_down": "unknown order start_down",
 	} {
 		_, err := ParseOrder(raw)
 		assert.ErrorContains(t, err, detail, raw)
 	}
+	assert.Len(t, ImplementedOrders, 12, "every field in both directions")
 
-	_, detail := ParseCallsQuery(url.Values{"from": {"1"}, "to": {"2"}, "order": {"net_asc"}})
-	assert.Equal(t, "order net_asc is not implemented", detail, "the 400 detail names the order")
-	q, detail := ParseCallsQuery(url.Values{"from": {"1"}, "to": {"2"}, "order": {"duration_desc"}})
+	q, detail := ParseCallsQuery(url.Values{"from": {"1"}, "to": {"2"}, "order": {"net_asc"}})
 	require.Empty(t, detail)
-	assert.Equal(t, "duration_desc", q.Values().Get("order"), "the order reaches the collector")
+	assert.Equal(t, "net_asc", q.Values().Get("order"), "the order reaches the collector")
 	q.Order = OrderStartDesc
 	assert.False(t, q.Values().Has("order"), "the default order adds no parameter an older collector rejects")
+}
+
+func TestOrdersCompareTheirKeyThenPK(t *testing.T) {
+	low := CallRow{PK: pk("b", 1, 0, 0, 0), TsMs: 1, DurationMs: 1, CpuTimeMs: 1, QueueWaitMs: 1, ChildCalls: 1, NetRead: 1}
+	high := CallRow{PK: pk("a", 1, 0, 0, 0), TsMs: 9, DurationMs: 9, CpuTimeMs: 9, QueueWaitMs: 9, ChildCalls: 9, NetWritten: 9}
+	for _, o := range ImplementedOrders {
+		assert.Equal(t, o.Desc(), o.Before(high.Position(), low.Position()), o)
+		assert.Equal(t, !o.Desc(), o.Before(low.Position(), high.Position()), o)
+		tie := high
+		tie.PK = pk("c", 1, 0, 0, 0)
+		assert.True(t, o.Before(high.Position(), tie.Position()), "%s: a tie falls back to pk ASC", o)
+
+		bound := o.PositionAt(o.Key(high.Position()))
+		assert.False(t, o.Past(high.Position(), bound), "%s: a position with no PK does not pass its own key", o)
+		assert.Equal(t, !o.Desc(), o.Past(Position{TsMs: 10, DurationMs: 10, CpuTimeMs: 10, QueueWaitMs: 10,
+			ChildCalls: 10, NetBytes: 10}, bound), o)
+	}
+	assert.EqualValues(t, 10, OrderStartDesc.Key(CallRow{NetRead: 4, NetWritten: 6, TsMs: 10}.Position()))
+	assert.EqualValues(t, 10, Order("net_desc").Key(CallRow{NetRead: 4, NetWritten: 6}.Position()),
+		"net sorts by net_read + net_written")
+}
+
+func TestParseAfter(t *testing.T) {
+	pkText := "ns:svc:pod:1:2:3:4"
+	for _, tc := range []struct {
+		order  Order
+		params url.Values
+		want   *Position
+		detail string
+	}{
+		{OrderStartDesc, url.Values{}, nil, ""},
+		{"start_asc", url.Values{"after_ts_ms": {"5"}, "after_pk": {pkText}},
+			&Position{TsMs: 5, PK: PK{"ns", "svc", "pod", 1, 2, 3, 4}}, ""},
+		{OrderStartDesc, url.Values{"after_ts_ms": {"5"}}, nil, "after_ts_ms and after_pk must be sent together"},
+		{OrderDurationAsc, url.Values{"after_duration_ms": {"7"}}, &Position{DurationMs: 7, NoPK: true}, ""},
+		{OrderDurationDesc, url.Values{"after_duration_ms": {"-1"}}, nil, "must be a duration"},
+		{"cpu_desc", url.Values{"after_key": {"9"}, "after_pk": {pkText}},
+			&Position{CpuTimeMs: 9, PK: PK{"ns", "svc", "pod", 1, 2, 3, 4}}, ""},
+		{"net_asc", url.Values{"after_key": {"9"}}, &Position{NetBytes: 9, NoPK: true}, ""},
+		{"calls_asc", url.Values{"after_key": {"99999999999"}}, nil, "out of range"},
+		{"queue_desc", url.Values{"after_pk": {pkText}}, nil, "after_pk needs after_key"},
+		{"queue_desc", url.Values{"after_key": {"x"}}, nil, "after_key must be an integer"},
+	} {
+		got, detail := ParseAfter(tc.order, tc.params)
+		if tc.detail != "" {
+			assert.Contains(t, detail, tc.detail, "%s %v", tc.order, tc.params)
+			continue
+		}
+		assert.Empty(t, detail)
+		assert.Equal(t, tc.want, got, "%s %v", tc.order, tc.params)
+	}
 }
 
 func TestDurationOrderComparesDurationThenPK(t *testing.T) {
@@ -81,9 +135,22 @@ func TestDurationBands(t *testing.T) {
 		{Class: RetentionShortClean, LowerMs: 0, UpperMs: 100},
 	}, bands)
 
-	assert.Equal(t, RetentionLongClean, BandFor(bands, Position{DurationMs: 1000}))
-	assert.Equal(t, RetentionNormalClean, BandFor(bands, Position{DurationMs: 1000, NoPK: true}),
+	assert.Equal(t, RetentionLongClean, BandFor(OrderDurationDesc, bands, Position{DurationMs: 1000}))
+	assert.Equal(t, RetentionNormalClean, BandFor(OrderDurationDesc, bands, Position{DurationMs: 1000, NoPK: true}),
 		"a band stop resumes at the band below the bound")
-	assert.Equal(t, RetentionHugeClean, BandFor(bands, Position{DurationMs: 50_000}))
-	assert.Equal(t, RetentionShortClean, BandFor(bands, Position{DurationMs: 0}))
+	assert.Equal(t, RetentionHugeClean, BandFor(OrderDurationDesc, bands, Position{DurationMs: 50_000}))
+	assert.Equal(t, RetentionShortClean, BandFor(OrderDurationDesc, bands, Position{DurationMs: 0}))
+	assert.Equal(t, RetentionShortClean, BandFor(OrderDurationDesc, bands, Position{DurationMs: 0, NoPK: true}))
+
+	asc := OrderDurationAsc.WalkBands(bands)
+	assert.Equal(t, RetentionShortClean, asc[0].Class, "duration_asc reads the shortest band first")
+	assert.Equal(t, RetentionLongClean, BandFor(OrderDurationAsc, asc, Position{DurationMs: 1000}))
+	assert.Equal(t, RetentionLongClean, BandFor(OrderDurationAsc, asc, Position{DurationMs: 999, NoPK: true}),
+		"a band stop resumes at the band above the bound")
+	assert.EqualValues(t, 999, OrderDurationAsc.Frontier(asc[1]))
+	assert.EqualValues(t, 100, OrderDurationDesc.Frontier(bands[2]))
+	assert.True(t, OrderDurationAsc.Reaches(999, 999))
+	assert.False(t, OrderDurationAsc.Reaches(1000, 999))
+	assert.True(t, OrderDurationDesc.Reaches(100, 100))
+	assert.False(t, OrderDurationDesc.Reaches(99, 100))
 }

@@ -37,11 +37,22 @@ shorthand for `namespace=<ns>` and `service=<svc>`. Quote each condition for the
 | --- | --- | --- |
 | `duration` | Call duration; `ms` or `s`, a bare number is seconds | `duration>2s`, `duration between 100ms..500ms` |
 | `namespace`, `service`, `pod` | Where the call ran | `service=billing`, `pod in billing-1,billing-2` |
+| `method` | The root method | `method=~OrderController` |
+| `class` | The root method's class | `class=com.example.OrderService` |
+| `endpoint` | `<HTTP method> <path>`, with IDs in the path as `{id}` | `endpoint=GET /orders/{id}` |
 | `error` | The call failed | `error=true` |
+| `retention_class` | How long the call is kept, the last part of `REF` | `retention_class!=short_clean` |
 | `request_id` | The `x-request-id` header of an HTTP request | `request_id=abc123` |
 | `trace_id` | The distributed trace ID (OpenTelemetry, Brave, Jaeger) | `trace_id=4bf92f3577b34da6a3ce929d0e0e4736` |
-| `method` | The root method, as a regular expression | `method=~OrderController` |
 | any other name | A call parameter the agent recorded | `user.tenant=acme` |
+
+The operators are `=`, `!=`, `in` and `not in` (a comma-separated list), and `=~` and `!~` (an RE2 regular
+expression that matches anywhere in the value). `duration` takes only `>`, `>=`, `<`, `<=`, and `between`, and
+`error` only `=`. `trace_id` and `request_id` take only `=`, `!=`, and `=~`, `method` takes no `in` or `not in`, and
+`retention_class` takes no regular expression. A negation also matches a call that lacks the field: `trace_id!=abc`
+matches a call without a trace ID. For a field a call can lack (a parameter, `trace_id`, `request_id`, `endpoint`),
+the value `None` with `=` matches the calls without it and `Any` the calls with it, such as
+`--filter 'trace_id=None'`.
 
 A field or operator the server does not implement yet fails with an error that names it. The implemented set is in
 `curl -s $PROFILER_URL/api/v1/config`, under `filter_capabilities`.
@@ -60,7 +71,9 @@ A field or operator the server does not implement yet fails with an error that n
    profiler calls --service prod/billing --from 2026-10-14T11:58:00Z --to 2026-10-14T12:02:00Z --filter 'duration>1s'
    ```
 
-   Add `--order duration_desc` to list the slowest calls first instead of the newest.
+   Add `--order duration_desc` to list the slowest calls first instead of the newest. `--order` takes
+   `<field>_desc` or `<field>_asc` with a field of `start`, `duration`, `cpu`, `queue` (queue wait), `calls` (child
+   calls), or `net` (bytes read and written), such as `cpu_desc` for the calls that computed the most.
 
    `request_id` reads the `x-request-id` header only. When it finds nothing (`No calls match.`), the service may
    record its request ID under a call parameter of its own. The CLI does not print other parameters, so read them
@@ -102,7 +115,9 @@ A field or operator the server does not implement yet fails with an error that n
    The table groups the calls by root method (the entry point: an endpoint, a listener, a job) and ranks them by
    total time. `SHARE` is the group's part of all the time in the window. A group with a large total and a small mean
    is called often; one with a large mean or `P95` is slow per call. `--order count_desc` ranks by call count, and
-   `--group-by pod` shows whether one pod is worse than the others.
+   `--group-by pod` shows whether one pod is worse than the others. `--group-by endpoint` or `class` gives coarser
+   groups, `error` splits failed from successful calls, and a parameter name such as `--group-by user.tenant` splits
+   the calls by its values.
 2. Read the sampled part under the table: the inner methods with the most self time and the slowest SQL across the
    slowest calls of the listed groups. It names where to look inside the code; see "Reading a sampled result".
 3. Explain one of the `Slowest sampled calls` it lists, as in the request workflow, to see the path to the hot
@@ -162,6 +177,8 @@ A field or operator the server does not implement yet fails with an error that n
   that a call does not exist.
 - **Approximate.** An `Approximate:` line means the server kept only the heaviest groups; a group's figures may be
   overcounted. Narrow the filters to get exact figures.
+- **Parameter groups.** A call with several values of a parameter counts in the group of each value, so the groups
+  of `--group-by <parameter>` can add up to more than the totals.
 
 ## Reading a sampled result
 
@@ -184,7 +201,11 @@ or statement is on their hot paths.
 
 - Name a service or namespace whenever you know it. A query over every service scans more data and is slower.
 - Keep the window at 6 hours or less, unless a condition narrows the data: `duration>1s` or more, `error=true`, or a
-  `service` or `pod`. A request or trace ID does not narrow the scan, so bracket the time when you know it.
+  `namespace`, `service`, or `pod` with `=` or `in`. A request or trace ID does not narrow the scan, so bracket the
+  time when you know it. Neither do `method`, `class`, `endpoint`, a parameter, a negation (`!=`, `not in`, `!~`),
+  or a regular expression: they cut the result, not the data read.
+- Of the `calls` orders, only `duration_desc` narrows a wide window by itself. Every other order, `duration_asc`
+  included, needs one of the narrowing conditions above.
 - `hotspots`, `timeline`, and `compare` count every call of their windows, so a service condition or a short window
   matters more for them than for `calls`.
 - Keep both windows of `compare` within the last two days, or add `--filter 'duration>=100ms'`: fast successful

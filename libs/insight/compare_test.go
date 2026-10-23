@@ -248,7 +248,8 @@ func TestCompareLooksUpOnlyTheMissingKeys(t *testing.T) {
 	assert.Equal(t, []string{"namespace=prod", "service=billing", `method=~^(?:a\.B\.run\(\))$`}, byFrom[fmtInt(baseStart)]["filter"],
 		"the baseline lacks B, the target's top group")
 	assert.Equal(t, []string{"namespace=prod", "service=billing", `method=~^(?:a\.A\.run\(\))$`}, byFrom[fmtInt(targetStart)]["filter"])
-	assert.Equal(t, "1", byFrom[fmtInt(baseStart)].Get("limit"))
+	assert.Equal(t, "1000", byFrom[fmtInt(baseStart)].Get("limit"),
+		"a lookup asks for every row its condition can produce, not one per key")
 
 	require.Len(t, res.Groups, 2)
 	b := res.Groups[0]
@@ -261,6 +262,47 @@ func TestCompareLooksUpOnlyTheMissingKeys(t *testing.T) {
 	assert.Contains(t, res.Notes, "no group got slower by 20% or more and none is new, so no call trees were sampled")
 	assert.Nil(t, res.Sample)
 	assert.Empty(t, f.requests("/api/v1/calls"))
+}
+
+// tenantCall is a call of a.Billing.charge at tsMs that carries the given
+// user.tenant values.
+func tenantCall(tsMs int64, record int32, tenants ...string) fakeCall {
+	c := call("billing", "a.Billing.charge", tsMs, 10, record)
+	c.row.Params = map[string][]string{"user.tenant": tenants}
+	return c
+}
+
+// TestCompareLookupSurvivesCoOccurringParamValues is the case of a lookup
+// under a multi-valued param grouping: the target lookup of z also returns
+// a, which the same call carries and which ties z and sorts before it. A
+// lookup cut to one row would lose z and leave it unknown, or, on a weaker
+// rule, call it vanished.
+func TestCompareLookupSurvivesCoOccurringParamValues(t *testing.T) {
+	c, f := newFake(t,
+		tenantCall(baseStart, 1, "z"),
+		tenantCall(targetStart, 2, "a", "z"),
+		tenantCall(targetStart+1000, 3, "a"),
+	)
+	res, err := c.Compare(background, CompareInput{
+		Target: targetHour, Filters: Filters{Service: "prod/billing"}, GroupBy: "user.tenant", Limit: 1,
+		Order: OrderDurationSumDesc,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"z": StatusCompared, "a": StatusNew}, statusOf(res))
+	for _, g := range res.Groups {
+		if g.Key == "z" {
+			assert.Equal(t, int64(1), g.Baseline.Count)
+			assert.Equal(t, int64(1), g.Target.Count)
+		}
+	}
+	var lookups int
+	for _, q := range f.requests("/api/v1/stats") {
+		if slices.Contains(q["filter"], "user.tenant in z") {
+			lookups++
+			assert.Equal(t, fmtInt(targetStart), q.Get("from"))
+		}
+	}
+	assert.Equal(t, 1, lookups, "one lookup of z in the target")
 }
 
 // slowTree is a call of Billing.charge whose time is in Repo.load and its
@@ -314,8 +356,8 @@ func TestCompareSamplesTheGroupsThatGotSlower(t *testing.T) {
 	require.NotNil(t, s)
 	assert.Equal(t, []string{"a.Billing.charge", "a.Export.run"}, s.Groups)
 	require.NotNil(t, s.Baseline)
-	assert.Equal(t, int64(10), s.Baseline.Of)
-	assert.Equal(t, int64(12), s.Target.Of)
+	assert.Equal(t, callCountOf(10), s.Baseline.Of)
+	assert.Equal(t, callCountOf(12), s.Target.Of)
 	assert.Equal(t, 4, s.Target.Trees)
 
 	require.NotEmpty(t, s.Methods)
@@ -354,4 +396,30 @@ func TestCompareWindows(t *testing.T) {
 		assert.Error(t, err, "%+v", in)
 	}
 	assert.Len(t, f.reqs, n, "bad input sends no request")
+}
+
+// TestCompareCountsTheSampledCallsOnce samples two groups of a multi-valued
+// grouping that got slower. In each window their rows add up to four, but
+// only two calls carry a or b.
+func TestCompareCountsTheSampledCallsOnce(t *testing.T) {
+	calls := append(overlappingTenantCalls(baseStart, 0, 20, 10), overlappingTenantCalls(targetStart, 10, 100, 10)...)
+	c, f := newFake(t, calls...)
+	res, err := c.Compare(background, CompareInput{
+		Target: targetHour, Filters: Filters{Service: "prod/billing"}, GroupBy: "user.tenant", Limit: 3, Sample: 5,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res.Sample)
+	assert.Equal(t, []string{"a", "b"}, res.Sample.Groups)
+	assert.Equal(t, callCountOf(2), res.Sample.Target.Of, "two target calls carry a or b, though their rows count four")
+	require.NotNil(t, res.Sample.Baseline)
+	assert.Equal(t, callCountOf(2), res.Sample.Baseline.Of)
+
+	counts := map[string]int{}
+	for _, q := range f.requests("/api/v1/stats") {
+		if q.Get("group_by") == GroupByTime {
+			counts[q.Get("from")]++
+			assert.Equal(t, []string{"namespace=prod", "service=billing", "user.tenant in a,b"}, q["filter"])
+		}
+	}
+	assert.Equal(t, map[string]int{fmtInt(baseStart): 1, fmtInt(targetStart): 1}, counts, "one count per window")
 }

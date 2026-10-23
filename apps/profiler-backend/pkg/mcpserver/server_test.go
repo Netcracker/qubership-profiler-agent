@@ -542,3 +542,44 @@ func TestInstructionsNameEveryTool(t *testing.T) {
 		assert.Contains(t, Instructions, tool.Name)
 	}
 }
+
+// TestSchemasOfferWhatTheBackendImplements ties the enums of the tool
+// inputs to the query service's own capabilities, so an operator or an
+// order the backend gains cannot be missing from the tools.
+func TestSchemasOfferWhatTheBackendImplements(t *testing.T) {
+	f := newFixture(t)
+	res, err := f.connect(t).ListTools(context.Background(), nil)
+	require.NoError(t, err)
+	schemas := map[string]map[string]any{}
+	for _, tool := range res.Tools {
+		raw, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+		var schema map[string]any
+		require.NoError(t, json.Unmarshal(raw, &schema))
+		schemas[tool.Name] = schema
+	}
+	enum := func(tool string, path ...string) []string {
+		node := schemas[tool]
+		for _, p := range path {
+			node = node[p].(map[string]any)
+		}
+		var out []string
+		for _, v := range node["enum"].([]any) {
+			out = append(out, v.(string))
+		}
+		return out
+	}
+
+	caps := model.Capabilities()
+	assert.Subset(t, enum("profiler_find_calls", "properties", "order"), caps.Orders)
+
+	opEnum := enum("profiler_find_calls", "properties", "filters", "items", "properties", "op")
+	for field, fieldOps := range caps.Fields {
+		for _, op := range fieldOps {
+			assert.Contains(t, opEnum, string(op), "%s on %s", op, field)
+		}
+	}
+	for _, op := range caps.ParamOperators {
+		assert.Contains(t, opEnum, string(op), "%s on a param", op)
+	}
+}

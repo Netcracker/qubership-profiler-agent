@@ -65,7 +65,9 @@ func decodeCallsCursor(text string) (callsCursor, error) {
 	if _, err := canonicalConditions(cur.Conditions); err != nil {
 		return callsCursor{}, err
 	}
-	if cur.Order != "" && cur.Order != OrderNewest && cur.Order != OrderSlowest {
+	// Only the form is checked, as Calls checks Order: an order of the
+	// contract this server does not implement is the server's to reject.
+	if cur.Order != "" && !slices.Contains(CallOrders, cur.Order) {
 		return callsCursor{}, errors.Errorf("cursor order %q is not supported", cur.Order)
 	}
 	return cur, nil

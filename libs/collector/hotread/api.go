@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/clock"
@@ -118,16 +117,16 @@ type callsResponse struct {
 
 // handleCalls serves GET /internal/v1/calls: the §2.3 filter params, the
 // order, and the keyset position the fan-out seeks past on pages 2..N
-// (§2.3.1): after_ts_ms / after_pk for start_desc, after_duration_ms with an
-// optional after_pk for duration_desc (§2.3.5). Rows come only from this
-// replica's call index.
+// (§2.3.1): the sort key in after_ts_ms, after_duration_ms, or after_key,
+// with after_pk, which only a band stop of a duration order leaves out
+// (§2.3.5, model.ParseAfter). Rows come only from this replica's call index.
 func (a *API) handleCalls(c echo.Context) error {
 	params := c.QueryParams()
 	q, errDetail := model.ParseCallsQuery(params)
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
-	after, errDetail := parseAfter(q.Order, params)
+	after, errDetail := model.ParseAfter(q.Order, params)
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
@@ -141,8 +140,8 @@ func (a *API) handleCalls(c echo.Context) error {
 	}
 
 	queryCalls := a.queryCalls
-	if q.Order.ByDuration() {
-		queryCalls = a.queryCallsByDuration
+	if q.Order.NeedsSort() {
+		queryCalls = a.queryCallsSorted
 	}
 	rows, err := queryCalls(q, after, limit)
 	if err != nil {
@@ -153,52 +152,6 @@ func (a *API) handleCalls(c echo.Context) error {
 		resp.Calls = append(resp.Calls, row.JSON())
 	}
 	return c.JSON(http.StatusOK, resp)
-}
-
-func parseAfter(order model.Order, params url.Values) (*model.Position, string) {
-	if order.ByDuration() {
-		return parseAfterDuration(params.Get("after_duration_ms"), params.Get("after_pk"))
-	}
-	tsRaw, pkRaw := params.Get("after_ts_ms"), params.Get("after_pk")
-	if tsRaw == "" && pkRaw == "" {
-		return nil, ""
-	}
-	if tsRaw == "" || pkRaw == "" {
-		return nil, "after_ts_ms and after_pk must be sent together"
-	}
-	tsMs, err := strconv.ParseInt(tsRaw, 10, 64)
-	if err != nil {
-		return nil, "after_ts_ms must be Unix ms"
-	}
-	pk, err := model.ParsePKPath(pkRaw)
-	if err != nil {
-		return nil, err.Error()
-	}
-	return &model.Position{TsMs: tsMs, PK: pk}, ""
-}
-
-// parseAfterDuration reads a duration_desc position. Without after_pk it is a
-// position with no PK, which passes only strictly shorter calls (02 §2.3.5).
-func parseAfterDuration(durRaw, pkRaw string) (*model.Position, string) {
-	if durRaw == "" {
-		if pkRaw != "" {
-			return nil, "after_pk needs after_duration_ms with order=duration_desc"
-		}
-		return nil, ""
-	}
-	d, err := strconv.ParseInt(durRaw, 10, 32)
-	if err != nil || d < 0 {
-		return nil, "after_duration_ms must be a non-negative integer"
-	}
-	pos := &model.Position{DurationMs: int32(d), NoPK: pkRaw == ""}
-	if pkRaw != "" {
-		pk, err := model.ParsePKPath(pkRaw)
-		if err != nil {
-			return nil, err.Error()
-		}
-		pos.PK = pk
-	}
-	return pos, ""
 }
 
 // queryCalls walks the call partitions newest-first. Partitions are disjoint
@@ -240,12 +193,13 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 	return out, nil
 }
 
-// queryCallsByDuration is queryCalls for duration_desc (02 §2.3.5). A
-// duration order does not follow the partitions, so each partition in the
-// window contributes its own first `limit` rows past the cursor, and each
-// run merges into the page as it arrives: the request holds at most two
-// runs of `limit` rows at a time, whatever the number of partitions.
-func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
+// queryCallsSorted is queryCalls for every order but start_desc
+// (02 §2.3.5). Such an order does not follow the partitions, so each
+// partition in the window contributes its own first `limit` rows past the
+// cursor, and each run merges into the page as it arrives: the request holds
+// at most two runs of `limit` rows at a time, whatever the number of
+// partitions.
+func (a *API) queryCallsSorted(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
 	cfg := a.store.Config()
 	buckets, err := a.store.Buckets()
 	if err != nil {
@@ -257,15 +211,15 @@ func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, li
 	}
 	var out []model.CallRow
 	for _, bucket := range buckets {
-		start := cfg.BucketStartMs(bucket)
-		if start >= q.ToMs || start+cfg.TimeBucket.Milliseconds() <= q.FromMs {
+		bucketStart := cfg.BucketStartMs(bucket)
+		if bucketStart >= q.ToMs || bucketStart+cfg.TimeBucket.Milliseconds() <= q.FromMs {
 			continue
 		}
-		rows, err := a.partitionPage(bucket, q, matcher, model.OrderDurationDesc, after, limit)
+		rows, err := a.partitionPage(bucket, q, matcher, q.Order, after, limit)
 		if err != nil {
 			return nil, err
 		}
-		out, _ = model.MergeRunsBy(model.OrderDurationDesc, [][]model.CallRow{out, rows}, limit)
+		out, _ = model.MergeRunsBy(q.Order, [][]model.CallRow{out, rows}, limit)
 	}
 	return out, nil
 }

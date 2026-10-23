@@ -35,11 +35,22 @@ type orderCall struct {
 	off   int32
 }
 
+// The metrics of a call derive from its offset, with ties, so every order
+// has keys to sort and ties to break by PK.
+func (c orderCall) cpuMs() int64      { return int64(c.off*7) % 5 }
+func (c orderCall) queueMs() int32    { return c.off * 3 % 4 }
+func (c orderCall) childCalls() int32 { return c.off % 3 }
+func (c orderCall) netRead() int64    { return int64(c.off*5) % 6 }
+func (c orderCall) netWritten() int64 { return int64(c.off) % 2 }
+func (c orderCall) tsMs() int64       { return orderBaseMs + int64(c.off)*1000 }
+
 func (c orderCall) row(tier model.Tier) model.CallRow {
 	return model.CallRow{
 		PK: model.PK{PodNamespace: orderTuple.Namespace, PodService: orderTuple.Service, PodName: orderTuple.Pod,
 			RestartTimeMs: orderTuple.RestartTimeMs, TraceFileIndex: 1, BufferOffset: c.off},
-		TsMs: orderBaseMs + int64(c.off), DurationMs: c.durMs, Method: "com.example.Service.handle",
+		TsMs: c.tsMs(), DurationMs: c.durMs, Method: "com.example.Service.handle",
+		CpuTimeMs: c.cpuMs(), QueueWaitMs: c.queueMs(), ChildCalls: c.childCalls(),
+		NetRead: c.netRead(), NetWritten: c.netWritten(),
 		ErrorFlag: c.class == model.RetentionAnyError, RetentionClass: c.class, Tier: tier,
 	}
 }
@@ -49,7 +60,7 @@ func (c orderCall) row(tier model.Tier) model.CallRow {
 func plantCold(t *testing.T, store *memColdStore, calls ...orderCall) {
 	t.Helper()
 	for _, c := range calls {
-		tsMs := orderBaseMs + int64(c.off)*1000
+		tsMs := c.tsMs()
 		var buf bytes.Buffer
 		w := parquet.NewGenericWriter[storageparquet.CallV2](&buf,
 			parquet.Compression(&parquet.Zstd),
@@ -59,6 +70,8 @@ func plantCold(t *testing.T, store *memColdStore, calls ...orderCall) {
 			TraceFileIndex: 1, BufferOffset: c.off,
 			Namespace: orderTuple.Namespace, ServiceName: orderTuple.Service, PodName: orderTuple.Pod,
 			Method: "com.example.Service.handle", DurationMs: c.durMs,
+			CpuTimeMs: c.cpuMs(), QueueWaitMs: c.queueMs(), ChildCalls: c.childCalls(),
+			NetRead: c.netRead(), NetWritten: c.netWritten(),
 			ErrorFlag: c.class == model.RetentionAnyError, RetentionClass: c.class,
 		}})
 		require.NoError(t, err)
@@ -210,16 +223,16 @@ func TestOrderRejections(t *testing.T) {
 	api := httptest.NewServer(New(Options{ColdStore: newMemColdStore()}).Handler())
 	defer api.Close()
 	q := durationQuery(3)
-	q.Set("order", "cpu_desc")
+	q.Set("order", "size_desc")
 	p := requestProblem(t, api, http.MethodGet, "/api/v1/calls?"+q.Encode(), http.StatusBadRequest, "invalid_request")
-	assert.Equal(t, "order cpu_desc is not implemented", p.Detail)
+	assert.Contains(t, p.Detail, "unknown order size_desc")
 
 	cur := encodeCursor(durationQuery(3), model.Position{DurationMs: 50}, model.RetentionShortClean)
 	resent := url.Values{"cursor": {cur}, "order": {"start_desc"}}
 	requestProblem(t, api, http.MethodGet, "/api/v1/calls?"+resent.Encode(), http.StatusBadRequest, "cursor_rejected")
 }
 
-// durationReplica is a collector that implements duration_desc over a
+// durationReplica is a collector that implements every order over a
 // mutable call list, so a test can migrate a call to the cold tier between
 // pages. Without echo it plays an older build that ignores `order`.
 type durationReplica struct {
@@ -245,27 +258,24 @@ func (r *durationReplica) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	case "/internal/v1/calls":
 		q := req.URL.Query()
 		limit, _ := strconv.Atoi(q.Get("limit"))
-		var after *model.Position
-		if raw := q.Get("after_duration_ms"); raw != "" {
-			d, _ := strconv.Atoi(raw)
-			after = &model.Position{DurationMs: int32(d), NoPK: true}
-			if pkRaw := q.Get("after_pk"); pkRaw != "" {
-				pk, err := model.ParsePKPath(pkRaw)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				after.PK, after.NoPK = pk, false
-			}
+		order, err := model.ParseOrder(q.Get("order"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		after, detail := model.ParseAfter(order, q)
+		if detail != "" {
+			http.Error(w, detail, http.StatusBadRequest)
+			return
 		}
 		var rows []model.CallRow
 		for _, c := range r.calls {
 			row := c.row(model.TierHot)
-			if after == nil || model.OrderDurationDesc.Past(row.Position(), *after) {
+			if after == nil || order.Past(row.Position(), *after) {
 				rows = append(rows, row)
 			}
 		}
-		model.OrderDurationDesc.SortRows(rows)
+		order.SortRows(rows)
 		calls := []model.CallJSON{}
 		for _, row := range rows[:min(limit, len(rows))] {
 			calls = append(calls, row.JSON())
