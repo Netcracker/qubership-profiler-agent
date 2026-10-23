@@ -177,17 +177,29 @@ func TestHotspotsChecksItsInputBeforeAnyRequest(t *testing.T) {
 }
 
 func TestGroupConditionPicksTheOperatorTheBuildHas(t *testing.T) {
-	caps := model.Capabilities()
-	cond, covered := groupCondition(caps, "service", []string{"billing", "a,b"})
+	// A stage A build: in on service, =~ only on method, = only on params.
+	stageA := model.FilterCapabilities{
+		Fields: map[string][]model.Op{
+			"service": {model.OpEq, model.OpIn},
+			"method":  {model.OpMatch},
+		},
+		ParamOperators: []model.Op{model.OpEq},
+	}
+	cond, covered := groupCondition(stageA, "service", []string{"billing", "a,b"})
 	assert.Equal(t, `service in billing,a\,b`, cond)
 	assert.Equal(t, []string{"billing", "a,b"}, covered)
 
-	cond, _ = groupCondition(caps, "method", []string{"a.B.c(int)"})
+	cond, _ = groupCondition(stageA, "method", []string{"a.B.c(int)"})
 	assert.Equal(t, `method=~^(?:a\.B\.c\(int\))$`, cond)
 
-	cond, covered = groupCondition(caps, "user.tenant", []string{"acme", "zeta"})
-	assert.Equal(t, "user.tenant=acme", cond, "params take = only in stage A, which covers one key")
+	cond, covered = groupCondition(stageA, "user.tenant", []string{"acme", "zeta"})
+	assert.Equal(t, "user.tenant=acme", cond, "= on a param covers one key")
 	assert.Equal(t, []string{"acme"}, covered)
+
+	// This build has in on params, so one condition covers every key.
+	cond, covered = groupCondition(model.Capabilities(), "user.tenant", []string{"acme", "zeta"})
+	assert.Equal(t, "user.tenant in acme,zeta", cond)
+	assert.Equal(t, []string{"acme", "zeta"}, covered)
 
 	cond, covered = groupCondition(model.FilterCapabilities{}, "service", []string{"billing"})
 	assert.Empty(t, cond, "a build without filter capabilities has no set condition")
