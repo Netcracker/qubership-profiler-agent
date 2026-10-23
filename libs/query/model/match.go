@@ -68,6 +68,14 @@ var fields = map[string]fieldDef{
 	FieldPodTuple:     {kind: kindString, ops: []Op{OpIn}, value: podTuple},
 }
 
+// IsField reports whether name is a field of 02 §2.3.3 rather than a call
+// param. filter_capabilities omits a field the build does not implement, so a
+// client needs this to tell such a field from a param.
+func IsField(name string) bool {
+	_, ok := fields[name]
+	return ok
+}
+
 // fieldOf returns the definition of a field, or a call-param definition for a
 // name outside the field table.
 func fieldOf(name string) fieldDef {

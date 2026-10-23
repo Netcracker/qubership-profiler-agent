@@ -10,6 +10,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/insight"
 	"github.com/Netcracker/qubership-profiler-backend/libs/insight/render"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/stats"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pkg/errors"
@@ -25,8 +26,7 @@ type operation struct {
 	add func(s *mcp.Server, c *insight.Client) error
 }
 
-// operations lists the tools in the order tools/list returns them. hotspots,
-// timeline, and compare join when libs/insight has them.
+// operations lists the tools in the order tools/list returns them.
 var operations = []operation{
 	{name: "services", add: tool(&mcp.Tool{
 		Name:  "profiler_list_services",
@@ -44,14 +44,14 @@ var operations = []operation{
 	{name: "calls", add: tool(&mcp.Tool{
 		Name:  "profiler_find_calls",
 		Title: "Find calls",
-		Description: "Find profiled calls, newest first, by service, duration, error, or a request or trace ID. " +
-			"Each call has a ref to pass to profiler_explain_call.",
+		Description: "Find profiled calls, newest first or slowest first, by service, duration, error, or a " +
+			"request or trace ID. Each call has a ref to pass to profiler_explain_call.",
 	}, func(ctx context.Context, c *insight.Client, in CallsArgs) (insight.CallsResult, error) {
 		w, f, err := parseScope(in.WindowArgs, in.FilterArgs)
 		if err != nil {
 			return insight.CallsResult{}, err
 		}
-		return c.Calls(ctx, insight.CallsInput{Window: w, Filters: f, Limit: in.Limit, Cursor: in.Cursor})
+		return c.Calls(ctx, insight.CallsInput{Window: w, Filters: f, Limit: in.Limit, Cursor: in.Cursor, Order: in.Order})
 	}, func(w io.Writer, res insight.CallsResult) error {
 		return render.Calls(w, res, `More calls: pass "cursor": "%s" with the same filters`)
 	})},
@@ -66,6 +66,69 @@ var operations = []operation{
 			Ref: in.Ref, Focus: in.Focus, FocusNode: in.Node, Threshold: in.Threshold, MaxNodes: in.MaxNodes,
 		})
 	}, render.Explain)},
+
+	{name: "hotspots", add: tool(&mcp.Tool{
+		Name:  "profiler_hotspots",
+		Title: "Hotspots",
+		Description: "Rank where a service's time goes: exact per-group statistics (calls, errors, total time, " +
+			"percentiles) by root method, service, pod, or namespace, plus the inner methods and SQL from a sample " +
+			"of the slowest calls. Use it for what is slow in a service, before explaining single calls.",
+	}, func(ctx context.Context, c *insight.Client, in HotspotsArgs) (insight.HotspotsResult, error) {
+		w, f, err := parseScope(in.WindowArgs, in.FilterArgs)
+		if err != nil {
+			return insight.HotspotsResult{}, err
+		}
+		return c.Hotspots(ctx, insight.HotspotsInput{
+			Window: w, Filters: f, GroupBy: in.GroupBy, Limit: in.Limit, Order: stats.Order(in.Order), Sample: in.Sample,
+		})
+	}, render.Hotspots)},
+
+	{name: "timeline", add: tool(&mcp.Tool{
+		Name:  "profiler_timeline",
+		Title: "Timeline",
+		Description: "Count calls and errors and show the duration percentiles per time bucket. Use it to find " +
+			"when latency or errors changed, then compare the windows before and after with profiler_compare_windows.",
+	}, func(ctx context.Context, c *insight.Client, in TimelineArgs) (insight.TimelineResult, error) {
+		w, f, err := parseScope(in.WindowArgs, in.FilterArgs)
+		if err != nil {
+			return insight.TimelineResult{}, err
+		}
+		return c.Timeline(ctx, insight.TimelineInput{Window: w, Filters: f, Buckets: in.Buckets})
+	}, render.Timeline)},
+
+	{name: "compare", add: tool(&mcp.Tool{
+		Name:  "profiler_compare_windows",
+		Title: "Compare two windows",
+		Description: "Compare a target window with a baseline: which groups got slower, are new, or vanished, " +
+			"with the inner methods and SQL from a sample of the changed groups. Use it for what changed after a " +
+			"deployment or since yesterday. The baseline is the window of the same length just before the target, " +
+			"the target moved back by baseline_shift, or baseline_from to baseline_to.",
+	}, func(ctx context.Context, c *insight.Client, in CompareArgs) (insight.CompareResult, error) {
+		target, f, err := parseScope(in.WindowArgs, in.FilterArgs)
+		if err != nil {
+			return insight.CompareResult{}, err
+		}
+		input := insight.CompareInput{
+			Target: target, Filters: f, GroupBy: in.GroupBy, Limit: in.Limit, Order: stats.Order(in.Order), Sample: in.Sample,
+		}
+		if (in.BaselineFrom == "") != (in.BaselineTo == "") {
+			return insight.CompareResult{}, errors.New("give both baseline_from and baseline_to, or neither")
+		}
+		if in.BaselineFrom != "" && in.BaselineShift != "" {
+			return insight.CompareResult{}, errors.New("give baseline_shift or baseline_from and baseline_to, not both")
+		}
+		if in.BaselineFrom != "" {
+			if input.Baseline, err = insight.ParseWindow("", in.BaselineFrom, in.BaselineTo); err != nil {
+				return insight.CompareResult{}, errors.Wrap(err, "baseline")
+			}
+		}
+		if in.BaselineShift != "" {
+			if input.BaselineShift, err = insight.ParseDuration(in.BaselineShift); err != nil {
+				return insight.CompareResult{}, errors.Wrap(err, "baseline shift")
+			}
+		}
+		return c.Compare(ctx, input)
+	}, render.Compare)},
 }
 
 // WindowArgs is the time range of every tool except explain.
@@ -142,6 +205,7 @@ type ServicesArgs struct {
 type CallsArgs struct {
 	WindowArgs
 	FilterArgs
+	Order  string `json:"order,omitempty" jsonschema:"start_desc lists the newest calls first, duration_desc the slowest; the default is start_desc"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"calls per page; the default is 20"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"continue the listing from an earlier result's next_cursor, with the same filters or none"`
 }
@@ -153,6 +217,40 @@ type ExplainArgs struct {
 	Focus     string  `json:"focus,omitempty" jsonschema:"re-root at the slowest node whose method contains this text; excludes node"`
 	Threshold float64 `json:"threshold,omitempty" jsonschema:"hide nodes under this share of the root, 0 to 1; the default is 0.05"`
 	MaxNodes  int     `json:"max_nodes,omitempty" jsonschema:"most nodes in the hot path; the default is 40"`
+}
+
+// StatsArgs are the grouping inputs of hotspots and compare.
+type StatsArgs struct {
+	GroupBy string `json:"group_by,omitempty" jsonschema:"group by method (the root method), service, pod, or namespace; the default is method"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"top groups to list, in each window for compare; the default is 10"`
+	Order   string `json:"order,omitempty" jsonschema:"duration_sum_desc ranks by total time, count_desc by call count; the default is duration_sum_desc"`
+}
+
+// HotspotsArgs is the input of profiler_hotspots.
+type HotspotsArgs struct {
+	WindowArgs
+	FilterArgs
+	StatsArgs
+	Sample int `json:"sample,omitempty" jsonschema:"slowest calls whose trees the sampled layer reads; the default is 20"`
+}
+
+// TimelineArgs is the input of profiler_timeline.
+type TimelineArgs struct {
+	WindowArgs
+	FilterArgs
+	Buckets int `json:"buckets,omitempty" jsonschema:"number of equal time buckets; the default is 30"`
+}
+
+// CompareArgs is the input of profiler_compare_windows. The window inputs
+// set the target.
+type CompareArgs struct {
+	WindowArgs
+	FilterArgs
+	StatsArgs
+	BaselineFrom  string `json:"baseline_from,omitempty" jsonschema:"baseline start, RFC 3339 or Unix milliseconds; needs baseline_to"`
+	BaselineTo    string `json:"baseline_to,omitempty" jsonschema:"baseline end, RFC 3339 or Unix milliseconds; needs baseline_from"`
+	BaselineShift string `json:"baseline_shift,omitempty" jsonschema:"the baseline is the target moved back by this much, such as 1d; excludes baseline_from and baseline_to; the default is the target's length"`
+	Sample        int    `json:"sample,omitempty" jsonschema:"slowest calls of the changed groups whose trees each window's sample reads; the default is 10"`
 }
 
 // readOnly marks every tool: the profiler tools only read.
@@ -192,7 +290,9 @@ func tool[In, Out any](t *mcp.Tool, run func(context.Context, *insight.Client, I
 }
 
 // inputSchema derives the schema from the input type and adds what struct
-// tags cannot say: the operator list of a condition.
+// tags cannot say: the operator list of a condition and the orders. A
+// group_by input marks a statistics tool, whose orders rank groups; the
+// calls tool's orders sort calls.
 func inputSchema[In any]() (*jsonschema.Schema, error) {
 	schema, err := jsonschema.For[In](nil)
 	if err != nil {
@@ -205,6 +305,12 @@ func inputSchema[In any]() (*jsonschema.Schema, error) {
 		}
 		for _, o := range ops {
 			op.Enum = append(op.Enum, o)
+		}
+	}
+	if order, ok := schema.Properties["order"]; ok {
+		order.Enum = []any{insight.OrderNewest, insight.OrderSlowest}
+		if _, grouped := schema.Properties["group_by"]; grouped {
+			order.Enum = []any{string(insight.OrderDurationSumDesc), string(insight.OrderCountDesc)}
 		}
 	}
 	return schema, nil

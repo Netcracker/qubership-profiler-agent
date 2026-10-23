@@ -1,0 +1,39 @@
+Baseline: 2026-10-14T10:00:00.000Z to 2026-10-14T11:00:00.000Z (1h0m0s), 1200 calls, 2 errors
+Target:   2026-10-14T11:00:00.000Z to 2026-10-14T12:00:00.000Z (1h0m0s), 1250 calls, 9 errors
+Exact: the method groups in the top N of either window by duration_sum_desc. Rates are per minute of each window.
+Partial: target lookup: collector 10.0.0.7 stats: timeout
+
+Compared, the largest change in time per minute first:
+  CHANGE ms/min      TIME ms/min       CALLS/min     MEAN ms       P95 ms        ERRORS METHOD
+        +1150.0  500.0 -> 1650.0    1.67 -> 1.83  300 -> 900  600 -> 2400  1.0% -> 5.5% com.example.Billing.charge(long)  [slower]
+           -1.7     33.3 -> 31.7  16.67 -> 16.67      2 -> 2       3 -> 3  0.0% -> 0.0% com.example.Health.check
+
+New: no call in the baseline:
+  FIGURES  TIME ms/min  CALLS/min  MEAN ms  P95 ms  ERRORS METHOD
+   target         75.0       0.05     1500    1600    0.0% com.example.Export.run
+
+Vanished: no call in the target:
+   FIGURES  TIME ms/min  CALLS/min  MEAN ms  P95 ms  ERRORS METHOD
+  baseline         20.0       0.10      200     250    0.0% com.example.Legacy.sync
+
+Unknown in one window: a source failed there, so the group may have calls it did not count:
+   FIGURES  TIME ms/min  CALLS/min  MEAN ms  P95 ms  ERRORS METHOD
+  baseline         13.3       0.67       20      30    0.0% com.example.Audit.log
+
+Sampled, not exact: inner methods and SQL from the trees of the slowest calls of 2 changed groups, per sampled call.
+  baseline: the 10 slowest of 100 calls, 10 trees merged
+  target: the 10 slowest of 113 calls, 9 trees merged
+Skipped: 1 calls have no tree (buffer_full)
+
+Inner methods, self ms per sampled call (baseline -> target, change):
+    210.0 -> 1650.5      +1440.5  a.Jdbc.execute
+     40.0 -> 12.0          -28.0  com.example.Http.call()
+
+SQL, ms per sampled call (baseline -> target, change):
+    200.0 -> 1600.0      +1400.0  select * from orders where id = ?
+
+Slowest sampled calls, to explain:
+    2470 ms  prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error  com.example.Billing.charge(long)
+
+Notes:
+- only groups in the top 10 of either window are compared; a larger limit compares more

@@ -6,14 +6,18 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
 	"github.com/Netcracker/qubership-profiler-backend/libs/insight"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/stats"
 	clicmd "github.com/Netcracker/qubership-profiler-backend/tools/profiler-cli/cmd"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -49,6 +53,10 @@ func (q *query) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			CpuTimeMs: 310, WaitTimeMs: 1900, ErrorFlag: true,
 			Params: map[string][]string{"x-request-id": {"abc123"}},
 		}}, "next_cursor": "page-2"})
+	case r.URL.Path == "/api/v1/config":
+		writeJSON(w, map[string]any{"filter_capabilities": model.Capabilities()})
+	case r.URL.Path == "/api/v1/stats":
+		writeJSON(w, statsBody(r.URL.Query()))
 	case strings.HasSuffix(r.URL.Path, "/tree"):
 		_, _ = w.Write(calltree.Encode(&calltree.Tree{
 			Methods: []string{"a.Main.run", "a.Repo.load"},
@@ -62,6 +70,38 @@ func (q *query) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// targetFromMs starts the target window of the tests; a /stats request
+// before it is for the default baseline of a compare, whose calls were
+// faster.
+const targetFromMs = 1760430000000
+
+// statsBody answers /stats: two time buckets for the time grouping, and one
+// group for a field grouping, five times slower in the target window than
+// before it.
+func statsBody(q url.Values) stats.Response {
+	if q.Get("group_by") == stats.GroupByTime {
+		p := func(v int64) *int64 { return &v }
+		bucket := int64(1_800_000)
+		return stats.Response{GroupBy: stats.GroupByTime, BucketMs: &bucket, Distinct: 2,
+			Totals: stats.Totals{Count: 10, Errors: 1},
+			Rows: []stats.Row{
+				{Key: int64(targetFromMs), RowValues: stats.RowValues{Count: 10, Errors: 1, DurationMsSum: 5000,
+					P50Ms: p(400), P95Ms: p(900), P99Ms: p(990)}},
+				{Key: int64(targetFromMs + 1_800_000), RowValues: stats.RowValues{}},
+			}}
+	}
+	from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+	mean := int64(2470)
+	if from < targetFromMs {
+		mean = 494
+	}
+	p95 := mean + 100
+	return stats.Response{GroupBy: q.Get("group_by"), Distinct: 1, Totals: stats.Totals{Count: 10, Errors: 1},
+		Rows: []stats.Row{{Key: "a.Main.run", RowValues: stats.RowValues{
+			Count: 10, Errors: 1, DurationMsSum: 10 * mean, P50Ms: &mean, P95Ms: &p95, P99Ms: &p95,
+		}}}}
+}
+
 func (q *query) last() *http.Request {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -69,6 +109,20 @@ func (q *query) last() *http.Request {
 		return nil
 	}
 	return q.requests[len(q.requests)-1]
+}
+
+// requestsTo returns the query parameters of the requests to path, oldest
+// first.
+func (q *query) requestsTo(path string) []url.Values {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	var out []url.Values
+	for _, r := range q.requests {
+		if r.URL.Path == path {
+			out = append(out, r.URL.Query())
+		}
+	}
+	return out
 }
 
 func (q *query) count() int {
@@ -183,8 +237,10 @@ func TestToolsCoverTheCLIOperations(t *testing.T) {
 		names = append(names, tool.Name)
 		assert.True(t, tool.Annotations.ReadOnlyHint, tool.Name)
 	}
-	assert.Equal(t, []string{"profiler_explain_call", "profiler_find_calls", "profiler_list_services"},
-		slices.Sorted(slices.Values(names)))
+	assert.Equal(t, []string{
+		"profiler_compare_windows", "profiler_explain_call", "profiler_find_calls", "profiler_hotspots",
+		"profiler_list_services", "profiler_timeline",
+	}, slices.Sorted(slices.Values(names)))
 }
 
 // structured decodes a tool's structured content into the library's type.
@@ -229,15 +285,16 @@ func TestToolsReturnTheLibraryResult(t *testing.T) {
 				{"field": "duration", "op": ">", "value": "1s"},
 				{"field": "pod", "op": "in", "value": "billing-7f8c,billing-2"},
 			},
-			"limit": 5,
+			"limit": 5, "order": "duration_desc",
 		}))
 		got := structured[insight.CallsResult](t, res)
 		sent := f.query.last().URL.Query()
+		assert.Equal(t, "duration_desc", sent.Get("order"))
 		assert.Equal(t, []string{"request_id = abc123", "duration > 1s", "pod in billing-7f8c,billing-2",
 			"namespace=prod", "service=billing"}, sent["filter"])
 		assert.Equal(t, "5", sent.Get("limit"))
 
-		want, err := f.client.Calls(ctx, insight.CallsInput{Window: libWindow, Limit: 5, Filters: insight.Filters{
+		want, err := f.client.Calls(ctx, insight.CallsInput{Window: libWindow, Limit: 5, Order: insight.OrderSlowest, Filters: insight.Filters{
 			Service:    "prod/billing",
 			Conditions: []string{"request_id = abc123", "duration > 1s", "pod in billing-7f8c,billing-2"},
 		}})
@@ -255,6 +312,103 @@ func TestToolsReturnTheLibraryResult(t *testing.T) {
 		assert.Equal(t, want, structured[insight.ExplainResult](t, res))
 		assert.Contains(t, text(res), "Focus: #1 a.Repo.load")
 	})
+
+	t.Run("hotspots", func(t *testing.T) {
+		res := call(t, s, "profiler_hotspots", merge(window, map[string]any{
+			"service": "prod/billing", "group_by": "pod", "limit": 5, "order": "count_desc", "sample": 3,
+		}))
+		got := structured[insight.HotspotsResult](t, res)
+		sent := f.query.requestsTo("/api/v1/stats")[0]
+		assert.Equal(t, "pod", sent.Get("group_by"))
+		assert.Equal(t, "5", sent.Get("limit"))
+		assert.Equal(t, "count_desc", sent.Get("order"))
+
+		want, err := f.client.Hotspots(ctx, insight.HotspotsInput{
+			Window: libWindow, Filters: insight.Filters{Service: "prod/billing"},
+			GroupBy: "pod", Limit: 5, Order: insight.OrderCountDesc, Sample: 3,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+		require.NotNil(t, got.Sample, "the sampled layer reads the call's tree")
+		assert.Equal(t, 3, got.Sample.Requested)
+		assert.Contains(t, text(res), "Sampled, not exact")
+		assert.Contains(t, text(res), "a.Repo.load")
+	})
+
+	t.Run("hotspots defaults", func(t *testing.T) {
+		res := call(t, s, "profiler_hotspots", window)
+		want, err := f.client.Hotspots(ctx, insight.HotspotsInput{Window: libWindow})
+		require.NoError(t, err)
+		got := structured[insight.HotspotsResult](t, res)
+		assert.Equal(t, want, got)
+		assert.Equal(t, insight.DefaultGroupBy, got.GroupBy)
+		assert.Equal(t, insight.OrderDurationSumDesc, got.Order)
+		assert.Equal(t, insight.DefaultSample, got.Sample.Requested)
+	})
+
+	t.Run("timeline", func(t *testing.T) {
+		res := call(t, s, "profiler_timeline", merge(window, map[string]any{
+			"service": "prod/billing", "buckets": 2,
+		}))
+		sent := f.query.last().URL.Query()
+		assert.Equal(t, "time", sent.Get("group_by"))
+		assert.Equal(t, "2", sent.Get("buckets"))
+		want, err := f.client.Timeline(ctx, insight.TimelineInput{
+			Window: libWindow, Filters: insight.Filters{Service: "prod/billing"}, Buckets: 2,
+		})
+		require.NoError(t, err)
+		got := structured[insight.TimelineResult](t, res)
+		assert.Equal(t, want, got)
+		assert.Len(t, got.Buckets, 2)
+	})
+
+	t.Run("compare", func(t *testing.T) {
+		res := call(t, s, "profiler_compare_windows", merge(window, map[string]any{
+			"service": "prod/billing", "sample": 2,
+		}))
+		want, err := f.client.Compare(ctx, insight.CompareInput{
+			Target: libWindow, Filters: insight.Filters{Service: "prod/billing"}, Sample: 2,
+		})
+		require.NoError(t, err)
+		got := structured[insight.CompareResult](t, res)
+		assert.Equal(t, overJSON(t, want), got)
+		assert.Equal(t, time.UnixMilli(1760426400000).UTC(), got.Baseline.From,
+			"the default baseline is the window of the same length before the target")
+		assert.Contains(t, text(res), "[slower]")
+	})
+
+	t.Run("compare with a baseline shift", func(t *testing.T) {
+		res := call(t, s, "profiler_compare_windows", merge(window, map[string]any{"baseline_shift": "1d"}))
+		want, err := f.client.Compare(ctx, insight.CompareInput{Target: libWindow, BaselineShift: 24 * time.Hour})
+		require.NoError(t, err)
+		got := structured[insight.CompareResult](t, res)
+		assert.Equal(t, overJSON(t, want), got)
+		assert.Equal(t, libWindow.From.Add(-24*time.Hour), got.Baseline.From)
+	})
+
+	t.Run("compare with a baseline window", func(t *testing.T) {
+		res := call(t, s, "profiler_compare_windows", merge(window, map[string]any{
+			"baseline_from": "1760340000000", "baseline_to": "1760343600000",
+		}))
+		baseline, err := insight.ParseWindow("", "1760340000000", "1760343600000")
+		require.NoError(t, err)
+		want, err := f.client.Compare(ctx, insight.CompareInput{Target: libWindow, Baseline: baseline})
+		require.NoError(t, err)
+		got := structured[insight.CompareResult](t, res)
+		assert.Equal(t, overJSON(t, want), got)
+		assert.Equal(t, time.UnixMilli(1760340000000).UTC(), got.Baseline.From)
+	})
+}
+
+// overJSON returns v as a client decodes it from JSON: an empty list
+// under omitempty, such as the Partial of a complete compare, arrives as nil.
+func overJSON[T any](t *testing.T, v T) T {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	require.NoError(t, err)
+	var out T
+	require.NoError(t, json.Unmarshal(raw, &out))
+	return out
 }
 
 func merge(a, b map[string]any) map[string]any {
@@ -318,6 +472,25 @@ func TestInvalidInputIsReportedClearly(t *testing.T) {
 			[]string{`since "yesterday" is not a positive duration`}},
 		"bad ref": {"profiler_explain_call", map[string]any{"ref": "abc"},
 			[]string{"is not a call reference"}},
+		"unknown order": {"profiler_hotspots", map[string]any{"order": "p95_desc"}, []string{"order"}},
+		"calls order on hotspots": {"profiler_hotspots", map[string]any{"order": "duration_desc"},
+			[]string{"order"}},
+		"hotspots order on calls": {"profiler_find_calls", map[string]any{"order": "count_desc"}, []string{"order"}},
+		"hotspots by time": {"profiler_hotspots", map[string]any{"group_by": "time"},
+			[]string{"the timeline operation groups by time"}},
+		"too many buckets": {"profiler_timeline", map[string]any{"buckets": 100000},
+			[]string{"buckets must be between 1 and"}},
+		"both baseline forms": {"profiler_compare_windows", map[string]any{
+			"baseline_shift": "1d", "baseline_from": "1760340000000", "baseline_to": "1760343600000",
+		}, []string{"baseline_shift or baseline_from and baseline_to, not both"}},
+		"half a baseline window": {"profiler_compare_windows", map[string]any{"baseline_from": "1760340000000"},
+			[]string{"give both baseline_from and baseline_to"}},
+		"bad baseline shift": {"profiler_compare_windows", map[string]any{"baseline_shift": "yesterday"},
+			[]string{"baseline shift"}},
+		"overlapping baseline": {"profiler_compare_windows", map[string]any{
+			"from": "1760430000000", "to": "1760433600000",
+			"baseline_from": "1760429000000", "baseline_to": "1760431000000",
+		}, []string{"overlaps the target"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			res := call(t, s, tc.tool, tc.args)

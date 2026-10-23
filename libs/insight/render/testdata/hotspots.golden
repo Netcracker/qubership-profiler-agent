@@ -1,0 +1,24 @@
+Window: 2026-10-14T11:00:00.000Z to 2026-10-14T12:00:00.000Z (1h0m0s)
+Exact, over all 1240 calls (4 errors): 7 method groups, ranked by duration_sum_desc.
+Partial: collector 10.0.0.7 stats: timeout
+  TOTAL ms  SHARE  CALLS  ERR  MEAN ms  P50   P95   P99  CPU ms  WAIT ms  SUSP ms METHOD
+     96000    96%    120    3      800  700  1900  2400   12000    70000      900 com.example.Billing.charge(long)
+      2200     2%   1100    0        2    2     3     5    1100        0        0 com.example.Health.check
+      1800     2%     20    1       90   80   200   250       0        0        0 (other: 5 groups)
+
+Sampled, not exact: methods and SQL from the trees of the 20 slowest of 1220 calls in the top 2 groups; 19 trees merged.
+Skipped: 1 calls have no tree (buffer_full)
+
+Inner methods by self time, summed over the sample (self ms, executions, sampled calls that ran it):
+   30500 ms  x1710   in 19   a.Jdbc.execute
+    4100 ms  x21     in 7    com.example.Http.call()
+
+SQL, summed over the sample (ms, executions, sampled calls that ran it):
+   28000 ms  x1650   in 19   select * from orders where id = ?
+
+Slowest sampled calls, to explain:
+    2470 ms  prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error  com.example.Billing.charge(long)
+
+Notes:
+- 5 more groups with 20 calls are summed as other; a larger limit lists more
+- the sample reads 20 of 1220 calls; a larger sample reads more
