@@ -1217,15 +1217,16 @@ func escapeLikePrefix(s string) string {
 // than `limit` rows back means the window is exhausted.
 func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, limit int) ([]CallIndexRow, error) {
 	where, args := callsQueryWhere(q, fromMs, toMs)
-	return m.topPage(bucket, "ts_ms", true, where, args, limit, fromMs)
+	return m.topPage(bucket, "ts_ms", where, args, limit, fromMs)
 }
 
-// sortColumns are the SQL sort keys of the /calls orders (02 §2.3.5). Only
-// ts_ms and duration_ms have an index. The other keys sort the partition's
-// matching rows in a temporary B-tree on every page: a partition holds one
-// time bucket of one replica, so the cost is bounded, and an index per key
-// would slow every insert of the write path for an order the UI seldom
-// asks for.
+// sortColumns are the SQL sort keys of the /calls orders (02 §2.3.5); each
+// computes what model.Order.Key reads from a row, so SQL and the Go merge
+// agree on the order. Only ts_ms and duration_ms have an index. A page in
+// another order scans the partition's matching rows and keeps the first
+// `limit` in SQLite's bounded sorter: a partition holds one time bucket of
+// one replica, so the cost is bounded, and an index per key would slow
+// every insert of the write path for an order the UI seldom asks for.
 var sortColumns = map[string]string{
 	model.OrderFieldStart:    "ts_ms",
 	model.OrderFieldDuration: "duration_ms",
@@ -1235,48 +1236,92 @@ var sortColumns = map[string]string{
 	model.OrderFieldNet:      "(net_read + net_written)",
 }
 
-// CallsPageBy is CallsPage for any order (02 §2.3.5): the first `limit` sort
-// keys in the order's direction that do not pass bound — at or below it for
-// a descending order, at or above it for an ascending one — plus the
-// complete tie group at the boundary. The caller pages on with the last
-// row's key moved one step past it.
-func (m *metaDb) CallsPageBy(bucket int64, q model.CallsQuery, fromMs, toMs int64, order model.Order, bound int64, limit int) ([]CallIndexRow, error) {
-	column := sortColumns[order.Field()]
-	where, args := callsQueryWhere(q, fromMs, toMs)
-	limitKey := int64(math.MinInt64)
-	if order.Desc() {
-		where += " AND " + column + " <= ?"
-	} else {
-		where += " AND " + column + " >= ?"
-		limitKey = math.MaxInt64
-	}
-	args = append(args, bound)
-	return m.topPage(bucket, column, order.Desc(), where, args, limit, limitKey)
+// podKeySQL and restartSQL split the scalar pod_restart key
+// ("<ns>/<service>/<pod>/<restartMs>") into two sort keys that reproduce the
+// component-wise PK order of 02 §2.3.1 under SQLite's binary collation.
+// Stripping the trailing digits (and a sign) leaves "<ns>/<service>/<pod>/";
+// with each '/' replaced by char(1), which sorts below every byte a
+// Kubernetes name can hold, a name that prefixes another sorts first, as the
+// component comparison has it. The restart time then compares as an integer.
+// Ordering by the raw pod_restart string would get both cases wrong.
+const (
+	podPrefixSQL = `rtrim(pod_restart, '-0123456789')`
+	podKeySQL    = `replace(` + podPrefixSQL + `, '/', char(1))`
+	restartSQL   = `CAST(substr(pod_restart, length(` + podPrefixSQL + `) + 1) AS INTEGER)`
+	pkOrderSQL   = podKeySQL + `, ` + restartSQL + `, trace_file_index, buffer_offset, record_index`
+)
+
+// podSortKey is podKeySQL for a decoded PK, for binding a cursor.
+func podSortKey(pk model.PK) string {
+	return pk.PodNamespace + "\x01" + pk.PodService + "\x01" + pk.PodName + "\x01"
 }
 
-// topPage selects the rows whose sort key is among the first `limit` values
-// in the direction. The subquery finds the limit-th value; the outer SELECT
-// takes everything up to it, so a tie group is never split across pages
-// (splitting one would break the keyset order at the cut). limitKey is the
-// bound when fewer than `limit` rows match.
-func (m *metaDb) topPage(bucket int64, column string, desc bool, where string, args []any, limit int, limitKey int64) ([]CallIndexRow, error) {
-	dir, cmp, agg := "DESC", ">=", "MIN"
-	if !desc {
-		dir, cmp, agg = "ASC", "<=", "MAX"
+// CallsPageAfter reads one partition's page for the hot /calls path (№15) in
+// any order (02 §2.3.5): the filters push into SQL, the seek skips every row
+// up to and including after, and the rows come back in the full keyset
+// order (sort key in the order's direction, then pk ASC), at most limit of
+// them. A nil after starts from the top; an after with no PK passes only
+// sort keys strictly later in the order. The caller pages further with
+// after = the last row's position, so a tie group of any size is read limit
+// rows at a time; fewer than limit rows back means the partition holds no
+// more past the seek.
+func (m *metaDb) CallsPageAfter(bucket int64, q model.CallsQuery, fromMs, toMs int64,
+	order model.Order, after *model.Position, limit int) ([]CallIndexRow, error) {
+	where, args := callsQueryWhere(q, fromMs, toMs)
+	column := sortColumns[order.Field()]
+	dir, later := "DESC", "<"
+	if !order.Desc() {
+		dir, later = "ASC", ">"
 	}
-	sql := `SELECT pod_restart, trace_file_index, buffer_offset, record_index,
+	if after != nil {
+		key := order.Key(*after)
+		if after.NoPK {
+			where += " AND " + column + " " + later + " ?"
+			args = append(args, key)
+		} else {
+			pk := after.PK
+			// The outer bound lets an indexed column serve the range; the
+			// row value carries the PK tiebreak inside the cursor's key.
+			where += " AND " + column + " " + later + "= ? AND (" + column + " " + later + " ? OR (" +
+				pkOrderSQL + ") > (?, ?, ?, ?, ?))"
+			args = append(args, key, key, podSortKey(pk), pk.RestartTimeMs,
+				pk.TraceFileIndex, pk.BufferOffset, pk.RecordIndex)
+		}
+	}
+	sql := `SELECT ` + callIndexColumns + `
+		FROM call_index WHERE ` + where + `
+		ORDER BY ` + column + ` ` + dir + `, ` + pkOrderSQL + `
+		LIMIT ?`
+	args = append(args, limit)
+	var rows []CallIndexRow
+	err := m.withPartition(bucket, func(db *gorm.DB) error {
+		return db.Raw(sql, args...).Scan(&rows).Error
+	})
+	return rows, err
+}
+
+// callIndexColumns are the call_index columns a read page selects.
+const callIndexColumns = `pod_restart, trace_file_index, buffer_offset, record_index,
 		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
 		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
 		transactions, logs_generated, logs_written, file_read, file_written,
-		net_read, net_written, params_json, calls_wal_offset, method_text
+		net_read, net_written, params_json, calls_wal_offset, method_text`
+
+// topPage selects the rows whose sort column is among the top `limit`
+// values, descending. The subquery finds the limit-th value; the outer SELECT
+// takes everything at or above it, so a tie group is never split across
+// pages (splitting one would break the keyset order at the cut). floor is the
+// bound when fewer than `limit` rows match.
+func (m *metaDb) topPage(bucket int64, column, where string, args []any, limit int, floor int64) ([]CallIndexRow, error) {
+	sql := `SELECT ` + callIndexColumns + `
 		FROM call_index WHERE ` + where + `
-		AND ` + column + ` ` + cmp + ` COALESCE((SELECT ` + agg + `(k) FROM (
-			SELECT ` + column + ` AS k FROM call_index WHERE ` + where + ` ORDER BY k ` + dir + ` LIMIT ?)), ?)
-		ORDER BY ` + column + ` ` + dir
+		AND ` + column + ` >= COALESCE((SELECT MIN(` + column + `) FROM (
+			SELECT ` + column + ` FROM call_index WHERE ` + where + ` ORDER BY ` + column + ` DESC LIMIT ?)), ?)
+		ORDER BY ` + column + ` DESC`
 	allArgs := make([]any, 0, 2*len(args)+2)
 	allArgs = append(allArgs, args...)
 	allArgs = append(allArgs, args...)
-	allArgs = append(allArgs, limit, limitKey)
+	allArgs = append(allArgs, limit, floor)
 	var rows []CallIndexRow
 	err := m.withPartition(bucket, func(db *gorm.DB) error {
 		return db.Raw(sql, allArgs...).Scan(&rows).Error
@@ -1330,6 +1375,64 @@ func (m *metaDb) Buckets() ([]int64, error) {
 	var buckets []int64
 	err := m.meta.Raw(`SELECT bucket FROM call_partitions WHERE dropped_at IS NULL ORDER BY bucket`).Scan(&buckets).Error
 	return buckets, err
+}
+
+// UploadedCalls reads seal_state and parquet_local in one transaction, so
+// the watermark and the files it is checked against are one consistent state
+// (see UploadedCalls in hotquery.go for the rules).
+func (m *metaDb) UploadedCalls() (UploadedCalls, error) {
+	var marks []struct {
+		PodRestart string
+		Bucket     int64
+		Watermark  int64
+	}
+	var passes []struct {
+		PodRestart   string
+		TimeBucketMs int64
+		WalOffsetLo  int64
+		Pending      bool
+	}
+	err := m.meta.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Raw(`SELECT pod_restart, bucket, MAX(watermark) AS watermark
+			FROM seal_state GROUP BY pod_restart, bucket`).Scan(&marks).Error; err != nil {
+			return errors.Wrap(err, "read seal watermarks")
+		}
+		return errors.Wrap(tx.Raw(`SELECT pod_restart, time_bucket_ms, wal_offset_lo,
+			MAX(uploaded_at IS NULL) AS pending
+			FROM parquet_local GROUP BY pod_restart, time_bucket_ms, wal_offset_lo
+			ORDER BY pod_restart, time_bucket_ms, wal_offset_lo`).Scan(&passes).Error,
+			"read sealed passes")
+	})
+	if err != nil {
+		return UploadedCalls{}, err
+	}
+	out := UploadedCalls{byBucket: map[int64]map[string]passUploads{}}
+	for _, w := range marks {
+		if out.byBucket[w.Bucket] == nil {
+			out.byBucket[w.Bucket] = map[string]passUploads{}
+		}
+		out.byBucket[w.Bucket][w.PodRestart] = passUploads{watermark: w.Watermark}
+	}
+	for i, p := range passes {
+		if !p.Pending {
+			continue
+		}
+		bucket := m.cfg.Bucket(p.TimeBucketMs)
+		state, ok := out.byBucket[bucket][p.PodRestart]
+		if !ok {
+			continue // no watermark: Uploaded already answers false
+		}
+		// A pass ends where the next one starts. The janitor deletes the rows
+		// of aged, uploaded files, which only widens a pending span: safe.
+		hi := int64(math.MaxInt64)
+		if next := i + 1; next < len(passes) && passes[next].PodRestart == p.PodRestart &&
+			passes[next].TimeBucketMs == p.TimeBucketMs {
+			hi = passes[next].WalOffsetLo
+		}
+		state.pending = append(state.pending, [2]int64{p.WalOffsetLo, hi})
+		out.byBucket[bucket][p.PodRestart] = state
+	}
+	return out, nil
 }
 
 // Calls reads a bucket's call_index rows ordered by the primary time axis.

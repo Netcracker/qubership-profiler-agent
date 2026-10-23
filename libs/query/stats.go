@@ -34,11 +34,13 @@ type hotStats struct {
 
 // handleStats serves GET /api/v1/stats (02 §2.9). It splits the window at
 // t_lo, the earliest hot window of the replicas that answered the health
-// probe: below it the cold tier holds every call and aggregates alone; from
-// it on each replica aggregates its own calls and returns their PK hashes,
-// and the cold scan counts only the calls no replica counted. Nothing is
-// deduplicated row by row, so the response holds no cursor and no row
-// merge.
+// probe: below it the cold tier holds every call and aggregates alone. From
+// it on each replica aggregates the calls it has not uploaded yet and returns
+// their PK hashes, and the cold scan counts every call no replica counted, so
+// an uploaded call counts once, from its sealed copy. The fan-out completes
+// before the cold LIST starts: a call a replica left out as uploaded is then
+// in S3 when the LIST runs. Nothing is deduplicated row by row, so the
+// response holds no cursor and no row merge.
 func (s *Service) handleStats(c echo.Context) error {
 	ctx := c.Request().Context()
 	req, detail := stats.ParseRequest(c.QueryParams())
@@ -54,8 +56,17 @@ func (s *Service) handleStats(c echo.Context) error {
 
 	lease := s.budget.NewLease()
 	defer lease.Release()
-	charge := func(n int64) error { return lease.Grow(ctx, n) }
+	charge := func(n int64) error {
+		if n < 0 {
+			lease.Shrink(-n) // Space-Saving dropped an evicted group
+			return nil
+		}
+		return lease.Grow(ctx, n)
+	}
 
+	// The hot fan-out runs to completion before the cold discovery: a
+	// replica skips the calls it has uploaded, and S3 read-after-write
+	// consistency makes them visible to the LIST below (02 §2.9).
 	h := s.hotStats(ctx, req, lease)
 	partial := append([]string{}, h.partialReasons...)
 	succeeded, failed := h.succeeded, h.failed
@@ -74,9 +85,13 @@ func (s *Service) handleStats(c echo.Context) error {
 	partial = append(partial, discovery.PartialReasons...)
 	partial = append(partial, lineageReasons...)
 
+	// Every hot aggregate merged below keeps its hash suppression, whichever
+	// replicas failed. Only with no hot aggregate does the scan read the
+	// window without a hash check (02 §2.9).
+	suppress := len(h.results) > 0
 	coldAgg := stats.NewAggregator(req.Grouping(), req.Order, s.cfg.StatsMaxGroups, charge)
 	scanReasons, err := s.cold.EachRow(ctx, files, q, func(row *model.CallRow) error {
-		if row.TsMs >= h.tLoMs && len(h.hashes) > 0 && h.hashes.Contains(stats.PKHash(row.PK)) {
+		if suppress && row.TsMs >= h.tLoMs && h.hashes.Contains(stats.PKHash(row.PK)) {
 			return nil // a replica counted this call (02 §2.9)
 		}
 		return coldAgg.Add(row)

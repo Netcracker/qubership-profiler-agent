@@ -46,7 +46,8 @@ const (
 	// build cannot look it up there, so it has no figures for that window.
 	StatusOutsideTop = "outside_top"
 	// StatusUnknown: the window that lacks the group answered partially, so
-	// a failed source may hold its calls.
+	// a failed source may hold its calls, or answered approximately even
+	// when asked for that group alone, so a source may have dropped it.
 	StatusUnknown = "unknown"
 )
 
@@ -346,8 +347,10 @@ func (l *lookup) capabilities(ctx context.Context) (model.FilterCapabilities, er
 //   - A response that lists every group (other is null, approximate is
 //     false) and is not partial proves a missing key absent; no lookup runs.
 //   - Otherwise one /stats query restricted to the missing keys looks them
-//     up. A key it returns gets its figures; a key it does not return is
-//     absent unless the lookup is partial, which leaves the key unknown.
+//     up. A key it returns gets its figures. A key it does not return is
+//     absent only if the lookup is exact: a partial lookup leaves the key
+//     unknown, and an approximate one may have dropped the key, so the
+//     omitted keys are looked up again in halves (see lookUp).
 //   - A key no single condition can select (the build has no `in`, `=~`, or
 //     `=` on the field, or `=` covers only one key) is not looked up: it is
 //     unknown when the window's response is partial and outside the top N
@@ -383,24 +386,70 @@ func (l *lookup) resolve(ctx context.Context, name string, w ResolvedWindow, st 
 	if cond == "" {
 		return nil
 	}
-	got, err := l.c.Stats(ctx, l.statsIn(w, cond, len(covered)))
+	return l.lookUp(ctx, name, w, cond, covered, absent, found, status)
+}
+
+// lookUp runs one /stats query restricted to keys by cond and classifies
+// the keys it does not return. An approximate response (a source kept fewer
+// groups than it saw, as Space-Saving does) is no evidence that an omitted
+// key is absent, so the omitted keys are looked up again in two halves until
+// a response is exact. A single key that still comes back approximate, or
+// any key a partial response omits, is unknown. The halving keeps the
+// queries under twice the number of keys.
+func (l *lookup) lookUp(ctx context.Context, name string, w ResolvedWindow, cond string, keys []string,
+	absent string, found map[string]StatsValues, status map[string]string) error {
+	got, err := l.c.Stats(ctx, l.statsIn(w, cond, len(keys)))
 	if err != nil {
-		return errors.Wrapf(err, "look up %d groups in the %s", len(covered), name)
+		return errors.Wrapf(err, "look up %d groups in the %s", len(keys), name)
 	}
 	l.res.Partial = append(l.res.Partial, prefixed(name+" lookup", got.Partial)...)
 	l.res.Approximate = l.res.Approximate || got.Approximate
 	for _, row := range got.Rows {
-		if slices.Contains(covered, row.Key) {
+		if slices.Contains(keys, row.Key) {
 			found[row.Key] = row.StatsValues
 		}
 	}
-	for _, k := range covered {
-		if _, ok := found[k]; ok {
+	var omitted []string
+	for _, k := range keys {
+		if _, ok := found[k]; !ok {
+			omitted = append(omitted, k)
+		}
+	}
+	exact := !got.Approximate && got.Other == nil
+	switch {
+	case len(omitted) == 0:
+		return nil
+	case len(got.Partial) > 0 || (!exact && len(keys) == 1):
+		for _, k := range omitted {
+			status[k] = StatusUnknown
+		}
+		return nil
+	case exact:
+		for _, k := range omitted {
+			status[k] = absent
+		}
+		return nil
+	}
+	caps, err := l.capabilities(ctx)
+	if err != nil {
+		return err
+	}
+	half := (len(omitted) + 1) / 2
+	for _, part := range [][]string{omitted[:half], omitted[half:]} {
+		if len(part) == 0 {
 			continue
 		}
-		status[k] = absent
-		if len(got.Partial) > 0 {
-			status[k] = StatusUnknown
+		cond, covered := groupCondition(caps, l.field, part)
+		for _, k := range part {
+			if !slices.Contains(covered, k) {
+				status[k] = StatusUnknown
+			}
+		}
+		if cond == "" {
+			continue
+		}
+		if err := l.lookUp(ctx, name, w, cond, covered, absent, found, status); err != nil {
+			return err
 		}
 	}
 	return nil

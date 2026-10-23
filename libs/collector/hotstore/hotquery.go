@@ -51,11 +51,13 @@ func (s *Store) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, 
 	return s.db.CallsPage(bucket, q, fromMs, toMs, limit)
 }
 
-// CallsPageBy reads one partition's rows for any /calls order (02 §2.3.5):
-// the first `limit` sort keys in the order's direction that do not pass
-// bound, with the complete tie group at the boundary.
-func (s *Store) CallsPageBy(bucket int64, q model.CallsQuery, fromMs, toMs int64, order model.Order, bound int64, limit int) ([]CallIndexRow, error) {
-	return s.db.CallsPageBy(bucket, q, fromMs, toMs, order, bound, limit)
+// CallsPageAfter reads one partition's page for the hot /calls path in any
+// order (02 §2.3.5): up to limit rows past the after position, in the full
+// keyset order (sort key in the order's direction, then pk ASC), so no tie
+// group is read whole.
+func (s *Store) CallsPageAfter(bucket int64, q model.CallsQuery, fromMs, toMs int64,
+	order model.Order, after *model.Position, limit int) ([]CallIndexRow, error) {
+	return s.db.CallsPageAfter(bucket, q, fromMs, toMs, order, after, limit)
 }
 
 // FindCall looks one call up by its PK across the partitions (/internal/v1
@@ -224,4 +226,47 @@ func (pr *PodRestart) chunkChainFrom(traceFileIndex int, bufferOffset int64) ([]
 		}
 	}
 	return nil, 0, false
+}
+
+// UploadedCalls is a snapshot of which indexed calls have a sealed copy
+// confirmed in S3. /internal/v1/stats leaves those calls to the cold scan,
+// which reads the values seal corrected (02 §2.9, 01 §5.6).
+//
+// The call index knows upload state per seal pass, not per row: a pass
+// covers the calls.wal offsets from its start watermark (every file of the
+// pass carries it as wal_offset_lo) up to the next pass's start, and the
+// pass counts as uploaded once each of its files is. Every rule errs toward
+// "not uploaded", which only costs freshness: a call the replica keeps counts
+// from hot and its PK hash still suppresses the cold copy.
+type UploadedCalls struct {
+	// byBucket maps a partition bucket and a pod-restart to its state.
+	byBucket map[int64]map[string]passUploads
+}
+
+type passUploads struct {
+	// watermark is the first calls.wal offset not sealed yet.
+	watermark int64
+	// pending are the [lo, hi) offset spans of the passes with a file not
+	// confirmed in S3: pending upload, quarantined, or manifest pending.
+	pending [][2]int64
+}
+
+// Uploaded reports whether the call at callsWalOffset of podRestart, in
+// partition bucket, is sealed into files that are all confirmed in S3.
+func (u UploadedCalls) Uploaded(bucket int64, podRestart string, callsWalOffset int64) bool {
+	p, ok := u.byBucket[bucket][podRestart]
+	if !ok || callsWalOffset >= p.watermark {
+		return false
+	}
+	for _, span := range p.pending {
+		if callsWalOffset >= span[0] && callsWalOffset < span[1] {
+			return false
+		}
+	}
+	return true
+}
+
+// UploadedCalls snapshots the upload state of every partition.
+func (s *Store) UploadedCalls() (UploadedCalls, error) {
+	return s.db.UploadedCalls()
 }
