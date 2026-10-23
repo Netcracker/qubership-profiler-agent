@@ -167,6 +167,12 @@ func TestTextReportsWriteErrors(t *testing.T) {
 			return render.Hotspots(w, insight.HotspotsResult{Window: window, Approximate: true, Notes: []string{"n"}})
 		},
 		"timeline": func(w io.Writer) error { return render.Timeline(w, sampleTimeline()) },
+		"compare":  func(w io.Writer) error { return render.Compare(w, sampleCompare()) },
+		"compare, no baseline sample": func(w io.Writer) error {
+			res := sampleCompare()
+			res.Sample.Baseline = nil
+			return render.Compare(w, res)
+		},
 	} {
 		var full bytes.Buffer
 		require.NoError(t, write(&full), name)
@@ -245,4 +251,60 @@ func TestTimelineText(t *testing.T) {
 	var b bytes.Buffer
 	require.NoError(t, render.Timeline(&b, sampleTimeline()))
 	golden(t, "timeline", b.String())
+}
+
+func side(count, errors, sumMs, p95 int64, minutes float64) *insight.CompareSide {
+	s := &insight.CompareSide{StatsValues: insight.StatsValues{Count: count, Errors: errors, DurationMsSum: sumMs, P95Ms: i64(p95)}}
+	s.CallsPerMin, s.TimeMsPerMin = float64(count)/minutes, float64(sumMs)/minutes
+	if count > 0 {
+		s.MeanMs, s.ErrorRate = float64(sumMs)/float64(count), float64(errors)/float64(count)
+	}
+	return s
+}
+
+func sampleCompare() insight.CompareResult {
+	base := insight.ResolvedWindow{From: t0.Add(-time.Hour), To: t0}
+	calls := sampleCalls()
+	return insight.CompareResult{
+		Baseline: base, Target: window, GroupBy: "method", Order: insight.OrderDurationSumDesc,
+		BaselineTotals: insight.StatsTotals{Count: 1200, Errors: 2}, TargetTotals: insight.StatsTotals{Count: 1250, Errors: 9},
+		Groups: []insight.CompareGroup{
+			{
+				Key: "void com.example.Billing.charge(long) (Billing.java) [billing.jar]", Status: insight.StatusCompared,
+				Baseline: side(100, 1, 30000, 600, 60), Target: side(110, 6, 99000, 2400, 60), TimeMsPerMinDelta: 1150, Slower: true,
+			},
+			{
+				Key: "com.example.Health.check", Status: insight.StatusCompared,
+				Baseline: side(1000, 0, 2000, 3, 60), Target: side(1000, 0, 1900, 3, 60), TimeMsPerMinDelta: -1.7,
+			},
+			{Key: "com.example.Export.run", Status: insight.StatusNew, Target: side(3, 0, 4500, 1600, 60), TimeMsPerMinDelta: 75},
+			{Key: "com.example.Legacy.sync", Status: insight.StatusVanished, Baseline: side(6, 0, 1200, 250, 60), TimeMsPerMinDelta: -20},
+			{Key: "com.example.Audit.log", Status: insight.StatusUnknown, Missing: insight.WindowTarget, Baseline: side(40, 0, 800, 30, 60)},
+		},
+		Partial: []string{"target lookup: collector 10.0.0.7 stats: timeout"},
+		Sample: &insight.CompareSample{
+			Groups:   []string{"void com.example.Billing.charge(long) (Billing.java) [billing.jar]", "com.example.Export.run"},
+			Baseline: &insight.SampleInfo{Requested: 10, Listed: 10, Trees: 10, Of: 100},
+			Target:   insight.SampleInfo{Requested: 10, Listed: 10, Trees: 9, Of: 113, Calls: calls[:1], Skipped: []string{"1 calls have no tree (buffer_full)"}},
+			Methods: []insight.MethodChange{
+				{Method: "a.Jdbc.execute", BaselineSelfMsPerCall: 210, TargetSelfMsPerCall: 1650.5, DeltaMsPerCall: 1440.5, BaselineCalls: 10, TargetCalls: 9},
+				{Method: "com.example.Http.call()", BaselineSelfMsPerCall: 40, TargetSelfMsPerCall: 12, DeltaMsPerCall: -28, BaselineCalls: 4, TargetCalls: 2},
+			},
+			SQL: []insight.SQLChange{
+				{Statement: "select * from orders where id = ?", BaselineMsPerCall: 200, TargetMsPerCall: 1600, DeltaMsPerCall: 1400, BaselineCalls: 10, TargetCalls: 9},
+			},
+		},
+		Notes: []string{"only groups in the top 10 of either window are compared; a larger limit compares more"},
+	}
+}
+
+func TestCompareText(t *testing.T) {
+	var b bytes.Buffer
+	require.NoError(t, render.Compare(&b, sampleCompare()))
+	golden(t, "compare", b.String())
+	assert.Contains(t, b.String(), "Sampled, not exact:")
+
+	b.Reset()
+	require.NoError(t, render.Compare(&b, insight.CompareResult{Baseline: window, Target: window, GroupBy: "method"}))
+	assert.Contains(t, b.String(), "No calls match in either window.")
 }
