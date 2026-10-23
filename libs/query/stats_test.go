@@ -87,8 +87,11 @@ func putCold(t *testing.T, store *memColdStore, seq int, rows ...model.CallRow) 
 // statsReplica is a fake collector: a hot window and /internal/v1/stats over
 // its rows, aggregated with the same code the real collector runs.
 type statsReplica struct {
-	oldestMs  int64
-	rows      []model.CallRow
+	oldestMs int64
+	rows     []model.CallRow
+	// uploaded marks the rows whose sealed copy the replica knows is in S3:
+	// it leaves them to the cold scan, as the real collector does.
+	uploaded  map[model.PK]bool
 	failProbe bool
 	failStats bool
 	// extraHashes pads pk_hashes, to make the hash set outgrow the budget.
@@ -122,7 +125,7 @@ func (r *statsReplica) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		var hashes []uint64
 		for i := range r.rows {
 			row := r.rows[i]
-			if !match.Match(&row) {
+			if r.uploaded[row.PK] || !match.Match(&row) {
 				continue
 			}
 			hashes = append(hashes, stats.PKHash(row.PK))
@@ -190,11 +193,13 @@ func rowsByKey(resp stats.Response) map[string]stats.RowValues {
 //
 //   - five old calls only cold holds, below every hot window;
 //   - replica A (oldest T+50s) holds three calls, two of them also sealed to
-//     cold (the overlap) and one hot-only;
+//     cold (the overlap) and one hot-only. Of the overlap, A knows the first
+//     is uploaded, and seal corrected its error flag in the cold copy; the
+//     second reached S3 before A recorded the upload;
 //   - replica B (oldest T+70s) holds one hot-only call, and one call it has
 //     already dropped lives in cold only, inside [t_lo, to).
 //
-// Exact answer: 10 calls, every one counted once.
+// Exact answer: 10 calls and 3 errors, every call counted once.
 func tieredFixture(t *testing.T) *statsFixture {
 	t.Helper()
 	store := newMemColdStore()
@@ -210,12 +215,15 @@ func tieredFixture(t *testing.T) *statsFixture {
 		statsCall("billing", 10, 50_000, 100, false),
 		statsCall("billing", 11, 55_000, 200, false),
 	}
-	putCold(t, store, 1, overlap...)
+	sealed := append([]model.CallRow{}, overlap...)
+	sealed[0].ErrorFlag = true // seal re-derived it (01 §5.6)
+	putCold(t, store, 1, sealed...)
 	droppedByB := statsCall("orders", 20, 65_000, 300, true)
 	putCold(t, store, 2, droppedByB)
 
 	a := &statsReplica{oldestMs: statsT + 50_000,
-		rows: append(append([]model.CallRow{}, overlap...), statsCall("billing", 12, 60_000, 400, false))}
+		rows:     append(append([]model.CallRow{}, overlap...), statsCall("billing", 12, 60_000, 400, false)),
+		uploaded: map[model.PK]bool{overlap[0].PK: true}}
 	b := &statsReplica{oldestMs: statsT + 70_000, rows: []model.CallRow{statsCall("orders", 21, 80_000, 500, false)}}
 	return &statsFixture{cold: store, replicas: []*statsReplica{a, b}}
 }
@@ -224,11 +232,13 @@ func TestStatsCountsEachCallOnce(t *testing.T) {
 	api := tieredFixture(t).serve(t)
 
 	resp := getStats(t, api, "group_by", "service")
-	assert.Equal(t, stats.Totals{Count: 10, Errors: 2}, resp.Totals)
+	assert.Equal(t, stats.Totals{Count: 10, Errors: 3}, resp.Totals,
+		"the uploaded overlap call counts from cold, with its sealed error flag")
 	assert.False(t, resp.Partial, "reasons: %v", resp.PartialReasons)
 	assert.Equal(t, []string{}, resp.PartialReasons)
 	byKey := rowsByKey(resp)
 	assert.Equal(t, int64(6), byKey["billing"].Count, "three old, two in both tiers, one hot-only")
+	assert.Equal(t, int64(2), byKey["billing"].Errors, "one old, one sealed")
 	assert.Equal(t, int64(10+20+30+100+200+400), byKey["billing"].DurationMsSum)
 	assert.Equal(t, int64(4), byKey["orders"].Count, "two old, one cold-only in [t_lo, to), one hot-only")
 	assert.Equal(t, int64(1), byKey["orders"].Errors)
@@ -316,6 +326,23 @@ func TestStatsDegradedHotTier(t *testing.T) {
 		f.replicas[0].failStats = true
 		resp := getStats(t, f.serve(t), "group_by", "service")
 		assert.Equal(t, int64(9), resp.Totals.Count, "A's overlap calls still come from cold; its hot-only one is lost")
+		assert.Equal(t, int64(3), resp.Totals.Errors)
+		assert.True(t, resp.Partial)
+		require.Len(t, resp.PartialReasons, 1)
+		assert.Contains(t, resp.PartialReasons[0], "stats")
+	})
+	t.Run("a failed replica keeps the hash suppression of one that answered", func(t *testing.T) {
+		// A answers, with one overlap call left to cold as uploaded and one
+		// counted hot; B fails. A's hashes must still suppress the cold copy
+		// of the call A counted, or it counts twice.
+		f := tieredFixture(t)
+		f.replicas[1].failStats = true
+		resp := getStats(t, f.serve(t), "group_by", "service")
+		assert.Equal(t, int64(9), resp.Totals.Count, "B's hot-only call is lost; nothing counts twice")
+		assert.Equal(t, int64(3), resp.Totals.Errors)
+		byKey := rowsByKey(resp)
+		assert.Equal(t, int64(6), byKey["billing"].Count)
+		assert.Equal(t, int64(10+20+30+100+200+400), byKey["billing"].DurationMsSum)
 		assert.True(t, resp.Partial)
 		require.Len(t, resp.PartialReasons, 1)
 		assert.Contains(t, resp.PartialReasons[0], "stats")

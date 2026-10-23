@@ -16,7 +16,7 @@ var compareSections = []struct{ status, title string }{
 	{insight.StatusNew, "New: no call in the baseline"},
 	{insight.StatusVanished, "Vanished: no call in the target"},
 	{insight.StatusOutsideTop, "Outside the top N of one window, which the server cannot look up, so no figures there"},
-	{insight.StatusUnknown, "Unknown in one window: a source failed there, so the group may have calls it did not count"},
+	{insight.StatusUnknown, "Unknown in one window: a source failed or dropped groups there, so the group may have calls it did not count"},
 }
 
 // Compare prints a compare result: the exact join by status, then the
