@@ -362,8 +362,10 @@ so a call that migrates from the hot tier to the cold tier keeps its place in ev
 | A | `start_desc`, `duration_desc` |
 | B | Every other field and direction of the table above |
 
-No retention class bounds `cpu`, `queue`, `calls`, or `net`, so a stage B order other than `duration_asc` reads every
-file of the window and works only inside the wide-query guard (§2.3.2).
+No retention class bounds `start`, `cpu`, `queue`, `calls`, or `net`, so an order on one of them reads every file of
+the window, as `start_desc` does, and works only inside the wide-query guard (§2.3.2): it is no narrowing filter, and
+the cost layer charges the whole discovery. Ascending or descending, the cold scan sorts each batch it reads, because
+a file holds its rows in start order.
 
 **`duration_desc` reads the duration bands from the top.** The clean retention classes are disjoint duration bands of
 the tier table (`01-write-contract.md` §6.4): `huge_clean`, `long_clean`, `normal_clean`, and `short_clean`, from the
@@ -405,6 +407,21 @@ Every page therefore either returns a row or moves `band` to a shorter band, so 
 `next_cursor` is `null` once every band the conditions allow and the error classes hold no row past the cursor. The
 hot tier needs no bands: a hot source returns up to `limit` rows past the cursor in `(duration_ms DESC, pk ASC)` order,
 and `query` merges them with the cold rows by the same comparator.
+
+**`duration_asc` is the same walk from the bottom.** It reads the clean bands from `short_clean` up, with the error
+classes alongside the first band, and its cursor records `band` as the shortest band the next page may still need; a
+first page has `short_clean`. A band's frontier is its last duration, `upper − 1`, where `duration_desc` uses the
+lower bound: a page ends once `limit` merged rows sit at or below the frontier of the band just read, and a page the
+cost layer stops before a band returns the rows at or below the frontier of the last band it read, with a
+`next_cursor` at that frontier with no PK. A position with no PK passes only longer calls. The walk saves no file
+the way `duration_desc` does, because the shortest band, `short_clean`, is the largest class: `duration_asc` is no
+narrowing filter for the span layer, and a lower bound on `duration` is what makes its first band cheap.
+
+**Hot tier.** Every order reads the hot store per call-index partition: each partition returns up to `limit` rows past
+the cursor in the order, with the whole tie group at the cut, and the partition runs merge by the shared comparator.
+The partitions index `ts_ms` and `duration_ms` only. For `cpu`, `queue`, `calls`, and `net`, SQLite sorts the rows of
+a partition that meet the pushed-down conditions on every page; a partition holds one time bucket of one replica, so
+the cost is bounded, and an index per key would slow every insert on the write path for orders the UI rarely asks for.
 
 ### 2.4 Trace blob — lazy endpoint
 
@@ -753,7 +770,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 | GET | `/internal/v1/pods/{pod-restart}/dictionary` | Same shape as `/api/v1/pods/{pod-restart}/dictionary` (§2.6). For live pod-restarts hosted by this replica. |
 | GET | `/internal/v1/pods/{pod-restart}/suspend` | The pod-restart's stop-the-world timeline from the replica's `suspend.wal` mirror: `{ "events": [{ "end_ms": ..., "duration_ms": ... }] }` — the same event shape the sealed rows inline as `suspend_json` (`01-write-contract.md` §3.6, §5.2), so a consumer parses one format on either tier. `query` intersects it with node work intervals for the per-node suspension of `/tree` (§2.5.3, `08-ui-backend-requirements.md` R7). |
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
-| GET | `/internal/v1/calls` | Same params as `/api/v1/calls`, with the keyset in place of `cursor`: `after_ts_ms` and `after_pk` for `start_desc`, `after_duration_ms` and an optional `after_pk` for `duration_desc` (no `after_pk` is a position with no PK, §2.3.5). Returns only rows this replica holds, and echoes the order it sorted by as `order`. A replica without the echo predates `order` and returns its newest rows, so for any other order `query` counts it as a failed source and marks the page partial (§7.4) instead of merging rows in the wrong order. |
+| GET | `/internal/v1/calls` | Same params as `/api/v1/calls`, with the keyset in place of `cursor`: the position's sort key in `after_ts_ms` for the `start` orders, in `after_duration_ms` for the `duration` orders, and in `after_key` for the others (`net_read + net_written` for `net`), with `after_pk`. Only a duration order leaves `after_pk` out, for a position with no PK (§2.3.5). Returns only rows this replica holds, and echoes the order it sorted by as `order`. A replica without the echo predates `order` and returns its newest rows, so for any other order `query` counts it as a failed source and marks the page partial (§7.4) instead of merging rows in the wrong order. A replica that knows `order` but not the one asked for answers `400`, which counts the same way. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |
 | GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, no `other` row, and the PK hashes of the rows it aggregated, so `query` can merge the replicas and the cold scan, skipping cold rows a replica already counted, before it ranks and cuts to `limit` (§2.9). Three more parameters serve the fan-out: `bucket_origin_ms` and `bucket_ms` place the calls of `[t_lo, to)` on the buckets of the external window, and `max_groups` passes `query`'s `PROFILER_STATS_MAX_GROUPS`. The hashes travel as `pk_hashes`, the base64 of their 8-byte big-endian forms. |
 | GET | `/internal/v1/calls/{pk}/trace` | Blob from this replica. |
