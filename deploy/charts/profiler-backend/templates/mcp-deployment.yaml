@@ -1,0 +1,61 @@
+{{- if .Values.mcp.enabled }}
+{{- if or (hasKey .Values.mcp.env "PROFILER_MCP_PORT") (hasKey .Values.mcp.env "PROFILER_URL") }}
+{{- fail "set mcp.port / mcp.queryUrl, not mcp.env.PROFILER_MCP_PORT or mcp.env.PROFILER_URL: mcp.env renders after them and a duplicate key would override the declared containerPort" }}
+{{- end }}
+# MCP server for AI agents (agent-access plan §6.3). It holds no data and
+# reads everything from the query Service over HTTP, so it needs no S3 access.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-mcp
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "mcp") | nindent 4 }}
+spec:
+  replicas: {{ .Values.mcp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "mcp") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "profiler-backend.labels" (dict "root" . "component" "mcp") | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.mcp.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "profiler-backend.podSecurityContext" (dict "root" . "component" "mcp") | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: profiler-backend
+          image: {{ include "profiler-backend.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["mcp"]
+          securityContext:
+            {{- include "profiler-backend.containerSecurityContext" (dict "root" . "component" "mcp") | nindent 12 }}
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.mcp.port }}
+              protocol: TCP
+          env:
+            - name: PROFILER_MCP_PORT
+              value: {{ .Values.mcp.port | quote }}
+            - name: PROFILER_URL
+              value: {{ .Values.mcp.queryUrl | default (printf "http://%s-query:%v" (include "profiler-backend.fullname" .) .Values.query.port) | quote }}
+            {{- include "profiler-backend.extraEnv" .Values.mcp.env | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: mcp
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: mcp
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+{{- end }}

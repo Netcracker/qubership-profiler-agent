@@ -147,6 +147,32 @@ query:
   # dumps-collector chart's own default ingress host convention).
   dumpsCollectorUrl: ""
 
+# MCP server for AI agents (`profiler-backend mcp`): the profiler's agent
+# tools over Streamable HTTP at /mcp, reading from the query Service.
+# Disabled by default. v1 has no authentication on MCP or on /api/v1, so the
+# chart exposes it through a ClusterIP Service only and renders no Ingress or
+# HTTPRoute for it: anyone who can reach the endpoint can read every
+# namespace's profiling data. Reach it in-cluster or with kubectl
+# port-forward; do not publish it until authentication lands.
+mcp:
+  enabled: false
+  replicas: 1
+  port: 8090
+  # Base URL of the query service. Empty points at this release's query
+  # Service, http://<fullname>-query:<query.port>.
+  queryUrl: ""
+  terminationGracePeriodSeconds: 45
+  env: {}
+  securityContext: {}
+  containerSecurityContext: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 maintain:
   # cronjob: one pod per run (batch/v1 CronJob, --run-now).
   # deployment: singleton loop pod; the only mode with a /metrics surface.

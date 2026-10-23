@@ -5,10 +5,12 @@ Deploys the Go profiler backend (`docs/design/04-storage-layout.md`):
 - **collector** — StatefulSet with one RWO PVC per replica (`volumeClaimTemplates`), a governing headless Service for query fan-out, and an L4 Service for agent TCP (port 1715).
 - **query** — stateless Deployment + ClusterIP Service (`/api/v1`, port 8080).
 - **maintain** — CronJob (default) or a singleton Deployment loop.
+- **mcp** (optional, off by default) — the MCP server for AI agents: a stateless Deployment and a ClusterIP Service
+  (`/mcp`, port 8090) that read from the query Service. See [MCP server](#mcp-server).
 - **minio** (optional) — in-cluster dev MinIO for smoke runs; storage is an emptyDir.
 - **monitoring** (optional) — ServiceMonitor/PodMonitor objects and a PrometheusRule with the baseline alerts.
 
-All three workloads read the S3 credentials from a Secret **mounted as a volume** (`S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE`); the values never appear in pod specs or env blocks (`01-write-contract.md` §9, `04` §6).
+The collector, query, and maintain workloads read the S3 credentials from a Secret **mounted as a volume** (`S3_ACCESS_KEY_FILE` / `S3_SECRET_KEY_FILE`); the values never appear in pod specs or env blocks (`01-write-contract.md` §9, `04` §6).
 
 ## Quick start (kind)
 
@@ -67,12 +69,33 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `collector.terminationGracePeriodSeconds` | `100` | ≥ the 03 §5.4 shutdown budget. |
 | `collector.env`, `query.env`, `maintain.env` | `{}` | Extra env (name → value) for the remaining `PROFILER_*` knobs. |
 | `query.replicas` / `query.port` | `2` / `8080` | Stateless; scale horizontally. |
+| `mcp.enabled` | `false` | Renders the MCP Deployment and its ClusterIP Service. See [MCP server](#mcp-server). |
+| `mcp.port` / `mcp.replicas` | `8090` / `1` | Stateless; any replica answers any request. |
+| `mcp.queryUrl` | `""` | Base URL of the query service; empty means this release's query Service. |
+| `mcp.env` | `{}` | Extra env (name → value), such as `PROFILER_LOG_LEVEL`. |
 | `maintain.mode` | `cronjob` | `deployment` runs the singleton loop — the only mode with `/metrics`. |
 | `maintain.schedule` | `0 * * * *` | CronJob mode. |
 | `retention.*TTL` | contract defaults | Per-class TTLs (01 §6.4) passed to maintain. |
 | `minio.enabled` | `false` | Dev/smoke MinIO (emptyDir storage, same credentials Secret). |
 | `metrics.serviceMonitor.enabled` | `false` | Requires the prometheus-operator CRDs. Also creates the query and maintain PodMonitors; see the note under [Metrics contract](#metrics-contract). |
 | `metrics.prometheusRule.enabled` | `false` | Ships `files/prometheus-rules.yaml` as a PrometheusRule. |
+
+## MCP server
+
+`mcp.enabled=true` deploys `profiler-backend mcp`, which serves the profiler's agent tools over Streamable HTTP at
+`/mcp`. It reads every result from the query Service, so it needs no S3 access and no storage.
+
+The MCP server is in-cluster only. v1 has no authentication on MCP or on `/api/v1`: anyone who reaches the endpoint
+can read the profiling data of every namespace, request parameters included. So the chart gives it a ClusterIP
+Service and no Ingress or HTTPRoute. Reach it from a pod in the cluster at
+`http://<fullname>-mcp.<namespace>.svc:8090/mcp`, or from a workstation through a port-forward:
+
+```bash
+kubectl port-forward svc/profiler-profiler-backend-mcp 8090:8090   # then http://localhost:8090/mcp
+```
+
+Do not publish it through an ingress of your own until authentication lands. `docs/agent-access.md` covers the
+client setup.
 
 ## Metrics contract
 

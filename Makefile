@@ -347,7 +347,7 @@ adversarial:
 kind-smoke:
 	deploy/kind/kind-smoke.sh
 
-# helm template (monitoring objects ON, so the CRD manifests render too)
+# helm template (monitoring objects and the MCP server ON, so their manifests render too)
 # validated by kubeconform: a local binary when present, docker otherwise;
 # CRD schemas come from the datree catalog.
 .PHONY: helm-lint
@@ -360,6 +360,7 @@ helm-lint:
 		-f deploy/kind/values-kind.yaml \
 		--set metrics.serviceMonitor.enabled=true \
 		--set metrics.prometheusRule.enabled=true \
+		--set mcp.enabled=true \
 		--output-dir .helm-render
 	@if command -v kubeconform >/dev/null 2>&1; then \
 		kubeconform -strict -summary \
