@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -257,6 +258,37 @@ func TestHotColdFanout(t *testing.T) {
 		for _, key := range fake.openedKeys() {
 			assert.NotContains(t, key, ".parquet", "cold /pods reads manifests only")
 		}
+	})
+
+	t.Run("stats count each call once across the tiers", func(t *testing.T) {
+		// A1 and E sit in both tiers: the replica counts them and returns
+		// their PK hashes, so the cold scan skips its copies. N1 and N2 are
+		// hot only, C1 and C2 cold only (02 §2.9).
+		u := api.URL + "/api/v1/stats?" + url.Values{
+			"from": {fmt.Sprint(windowFrom)}, "to": {fmt.Sprint(windowTo)}, "group_by": {"pod"},
+		}.Encode()
+		resp, err := http.Get(u)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var body struct {
+			Rows []struct {
+				Key   string `json:"key"`
+				Count int64  `json:"count"`
+			} `json:"rows"`
+			Totals struct {
+				Count int64 `json:"count"`
+			} `json:"totals"`
+			Partial bool `json:"partial"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		assert.False(t, body.Partial)
+		assert.Equal(t, int64(6), body.Totals.Count)
+		got := map[string]int64{}
+		for _, row := range body.Rows {
+			got[row.Key] = row.Count
+		}
+		assert.Equal(t, map[string]int64{fanPodHot: 4, fanPodCold: 2}, got)
 	})
 
 	t.Run("internal API: single row, blob = seal assembler output, dictionary", func(t *testing.T) {

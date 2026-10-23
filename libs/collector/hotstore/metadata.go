@@ -1208,22 +1208,39 @@ func escapeLikePrefix(s string) string {
 // than `limit` rows back means the window is exhausted.
 func (m *metaDb) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, limit int) ([]CallIndexRow, error) {
 	where, args := callsQueryWhere(q, fromMs, toMs)
-	// The subquery finds the ts of the limit-th newest matching row; the outer
-	// SELECT takes everything at or above it, so a tie group is never split
-	// across pages (splitting one would break the keyset order at the cut).
+	return m.topPage(bucket, "ts_ms", where, args, limit, fromMs)
+}
+
+// CallsPageByDuration is CallsPage for the duration_desc order (02 §2.3.5):
+// the top `limit` durations at or below maxDurationMs plus the complete tie
+// group at the boundary, longest first. The caller pages further down with
+// maxDurationMs = the last row's duration_ms - 1.
+func (m *metaDb) CallsPageByDuration(bucket int64, q model.CallsQuery, fromMs, toMs, maxDurationMs int64, limit int) ([]CallIndexRow, error) {
+	where, args := callsQueryWhere(q, fromMs, toMs)
+	where += " AND duration_ms <= ?"
+	args = append(args, maxDurationMs)
+	return m.topPage(bucket, "duration_ms", where, args, limit, int64(math.MinInt64))
+}
+
+// topPage selects the rows whose sort column is among the top `limit`
+// values, descending. The subquery finds the limit-th value; the outer SELECT
+// takes everything at or above it, so a tie group is never split across
+// pages (splitting one would break the keyset order at the cut). floor is the
+// bound when fewer than `limit` rows match.
+func (m *metaDb) topPage(bucket int64, column, where string, args []any, limit int, floor int64) ([]CallIndexRow, error) {
 	sql := `SELECT pod_restart, trace_file_index, buffer_offset, record_index,
 		ts_ms, duration_ms, method_id, thread_name, retention_class, error_flag,
 		cpu_time_ms, wait_time_ms, memory_used, queue_wait_ms, suspend_ms, child_calls,
 		transactions, logs_generated, logs_written, file_read, file_written,
 		net_read, net_written, params_json, calls_wal_offset, method_text
 		FROM call_index WHERE ` + where + `
-		AND ts_ms >= COALESCE((SELECT MIN(ts_ms) FROM (
-			SELECT ts_ms FROM call_index WHERE ` + where + ` ORDER BY ts_ms DESC LIMIT ?)), ?)
-		ORDER BY ts_ms DESC`
+		AND ` + column + ` >= COALESCE((SELECT MIN(` + column + `) FROM (
+			SELECT ` + column + ` FROM call_index WHERE ` + where + ` ORDER BY ` + column + ` DESC LIMIT ?)), ?)
+		ORDER BY ` + column + ` DESC`
 	allArgs := make([]any, 0, 2*len(args)+2)
 	allArgs = append(allArgs, args...)
 	allArgs = append(allArgs, args...)
-	allArgs = append(allArgs, limit, fromMs)
+	allArgs = append(allArgs, limit, floor)
 	var rows []CallIndexRow
 	err := m.withPartition(bucket, func(db *gorm.DB) error {
 		return db.Raw(sql, allArgs...).Scan(&rows).Error

@@ -77,7 +77,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	for _, layer := range []string{guardLayerSpan, guardLayerCost} {
 		m.guardRejections.WithLabelValues(layer)
 	}
-	for _, endpoint := range []string{"calls", "point"} {
+	for _, endpoint := range []string{budgetEndpointCalls, budgetEndpointPoint, budgetEndpointStats} {
 		for _, reason := range []string{"exhausted", "never_fits"} {
 			m.budgetDenials.WithLabelValues(endpoint, reason)
 		}

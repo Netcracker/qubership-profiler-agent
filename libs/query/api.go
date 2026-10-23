@@ -58,6 +58,7 @@ type configResponse struct {
 func (s *Service) routes(e *echo.Echo) {
 	e.GET("/api/v1/calls", s.handleCalls)
 	e.GET("/api/v1/pods", s.handlePods)
+	e.GET("/api/v1/stats", s.handleStats)
 	e.GET("/api/v1/config", s.handleConfig)
 	e.GET("/api/v1/calls/:pk/trace", s.handleCallTrace)
 	// gzip is per-route: /tree wants it (02 §2.5.5), while /trace serves raw
@@ -128,10 +129,12 @@ func gatewayTimeout(c echo.Context, reasons []string) error {
 func (s *Service) handleCalls(c echo.Context) error {
 	ctx := c.Request().Context()
 	params := c.QueryParams()
+	bands := model.DurationBands(s.cold.DurationThresholds)
 
 	var q model.CallsQuery
 	var after *model.Position
 	frozen := params
+	band := bands[0].Class // a first page reads the longest band (02 §2.3.5)
 	firstPage := !params.Has("cursor")
 	if firstPage {
 		parsed, errDetail := model.ParseCallsQuery(params)
@@ -152,6 +155,11 @@ func (s *Service) handleCalls(c echo.Context) error {
 		}
 		if detail := frozenQueryMismatch(tok.Params, frozenQ, params); detail != "" {
 			return cursorRejected(c, detail)
+		}
+		if frozenQ.Order.ByDuration() {
+			if band, err = cursorBand(bands, tok); err != nil {
+				return cursorRejected(c, err.Error())
+			}
 		}
 		q, frozen = frozenQ, tok.Params
 		after = &tok.Pos
@@ -188,41 +196,40 @@ func (s *Service) handleCalls(c echo.Context) error {
 	// Cold tier, bounded by the dynamic cutoff (02 §4.3). A window that ends
 	// inside every replica's hot coverage skips the LIST entirely.
 	var runs [][]model.CallRow
+	var stops []model.Position
 	var coldDiscovery *cold.Discovery
 	more := false
 	if coldTo := tier.coldToMs(q, s.cfg.OverlapMargin.Milliseconds()); coldTo > q.FromMs {
 		coldQ := q
 		coldQ.ToMs = coldTo
-		discovery, err := s.cold.Discover(ctx, coldQ)
-		if err != nil {
-			return err
+		scan := s.coldCalls
+		if q.Order.ByDuration() {
+			scan = s.coldCallsByDuration(bands, band)
 		}
-		coldDiscovery = &discovery
-		// Like the span guard, the cost guard runs on every page so a forged
-		// cursor cannot skip it (PR 708 review #2). A later page's cold window
-		// is bounded by the cutoff, so its file set is a subset of page 1's —
-		// an honest cursor that passed page 1 passes here too.
-		if rej := guardCost(q, discovery.Files, s.cfg.MaxScanFiles, s.cfg.MaxScanBytes); rej != nil {
+		res, rej, err := scan(ctx, coldQ, after, limit, page)
+		coldDiscovery = res.discovery
+		if rej != nil {
 			return s.sendGuardRejection(c, rej)
 		}
-		scan, err := s.cold.Calls(ctx, discovery, coldQ, after, limit, page)
 		if err != nil {
 			if cold.IsBudgetDenial(err) {
 				return s.sendBudgetRejection(c, budgetEndpointCalls, err, &q, coldDiscovery)
 			}
 			return err
 		}
-		partial = append(partial, discovery.PartialReasons...)
-		partial = append(partial, scan.PartialReasons...)
-		if discovery.Prefixes > 0 && discovery.FailedPrefixes == discovery.Prefixes {
+		partial = append(partial, res.partialReasons...)
+		if res.allFailed {
 			failed++
 		} else {
 			succeeded++
 		}
-		if len(scan.Rows) > 0 {
-			runs = append(runs, scan.Rows)
+		if len(res.rows) > 0 {
+			runs = append(runs, res.rows)
 		}
-		more = more || scan.More
+		if res.stop != nil {
+			stops = append(stops, *res.stop)
+		}
+		more = more || res.more
 	}
 
 	// Hot tier: one sorted run per healthy replica (02 §3, §7.2). A replica
@@ -242,9 +249,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 	succeeded += hotOK
 	failed += hotFail
 	partial = append(partial, hotReasons...)
-	if len(hotFullAt) > 0 {
-		more = true
-	}
+	stops = append(stops, hotFullAt...)
 	runs = append(runs, hotRuns...)
 
 	// §8: 504 only when every attempted source failed — no data at all.
@@ -252,18 +257,20 @@ func (s *Service) handleCalls(c echo.Context) error {
 		return gatewayTimeout(c, partial)
 	}
 
-	rows, mergeMore := model.MergeRuns(runs, limit)
-	more = more || mergeMore
+	rows, mergeMore := model.MergeRunsBy(q.Order, runs, limit)
+	more = more || mergeMore || len(stops) > 0
 	var cursorAt *model.Position
 	if len(rows) > 0 {
 		last := rows[len(rows)-1].Position()
 		cursorAt = &last
 	}
-	if stop, ok := earliestPosition(hotFullAt); ok {
-		// Rows past a full replica's last row are not known to be complete:
-		// that replica holds unseen rows there. Below the stop every source
-		// has answered in full, so a short page may resume from the stop.
-		rows = slices.DeleteFunc(rows, func(r model.CallRow) bool { return r.Position().After(stop) })
+	if stop, ok := earliestPosition(q.Order, stops); ok {
+		// Rows past a stop are not known to be complete: a full replica holds
+		// unseen rows past its last one, and a duration band the guard did
+		// not let the page open holds unseen rows below its upper bound. Up
+		// to the stop every source has answered in full, so a short page may
+		// resume from the stop.
+		rows = slices.DeleteFunc(rows, func(r model.CallRow) bool { return q.Order.Past(r.Position(), stop) })
 		if len(rows) < limit {
 			cursorAt = &stop
 		}
@@ -282,21 +289,24 @@ func (s *Service) handleCalls(c echo.Context) error {
 		resp.Calls = append(resp.Calls, row.JSON())
 	}
 	if more && cursorAt != nil {
-		cur := encodeCursor(frozen, *cursorAt)
+		nextBand := ""
+		if q.Order.ByDuration() {
+			nextBand = model.BandFor(bands, *cursorAt)
+		}
+		cur := encodeCursor(frozen, *cursorAt, nextBand)
 		resp.NextCursor = &cur
 	}
 	return c.JSON(http.StatusOK, resp)
 }
 
-// earliestPosition returns the position that sorts first in the §2.3.1
-// order.
-func earliestPosition(ps []model.Position) (model.Position, bool) {
+// earliestPosition returns the position that sorts first in the order.
+func earliestPosition(order model.Order, ps []model.Position) (model.Position, bool) {
 	if len(ps) == 0 {
 		return model.Position{}, false
 	}
 	first := ps[0]
 	for _, p := range ps[1:] {
-		if p.Before(first) {
+		if order.Before(p, first) {
 			first = p
 		}
 	}
@@ -349,6 +359,7 @@ func (s *Service) handlePods(c echo.Context) error {
 const (
 	budgetEndpointCalls = "calls"
 	budgetEndpointPoint = "point"
+	budgetEndpointStats = "stats"
 )
 
 // sendBudgetRejection answers a read-budget denial (02 §7.5): an atomic 503
@@ -417,7 +428,8 @@ func parseLimit(raw string, cfg Config) (int, string) {
 // frozenQueryMismatch compares re-sent filter parameters against the frozen
 // query (02 §2.3.1). A re-sent parameter replaces its frozen value and an
 // omitted one keeps it; the result must hold the same window and the same
-// set of conditions, compared in canonical form.
+// set of conditions, compared in canonical form, and the same order
+// (02 §2.3.5).
 func frozenQueryMismatch(frozen url.Values, frozenQ model.CallsQuery, params url.Values) string {
 	merged := url.Values{}
 	for name, vs := range frozen {
@@ -430,7 +442,7 @@ func frozenQueryMismatch(frozen url.Values, frozenQ model.CallsQuery, params url
 	if errDetail != "" {
 		return errDetail
 	}
-	if resent.FromMs != frozenQ.FromMs || resent.ToMs != frozenQ.ToMs ||
+	if resent.FromMs != frozenQ.FromMs || resent.ToMs != frozenQ.ToMs || resent.Order != frozenQ.Order ||
 		!slices.Equal(model.CanonicalConditions(resent.Filters), model.CanonicalConditions(frozenQ.Filters)) {
 		return "re-sent filters do not match the query frozen in the cursor; restart from page 1"
 	}

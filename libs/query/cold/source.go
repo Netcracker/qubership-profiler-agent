@@ -40,7 +40,7 @@ func (s *Source) listConcurrency() int {
 	return 16
 }
 
-// ScanResult is one cold read: rows in (ts_ms DESC, pk ASC) order, already
+// ScanResult is one cold read: rows in the query's order, already
 // PK-deduplicated, plus the §7.4 partial markers.
 type ScanResult struct {
 	Rows           []model.CallRow
@@ -49,39 +49,59 @@ type ScanResult struct {
 }
 
 // Calls scans the discovered files past the cursor position into one
-// deduplicated run of at most limit rows. The scan is budgeted end to end
-// (02 §7.5): every batch is charged before it is decoded, survivors are
-// deep-copied and moved into the caller's page lease, and the retained
-// accumulator never exceeds the page limit — the merge runs inside each
-// batch's charge, not after the whole scan. A budget denial aborts the scan
-// with the budget error (the caller answers 503 for the whole request);
+// deduplicated run of at most limit rows, in the query's order. The scan is
+// budgeted end to end (02 §7.5): every batch is charged before it is decoded,
+// survivors are deep-copied and moved into the caller's page lease, and the
+// retained accumulator never exceeds the page limit — the merge runs inside
+// each batch's charge, not after the whole scan. A budget denial aborts the
+// scan with the budget error (the caller answers 503 for the whole request);
 // per-file read failures stay partial reasons (02 §7.4). Discovery runs
 // separately (Discover) because its LIST result also feeds the wide-query
 // guard before any file is opened (§2.3.2).
 func (s *Source) Calls(ctx context.Context, d Discovery, q model.CallsQuery, after *model.Position, limit int, page *budget.Lease) (ScanResult, error) {
-	var res ScanResult
+	ls, err := s.NewListScan(q, after, limit, page)
+	if err != nil {
+		return ScanResult{}, err
+	}
+	reasons, err := ls.Scan(ctx, d.Files)
+	return ScanResult{Rows: ls.acc, More: ls.more, PartialReasons: reasons}, err
+}
+
+// NewListScan starts a budgeted /calls scan whose accumulator outlives one
+// file set: the duration_desc band walk (02 §2.3.5) scans the error classes
+// and then one band after another into the same capped run.
+func (s *Source) NewListScan(q model.CallsQuery, after *model.Position, limit int, page *budget.Lease) (*ListScan, error) {
 	matcher, err := q.Matcher()
 	if err != nil {
-		return res, err
+		return nil, err
 	}
-	ls := listScan{src: s, match: matcher, after: after, limit: limit, page: page}
-	for _, ref := range d.Files {
+	return &ListScan{src: s, order: q.Order, match: matcher, after: after, limit: limit, page: page}, nil
+}
+
+// Scan folds the files into the accumulator, as Calls describes.
+func (ls *ListScan) Scan(ctx context.Context, files []FileRef) (partialReasons []string, err error) {
+	for _, ref := range files {
 		if err := ctx.Err(); err != nil {
-			return res, err
+			return partialReasons, err
 		}
-		err := scanBatches(ctx, s.Store, ref, s.Budget, projectedFootprint, s.overrun(), ls.consume)
+		err := scanBatches(ctx, ls.src.Store, ref, ls.src.Budget, projectedFootprint, ls.src.overrun(), ls.consume)
 		if err != nil {
 			if IsBudgetDenial(err) || ctx.Err() != nil {
-				return res, err
+				return partialReasons, err
 			}
 			// Bounded partial data beats failing the query (02 §7.4).
-			res.PartialReasons = append(res.PartialReasons, fmt.Sprintf("s3 read %s: %v", ref.Key, err))
-			continue
+			partialReasons = append(partialReasons, fmt.Sprintf("s3 read %s: %v", ref.Key, err))
 		}
 	}
-	res.Rows, res.More = ls.acc, ls.more
-	return res, nil
+	return partialReasons, nil
 }
+
+// Rows returns the accumulated run: at most limit rows past the cursor, in
+// the query's order.
+func (ls *ListScan) Rows() []model.CallRow { return ls.acc }
+
+// More reports whether rows were dropped past the limit.
+func (ls *ListScan) More() bool { return ls.more }
 
 // IsBudgetDenial reports whether err is a read-budget denial — the one scan
 // error class that must fail the whole request (503) instead of degrading to
@@ -90,11 +110,12 @@ func IsBudgetDenial(err error) bool {
 	return errors.Is(err, budget.ErrExhausted) || errors.Is(err, budget.ErrNeverFits)
 }
 
-// listScan is the state one budgeted /calls cold scan threads through its
+// ListScan is the state one budgeted /calls cold scan threads through its
 // batch consumer: the capped accumulator, its accounted footprint inside the
 // request page lease, and the more flag.
-type listScan struct {
+type ListScan struct {
 	src      *Source
+	order    model.Order
 	match    *model.Matcher
 	after    *model.Position
 	limit    int
@@ -108,20 +129,24 @@ type listScan struct {
 // batch lease is still held (02 §7.5): filter, truncate the sorted run to
 // the page limit, reserve the copies on top of the batch, deep-copy, move
 // their footprint into the page lease, merge, and return the bytes the merge
-// evicted. Rows within a batch keep the file's (ts_ms DESC, pk ASC) order,
-// so each batch is a sorted run and the incremental capped merge is
-// equivalent to one big MergeRuns over every run.
-func (ls *listScan) consume(ctx context.Context, _ int, _ int64, rows []storageparquet.CallV2Projected, lease *budget.Lease) (bool, error) {
+// evicted. Rows within a batch keep the file's (ts_ms DESC, pk ASC) order;
+// for any other order the batch is sorted first. Each batch is then a sorted
+// run, and the incremental capped merge is equivalent to one big MergeRunsBy
+// over every run.
+func (ls *ListScan) consume(ctx context.Context, _ int, _ int64, rows []storageparquet.CallV2Projected, lease *budget.Lease) (bool, error) {
 	run := make([]model.CallRow, 0, len(rows))
 	for i := range rows {
 		row := toCallRow(&rows[i])
 		if !ls.match.Match(&row) {
 			continue
 		}
-		if ls.after != nil && !row.Position().After(*ls.after) {
+		if ls.after != nil && !ls.order.Past(row.Position(), *ls.after) {
 			continue
 		}
 		run = append(run, row)
+	}
+	if ls.order.ByDuration() {
+		ls.order.SortRows(run)
 	}
 	if len(run) > ls.limit {
 		// Safe pre-merge cut: the run is sorted, so a row past the first
@@ -148,7 +173,7 @@ func (ls *listScan) consume(ctx context.Context, _ int, _ int64, rows []storagep
 	}
 	lease.TransferTo(ls.page, copyBytes)
 
-	merged, dropped := model.MergeRuns([][]model.CallRow{ls.acc, copies}, ls.limit)
+	merged, dropped := model.MergeRunsBy(ls.order, [][]model.CallRow{ls.acc, copies}, ls.limit)
 	ls.more = ls.more || dropped
 	mergedBytes := footprintSum(merged)
 	ls.page.Shrink(ls.accBytes + copyBytes - mergedBytes)

@@ -89,8 +89,14 @@ func (s *Source) ClassesFor(q model.CallsQuery) []string {
 // AND timeMax >= from). No footer is read and no HEAD is issued. A failed
 // LIST becomes a partial reason instead of failing the query (§7.4).
 func (s *Source) Discover(ctx context.Context, q model.CallsQuery) (Discovery, error) {
+	return s.DiscoverClasses(ctx, q, s.ClassesFor(q))
+}
+
+// DiscoverClasses is Discover over the given classes only: the duration_desc
+// band walk lists one band at a time (02 §2.3.5).
+func (s *Source) DiscoverClasses(ctx context.Context, q model.CallsQuery, classes []string) (Discovery, error) {
 	var prefixes []string
-	for _, class := range s.ClassesFor(q) {
+	for _, class := range classes {
 		for _, hour := range hourWalk(q.FromMs, q.ToMs) {
 			prefixes = append(prefixes,
 				path.Join("parquet/v1", class, hour.Format("2006/01/02/15"))+"/")
