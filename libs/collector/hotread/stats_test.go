@@ -118,7 +118,7 @@ func TestInternalStats(t *testing.T) {
 		assert.Equal(t, int64(5), resp.Totals.Count)
 	})
 	t.Run("invalid parameters", func(t *testing.T) {
-		v := url.Values{"from": window["from"], "to": window["to"], "group_by": {"class"}}
+		v := url.Values{"from": window["from"], "to": window["to"], "group_by": {"duration"}}
 		assert.Equal(t, http.StatusBadRequest, getJSON(t, srv, "/internal/v1/stats", v, nil))
 	})
 }

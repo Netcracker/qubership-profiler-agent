@@ -58,6 +58,7 @@ func TestConfigEndpoint(t *testing.T) {
 				SpecialValues  []string            `json:"special_values"`
 				Orders         []string            `json:"orders"`
 				GroupBy        []string            `json:"group_by"`
+				GroupByParams  bool                `json:"group_by_params"`
 			} `json:"filter_capabilities"`
 		}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
@@ -70,7 +71,9 @@ func TestConfigEndpoint(t *testing.T) {
 		assert.Equal(t, []string{"None", "Any"}, caps.SpecialValues)
 		assert.Equal(t, []string{"start_desc", "start_asc", "duration_desc", "duration_asc", "cpu_desc", "cpu_asc",
 			"queue_desc", "queue_asc", "calls_desc", "calls_asc", "net_desc", "net_asc"}, caps.Orders)
-		assert.Equal(t, []string{"time", "method", "namespace", "service", "pod"}, caps.GroupBy)
+		assert.Equal(t, []string{"time", "method", "namespace", "service", "pod", "class", "endpoint", "error",
+			"retention_class", "trace_id", "request_id", "param_name"}, caps.GroupBy)
+		assert.True(t, caps.GroupByParams)
 	})
 
 	t.Run("reports an empty URL when unconfigured, not an error", func(t *testing.T) {

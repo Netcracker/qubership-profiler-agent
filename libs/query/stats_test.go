@@ -367,7 +367,7 @@ func TestStatsRejections(t *testing.T) {
 		detail string
 	}{
 		"missing group_by":      {url.Values{}, httpproblem.CodeInvalidRequest, "group_by is required"},
-		"stage B grouping":      {url.Values{"group_by": {"endpoint"}}, httpproblem.CodeInvalidRequest, "group_by=endpoint is not implemented"},
+		"no grouping":           {url.Values{"group_by": {"duration"}}, httpproblem.CodeInvalidRequest, "group_by=duration is not a grouping"},
 		"buckets out of range":  {url.Values{"group_by": {"time"}, "buckets": {"1001"}}, httpproblem.CodeInvalidRequest, "buckets"},
 		"limit on time":         {url.Values{"group_by": {"time"}, "limit": {"5"}}, httpproblem.CodeInvalidRequest, "limit applies"},
 		"buckets on a field":    {url.Values{"group_by": {"pod"}, "buckets": {"5"}}, httpproblem.CodeInvalidRequest, "buckets applies"},
