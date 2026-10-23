@@ -57,6 +57,12 @@ func ParseWindow(since, from, to string) (Window, error) {
 	return w, nil
 }
 
+// ParseDuration reads a positive duration such as 30m, 6h, or 2d, as the
+// window inputs take it.
+func ParseDuration(text string) (time.Duration, error) {
+	return parseSince(text)
+}
+
 // parseSince accepts a Go duration plus the unit d for days.
 func parseSince(text string) (time.Duration, error) {
 	text = strings.TrimSpace(text)
