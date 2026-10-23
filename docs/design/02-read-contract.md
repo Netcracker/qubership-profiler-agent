@@ -420,11 +420,14 @@ cost layer stops before a band returns the rows at or below the frontier of the 
 the way `duration_desc` does, because the shortest band, `short_clean`, is the largest class: `duration_asc` is no
 narrowing filter for the span layer, and a lower bound on `duration` is what makes its first band cheap.
 
-**Hot tier.** Every order reads the hot store per call-index partition: each partition returns up to `limit` rows past
-the cursor in the order, with the whole tie group at the cut, and the partition runs merge by the shared comparator.
-The partitions index `ts_ms` and `duration_ms` only. For `cpu`, `queue`, `calls`, and `net`, SQLite sorts the rows of
-a partition that meet the pushed-down conditions on every page; a partition holds one time bucket of one replica, so
-the cost is bounded, and an index per key would slow every insert on the write path for orders the UI rarely asks for.
+**Hot tier.** Every order reads the hot store per call-index partition by the full keyset of §2.3.1: each partition
+returns up to `limit` rows past the cursor, the sort key in the order's direction and the PK ascending, and never
+reads a tie group whole. Each partition's run merges into the page by the shared comparator as it arrives, so a
+request holds at most two runs of `limit` rows whatever the number of partitions. The partitions index `ts_ms` and
+`duration_ms` only. For `cpu`, `queue`, `calls`, and `net`, SQLite scans the rows of a partition that meet the
+pushed-down conditions on every page and keeps the first `limit` of them; a partition holds one time bucket of one
+replica, so the cost is bounded, and an index per key would slow every insert on the write path for orders the UI
+rarely asks for.
 
 ### 2.4 Trace blob — lazy endpoint
 
