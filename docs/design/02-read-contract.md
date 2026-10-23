@@ -664,14 +664,27 @@ rank, before rounding to whole milliseconds. The rank of the `q` percentile over
 ascending order of duration. Sketches merge by adding bin counts, so the hot replicas and the cold scan each build
 their own, and `query` merges them without loss.
 
-**Sources and duplicates.** `/stats` has no cursor, so it splits the window between the tiers at one instant instead
-of reading the overlap window from both (§4.3). `t_split` is the latest `hot_window_oldest_ms` of the healthy
-replicas, clamped to `[from, to]`: the cold scan aggregates `[from, t_split)` and the hot replicas aggregate
-`[t_split, to)`. Every replica serves its hot window from its own `hot_window_oldest_ms` on, so each serves the whole
-hot part, and no call is read from both tiers. A window that ends before `t_split` is cold only, and a window that
-starts after it is hot only. When the hot tier is degraded (§4.3), the cold scan aggregates the whole window and the
-response is `partial`. Each replica aggregates its own rows through `/internal/v1/stats` (§3) and returns mergeable
-partial aggregates.
+**Sources and duplicates.** `/stats` has no cursor and no row-level merge, so it cannot dedup by PK the way `/calls`
+does (§6). It splits the window at `t_lo`, the earliest `hot_window_oldest_ms` of the healthy replicas, clamped to
+`[from, to]`:
+
+- **Below `t_lo`, cold only.** No healthy replica serves a call older than its own `hot_window_oldest_ms`, and a
+  replica drops a call-index partition only after every row of its bucket is uploaded (§3), so the cold scan holds
+  every call in `[from, t_lo)` and aggregates it alone.
+- **From `t_lo` on, hot first, then the cold remainder.** Each replica aggregates the rows it holds in `[t_lo, to)`
+  and also returns the set of their PK hashes: 64 bits of `sha256` over the URL form of the PK (§2.2). The cold scan
+  reads `[t_lo, to)` too, and counts a row only when its PK hash is in no replica's set. A call that is in both tiers
+  is counted once, from hot; a call that the cold tier holds alone, such as one from a replica that has already
+  dropped it, is counted from cold.
+
+This holds for any mix of replica windows: a new or empty replica reports `hot_window_oldest_ms = now` (§4.3), which
+moves no boundary, because `t_lo` is the earliest window rather than the latest. A window that ends before `t_lo` is
+cold only and reads no hash sets. A hash collision makes the cold scan skip a call that no replica holds, with a
+probability near `n² / 2⁶⁵` for `n` hot calls, which is about 3·10⁻⁶ at ten million. The hash sets are charged to the
+read memory budget (§7.5) at 8 bytes per call, and when the budget is exhausted the response is `partial` with reason
+`read_budget_exhausted`. When the hot tier is degraded (§4.3), the cold scan aggregates the whole window without a
+hash check and the response is `partial`. Each replica aggregates its own rows through `/internal/v1/stats` (§3) and
+returns mergeable partial aggregates.
 
 Compaction leaves its output and its inputs side by side until the delete grace has passed (`01-write-contract.md`
 §6.6), so the cold scan removes that overlap by lineage, not by PK. Before it aggregates, it reads the footer of each
@@ -724,7 +737,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
 | GET | `/internal/v1/calls` | Same params as `/api/v1/calls`; returns only rows this replica holds. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |
-| GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, and no `other` row, so `query` can merge the replicas and the cold scan before it ranks and cuts to `limit` (§2.9). |
+| GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, no `other` row, and the PK hashes of the rows it aggregated, so `query` can merge the replicas and the cold scan, skipping cold rows a replica already counted, before it ranks and cuts to `limit` (§2.9). |
 | GET | `/internal/v1/calls/{pk}/trace` | Blob from this replica. |
 | GET | `/internal/v1/health/hot-window` | `{ "hot_window_oldest_ms": ..., "hot_window_now_ms": ... }`. Reports the earliest `ts_ms` this replica still serves. Lets `query` compute the cold cutoff dynamically (§4.3). |
 
