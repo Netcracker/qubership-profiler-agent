@@ -7,7 +7,8 @@ An AI agent can investigate slow requests and services with the profiler's data 
 - **The MCP server**, for an agent that cannot run commands but speaks the Model Context Protocol.
 
 Both run the same operations against the profiler's query service and return the same results: list the services with
-data, find calls by service, duration, error, or a request or trace ID, and explain where one call spent its time.
+data, find calls by service, duration, error, or a request or trace ID, explain where one call spent its time, rank
+where a service spends its time, find when a change started, and compare two time windows.
 
 ## CLI and skill
 
@@ -58,15 +59,20 @@ service is slow.
 | Tool | CLI equivalent | What it does |
 | --- | --- | --- |
 | `profiler_list_services` | `profiler services` | Lists the namespaces, services, and pods with data in a window. |
-| `profiler_find_calls` | `profiler calls` | Finds calls, newest first, by conditions such as `duration > 1s`. |
+| `profiler_find_calls` | `profiler calls` | Finds the newest or slowest calls that match conditions. |
 | `profiler_explain_call` | `profiler explain` | Reduces one call's tree to its hot path, top methods, and top SQL. |
+| `profiler_hotspots` | `profiler hotspots` | Ranks calls by total time per group; samples inner methods and SQL. |
+| `profiler_timeline` | `profiler timeline` | Counts calls and errors per time bucket, with duration percentiles. |
+| `profiler_compare_windows` | `profiler compare` | Shows what got slower, new, or vanished against a baseline. |
 
 Every tool is read-only. A result carries the CLI's text as its content and the typed result as structured content.
-The server's `instructions` carry a short form of the skill: the workflow and the query rules.
+The server's `instructions` carry a short form of the skill: the workflows, how to read a sampled result, and the query
+rules.
 
 `filters` takes the CLI's conditions in structured form. `--filter 'duration>1s'` on the CLI is
 `{"field": "duration", "op": ">", "value": "1s"}` in a tool, and `service` is the same `<namespace>/<service>`
-shorthand as the CLI's `--service`.
+shorthand as the CLI's `--service`. The other inputs are the CLI's flags in snake case, such as `group_by` for
+`--group-by` and `baseline_shift` for `--baseline-shift`, with the same defaults.
 
 ### Deploy it
 
