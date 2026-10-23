@@ -248,11 +248,17 @@ param, so a trace ID the UI shows for a call always finds that call. Each name a
 `class` is the declaring class of the root method. Take the `method` text before its first `(`, then its last
 whitespace-separated word, which is the qualified method name; the class is that name up to its last `.`. For
 `void com.example.OrderService.place(long) (OrderService.java) [orders.jar]` the class is `com.example.OrderService`.
+A qualified name without a `.`, such as the `#<id>` placeholder of a method missing from the dictionary, names no
+class. Such a call lacks the field, like a call without a param: it meets only negative conditions on `class` and
+falls into no `/stats` row. `None` and `Any` still do not apply to `class`, because the UI offers them only for
+fields a call is expected to lack.
 
 `endpoint` is `<web.method> <path>`, for example `GET /orders/{id}`. `<path>` is the path of the `web.url` value, with
-the scheme, the authority, and any query string removed. Each path segment that is all digits, a UUID, or 16 or more
-hex digits is replaced by `{id}`, which keeps the number of distinct endpoints small enough to group by. A call
-without `web.url` has no endpoint. A call with `web.url` and no `web.method` has the path alone.
+the scheme, the authority, any query string, and any fragment removed; a URL without a path has the path `/`. Each
+path segment that is all digits, a UUID, or 16 or more hex digits is replaced by `{id}`, which keeps the number of
+distinct endpoints small enough to group by. A call without `web.url` has no endpoint. A call with `web.url` and no
+`web.method` has the path alone. When either param has several values, the first one counts, as in the UI's call
+title.
 
 **Matching.**
 
