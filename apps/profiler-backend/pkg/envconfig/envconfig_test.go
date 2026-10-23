@@ -273,3 +273,16 @@ func TestS3TLSParams(t *testing.T) {
 	assert.Empty(t, p.CAFile)
 	assert.False(t, p.InsecureSSL)
 }
+
+func TestMCPDefaults(t *testing.T) {
+	t.Setenv("PROFILER_URL", "")
+	_, err := ParseMCP()
+	assert.ErrorContains(t, err, "PROFILER_URL", "the query URL has no default")
+
+	t.Setenv("PROFILER_URL", "http://query:8080")
+	m, err := ParseMCP()
+	require.NoError(t, err)
+	assert.Equal(t, "http://query:8080", m.QueryURL)
+	assert.Equal(t, 8090, m.Port)
+	assert.Equal(t, 30*time.Second, m.ShutdownDrainGrace)
+}
