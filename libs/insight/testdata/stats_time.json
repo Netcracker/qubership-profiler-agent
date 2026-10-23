@@ -1,0 +1,24 @@
+{
+  "group_by": "time",
+  "bucket_ms": 600000,
+  "rows": [
+    {
+      "key": 1760432400000,
+      "count": 10, "errors": 1,
+      "duration_ms_sum": 5000, "p50_ms": 400, "p95_ms": 900, "p99_ms": 990,
+      "cpu_time_ms_sum": 2500, "wait_time_ms_sum": 0, "queue_wait_ms_sum": 0, "suspend_ms_sum": 0
+    },
+    {
+      "key": 1760433000000,
+      "count": 0, "errors": 0,
+      "duration_ms_sum": 0, "p50_ms": null, "p95_ms": null, "p99_ms": null,
+      "cpu_time_ms_sum": 0, "wait_time_ms_sum": 0, "queue_wait_ms_sum": 0, "suspend_ms_sum": 0
+    }
+  ],
+  "other": null,
+  "distinct": 2,
+  "totals": { "count": 10, "errors": 1 },
+  "approximate": false,
+  "partial": false,
+  "partial_reasons": []
+}

@@ -122,6 +122,8 @@ type (
 		PodsRangeLimit   time.Duration `envconfig:"PROFILER_MAX_PODS_RANGE" default:"8784h"`
 		MaxScanFiles     int           `envconfig:"PROFILER_MAX_SCAN_FILES" default:"10000"`
 		MaxScanBytes     ByteSize      `envconfig:"PROFILER_MAX_SCAN_BYTES" default:"2GB"`
+		// StatsMaxGroups bounds the groups one /stats source keeps (02 §2.9).
+		StatsMaxGroups int `envconfig:"PROFILER_STATS_MAX_GROUPS" default:"10000"`
 		// ReadMemoryBudget / ReadBudgetWait shape the process-wide read
 		// memory budget and its admission queue (02 §7.5).
 		ReadMemoryBudget ByteSize      `envconfig:"PROFILER_READ_MEMORY_BUDGET" default:"512MB"`

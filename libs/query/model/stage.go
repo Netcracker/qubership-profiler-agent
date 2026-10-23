@@ -22,6 +22,10 @@ var stageA = map[string][]Op{
 	"request_id":      {OpEq},
 }
 
+// StatsGroupings are the /stats groupings this build implements
+// (02 §2.9, stage A).
+var StatsGroupings = []string{"time", "method", "namespace", "service", "pod"}
+
 // stageAParamOps are the operators the `filter` parameter accepts on a call
 // param.
 var stageAParamOps = []Op{OpEq}
@@ -74,6 +78,6 @@ func Capabilities() FilterCapabilities {
 		ParamOperators: slices.Clone(stageAParamOps),
 		SpecialValues:  []string{},
 		Orders:         []string{"start_desc"},
-		GroupBy:        []string{},
+		GroupBy:        slices.Clone(StatsGroupings),
 	}
 }

@@ -151,12 +151,11 @@ func compactedKey(class string, bucketStartMs int64, hash string, timeMinMs, tim
 	return path.Join(parquetPrefix, class, bucketStart.Format("2006/01/02/15"), name)
 }
 
-// compactionInputsKey is the key-value footer entry of a compacted object
-// listing the exact input keys it merged, newline-joined. The delete step
-// reads it back instead of guessing the input set from the group shape, so
-// several outputs of one oversized group (№11) each delete exactly their own
-// inputs.
-const compactionInputsKey = "profiler.compaction_inputs"
+// compactionInputsKey lists the exact input keys a compacted object merged.
+// The delete step reads it back instead of guessing the input set from the
+// group shape, so several outputs of one oversized group (№11) each delete
+// exactly their own inputs.
+const compactionInputsKey = storageparquet.CompactionInputsKey
 
 // compactGroup advances one (bucket, retention_class) group by one step of
 // the write → grace → delete protocol of 01 §6.6. Each pass takes at most

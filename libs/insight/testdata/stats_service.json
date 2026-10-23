@@ -1,0 +1,21 @@
+{
+  "group_by": "service",
+  "rows": [
+    {
+      "key": "billing",
+      "count": 1200, "errors": 14,
+      "duration_ms_sum": 384000, "p50_ms": 120, "p95_ms": 950, "p99_ms": 2100,
+      "cpu_time_ms_sum": 201000, "wait_time_ms_sum": 9000, "queue_wait_ms_sum": 1500, "suspend_ms_sum": 300
+    }
+  ],
+  "other": {
+    "count": 40, "errors": 0,
+    "duration_ms_sum": 4000, "p50_ms": 90, "p95_ms": 110, "p99_ms": 130,
+    "cpu_time_ms_sum": 2000, "wait_time_ms_sum": 10, "queue_wait_ms_sum": 0, "suspend_ms_sum": 0
+  },
+  "distinct": 3,
+  "totals": { "count": 1240, "errors": 14 },
+  "approximate": false,
+  "partial": true,
+  "partial_reasons": ["collector 10.0.0.7 stats: timeout"]
+}

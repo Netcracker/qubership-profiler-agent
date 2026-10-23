@@ -58,6 +58,7 @@ type configResponse struct {
 func (s *Service) routes(e *echo.Echo) {
 	e.GET("/api/v1/calls", s.handleCalls)
 	e.GET("/api/v1/pods", s.handlePods)
+	e.GET("/api/v1/stats", s.handleStats)
 	e.GET("/api/v1/config", s.handleConfig)
 	e.GET("/api/v1/calls/:pk/trace", s.handleCallTrace)
 	// gzip is per-route: /tree wants it (02 §2.5.5), while /trace serves raw
@@ -349,6 +350,7 @@ func (s *Service) handlePods(c echo.Context) error {
 const (
 	budgetEndpointCalls = "calls"
 	budgetEndpointPoint = "point"
+	budgetEndpointStats = "stats"
 )
 
 // sendBudgetRejection answers a read-budget denial (02 §7.5): an atomic 503
