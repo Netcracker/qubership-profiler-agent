@@ -672,35 +672,56 @@ does (§6). It splits the window at `t_lo`, the earliest `hot_window_oldest_ms` 
   replica drops a call-index partition only after every row of its bucket is uploaded (§3), so the cold scan holds
   every call in `[from, t_lo)` and aggregates it alone.
 - **From `t_lo` on, hot first, then the cold remainder.** Each replica aggregates the rows it holds in `[t_lo, to)`
-  and also returns the set of their PK hashes: 64 bits of `sha256` over the URL form of the PK (§2.2). The cold scan
-  reads `[t_lo, to)` too, and counts a row only when its PK hash is in no replica's set. A call that is in both tiers
-  is counted once, from hot; a call that the cold tier holds alone, such as one from a replica that has already
-  dropped it, is counted from cold.
+  that it has not uploaded yet, and returns the set of PK hashes of exactly those rows: 64 bits of `sha256` over the
+  URL form of the PK (§2.2). The cold scan reads `[t_lo, to)` too, and counts a row only when its PK hash is in no
+  replica's set. An uploaded call counts once, from cold; a call that only the hot tier holds counts once, from hot;
+  a call that a replica counted while its upload was in flight counts from hot, and its hash skips the cold copy.
 
 This holds for any mix of replica windows: a new or empty replica reports `hot_window_oldest_ms = now` (§4.3), which
 moves no boundary, because `t_lo` is the earliest window rather than the latest. A window that ends before `t_lo` is
 cold only and reads no hash sets. A hash collision makes the cold scan skip a call that no replica holds, with a
 probability near `n² / 2⁶⁵` for `n` hot calls, which is about 3·10⁻⁶ at ten million. The hash sets are charged to the
 read memory budget (§7.5) at 8 bytes per call. When the budget cannot hold them, `query` drops the hot aggregates and
-proceeds as for a degraded hot tier, and `partial_reasons` holds `read_budget_exhausted`. The hot tier is degraded
-when discovery fails, when it finds no replica, or when no replica answers its health probe (§4.3); the cold scan
-then aggregates the whole window without a hash check and the response is `partial`. A replica that fails its probe
-or its `/internal/v1/stats` call while others answer is left out: `t_lo` comes from the replicas that answered the
-probe, the calls only the failed replica holds are missing, and the response is `partial`. Leaving it out counts no
-call twice, because the cold scan checks only the hash sets it received. Each replica aggregates its own rows through
-`/internal/v1/stats` (§3) and returns mergeable partial aggregates.
+proceeds as for a degraded hot tier, and `partial_reasons` holds `read_budget_exhausted`. The hot tier is degraded when
+discovery fails, when it finds no replica, or when no replica answers its health probe (§4.3); the cold scan then
+aggregates the whole window without a hash check and the response is `partial`. A replica that fails its probe or its
+`/internal/v1/stats` call while others answer is left out: `t_lo` comes from the replicas that answered the probe, the
+calls the failed replica holds and has not uploaded are missing, and the response is `partial`. Each replica aggregates
+its own rows through `/internal/v1/stats` (§3) and returns mergeable partial aggregates.
+
+**Merging in a degraded fan-out.** Every hot aggregate that `query` merges keeps its hash suppression: the cold scan
+skips the PK hashes of every replica whose aggregate is in the response, whichever other replicas failed. The cold scan
+reads `[t_lo, to)` without a hash check only when no hot aggregate is in the response: a degraded hot tier, or hash
+sets dropped for the budget. Leaving a failed replica out counts no call twice, because its aggregate and its hash set
+are both absent, and its uploaded calls still count from cold.
+
+**Sealed values win once uploaded.** The hot index holds `error` and `suspend_ms` as of the call's arrival, and seal
+corrects them in the sealed row (`01-write-contract.md` §5.6). Counting an uploaded call from cold makes `/stats` read
+the corrected values as soon as they are in S3, as `/calls` does (§6.3). A replica knows upload state per seal pass, not
+per row: every file of a pass records the pass's start offset in `calls.wal` (`wal_offset_lo`), the pass covers the
+offsets from there to the next pass's start, and the pass counts as uploaded once every one of its files has
+`uploaded_at` set (`03-lifecycle.md` §3.2, §3.6). A call is left to cold when its offset is below the seal watermark and
+its pass counts as uploaded. Every case short of a confirmed upload falls on the hot side: an unsealed call, a pass with
+a file pending, quarantined, or waiting for its pods manifest, and a pass whose bounds the janitor widened by forgetting
+an aged file. Falling on the hot side never counts a call twice, because the replica returns its hash; it only delays
+the sealed values until the whole pass is uploaded. A call that the hot tier holds alone always counts with its
+provisional values, because no sealed copy exists yet.
+
+**Order and its cost.** `query` runs the hot fan-out to completion before it starts the cold LIST. A replica leaves a
+call to cold only after the PUT of its file is confirmed (`uploaded_at` is set after the `200 OK`), and S3 LIST is
+read-after-write consistent, so the later LIST finds every call a replica left out. A file uploaded after the replica
+answered holds calls the replica counted, and their hashes skip them. Running the two tiers in parallel would break
+this: a LIST started before an upload misses a call the replica then leaves out. The cost is latency: a `/stats`
+response takes the hot fan-out (bounded by `PROFILER_FANOUT_TIMEOUT`, §7.2) plus the cold scan, rather than the
+longer of the two.
 
 Compaction leaves its output and its inputs side by side until the delete grace has passed (`01-write-contract.md`
 §6.6), so the cold scan removes that overlap by lineage, not by PK. Before it aggregates, it reads the footer of each
 discovered compacted object (its key carries the `maintain` replica token) and skips every discovered object that a
 footer's `profiler.compaction_inputs` lists, including a compacted object that a later compaction took as input. This
 costs one footer read per discovered compacted object before the scan starts. A call that two replicas both hold after
-a replica transition (§6.2) still counts twice; that case is rare, and removing it would need a PK set as large as the
-window.
-
-A call in both tiers is counted from its hot copy, unlike `/calls`, which prefers the cold copy (§6.3). The hot index
-holds `error` and `suspend_ms` as of the call's arrival, and the sealed row can differ, so for calls younger than the
-hot retention the `/stats` error count and suspension sum can differ slightly from what `/calls` shows.
+a replica transition (§6.2) still counts twice while neither has uploaded it; that case is rare, and removing it would
+need a PK set as large as the window.
 
 **Retention.** `/stats` counts the calls the store still holds. The clean classes have shorter TTLs than the error
 classes (`01-write-contract.md` §6.4), so a window older than two days holds no `short_clean` calls, and its counts,
@@ -749,7 +770,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
 | GET | `/internal/v1/calls` | Same params as `/api/v1/calls`, with the keyset in place of `cursor`: `after_ts_ms` and `after_pk` for `start_desc`, `after_duration_ms` and an optional `after_pk` for `duration_desc` (no `after_pk` is a position with no PK, §2.3.5). Returns only rows this replica holds, and echoes the order it sorted by as `order`. A replica without the echo predates `order` and returns its newest rows, so for any other order `query` counts it as a failed source and marks the page partial (§7.4) instead of merging rows in the wrong order. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |
-| GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, no `other` row, and the PK hashes of the rows it aggregated, so `query` can merge the replicas and the cold scan, skipping cold rows a replica already counted, before it ranks and cuts to `limit` (§2.9). Three more parameters serve the fan-out: `bucket_origin_ms` and `bucket_ms` place the calls of `[t_lo, to)` on the buckets of the external window, and `max_groups` passes `query`'s `PROFILER_STATS_MAX_GROUPS`. The hashes travel as `pk_hashes`, the base64 of their 8-byte big-endian forms. |
+| GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Aggregates only the rows whose seal pass is not yet confirmed in S3, leaving the uploaded ones to the cold scan (§2.9). Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, no `other` row, and the PK hashes of exactly the rows it aggregated, so `query` can merge the replicas and the cold scan, skipping cold rows a replica already counted, before it ranks and cuts to `limit` (§2.9). Three more parameters serve the fan-out: `bucket_origin_ms` and `bucket_ms` place the calls of `[t_lo, to)` on the buckets of the external window, and `max_groups` passes `query`'s `PROFILER_STATS_MAX_GROUPS`. The hashes travel as `pk_hashes`, the base64 of their 8-byte big-endian forms. |
 | GET | `/internal/v1/calls/{pk}/trace` | Blob from this replica. |
 | GET | `/internal/v1/health/hot-window` | `{ "hot_window_oldest_ms": ..., "hot_window_now_ms": ... }`. Reports the earliest `ts_ms` this replica still serves. Lets `query` compute the cold cutoff dynamically (§4.3). |
 
@@ -790,6 +811,7 @@ Given a query for `[from, to]`:
 - **Cold LIST:** S3 read for `[from, coldTo]`. The cutoff is dynamic, not a static `now - hot_retention`: `coldTo = min(to, max over healthy replicas of (hot_window_oldest_ms + overlap_margin))`. The *max* — the youngest hot window — is what zero-gap needs, since anything below it lives only in cold. `query` reads each replica's window from `/internal/v1/health/hot-window` (§3); an empty replica reports `oldest = now`. Any degraded hot state (discovery uninitialized, resolution failed, zero replicas, or a failed health probe) widens `coldTo` to the full `to`, so the guarantee never rests on an unreachable replica.
 - **Overlap window** = `[coldTo - overlap_margin, coldTo]`, the band both tiers serve.
 - After merge, dedup by PK (§6) collapses any overlap. A window that ends inside every replica's hot coverage skips the cold LIST entirely.
+- `/stats` cannot dedup by PK, so it splits the tiers differently and runs the cold LIST only after the hot fan-out has finished (§2.9).
 
 `overlap_margin` defaults to one `seal_interval` (5 min). Tunable via `PROFILER_OVERLAP_MARGIN`.
 
