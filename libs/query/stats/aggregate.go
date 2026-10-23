@@ -108,7 +108,8 @@ const (
 )
 
 // ChargeFunc reserves n more bytes of the read memory budget; a non-nil
-// error aborts the aggregation. A nil ChargeFunc charges nothing.
+// error aborts the aggregation. A negative n returns bytes the aggregation no
+// longer holds and must not fail. A nil ChargeFunc charges nothing.
 type ChargeFunc func(n int64) error
 
 // Group is one group of a source, with its key.
@@ -205,10 +206,17 @@ func (a *Aggregator) open(key string) (*slot, error) {
 	a.approximate = true
 	s := a.heap[0]
 	delete(a.groups, s.Key)
+	// The evicted key and sketch are dropped, so their charges go back: the
+	// lease holds only what the retained groups cost, however many keys pass
+	// through the slots.
+	released := int64(len(s.Key)) + int64(s.Sketch.Bins())*BinBytes
 	inherited := s.metric(a.order)
 	s.Group = Group{Key: key}
 	s.setMetric(a.order, inherited)
 	a.groups[key] = s
+	if err := a.reserve(-released); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 

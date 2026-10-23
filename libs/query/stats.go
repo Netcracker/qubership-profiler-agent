@@ -54,7 +54,13 @@ func (s *Service) handleStats(c echo.Context) error {
 
 	lease := s.budget.NewLease()
 	defer lease.Release()
-	charge := func(n int64) error { return lease.Grow(ctx, n) }
+	charge := func(n int64) error {
+		if n < 0 {
+			lease.Shrink(-n) // Space-Saving dropped an evicted group
+			return nil
+		}
+		return lease.Grow(ctx, n)
+	}
 
 	h := s.hotStats(ctx, req, lease)
 	partial := append([]string{}, h.partialReasons...)

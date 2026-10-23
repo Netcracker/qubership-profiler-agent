@@ -1,11 +1,15 @@
 package stats
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -197,6 +201,30 @@ func TestAggregatorCharges(t *testing.T) {
 
 	denied := NewAggregator(Grouping{Field: "method"}, OrderCountDesc, 0, func(int64) error { return assert.AnError })
 	assert.ErrorIs(t, denied.Add(&r), assert.AnError)
+}
+
+// TestSpaceSavingReleasesEvictedCharges is the review's case: with one slot
+// and a 1,024-byte lease, alternating keys evict on every call. The lease must
+// hold only the retained group, or row 14 fails with ErrNeverFits although
+// one group costs 314 bytes.
+func TestSpaceSavingReleasesEvictedCharges(t *testing.T) {
+	lease := budget.New(1024, time.Millisecond, budget.Hooks{}).NewLease()
+	defer lease.Release()
+	charge := func(n int64) error {
+		if n < 0 {
+			lease.Shrink(-n)
+			return nil
+		}
+		return lease.Grow(context.Background(), n)
+	}
+	agg := NewAggregator(Grouping{Field: "method"}, OrderCountDesc, 1, charge)
+	for i := 0; i < 100; i++ {
+		r := call("s", fmt.Sprintf("method%04d", i%2), int64(i), 1, false)
+		require.NoError(t, agg.Add(&r), "row %d", i+1)
+	}
+	assert.True(t, agg.Approximate())
+	assert.Equal(t, int64(GroupBytes+len("method0001")+BinBytes), lease.Held(),
+		"only the retained group, its key, and its one bin stay charged")
 }
 
 func TestMergerCombinesSources(t *testing.T) {
