@@ -79,8 +79,11 @@ shorthand as the CLI's `--service`. The other inputs are the CLI's flags in snak
 The Helm chart deploys the server when `mcp.enabled` is `true`:
 
 ```bash
-helm upgrade profiler deploy/charts/profiler-backend --reuse-values --set mcp.enabled=true
+helm upgrade profiler deploy/charts/profiler-backend --reset-then-reuse-values --set mcp.enabled=true
 ```
+
+Use `--reset-then-reuse-values` (Helm 3.14 or later), not `--reuse-values`: it keeps the release's overrides and also
+loads the chart's new `mcp` defaults, which `--reuse-values` would leave out of a release installed before them.
 
 The server reads from this release's query Service unless `mcp.queryUrl` names another. It needs no S3 access and no
 storage. To run it outside Kubernetes, set `PROFILER_URL` to the query service and start `profiler-backend mcp`; it
