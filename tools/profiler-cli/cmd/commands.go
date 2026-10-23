@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/insight"
+	"github.com/Netcracker/qubership-profiler-backend/libs/insight/render"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +28,7 @@ func newServicesCmd(root *rootFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return root.print(cmd, res, func(out io.Writer) error { return writeServices(out, res) })
+			return root.print(cmd, res, func(out io.Writer) error { return render.Services(out, res) })
 		},
 	}
 	window.add(cmd)
@@ -62,7 +63,7 @@ func newCallsCmd(root *rootFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return root.print(cmd, res, func(out io.Writer) error { return writeCalls(out, res) })
+			return root.print(cmd, res, func(out io.Writer) error { return render.Calls(out, res, "More calls: --cursor %s") })
 		},
 	}
 	window.add(cmd)
@@ -97,7 +98,7 @@ func newExplainCmd(root *rootFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return root.print(cmd, res, func(out io.Writer) error { return writeExplain(out, res) })
+			return root.print(cmd, res, func(out io.Writer) error { return render.Explain(out, res) })
 		},
 	}
 	cmd.Flags().IntVar(&node, "node", 0, "re-root at this node: a #<id> from an earlier explain of the same call")

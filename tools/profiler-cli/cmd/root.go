@@ -1,6 +1,6 @@
 // Package cmd holds the profiler CLI's commands. Each command parses flags,
-// runs one libs/insight operation, and prints the result as compact text or,
-// with --json, as the operation's typed result.
+// runs one libs/insight operation, and prints the result as compact text
+// (libs/insight/render) or, with --json, as the operation's typed result.
 package cmd
 
 import (
