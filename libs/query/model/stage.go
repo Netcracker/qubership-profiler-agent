@@ -78,6 +78,6 @@ func Capabilities() FilterCapabilities {
 		ParamOperators: slices.Clone(stageAParamOps),
 		SpecialValues:  []string{},
 		Orders:         []string{"start_desc"},
-		GroupBy:        []string{},
+		GroupBy:        slices.Clone(StatsGroupings),
 	}
 }

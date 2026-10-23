@@ -143,3 +143,10 @@ const (
 	SchemaVersionKey = "profiler.schema_version"
 	SchemaVersion    = "3"
 )
+
+// CompactionInputsKey is the key-value footer entry of a compacted object
+// (01-write-contract.md §6.6): the exact input keys it merged,
+// newline-joined. The compaction's delete step reads it back, and the cold
+// /stats scan skips the inputs it lists while they still sit beside the
+// output (02-read-contract.md §2.9).
+const CompactionInputsKey = "profiler.compaction_inputs"

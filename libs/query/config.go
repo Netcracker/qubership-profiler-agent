@@ -31,6 +31,10 @@ type Config struct {
 	// (PROFILER_MAX_SCAN_FILES / PROFILER_MAX_SCAN_BYTES).
 	MaxScanFiles int
 	MaxScanBytes int64
+	// StatsMaxGroups bounds the groups one /stats source keeps before it
+	// switches to Space-Saving (PROFILER_STATS_MAX_GROUPS, §2.9). The hot
+	// replicas receive it with each request.
+	StatsMaxGroups int
 	// ReadMemoryBudget is the process-wide read memory budget every reader
 	// draws from (PROFILER_READ_MEMORY_BUDGET, §7.5).
 	ReadMemoryBudget int64
@@ -87,6 +91,9 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxScanBytes <= 0 {
 		c.MaxScanBytes = 2 << 30 // 2 GB
+	}
+	if c.StatsMaxGroups <= 0 {
+		c.StatsMaxGroups = 10_000
 	}
 	if c.ReadMemoryBudget <= 0 {
 		c.ReadMemoryBudget = 512 << 20 // 512 MB, sized for the default 2 Gi pod (02 §7.5)
