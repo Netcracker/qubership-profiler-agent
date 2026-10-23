@@ -122,17 +122,9 @@ func (c *Client) Explain(ctx context.Context, in ExplainInput) (ExplainResult, e
 	if err := c.authorize(ctx, []string{ref.PK.PodNamespace}); err != nil {
 		return ExplainResult{}, err
 	}
-	hints := url.Values{
-		"ts_ms":           {strconv.FormatInt(ref.TsMs, 10)},
-		"retention_class": {ref.RetentionClass},
-	}
-	body, err := c.getBytes(ctx, "/calls/"+url.PathEscape(ref.PK.PathString())+"/tree", hints)
+	tree, err := c.tree(ctx, ref)
 	if err != nil {
 		return ExplainResult{}, err
-	}
-	tree, _, err := calltree.Decode(body)
-	if err != nil {
-		return ExplainResult{}, errors.Wrap(err, "decode the call tree")
 	}
 	res, err := reduce(tree, opts)
 	if err != nil {
@@ -147,6 +139,23 @@ func (c *Client) Explain(ctx context.Context, in ExplainInput) (ExplainResult, e
 	}
 	res.Call = call
 	return res, nil
+}
+
+// tree fetches and decodes a call's tree. The caller authorizes.
+func (c *Client) tree(ctx context.Context, ref CallRef) (*calltree.Tree, error) {
+	hints := url.Values{
+		"ts_ms":           {strconv.FormatInt(ref.TsMs, 10)},
+		"retention_class": {ref.RetentionClass},
+	}
+	body, err := c.getBytes(ctx, "/calls/"+url.PathEscape(ref.PK.PathString())+"/tree", hints)
+	if err != nil {
+		return nil, err
+	}
+	tree, _, err := calltree.Decode(body)
+	if err != nil {
+		return nil, errors.Wrap(err, "decode the call tree")
+	}
+	return tree, nil
 }
 
 // callRow finds the call's /calls row: one millisecond of one pod, which no
@@ -275,8 +284,8 @@ func reduce(tree *calltree.Tree, o reduceOptions) (ExplainResult, error) {
 	res.FocusNode = ids[root]
 
 	res.HotPath = hotPath(root, method, ids, o, &res.Notes)
-	res.TopSelf = topSelf(root, method)
-	res.TopSQL = topSQL(root, tree.Params)
+	res.TopSelf = capList(rankMethods(methodTotals(root, method)), topListSize)
+	res.TopSQL = capList(collectSQL(root, tree.Params).ranked(), topListSize)
 	return res, nil
 }
 
@@ -439,7 +448,9 @@ func hotPath(root *calltree.Node, method func(*calltree.Node) string, ids map[*c
 	return out
 }
 
-func topSelf(root *calltree.Node, method func(*calltree.Node) string) []MethodStat {
+// methodTotals sums self time, executions, and suspension per method under
+// root, keyed by the short method name.
+func methodTotals(root *calltree.Node, method func(*calltree.Node) string) map[string]*MethodStat {
 	byMethod := map[string]*MethodStat{}
 	walk(root, func(n *calltree.Node) {
 		name := method(n)
@@ -452,6 +463,11 @@ func topSelf(root *calltree.Node, method func(*calltree.Node) string) []MethodSt
 		s.Executions += n.SelfExecutions
 		s.SuspendMs += n.SelfSuspensionMs
 	})
+	return byMethod
+}
+
+// rankMethods lists the methods with self time, the most first.
+func rankMethods(byMethod map[string]*MethodStat) []MethodStat {
 	out := make([]MethodStat, 0, len(byMethod))
 	for _, s := range byMethod {
 		if s.SelfMs > 0 {
@@ -464,28 +480,48 @@ func topSelf(root *calltree.Node, method func(*calltree.Node) string) []MethodSt
 		}
 		return out[i].Method < out[j].Method
 	})
-	if len(out) > topListSize {
-		out = out[:topListSize]
-	}
 	return out
 }
 
-// topSQL sums the groups of every `sql` param under root. Each node already
-// folded its statements by calltree.SQLSignature, but it keeps the first
-// value it saw, so two nodes can hold the same statement with different
-// literals; topSQL keys by the same signature to fold them again (as the
-// UI's params-summary.ts does). The ::other bucket and each unresolved
-// reference keep identities of their own. Only the emitted text is
-// truncated, so a shared long prefix cannot merge two statements.
-func topSQL(root *calltree.Node, params []string) []SQLStat {
-	type group struct {
-		stat SQLStat
-		// slowestMs picks the representative text: the value of the
-		// slowest group folded in.
-		slowestMs int64
+// sqlGroup is one statement group being summed.
+type sqlGroup struct {
+	stat SQLStat
+	// slowestMs picks the representative text: the value of the slowest
+	// group folded in.
+	slowestMs int64
+}
+
+// fold adds another group of the same statement.
+func (g *sqlGroup) fold(text string, durationMs, executions int64) {
+	if durationMs > g.slowestMs {
+		g.stat.Statement, g.slowestMs = text, durationMs
 	}
-	byKey := map[string]*group{}
-	var order []string
+	g.stat.DurationMs += durationMs
+	g.stat.Executions += executions
+}
+
+// sqlTotals are the statement groups of a tree, by key: "sql:<signature>",
+// "other", or "unresolved:<reference>".
+type sqlTotals map[string]*sqlGroup
+
+// add folds a group into the group of its key.
+func (t sqlTotals) add(key, text string, durationMs, executions int64) {
+	g := t[key]
+	if g == nil {
+		g = &sqlGroup{slowestMs: -1}
+		t[key] = g
+	}
+	g.fold(text, durationMs, executions)
+}
+
+// collectSQL sums the groups of every `sql` param under root. Each node
+// already folded its statements by calltree.SQLSignature, but it keeps the
+// first value it saw, so two nodes can hold the same statement with
+// different literals; collectSQL keys by the same signature to fold them
+// again (as the UI's params-summary.ts does). The ::other bucket and each
+// unresolved reference keep identities of their own.
+func collectSQL(root *calltree.Node, params []string) sqlTotals {
+	byKey := sqlTotals{}
 	walk(root, func(n *calltree.Node) {
 		for _, p := range n.Params {
 			if p.ParamIdx < 0 || p.ParamIdx >= len(params) || params[p.ParamIdx] != "sql" {
@@ -501,35 +537,37 @@ func topSQL(root *calltree.Node, params []string) []SQLStat {
 				default:
 					key, text = "sql:"+calltree.SQLSignature(g.Value), strings.Join(strings.Fields(g.Value), " ")
 				}
-				s := byKey[key]
-				if s == nil {
-					s = &group{stat: SQLStat{Statement: text}, slowestMs: g.DurationMs}
-					byKey[key] = s
-					order = append(order, key)
-				} else if g.DurationMs > s.slowestMs {
-					s.stat.Statement, s.slowestMs = text, g.DurationMs
-				}
-				s.stat.DurationMs += g.DurationMs
-				s.stat.Executions += g.Executions
+				byKey.add(key, text, g.DurationMs, g.Executions)
 			}
 		}
 	})
-	out := make([]SQLStat, 0, len(byKey))
-	for _, key := range order {
-		s := byKey[key].stat
+	return byKey
+}
+
+// ranked lists the groups, the slowest first. Only the emitted text is
+// truncated, so a shared long prefix cannot merge two statements.
+func (t sqlTotals) ranked() []SQLStat {
+	out := make([]SQLStat, 0, len(t))
+	for _, g := range t {
+		s := g.stat
 		s.Statement = truncate(s.Statement, sqlTextLimit)
 		out = append(out, s)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
+	sort.Slice(out, func(i, j int) bool {
 		if out[i].DurationMs != out[j].DurationMs {
 			return out[i].DurationMs > out[j].DurationMs
 		}
 		return out[i].Statement < out[j].Statement
 	})
-	if len(out) > topListSize {
-		out = out[:topListSize]
-	}
 	return out
+}
+
+// capList keeps the first n entries.
+func capList[T any](list []T, n int) []T {
+	if len(list) > n {
+		return list[:n]
+	}
+	return list
 }
 
 // ShortMethod drops the source file, the jar, and the return type the agent
