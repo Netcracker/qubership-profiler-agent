@@ -51,11 +51,12 @@ func (s *Store) CallsPage(bucket int64, q model.CallsQuery, fromMs, toMs int64, 
 	return s.db.CallsPage(bucket, q, fromMs, toMs, limit)
 }
 
-// CallsPageByDuration reads one partition's rows for the duration_desc hot
-// path (02 §2.3.5): the top `limit` durations at or below maxDurationMs, with
-// the complete tie group at the boundary, longest first.
-func (s *Store) CallsPageByDuration(bucket int64, q model.CallsQuery, fromMs, toMs, maxDurationMs int64, limit int) ([]CallIndexRow, error) {
-	return s.db.CallsPageByDuration(bucket, q, fromMs, toMs, maxDurationMs, limit)
+// CallsPageAfter reads one partition's page for the hot /calls path in the
+// given order (02 §2.3.5): up to limit rows past the after position, in the
+// full (sort key DESC, pk ASC) keyset order, so no tie group is read whole.
+func (s *Store) CallsPageAfter(bucket int64, q model.CallsQuery, fromMs, toMs int64,
+	order model.Order, after *model.Position, limit int) ([]CallIndexRow, error) {
+	return s.db.CallsPageAfter(bucket, q, fromMs, toMs, order, after, limit)
 }
 
 // FindCall looks one call up by its PK across the partitions (/internal/v1

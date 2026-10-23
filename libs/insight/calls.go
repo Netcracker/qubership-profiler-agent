@@ -31,8 +31,9 @@ type CallsInput struct {
 	Window  Window
 	Filters Filters
 	// Order is OrderNewest or OrderSlowest; empty means OrderNewest. On a
-	// cursor page it must be the order of page 1, or be left empty: another
-	// order restarts the listing at page 1 in that order.
+	// cursor page it must be the order of page 1, or be left empty to keep
+	// that order, also through a restart: another order restarts the
+	// listing at page 1 in that order.
 	Order string
 	// Limit is the page size; zero means DefaultCallsLimit.
 	Limit int
@@ -113,7 +114,9 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 		return CallsResult{}, errors.Errorf("order must be %s or %s, not %q", OrderNewest, OrderSlowest, in.Order)
 	}
 	// The conditions a cursor page runs under are the cursor's own: authorize
-	// those, not the ones passed beside it (see callsCursor).
+	// those, not the ones passed beside it (see callsCursor). The cursor's
+	// order applies when the caller passes none, so a restart keeps it.
+	order := in.Order
 	var serverCursor string
 	if in.Cursor != "" {
 		if cur, err := decodeCallsCursor(in.Cursor); err == nil {
@@ -121,6 +124,9 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 				return CallsResult{}, &CursorMismatchError{CursorFilters: cur.Conditions, Filters: conditions}
 			}
 			conditions, serverCursor = cur.Conditions, cur.Server
+			if order == "" {
+				order = cur.Order
+			}
 		}
 		// A cursor that does not decode restarts from page 1, as one the
 		// server rejects does.
@@ -132,8 +138,8 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 	query := url.Values(window.values())
 	query["filter"] = conditions
 	query.Set("limit", strconv.Itoa(limit))
-	if in.Order != "" {
-		query.Set("order", in.Order)
+	if order != "" {
+		query.Set("order", order)
 	}
 	var out CallsResult
 	var resp callsResponse
@@ -147,8 +153,8 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 		}
 		// The server freezes the order of page 1 and rejects another one,
 		// which restarts the listing below.
-		if in.Order != "" {
-			page.Set("order", in.Order)
+		if order != "" {
+			page.Set("order", order)
 		}
 		err = c.getJSON(ctx, "/calls", page, &resp)
 		if IsCode(err, CodeCursorRejected) {
@@ -168,7 +174,7 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 		out.Calls = append(out.Calls, toCall(row))
 	}
 	if resp.NextCursor != nil {
-		out.NextCursor = encodeCallsCursor(*resp.NextCursor, conditions)
+		out.NextCursor = encodeCallsCursor(*resp.NextCursor, conditions, order)
 	}
 	if resp.Partial {
 		out.Partial = resp.PartialReasons

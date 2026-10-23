@@ -30,6 +30,10 @@ type fakeQuery struct {
 	caps  model.FilterCapabilities
 	// partial makes a /stats or /calls answer partial; nil means never.
 	partial func(path string, q url.Values) bool
+	// groupCap is how many groups a /stats answer keeps, as a source's
+	// Space-Saving summary does; a negative value or nil keeps every group.
+	// A capped answer drops the lightest groups and is approximate.
+	groupCap func(q url.Values) int
 
 	mu   sync.Mutex
 	reqs []*url.URL
@@ -162,6 +166,12 @@ func (f *fakeQuery) stats(w http.ResponseWriter, q url.Values) {
 		return cmp.Compare(a.Key.(string), b.Key.(string))
 	})
 	resp := stats.Response{GroupBy: field, Distinct: len(out), Totals: totals, Rows: out}
+	if f.groupCap != nil {
+		if keep := f.groupCap(q); keep >= 0 && len(out) > keep {
+			out = out[:keep]
+			resp.Rows, resp.Distinct, resp.Approximate = out, keep, true
+		}
+	}
 	if len(out) > limit {
 		var rest []model.CallRow
 		for _, row := range out[limit:] {

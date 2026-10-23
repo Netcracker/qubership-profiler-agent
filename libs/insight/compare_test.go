@@ -71,6 +71,10 @@ func TestCompareJoinsTwoWindows(t *testing.T) {
 		partialStart int64
 		lookupOnly   bool
 		noSetOp      bool
+		// baseGroupCap caps the groups of every baseline /stats answer, as
+		// PROFILER_STATS_MAX_GROUPS does; zero means no cap.
+		baseGroupCap int
+		capZero      bool
 		want         map[string]string
 		lookups      int
 	}{
@@ -158,9 +162,44 @@ func TestCompareJoinsTwoWindows(t *testing.T) {
 			},
 			lookups: 0,
 		},
+		{
+			// The baseline source keeps one group: its answer lists C alone,
+			// and a lookup of A and B keeps B and drops A. A has baseline
+			// calls, so only a lookup of A alone may call it new.
+			name: "an approximate lookup is no evidence of absence",
+			calls: []group{
+				{baseStart, "A", 5, 10}, {baseStart, "B", 100, 10}, {baseStart, "C", 200, 10},
+				{targetStart, "A", 80, 10}, {targetStart, "B", 110, 10},
+			},
+			limit:        10,
+			baseGroupCap: 1,
+			want:         map[string]string{"A": StatusCompared, "B": StatusCompared, "C": StatusVanished},
+			lookups:      2,
+		},
+		{
+			name: "a lookup that stays approximate for one key leaves the group unknown",
+			calls: []group{
+				{baseStart, "A", 5, 10}, {baseStart, "B", 100, 10},
+				{targetStart, "A", 80, 10}, {targetStart, "B", 110, 10},
+			},
+			limit:   10,
+			capZero: true,
+			want: map[string]string{
+				"A": StatusUnknown + "/" + WindowBaseline, "B": StatusUnknown + "/" + WindowBaseline,
+			},
+			lookups: 3,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, f := newFake(t, windowCalls(tc.calls...)...)
+			if tc.baseGroupCap != 0 || tc.capZero {
+				f.groupCap = func(q url.Values) int {
+					if q.Get("from") == fmtInt(baseStart) {
+						return tc.baseGroupCap
+					}
+					return -1
+				}
+			}
 			if tc.noSetOp {
 				delete(f.caps.Fields, "method")
 			}

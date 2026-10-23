@@ -16,7 +16,7 @@ Vanished: no call in the target:
    FIGURES  TIME ms/min  CALLS/min  MEAN ms  P95 ms  ERRORS METHOD
   baseline         20.0       0.10      200     250    0.0% com.example.Legacy.sync
 
-Unknown in one window: a source failed there, so the group may have calls it did not count:
+Unknown in one window: a source failed or dropped groups there, so the group may have calls it did not count:
    FIGURES  TIME ms/min  CALLS/min  MEAN ms  P95 ms  ERRORS METHOD
   baseline         13.3       0.67       20      30    0.0% com.example.Audit.log
 
