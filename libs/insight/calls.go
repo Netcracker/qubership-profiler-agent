@@ -18,10 +18,23 @@ const (
 	MaxCallsLimit     = 1000
 )
 
-// CallsInput selects calls, newest first.
+// Call orders (02-read-contract §2.3.5).
+const (
+	// OrderNewest lists the newest calls first; it is the default.
+	OrderNewest = "start_desc"
+	// OrderSlowest lists the longest calls first.
+	OrderSlowest = "duration_desc"
+)
+
+// CallsInput selects calls, newest first unless Order says otherwise.
 type CallsInput struct {
 	Window  Window
 	Filters Filters
+	// Order is OrderNewest or OrderSlowest; empty means OrderNewest. On a
+	// cursor page it must be the order of page 1, or be left empty to keep
+	// that order, also through a restart: another order restarts the
+	// listing at page 1 in that order.
+	Order string
 	// Limit is the page size; zero means DefaultCallsLimit.
 	Limit int
 	// Cursor continues from a previous result's NextCursor. The window of
@@ -78,9 +91,9 @@ type callsResponse struct {
 	PartialReasons []string         `json:"partial_reasons"`
 }
 
-// Calls lists the calls that match the filters in the window, newest first.
-// A request or trace ID condition finds one request's calls; a service and a
-// duration bound find its slow calls.
+// Calls lists the calls that match the filters in the window, newest first
+// or slowest first. A request or trace ID condition finds one request's
+// calls; a service with OrderSlowest finds its slowest calls.
 func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) {
 	window, err := in.Window.Resolve()
 	if err != nil {
@@ -97,8 +110,13 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 	if limit < 0 || limit > MaxCallsLimit {
 		return CallsResult{}, errors.Errorf("limit must be between 1 and %d", MaxCallsLimit)
 	}
+	if in.Order != "" && in.Order != OrderNewest && in.Order != OrderSlowest {
+		return CallsResult{}, errors.Errorf("order must be %s or %s, not %q", OrderNewest, OrderSlowest, in.Order)
+	}
 	// The conditions a cursor page runs under are the cursor's own: authorize
-	// those, not the ones passed beside it (see callsCursor).
+	// those, not the ones passed beside it (see callsCursor). The cursor's
+	// order applies when the caller passes none, so a restart keeps it.
+	order := in.Order
 	var serverCursor string
 	if in.Cursor != "" {
 		if cur, err := decodeCallsCursor(in.Cursor); err == nil {
@@ -106,6 +124,9 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 				return CallsResult{}, &CursorMismatchError{CursorFilters: cur.Conditions, Filters: conditions}
 			}
 			conditions, serverCursor = cur.Conditions, cur.Server
+			if order == "" {
+				order = cur.Order
+			}
 		}
 		// A cursor that does not decode restarts from page 1, as one the
 		// server rejects does.
@@ -117,6 +138,9 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 	query := url.Values(window.values())
 	query["filter"] = conditions
 	query.Set("limit", strconv.Itoa(limit))
+	if order != "" {
+		query.Set("order", order)
+	}
 	var out CallsResult
 	var resp callsResponse
 	if serverCursor != "" {
@@ -126,6 +150,11 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 		page := url.Values{"cursor": {serverCursor}, "limit": {strconv.Itoa(limit)}}
 		if len(conditions) > 0 {
 			page["filter"] = conditions
+		}
+		// The server freezes the order of page 1 and rejects another one,
+		// which restarts the listing below.
+		if order != "" {
+			page.Set("order", order)
 		}
 		err = c.getJSON(ctx, "/calls", page, &resp)
 		if IsCode(err, CodeCursorRejected) {
@@ -145,7 +174,7 @@ func (c *Client) Calls(ctx context.Context, in CallsInput) (CallsResult, error) 
 		out.Calls = append(out.Calls, toCall(row))
 	}
 	if resp.NextCursor != nil {
-		out.NextCursor = encodeCallsCursor(*resp.NextCursor, conditions)
+		out.NextCursor = encodeCallsCursor(*resp.NextCursor, conditions, order)
 	}
 	if resp.Partial {
 		out.Partial = resp.PartialReasons

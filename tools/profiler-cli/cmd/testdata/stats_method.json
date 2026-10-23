@@ -1,0 +1,17 @@
+{
+  "group_by": "method",
+  "rows": [
+    {
+      "key": "void com.example.Billing.charge(long) (Billing.java) [billing.jar]",
+      "count": 2, "errors": 1,
+      "duration_ms_sum": 2482, "p50_ms": 12, "p95_ms": 2470, "p99_ms": 2470,
+      "cpu_time_ms_sum": 311, "wait_time_ms_sum": 1900, "queue_wait_ms_sum": 15, "suspend_ms_sum": 120
+    }
+  ],
+  "other": null,
+  "distinct": 1,
+  "totals": { "count": 2, "errors": 1 },
+  "approximate": false,
+  "partial": false,
+  "partial_reasons": []
+}

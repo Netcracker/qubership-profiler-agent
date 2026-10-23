@@ -125,6 +125,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 			PodsRangeLimit:     cfg.PodsRangeLimit,
 			MaxScanFiles:       cfg.MaxScanFiles,
 			MaxScanBytes:       int64(cfg.MaxScanBytes),
+			StatsMaxGroups:     cfg.StatsMaxGroups,
 			ReadMemoryBudget:   int64(cfg.ReadMemoryBudget),
 			ReadBudgetWait:     cfg.ReadBudgetWait,
 			DurationThresholds: cfg.DurationThresholds,

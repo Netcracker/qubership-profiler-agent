@@ -1,6 +1,6 @@
 // Package cmd holds the profiler CLI's commands. Each command parses flags,
-// runs one libs/insight operation, and prints the result as compact text or,
-// with --json, as the operation's typed result.
+// runs one libs/insight operation, and prints the result as compact text
+// (libs/insight/render) or, with --json, as the operation's typed result.
 package cmd
 
 import (
@@ -28,7 +28,8 @@ func NewRoot(out io.Writer) *cobra.Command {
 		Use:   "profiler",
 		Short: "Investigate slow calls with the Qubership profiler",
 		Long: "profiler reads the Qubership profiler backend: list the services with data, find calls by\n" +
-			"service, duration, error, or a request or trace ID, and explain where a call spent its time.\n\n" +
+			"service, duration, error, or a request or trace ID, explain where a call spent its time, rank\n" +
+			"where a service spends its time, count calls over time, and compare two windows.\n\n" +
 			"Set the query service URL with --url or " + urlEnv + ", for example after\n" +
 			"  kubectl port-forward -n <profiler-namespace> svc/<release>-query 8080:8080\n" +
 			"with " + urlEnv + "=http://localhost:8080.",
@@ -39,7 +40,8 @@ func NewRoot(out io.Writer) *cobra.Command {
 	root.SetOut(out)
 	root.PersistentFlags().StringVar(&flags.url, "url", "", "query service base URL (default $"+urlEnv+")")
 	root.PersistentFlags().BoolVar(&flags.json, "json", false, "print the result as JSON")
-	root.AddCommand(newServicesCmd(&flags), newCallsCmd(&flags), newExplainCmd(&flags))
+	root.AddCommand(newServicesCmd(&flags), newCallsCmd(&flags), newExplainCmd(&flags),
+		newHotspotsCmd(&flags), newTimelineCmd(&flags), newCompareCmd(&flags))
 	return root
 }
 
@@ -64,7 +66,7 @@ func (f *rootFlags) print(cmd *cobra.Command, result any, text func(io.Writer) e
 	return text(cmd.OutOrStdout())
 }
 
-// windowFlags are the time-range flags of services and calls.
+// windowFlags are the time-range flags of every command but explain.
 type windowFlags struct{ since, from, to string }
 
 func (w *windowFlags) add(cmd *cobra.Command) {
@@ -77,7 +79,7 @@ func (w *windowFlags) window() (insight.Window, error) {
 	return insight.ParseWindow(w.since, w.from, w.to)
 }
 
-// filterFlags are the condition flags of services and calls.
+// filterFlags are the condition flags of every command but explain.
 type filterFlags struct {
 	conditions []string
 	service    string

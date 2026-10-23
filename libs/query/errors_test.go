@@ -131,7 +131,7 @@ func TestCursorRejectionCarriesItsOwnCode(t *testing.T) {
 	// replayed inside the same millisecond is not yet expired, and the request
 	// would run on to the cold tier.
 	var expiredCursor string
-	clock.As(time.Now().Add(-time.Hour), func() { expiredCursor = encodeCursor(frozen, pos) })
+	clock.As(time.Now().Add(-time.Hour), func() { expiredCursor = encodeCursor(frozen, pos, "") })
 
 	for _, tc := range []struct {
 		name   string
@@ -160,7 +160,7 @@ func TestCursorRejectionCarriesItsOwnCode(t *testing.T) {
 			name: "a re-sent filter that contradicts the frozen query",
 			params: func() url.Values {
 				p := window()
-				p.Set("cursor", encodeCursor(frozen, pos))
+				p.Set("cursor", encodeCursor(frozen, pos, ""))
 				p.Set("method", "com.example.Other.handle")
 				return p
 			},

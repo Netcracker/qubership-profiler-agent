@@ -244,6 +244,11 @@ func ParseCallsQuery(params url.Values) (CallsQuery, string) {
 	if _, err := q.Matcher(); err != nil {
 		return q, err.Error()
 	}
+	order, err := ParseOrder(params.Get("order"))
+	if err != nil {
+		return q, err.Error()
+	}
+	q.Order = order
 	return q, ""
 }
 
@@ -307,6 +312,9 @@ func (q CallsQuery) Values() url.Values {
 		if !hasLegacyForm(c) {
 			v.Add("filter", c.String())
 		}
+	}
+	if q.Order.ByDuration() {
+		v.Set("order", q.Order.String())
 	}
 	return v
 }

@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"testing"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotread"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
 	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -229,6 +231,137 @@ func TestInternalCallsBuckets(t *testing.T) {
 		pkPath := fmt.Sprintf("%s:%s:pod-1:1:1:100:0", testNs, testSvc)
 		assert.Equal(t, http.StatusNotFound, getJSON(t, srv, "/internal/v1/calls/"+pkPath+"/trace", nil, nil),
 			"an absent blob is a state, not an error (02 §2.4)")
+	})
+}
+
+// TestInternalCallsDurationOrder covers duration_desc on the collector: rows
+// from several partitions merge longest first with PK ties, the keyset seeks
+// past a position with or without a PK, and the response echoes the order.
+func TestInternalCallsDurationOrder(t *testing.T) {
+	store := openTestStore(t)
+	pr := addPod(t, store, "pod-1", 1, "com.example.M")
+	for i, c := range []struct {
+		offsetMs int64
+		duration int
+	}{{5, 300}, {6 * 60_000, 2000}, {6*60_000 + 1, 300}, {12 * 60_000, 300}, {12*60_000 + 1, 50}} {
+		addCall(t, pr, baseMs+c.offsetMs, data.Call{Method: 0, Duration: c.duration, ThreadName: "t",
+			TraceFileIndex: 1, BufferOffset: i * 100, RecordIndex: 0})
+	}
+	srv := httptest.NewServer(hotread.New(store).Handler())
+	t.Cleanup(srv.Close)
+	query := func(extra url.Values) (page, string) {
+		params := url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 30*60_000)},
+			"order": {"duration_desc"}}
+		for k, v := range extra {
+			params[k] = v
+		}
+		var got struct {
+			page
+			Order string `json:"order"`
+		}
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/internal/v1/calls", params, &got))
+		return got.page, got.Order
+	}
+	type ident struct {
+		duration int32
+		ts       int64
+	}
+	idents := func(p page) []ident {
+		var out []ident
+		for _, c := range p.Calls {
+			out = append(out, ident{c.DurationMs, c.TsMs - baseMs})
+		}
+		return out
+	}
+
+	got, order := query(nil)
+	assert.Equal(t, "duration_desc", order, "the response echoes the order it honored")
+	assert.Equal(t, []ident{{2000, 6 * 60_000}, {300, 5}, {300, 6*60_000 + 1}, {300, 12 * 60_000}, {50, 12*60_000 + 1}},
+		idents(got), "longest first across partitions, ties by PK")
+
+	got, _ = query(url.Values{"limit": {"2"}})
+	assert.Equal(t, []ident{{2000, 6 * 60_000}, {300, 5}}, idents(got), "a tie group may straddle the limit")
+
+	pk := func(offset int) string { return fmt.Sprintf("%s:%s:pod-1:1:1:%d:0", testNs, testSvc, offset) }
+	got, _ = query(url.Values{"after_duration_ms": {"300"}, "after_pk": {pk(0)}})
+	assert.Equal(t, []ident{{300, 6*60_000 + 1}, {300, 12 * 60_000}, {50, 12*60_000 + 1}}, idents(got),
+		"the seek continues mid-tie")
+	got, _ = query(url.Values{"after_duration_ms": {"300"}})
+	assert.Equal(t, []ident{{50, 12*60_000 + 1}}, idents(got), "a position with no PK passes only shorter calls")
+
+	params := url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"duration_desc"},
+		"after_pk": {pk(0)}}
+	assert.Equal(t, http.StatusBadRequest, getJSON(t, srv, "/internal/v1/calls", params, nil))
+	params = url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"cpu_desc"}}
+	assert.Equal(t, http.StatusBadRequest, getJSON(t, srv, "/internal/v1/calls", params, nil))
+}
+
+// TestInternalCallsTiePaging pins the bounded page under large ties: 2,000
+// calls that share one duration (and, for start_desc, one ts) must come back
+// one row per limit=1 page, in the §2.3.1 component-wise order, with no
+// repeat and no gap. The pods collate differently as pod_restart strings
+// than as PKs, and the duration calls span two partitions, so the SQL
+// keyset must reproduce the comparator and the merge must keep it.
+func TestInternalCallsTiePaging(t *testing.T) {
+	const n = 2000
+	pods := []struct {
+		name    string
+		restart int64
+	}{{"a", 999}, {"a", 1000}, {"a-b", 1000}, {"b", 7}}
+
+	type pageRow struct {
+		PK         model.PK `json:"pk"`
+		TsMs       int64    `json:"ts_ms"`
+		DurationMs int32    `json:"duration_ms"`
+	}
+	type rowsPage struct {
+		Calls []pageRow `json:"calls"`
+	}
+	run := func(t *testing.T, order string, tsOf func(i int) int64) {
+		store := openTestStore(t)
+		prs := make([]*hotstore.PodRestart, len(pods))
+		for i, p := range pods {
+			prs[i] = addPod(t, store, p.name, p.restart, "com.example.M")
+		}
+		var want []model.PK
+		for i := 0; i < n; i++ {
+			p := i % len(pods)
+			addCall(t, prs[p], tsOf(i), data.Call{Method: 0, Duration: 1, ThreadName: "t",
+				TraceFileIndex: 1, BufferOffset: i, RecordIndex: 0})
+			want = append(want, model.PK{PodNamespace: testNs, PodService: testSvc, PodName: pods[p].name,
+				RestartTimeMs: pods[p].restart, TraceFileIndex: 1, BufferOffset: int32(i)})
+		}
+		slices.SortFunc(want, model.PK.Compare)
+		srv := httptest.NewServer(hotread.New(store).Handler())
+		t.Cleanup(srv.Close)
+
+		var got []model.PK
+		params := url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 30*60_000)},
+			"order": {order}, "limit": {"1"}}
+		for len(got) <= n {
+			var p rowsPage
+			require.Equal(t, http.StatusOK, getJSON(t, srv, "/internal/v1/calls", params, &p))
+			if len(p.Calls) == 0 {
+				break
+			}
+			require.Len(t, p.Calls, 1, "limit=1 returns one row, however large the tie")
+			last := p.Calls[0]
+			got = append(got, last.PK)
+			params.Set("after_pk", last.PK.PathString())
+			if order == "duration_desc" {
+				params.Set("after_duration_ms", fmt.Sprint(last.DurationMs))
+			} else {
+				params.Set("after_ts_ms", fmt.Sprint(last.TsMs))
+			}
+		}
+		assert.Equal(t, want, got, "every tied call once, in PK order")
+	}
+
+	t.Run("duration_desc", func(t *testing.T) {
+		run(t, "duration_desc", func(i int) int64 { return baseMs + int64(i%2)*6*60_000 + int64(i) })
+	})
+	t.Run("start_desc", func(t *testing.T) {
+		run(t, "start_desc", func(int) int64 { return baseMs + 1 })
 	})
 }
 

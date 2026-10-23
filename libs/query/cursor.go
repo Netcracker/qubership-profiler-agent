@@ -18,8 +18,9 @@ import (
 const cursorVersion = 2
 
 // cursorToken is the opaque /calls pagination cursor (02 §2.3.1): the frozen
-// query as its page-1 parameters, the last-emitted position, and the issue
-// time for the TTL. It is
+// query as its page-1 parameters, the last-emitted position, the duration
+// band a duration_desc page resumes at (§2.3.5), and the issue time for the
+// TTL. It is
 // URL-safe base64 of JSON; an HMAC signature is deferred per the contract, so
 // the token is client-forgeable — the wide-query guard therefore re-runs on
 // the frozen query on every page rather than trusting a page-1 verdict to
@@ -28,13 +29,15 @@ type cursorToken struct {
 	V        int            `json:"v"`
 	Params   url.Values     `json:"q"`
 	Pos      model.Position `json:"pos"`
+	Band     string         `json:"band,omitempty"`
 	IssuedAt int64          `json:"iat"` // Unix ms
 }
 
-// queryParams are the /calls parameters that define the query: the window
-// and every filter. The cursor freezes them as page 1 sent them.
+// queryParams are the /calls parameters that define the query: the window,
+// every filter, and the order. The cursor freezes them as page 1 sent them.
 var queryParams = []string{
 	"from", "to", "filter", "pod", "method", "duration_min_ms", "duration_max_ms", "error_only", "retention_class",
+	"order",
 }
 
 // frozenParams keeps the query parameters of a request.
@@ -48,11 +51,12 @@ func frozenParams(params url.Values) url.Values {
 	return out
 }
 
-func encodeCursor(params url.Values, pos model.Position) string {
+func encodeCursor(params url.Values, pos model.Position, band string) string {
 	body, err := json.Marshal(cursorToken{
 		V:        cursorVersion,
 		Params:   frozenParams(params),
 		Pos:      pos,
+		Band:     band,
 		IssuedAt: clock.Now().UnixMilli(),
 	})
 	if err != nil {

@@ -2,6 +2,7 @@ package insight
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -152,7 +153,7 @@ func TestCallsSendsTheFiltersUnchangedAndMapsRows(t *testing.T) {
 
 func TestCallsCursorPageReSendsTheConditionsButNotTheWindow(t *testing.T) {
 	c, r := newReplay(t, nil, ok("calls.json"))
-	cursor := encodeCallsCursor("cursor-page-2", []string{"namespace=prod", "service=billing"})
+	cursor := encodeCallsCursor("cursor-page-2", []string{"namespace=prod", "service=billing"}, "")
 	res, err := c.Calls(context.Background(), CallsInput{
 		Cursor: cursor, Filters: Filters{Service: "prod/billing"}, Window: Window{Since: time.Minute},
 	})
@@ -166,7 +167,7 @@ func TestCallsCursorPageReSendsTheConditionsButNotTheWindow(t *testing.T) {
 
 func TestCallsCursorPageWithoutFiltersUsesTheCursorFilters(t *testing.T) {
 	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"))
-	cursor := encodeCallsCursor("cursor-page-2", []string{"service=billing", "namespace=prod"})
+	cursor := encodeCallsCursor("cursor-page-2", []string{"service=billing", "namespace=prod"}, "")
 	res, err := c.Calls(context.Background(), CallsInput{Cursor: cursor})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"service=billing", "namespace=prod"}, r.reqs[0].URL.Query()["filter"])
@@ -186,7 +187,7 @@ func TestCallsRestartsFromPageOneOnARejectedCursor(t *testing.T) {
 	c, r := newReplay(t, nil,
 		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
 		ok("calls.json"))
-	stale := encodeCallsCursor("stale", []string{"namespace=prod", "service=billing"})
+	stale := encodeCallsCursor("stale", []string{"namespace=prod", "service=billing"}, "")
 	res, err := c.Calls(context.Background(), CallsInput{Cursor: stale, Filters: Filters{Service: "prod/billing"}})
 	require.NoError(t, err)
 	assert.True(t, res.Restarted)
@@ -196,12 +197,70 @@ func TestCallsRestartsFromPageOneOnARejectedCursor(t *testing.T) {
 	assert.Equal(t, []string{"namespace=prod", "service=billing"}, r.reqs[1].URL.Query()["filter"])
 }
 
+func TestCallsSendsTheOrder(t *testing.T) {
+	c, r := newReplay(t, nil, ok("calls.json"), ok("calls.json"), ok("calls.json"))
+	_, err := c.Calls(context.Background(), CallsInput{Order: OrderSlowest})
+	require.NoError(t, err)
+	assert.Equal(t, "duration_desc", r.reqs[0].URL.Query().Get("order"))
+
+	_, err = c.Calls(context.Background(), CallsInput{})
+	require.NoError(t, err)
+	assert.False(t, r.reqs[1].URL.Query().Has("order"), "the default order sends nothing")
+
+	cursor := encodeCallsCursor("cursor-page-2", nil, "")
+	_, err = c.Calls(context.Background(), CallsInput{Cursor: cursor, Order: OrderSlowest})
+	require.NoError(t, err)
+	assert.Equal(t, "duration_desc", r.reqs[2].URL.Query().Get("order"),
+		"a cursor page re-sends the order, so the server checks it against page 1")
+
+	_, err = c.Calls(context.Background(), CallsInput{Order: "cpu_desc"})
+	assert.ErrorContains(t, err, `not "cpu_desc"`)
+}
+
+func TestCallsRestartKeepsTheOrderOfPageOne(t *testing.T) {
+	c, r := newReplay(t, nil,
+		ok("calls.json"),
+		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
+		ok("calls.json"))
+	first, err := c.Calls(context.Background(), CallsInput{Order: OrderSlowest})
+	require.NoError(t, err)
+	require.NotEmpty(t, first.NextCursor)
+
+	res, err := c.Calls(context.Background(), CallsInput{Cursor: first.NextCursor})
+	require.NoError(t, err)
+	assert.True(t, res.Restarted)
+	require.Len(t, r.reqs, 3)
+	assert.Equal(t, "cursor-page-2", r.reqs[1].URL.Query().Get("cursor"))
+	assert.Equal(t, "duration_desc", r.reqs[1].URL.Query().Get("order"),
+		"a cursor-only page re-sends the order of page 1")
+	assert.Empty(t, r.reqs[2].URL.Query().Get("cursor"))
+	assert.Equal(t, "duration_desc", r.reqs[2].URL.Query().Get("order"),
+		"the restart lists slowest first, as page 1 did")
+	next, err := decodeCallsCursor(res.NextCursor)
+	require.NoError(t, err)
+	assert.Equal(t, OrderSlowest, next.Order, "the restarted listing's cursor keeps the order")
+}
+
+func TestCallsAcceptsACursorWithoutAnOrder(t *testing.T) {
+	c, r := newReplay(t, nil,
+		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
+		ok("calls.json"))
+	// The cursor of a build that did not record the order.
+	legacy := base64.RawURLEncoding.EncodeToString([]byte(`{"v":1,"c":"stale","f":["namespace=prod"]}`))
+	res, err := c.Calls(context.Background(), CallsInput{Cursor: legacy})
+	require.NoError(t, err)
+	assert.True(t, res.Restarted)
+	assert.Equal(t, "stale", r.reqs[0].URL.Query().Get("cursor"), "the cursor decodes")
+	assert.False(t, r.reqs[1].URL.Query().Has("order"), "the restart keeps the default order")
+	assert.Equal(t, []string{"namespace=prod"}, r.reqs[1].URL.Query()["filter"])
+}
+
 func TestCallsRestartsFromPageOneOnACursorThatDoesNotDecode(t *testing.T) {
 	for _, junk := range []string{
 		"cursor-page-2", // a server cursor: Calls did not hand it out
 		"***",
-		encodeCallsCursor("", nil),
-		encodeCallsCursor("x", []string{"service"}),
+		encodeCallsCursor("", nil, ""),
+		encodeCallsCursor("x", []string{"service"}, ""),
 	} {
 		c, r := newReplay(t, nil, ok("calls.json"))
 		res, err := c.Calls(context.Background(), CallsInput{Cursor: junk, Filters: Filters{Service: "prod/billing"}})

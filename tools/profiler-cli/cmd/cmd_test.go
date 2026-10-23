@@ -4,15 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"flag"
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
 	"github.com/Netcracker/qubership-profiler-backend/libs/insight"
@@ -20,171 +19,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var update = flag.Bool("update", false, "rewrite the golden files")
-
-// golden compares text with testdata/<name>.golden; -update rewrites it.
-func golden(t *testing.T, name, text string) {
-	t.Helper()
-	path := filepath.Join("testdata", name+".golden")
-	if *update {
-		require.NoError(t, os.WriteFile(path, []byte(text), 0o644))
-	}
-	want, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, string(want), text)
+// served records the requests of a test server: the last one, and the
+// query of each by path. Hotspots fetches trees at once, so writes lock.
+type served struct {
+	mu     sync.Mutex
+	last   *http.Request
+	byPath map[string][]url.Values
 }
 
-var (
-	t0     = time.Date(2026, 10, 14, 11, 0, 0, 0, time.UTC)
-	window = insight.ResolvedWindow{From: t0, To: t0.Add(time.Hour)}
-)
-
-func TestServicesText(t *testing.T) {
-	var b bytes.Buffer
-	require.NoError(t, writeServices(&b, insight.ServicesResult{
-		Window: window,
-		Namespaces: []insight.Namespace{{Name: "prod", Services: []insight.Service{
-			{Name: "billing", Pods: []insight.Pod{{Name: "billing-7f8c", Restarts: []insight.Restart{
-				{StartedAt: t0.Add(-8 * time.Hour), FirstCall: t0, LastCall: t0.Add(10 * time.Minute)},
-				{StartedAt: t0.Add(15 * time.Minute), FirstCall: t0.Add(16 * time.Minute), LastCall: t0.Add(time.Hour)},
-			}}}},
-			{Name: "orders", Pods: []insight.Pod{{Name: "orders-5d9c", Restarts: []insight.Restart{
-				{StartedAt: t0.Add(-24 * time.Hour), FirstCall: t0, LastCall: t0.Add(time.Hour)},
-			}}}},
-		}}},
-		Partial: []string{"s3 list pods/v1/2026/10/14/: timeout"},
-	}))
-	golden(t, "services", b.String())
-
-	b.Reset()
-	require.NoError(t, writeServices(&b, insight.ServicesResult{Window: window}))
-	assert.Contains(t, b.String(), "No pods have profiling data in the window.")
-}
-
-func sampleCalls() []insight.Call {
-	return []insight.Call{
-		{
-			Ref: "prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error", Start: t0.Add(50 * time.Minute),
-			DurationMs: 2470, Method: "void com.example.Billing.charge(long) (Billing.java) [billing.jar]",
-			Namespace: "prod", Service: "billing", Pod: "billing-7f8c", CPUMs: 310, WaitMs: 1900, QueueWaitMs: 15,
-			SuspendMs: 120, Error: true, RequestID: "abc123", TraceID: "4bf92f3577b34da6a3ce929d0e0e4736",
-			HTTP: "POST http://billing:8080/charges",
-		},
-		{
-			Ref: "prod:billing:billing-7f8c:1760420000000:5:9000:1@1760432000000@short_clean", Start: t0.Add(33 * time.Minute),
-			DurationMs: 12, Method: "com.example.Health.check", Namespace: "prod", Service: "billing", Pod: "billing-7f8c",
-			CPUMs: 1, Truncated: "buffer_full",
-		},
-	}
-}
-
-func TestCallsText(t *testing.T) {
-	var b bytes.Buffer
-	require.NoError(t, writeCalls(&b, insight.CallsResult{
-		Window: &window, Calls: sampleCalls(), NextCursor: "cursor-page-2",
-	}))
-	golden(t, "calls", b.String())
-
-	b.Reset()
-	require.NoError(t, writeCalls(&b, insight.CallsResult{Restarted: true, Window: &window}))
-	assert.Contains(t, b.String(), "The cursor was stale")
-	assert.Contains(t, b.String(), "No calls match.")
-}
-
-func TestExplainText(t *testing.T) {
-	call := sampleCalls()[0]
-	var b bytes.Buffer
-	require.NoError(t, writeExplain(&b, insight.ExplainResult{
-		Call:      &call,
-		Focus:     "com.example.Billing.charge(long)",
-		FocusNode: 0,
-		HotPath: &insight.PathNode{
-			Node: 3, Method: "com.example.Billing.charge(long)", TotalMs: 2470, SelfMs: 20, SuspendMs: 120, Executions: 1, Skipped: 3,
-			Hidden: 2, HiddenMs: 40,
-			Children: []*insight.PathNode{
-				{Node: 4, Method: "com.example.Repo.load(long)", TotalMs: 2000, SelfMs: 50, Executions: 1, Children: []*insight.PathNode{
-					{Node: 5, Method: "a.Jdbc.execute", TotalMs: 1950, SelfMs: 1950, Executions: 90},
-				}},
-				{Node: 12, Method: "com.example.Http.call()", TotalMs: 410, SelfMs: 410, Executions: 2},
-			},
-		},
-		TopSelf: []insight.MethodStat{
-			{Method: "a.Jdbc.execute", SelfMs: 1950, Executions: 90},
-			{Method: "com.example.Http.call()", SelfMs: 410, Executions: 2},
-		},
-		TopSQL: []insight.SQLStat{
-			{Statement: "select * from orders where id = ?", DurationMs: 1800, Executions: 88},
-			{Statement: "(other statements)", DurationMs: 150, Executions: 2},
-		},
-		Notes: []string{"2 nodes under 5% of 2470 ms are hidden; a lower threshold shows them"},
-	}))
-	golden(t, "explain", b.String())
-}
-
-// shortWriter accepts the first n bytes, then fails like a closed pipe.
-type shortWriter struct{ n int }
-
-func (w *shortWriter) Write(p []byte) (int, error) {
-	if len(p) > w.n {
-		k := w.n
-		w.n = 0
-		return k, io.ErrClosedPipe
-	}
-	w.n -= len(p)
-	return len(p), nil
-}
-
-// TestTextReportsWriteErrors cuts each text output at every byte offset, so a
-// write on any path, down to the last line, fails the command instead of
-// leaving a truncated result behind a zero exit status.
-func TestTextReportsWriteErrors(t *testing.T) {
-	call := sampleCalls()[0]
-	for name, write := range map[string]func(io.Writer) error{
-		"services": func(w io.Writer) error {
-			return writeServices(w, insight.ServicesResult{Window: window, Namespaces: []insight.Namespace{{
-				Name: "prod", Services: []insight.Service{{Name: "billing", Pods: []insight.Pod{{
-					Name: "billing-7f8c", Restarts: []insight.Restart{{StartedAt: t0, FirstCall: t0, LastCall: t0}},
-				}}}},
-			}}})
-		},
-		"services, empty": func(w io.Writer) error {
-			return writeServices(w, insight.ServicesResult{Window: window, Partial: []string{"timeout"}})
-		},
-		"calls": func(w io.Writer) error {
-			return writeCalls(w, insight.CallsResult{Window: &window, Calls: sampleCalls(), NextCursor: "c2"})
-		},
-		"calls, empty": func(w io.Writer) error {
-			return writeCalls(w, insight.CallsResult{Restarted: true, NextCursor: "c2"})
-		},
-		"explain": func(w io.Writer) error {
-			return writeExplain(w, insight.ExplainResult{
-				Call: &call, Focus: "f",
-				HotPath: &insight.PathNode{Method: "a", Hidden: 1, Children: []*insight.PathNode{{Method: "b"}}},
-				TopSelf: []insight.MethodStat{{Method: "b"}}, TopSQL: []insight.SQLStat{{Statement: "s"}},
-				Notes: []string{"n"},
-			})
-		},
-	} {
-		var full bytes.Buffer
-		require.NoError(t, write(&full), name)
-		for n := 0; n < full.Len(); n++ {
-			assert.ErrorIs(t, write(&shortWriter{n: n}), io.ErrClosedPipe, "%s cut at byte %d of %d", name, n, full.Len())
-		}
-	}
-}
-
-// serve answers /api/v1/pods and /api/v1/calls from testdata, a call's
-// /tree with sampleTree, and records the last query.
+// serve answers /api/v1/pods, /api/v1/calls, and /api/v1/stats (by grouping)
+// from testdata, a call's /tree with sampleTree, and records the last query.
 func serve(t *testing.T) (string, *http.Request) {
+	u, rec := serveRecorded(t)
+	return u, rec.last
+}
+
+func serveRecorded(t *testing.T) (string, *served) {
 	t.Helper()
-	last := &http.Request{}
+	rec := &served{last: &http.Request{}, byPath: map[string][]url.Values{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*last = *r.Clone(context.Background())
+		rec.mu.Lock()
+		*rec.last = *r.Clone(context.Background())
+		rec.byPath[r.URL.Path] = append(rec.byPath[r.URL.Path], r.URL.Query())
+		rec.mu.Unlock()
 		if strings.HasSuffix(r.URL.Path, "/tree") {
 			_, _ = w.Write(calltree.Encode(sampleTree()))
 			return
 		}
 		name := map[string]string{"/api/v1/pods": "pods.json", "/api/v1/calls": "calls.json"}[r.URL.Path]
+		if r.URL.Path == "/api/v1/stats" {
+			name = "stats_" + r.URL.Query().Get("group_by") + ".json"
+		}
 		if name == "" {
 			http.NotFound(w, r)
 			return
@@ -195,7 +60,7 @@ func serve(t *testing.T) (string, *http.Request) {
 		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
-	return srv.URL, last
+	return srv.URL, rec
 }
 
 // sampleTree is a call tree whose node references follow the comments.
@@ -251,6 +116,20 @@ func TestCallsCommandSendsFlagsAsConditions(t *testing.T) {
 	assert.Equal(t, "cursor-page-2", q.Get("cursor"))
 	assert.ElementsMatch(t, []string{"request_id=abc123", "duration>1s", "namespace=prod", "service=billing"}, q["filter"])
 	assert.Empty(t, q.Get("from"))
+}
+
+func TestCallsCommandSendsTheOrder(t *testing.T) {
+	url, last := serve(t)
+	_, err := run(t, "calls", "--url", url, "--since", "1h", "--order", "duration_desc")
+	require.NoError(t, err)
+	assert.Equal(t, "duration_desc", last.URL.Query().Get("order"))
+
+	_, err = run(t, "calls", "--url", url, "--since", "1h")
+	require.NoError(t, err)
+	assert.False(t, last.URL.Query().Has("order"), "the default sends no order")
+
+	_, err = run(t, "calls", "--url", url, "--order", "slowest")
+	assert.ErrorContains(t, err, "order must be start_desc or duration_desc")
 }
 
 func TestJSONFlagPrintsTheTypedResult(t *testing.T) {
@@ -310,4 +189,57 @@ func TestExplainCommandFocusesOnANode(t *testing.T) {
 	assert.Equal(t, 3, res.FocusNode)
 	assert.Equal(t, 3, res.HotPath.Node)
 	assert.Contains(t, out, `"focus_node": 3`)
+}
+
+func TestHotspotsCommandSendsTheGroupingAndLabelsTheSample(t *testing.T) {
+	u, rec := serveRecorded(t)
+	out, err := run(t, "hotspots", "--url", u, "--service", "prod/billing", "--since", "1h",
+		"--group-by", "method", "--limit", "5", "--order", "count_desc", "--sample", "2")
+	require.NoError(t, err)
+	q := rec.byPath["/api/v1/stats"][0]
+	assert.Equal(t, "method", q.Get("group_by"))
+	assert.Equal(t, "5", q.Get("limit"))
+	assert.Equal(t, "count_desc", q.Get("order"))
+	assert.Equal(t, []string{"namespace=prod", "service=billing"}, q["filter"])
+	calls := rec.byPath["/api/v1/calls"][0]
+	assert.Equal(t, "duration_desc", calls.Get("order"))
+	assert.Equal(t, "2", calls.Get("limit"))
+
+	assert.Contains(t, out, "Exact, over all 2 calls (1 errors): 1 method groups, ranked by count_desc.")
+	assert.Contains(t, out, "Sampled, not exact: methods and SQL from the trees of the 2 slowest of 2 calls under the filters; 1 trees merged.")
+	assert.Contains(t, out, "Skipped: 1 calls have no tree (buffer_full)")
+	assert.Contains(t, out, "a.Jdbc.execute")
+}
+
+func TestTimelineCommandSendsTheBuckets(t *testing.T) {
+	u, rec := serveRecorded(t)
+	out, err := run(t, "timeline", "--url", u, "--service", "prod/billing", "--since", "1h", "--buckets", "2")
+	require.NoError(t, err)
+	q := rec.byPath["/api/v1/stats"][0]
+	assert.Equal(t, "time", q.Get("group_by"))
+	assert.Equal(t, "2", q.Get("buckets"))
+	assert.Contains(t, out, "2 calls, 1 errors, in 2 buckets of 30m0s.")
+}
+
+func TestCompareCommandPlacesTheBaseline(t *testing.T) {
+	u, rec := serveRecorded(t)
+	out, err := run(t, "compare", "--url", u, "--service", "prod/billing",
+		"--from", "1760430000000", "--to", "1760433600000", "--baseline-shift", "1d")
+	require.NoError(t, err)
+	var froms []string
+	for _, q := range rec.byPath["/api/v1/stats"] {
+		froms = append(froms, q.Get("from")+".."+q.Get("to"))
+	}
+	assert.ElementsMatch(t, []string{"1760430000000..1760433600000", "1760343600000..1760347200000"}, froms)
+	assert.Contains(t, out, "Compared, the largest change in time per minute first:")
+	assert.Contains(t, out, "no group got slower by 20% or more and none is new")
+
+	for _, args := range [][]string{
+		{"compare", "--url", u, "--baseline-from", "1760340000000"},
+		{"compare", "--url", u, "--baseline-shift", "1d", "--baseline-from", "1", "--baseline-to", "2"},
+		{"compare", "--url", u, "--baseline-shift", "soon"},
+	} {
+		_, err := run(t, args...)
+		assert.Error(t, err, "%v", args)
+	}
 }

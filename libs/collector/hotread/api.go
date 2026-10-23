@@ -16,7 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
+	"net/url"
 	"strconv"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/clock"
@@ -59,6 +59,7 @@ func New(store *hotstore.Store) *API {
 	a := &API{store: store, echo: e}
 	e.GET("/internal/v1/calls", a.handleCalls)
 	e.GET("/internal/v1/calls/:pk", a.handleCall)
+	e.GET("/internal/v1/stats", a.handleStats)
 	e.GET("/internal/v1/calls/:pk/trace", a.handleTrace)
 	e.GET("/internal/v1/pods", a.handlePods)
 	e.GET("/internal/v1/pods/:podRestart/dictionary", a.handleDictionary)
@@ -105,23 +106,28 @@ func notFound(c echo.Context, code, detail string) error {
 // shapes). One replica is one complete source: next_cursor stays null (the
 // global cursor is minted by query) and partial stays false (a failing
 // replica fails the request; §7.4 partiality is the fan-out's concern).
+// Order echoes the order the rows come in, so query can tell this build from
+// an older one that ignores `order` (02 §2.3.5).
 type callsResponse struct {
 	Calls          []model.CallJSON `json:"calls"`
+	Order          string           `json:"order"`
 	NextCursor     *string          `json:"next_cursor"`
 	Partial        bool             `json:"partial"`
 	PartialReasons []string         `json:"partial_reasons"`
 }
 
-// handleCalls serves GET /internal/v1/calls: the §2.3 filter params plus the
-// keyset position (after_ts_ms / after_pk) the fan-out seeks past on pages
-// 2..N (§2.3.1). Rows come only from this replica's call index.
+// handleCalls serves GET /internal/v1/calls: the §2.3 filter params, the
+// order, and the keyset position the fan-out seeks past on pages 2..N
+// (§2.3.1): after_ts_ms / after_pk for start_desc, after_duration_ms with an
+// optional after_pk for duration_desc (§2.3.5). Rows come only from this
+// replica's call index.
 func (a *API) handleCalls(c echo.Context) error {
 	params := c.QueryParams()
 	q, errDetail := model.ParseCallsQuery(params)
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
-	after, errDetail := parseAfter(params.Get("after_ts_ms"), params.Get("after_pk"))
+	after, errDetail := parseAfter(q.Order, params)
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
@@ -134,18 +140,26 @@ func (a *API) handleCalls(c echo.Context) error {
 		limit = v
 	}
 
-	rows, err := a.queryCalls(q, after, limit)
+	queryCalls := a.queryCalls
+	if q.Order.ByDuration() {
+		queryCalls = a.queryCallsByDuration
+	}
+	rows, err := queryCalls(q, after, limit)
 	if err != nil {
 		return err
 	}
-	resp := callsResponse{Calls: make([]model.CallJSON, 0, len(rows)), PartialReasons: []string{}}
+	resp := callsResponse{Calls: make([]model.CallJSON, 0, len(rows)), Order: q.Order.String(), PartialReasons: []string{}}
 	for _, row := range rows {
 		resp.Calls = append(resp.Calls, row.JSON())
 	}
 	return c.JSON(http.StatusOK, resp)
 }
 
-func parseAfter(tsRaw, pkRaw string) (*model.Position, string) {
+func parseAfter(order model.Order, params url.Values) (*model.Position, string) {
+	if order.ByDuration() {
+		return parseAfterDuration(params.Get("after_duration_ms"), params.Get("after_pk"))
+	}
+	tsRaw, pkRaw := params.Get("after_ts_ms"), params.Get("after_pk")
 	if tsRaw == "" && pkRaw == "" {
 		return nil, ""
 	}
@@ -163,17 +177,38 @@ func parseAfter(tsRaw, pkRaw string) (*model.Position, string) {
 	return &model.Position{TsMs: tsMs, PK: pk}, ""
 }
 
+// parseAfterDuration reads a duration_desc position. Without after_pk it is a
+// position with no PK, which passes only strictly shorter calls (02 §2.3.5).
+func parseAfterDuration(durRaw, pkRaw string) (*model.Position, string) {
+	if durRaw == "" {
+		if pkRaw != "" {
+			return nil, "after_pk needs after_duration_ms with order=duration_desc"
+		}
+		return nil, ""
+	}
+	d, err := strconv.ParseInt(durRaw, 10, 32)
+	if err != nil || d < 0 {
+		return nil, "after_duration_ms must be a non-negative integer"
+	}
+	pos := &model.Position{DurationMs: int32(d), NoPK: pkRaw == ""}
+	if pkRaw != "" {
+		pk, err := model.ParsePKPath(pkRaw)
+		if err != nil {
+			return nil, err.Error()
+		}
+		pos.PK = pk
+	}
+	return pos, ""
+}
+
 // queryCalls walks the call partitions newest-first. Partitions are disjoint
-// ts ranges, so their per-partition sorted runs concatenate into the global
+// ts ranges, so their keyset-ordered runs concatenate into the global
 // (ts_ms DESC, pk ASC) order and the walk stops at limit. The SQL-pushable
-// filters and the page bound run inside the partition (№15) — a request no
-// longer loads a whole bucket; the pages descend by ts until the limit fills
-// or the bucket exhausts, so the Go-side filters (method, the after-PK seek)
-// can reject rows without losing deeper ones. The PK order is applied in Go
-// with the shared model comparator: the partitions key rows by the scalar
-// pod_restart string, whose byte order diverges from the component-wise
-// §2.3.1 collation (a pod name that prefixes another compares through the
-// '/' separator, and restart_time_ms would compare as text).
+// filters, the cursor seek, and the page bound run inside the partition
+// (№15); the pages descend by the full keyset until the limit fills or the
+// partition exhausts, so the Go-side filters (the method among them) can
+// reject rows without losing deeper ones, and no page holds more than limit
+// rows however many calls share a millisecond.
 func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
 	cfg := a.store.Config()
 	buckets, err := a.store.Buckets()
@@ -196,45 +231,76 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 		if start >= toMs || start+cfg.TimeBucket.Milliseconds() <= q.FromMs {
 			continue
 		}
-		var rows []model.CallRow
-		pageToMs := toMs
-		for len(out)+len(rows) < limit {
-			want := limit - len(out) - len(rows)
-			idxRows, err := a.store.CallsPage(bucket, q, q.FromMs, pageToMs, want)
+		rows, err := a.partitionPage(bucket, q, matcher, model.OrderStartDesc, after, limit-len(out))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
+	return out, nil
+}
+
+// queryCallsByDuration is queryCalls for duration_desc (02 §2.3.5). A
+// duration order does not follow the partitions, so each partition in the
+// window contributes its own first `limit` rows past the cursor, and each
+// run merges into the page as it arrives: the request holds at most two
+// runs of `limit` rows at a time, whatever the number of partitions.
+func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
+	cfg := a.store.Config()
+	buckets, err := a.store.Buckets()
+	if err != nil {
+		return nil, err
+	}
+	matcher, err := q.Matcher()
+	if err != nil {
+		return nil, err
+	}
+	var out []model.CallRow
+	for _, bucket := range buckets {
+		start := cfg.BucketStartMs(bucket)
+		if start >= q.ToMs || start+cfg.TimeBucket.Milliseconds() <= q.FromMs {
+			continue
+		}
+		rows, err := a.partitionPage(bucket, q, matcher, model.OrderDurationDesc, after, limit)
+		if err != nil {
+			return nil, err
+		}
+		out, _ = model.MergeRunsBy(model.OrderDurationDesc, [][]model.CallRow{out, rows}, limit)
+	}
+	return out, nil
+}
+
+// partitionPage returns up to limit rows of one partition that sit past the
+// after position in the order and meet the query's conditions, already in
+// the order. SQL returns the keyset-ordered rows past the seek; the Go-side
+// matcher drops some, so the read repeats from the last row SQL returned
+// until limit rows match or the partition runs out.
+func (a *API) partitionPage(bucket int64, q model.CallsQuery, matcher *model.Matcher, order model.Order,
+	after *model.Position, limit int) ([]model.CallRow, error) {
+	var rows []model.CallRow
+	seek := after
+	for len(rows) < limit {
+		want := limit - len(rows)
+		idxRows, err := a.store.CallsPageAfter(bucket, q, q.FromMs, q.ToMs, order, seek, want)
+		if err != nil {
+			return nil, err
+		}
+		for _, idx := range idxRows {
+			row, err := a.toCallRow(idx)
 			if err != nil {
 				return nil, err
 			}
-			if len(idxRows) == 0 {
-				break
-			}
-			for _, idx := range idxRows {
-				row, err := a.toCallRow(idx)
-				if err != nil {
-					return nil, err
-				}
-				if !matcher.Match(&row) {
-					continue
-				}
-				if after != nil && !row.Position().After(*after) {
-					continue
-				}
+			pos := row.Position()
+			seek = &pos
+			if matcher.Match(&row) {
 				rows = append(rows, row)
 			}
-			// Rows come newest-first with complete tie groups: fewer rows than
-			// asked means the window is exhausted; otherwise the next page
-			// starts strictly below the last ts.
-			pageToMs = idxRows[len(idxRows)-1].TsMs
-			if len(idxRows) < want || pageToMs <= q.FromMs {
-				break
-			}
 		}
-		sort.Slice(rows, func(i, j int) bool { return rows[i].Position().Before(rows[j].Position()) })
-		out = append(out, rows...)
+		if len(idxRows) < want {
+			break
+		}
 	}
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out, nil
+	return rows, nil
 }
 
 // toCallRow maps an index row to the merged row shape: the method comes from

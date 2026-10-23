@@ -54,11 +54,17 @@ type (
 		RecordIndex    int32  `json:"record_index"`
 	}
 
-	// Position is one point in the (ts_ms DESC, pk ASC) total order — the
-	// keyset a cursor seeks past (02 §2.3.1).
+	// Position is one point in a /calls total order — the keyset a cursor
+	// seeks past (02 §2.3.1, §2.3.5). It carries the sort key of every
+	// implemented order, and Order picks the one it compares.
 	Position struct {
-		TsMs int64 `json:"ts_ms"`
-		PK   PK    `json:"pk"`
+		TsMs       int64 `json:"ts_ms"`
+		DurationMs int32 `json:"duration_ms,omitempty"`
+		PK         PK    `json:"pk"`
+		// NoPK marks a position that ends a key without naming a row: the
+		// lower bound of a duration band a page stopped at (§2.3.5). It
+		// passes only strictly lower keys.
+		NoPK bool `json:"no_pk,omitempty"`
 	}
 
 	// Tier tags a row with the source that produced it, for the §6.3
@@ -100,6 +106,7 @@ type (
 		FromMs  int64       `json:"from"`
 		ToMs    int64       `json:"to"`
 		Filters []Condition `json:"filters,omitempty"`
+		Order   Order       `json:"order,omitempty"`
 	}
 
 	// PodTuple is one /pods identity tuple (02 §2.7).
@@ -168,10 +175,7 @@ func compareInt64(a, b int64) int {
 // Before reports whether p sorts before o in the (ts_ms DESC, pk ASC) total
 // order of §2.3.1.
 func (p Position) Before(o Position) bool {
-	if p.TsMs != o.TsMs {
-		return p.TsMs > o.TsMs
-	}
-	return p.PK.Compare(o.PK) < 0
+	return OrderStartDesc.Before(p, o)
 }
 
 // After reports whether the row position sits strictly past the cursor
@@ -182,34 +186,42 @@ func (p Position) After(cursor Position) bool {
 
 // Position returns the row's point in the pagination order.
 func (r CallRow) Position() Position {
-	return Position{TsMs: r.TsMs, PK: r.PK}
+	return Position{TsMs: r.TsMs, DurationMs: r.DurationMs, PK: r.PK}
 }
 
-// mergeHeap orders run heads by (ts_ms DESC, pk ASC), then by Tier so a
-// duplicate PK surfaces its cold copy first (§6.3).
-type mergeHeap []mergeRun
+// mergeHeap orders run heads by the order, then by Tier so a duplicate PK
+// surfaces its cold copy first (§6.3).
+type mergeHeap struct {
+	order Order
+	runs  []mergeRun
+}
 
 type mergeRun struct {
 	rows []CallRow
 	pos  int
 }
 
-func (h mergeHeap) Len() int { return len(h) }
-func (h mergeHeap) Less(i, j int) bool {
-	a, b := h[i].rows[h[i].pos], h[j].rows[h[j].pos]
+func (h *mergeHeap) Len() int { return len(h.runs) }
+func (h *mergeHeap) Less(i, j int) bool {
+	a, b := h.head(i), h.head(j)
 	ap, bp := a.Position(), b.Position()
-	if ap.Before(bp) {
+	if h.order.Before(ap, bp) {
 		return true
 	}
-	if bp.Before(ap) {
+	if h.order.Before(bp, ap) {
 		return false
 	}
 	return a.Tier < b.Tier
 }
-func (h mergeHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *mergeHeap) Push(x any)        { *h = append(*h, x.(mergeRun)) }
-func (h *mergeHeap) Pop() any          { old := *h; n := len(old); x := old[n-1]; *h = old[:n-1]; return x }
-func (h mergeHeap) head(i int) CallRow { return h[i].rows[h[i].pos] }
+func (h *mergeHeap) Swap(i, j int) { h.runs[i], h.runs[j] = h.runs[j], h.runs[i] }
+func (h *mergeHeap) Push(x any)    { h.runs = append(h.runs, x.(mergeRun)) }
+func (h *mergeHeap) Pop() any {
+	n := len(h.runs)
+	x := h.runs[n-1]
+	h.runs = h.runs[:n-1]
+	return x
+}
+func (h *mergeHeap) head(i int) CallRow { return h.runs[i].rows[h.runs[i].pos] }
 
 // MergeRuns k-way merges already-sorted runs into the (ts_ms DESC, pk ASC)
 // order, deduplicates by full PK (§6: dedup runs before the truncation and
@@ -218,26 +230,31 @@ func (h mergeHeap) head(i int) CallRow { return h[i].rows[h[i].pos] }
 // next_cursor signal. Runs must each be sorted in the total order; one run
 // per parquet file or per fan-out source.
 func MergeRuns(runs [][]CallRow, limit int) ([]CallRow, bool) {
-	h := make(mergeHeap, 0, len(runs))
+	return MergeRunsBy(OrderStartDesc, runs, limit)
+}
+
+// MergeRunsBy is MergeRuns for any order; every run must be sorted in it.
+func MergeRunsBy(order Order, runs [][]CallRow, limit int) ([]CallRow, bool) {
+	h := &mergeHeap{order: order, runs: make([]mergeRun, 0, len(runs))}
 	for _, run := range runs {
 		if len(run) > 0 {
-			h = append(h, mergeRun{rows: run})
+			h.runs = append(h.runs, mergeRun{rows: run})
 		}
 	}
-	heap.Init(&h)
+	heap.Init(h)
 
 	var out []CallRow
 	var last Position
 	for h.Len() > 0 {
 		row := h.head(0)
-		if h[0].pos++; h[0].pos == len(h[0].rows) {
-			heap.Pop(&h)
+		if h.runs[0].pos++; h.runs[0].pos == len(h.runs[0].rows) {
+			heap.Pop(h)
 		} else {
-			heap.Fix(&h, 0)
+			heap.Fix(h, 0)
 		}
 		if len(out) > 0 {
 			p := row.Position()
-			if !last.Before(p) {
+			if !order.Before(last, p) {
 				continue // same (ts_ms, pk): a §6.2 duplicate; the preferred copy came first
 			}
 		}

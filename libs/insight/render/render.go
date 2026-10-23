@@ -1,4 +1,8 @@
-package cmd
+// Package render prints libs/insight results as compact text for a model's
+// context: aligned columns, times in milliseconds, and one line per fact. The
+// profiler CLI prints it by default, and the MCP server returns it beside the
+// typed result, so both front ends show an agent the same text.
+package render
 
 import (
 	"fmt"
@@ -9,9 +13,6 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/insight"
 )
-
-// The text output is sized for a model's context: aligned columns, times in
-// milliseconds, and one line per fact. --json carries every field.
 
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
@@ -48,7 +49,8 @@ func writePartial(out *errWriter, reasons []string) {
 	}
 }
 
-func writeServices(w io.Writer, res insight.ServicesResult) error {
+// Services prints a services result.
+func Services(w io.Writer, res insight.ServicesResult) error {
 	out := &errWriter{w: w}
 	writeWindow(out, res.Window)
 	writePartial(out, res.Partial)
@@ -73,7 +75,10 @@ func writeServices(w io.Writer, res insight.ServicesResult) error {
 	return out.err
 }
 
-func writeCalls(w io.Writer, res insight.CallsResult) error {
+// Calls prints a calls result. more phrases the input that continues the
+// listing for the front end, with one %s for the cursor, such as
+// "More calls: --cursor %s"; it is printed when the result has a next cursor.
+func Calls(w io.Writer, res insight.CallsResult, more string) error {
 	out := &errWriter{w: w}
 	if res.Window != nil {
 		writeWindow(out, *res.Window)
@@ -100,7 +105,7 @@ func writeCalls(w io.Writer, res insight.CallsResult) error {
 		_ = tw.Flush()
 	}
 	if res.NextCursor != "" {
-		out.printf("More calls: --cursor %s\n", res.NextCursor)
+		out.printf(more+"\n", res.NextCursor)
 	}
 	return out.err
 }
@@ -127,7 +132,8 @@ func ids(c insight.Call) string {
 	return strings.Join(parts, " ")
 }
 
-func writeExplain(w io.Writer, res insight.ExplainResult) error {
+// Explain prints an explain result.
+func Explain(w io.Writer, res insight.ExplainResult) error {
 	out := &errWriter{w: w}
 	if c := res.Call; c != nil {
 		out.printf("Call: %s\n", c.Ref)
@@ -159,12 +165,7 @@ func writeExplain(w io.Writer, res insight.ExplainResult) error {
 			out.printf("%8d ms  x%-6d %s\n", s.DurationMs, s.Executions, s.Statement)
 		}
 	}
-	if len(res.Notes) > 0 {
-		out.println("\nNotes:")
-		for _, n := range res.Notes {
-			out.printf("- %s\n", n)
-		}
-	}
+	writeNotes(out, res.Notes)
 	return out.err
 }
 

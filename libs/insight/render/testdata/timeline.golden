@@ -1,0 +1,7 @@
+Window: 2026-10-14T11:00:00.000Z to 2026-10-14T12:00:00.000Z (1h0m0s)
+1300 calls, 9 errors, in 3 buckets of 20m0s.
+Partial: s3 list: timeout
+                     START  CALLS  ERRORS  P50 ms  P95 ms  P99 ms
+  2026-10-14T11:00:00.000Z    400       1     110     400     700
+  2026-10-14T11:20:00.000Z    900       8     150    2100    3900
+  2026-10-14T11:40:00.000Z      0       0       -       -       -

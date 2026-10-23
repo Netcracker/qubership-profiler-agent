@@ -27,14 +27,21 @@ const cursorVersion = 1
 // safe: the Authorizer then approved a read across every namespace. The
 // window is not re-sent: the server keeps page 1's, so a relative window
 // does not move.
+//
+// Order is the order of page 1, empty for the default. When the server
+// rejects the cursor, Calls restarts at page 1, and a caller that continues
+// with the cursor alone sends no order; the recorded one keeps a slowest-first
+// listing slowest-first. A cursor from a build that did not record the order
+// still decodes and restarts in the default order.
 type callsCursor struct {
 	V          int      `json:"v"`
 	Server     string   `json:"c"`
 	Conditions []string `json:"f,omitempty"`
+	Order      string   `json:"o,omitempty"`
 }
 
-func encodeCallsCursor(server string, conditions []string) string {
-	body, err := json.Marshal(callsCursor{V: cursorVersion, Server: server, Conditions: conditions})
+func encodeCallsCursor(server string, conditions []string, order string) string {
+	body, err := json.Marshal(callsCursor{V: cursorVersion, Server: server, Conditions: conditions, Order: order})
 	if err != nil {
 		panic(err) // a struct of strings always marshals
 	}
@@ -57,6 +64,9 @@ func decodeCallsCursor(text string) (callsCursor, error) {
 	}
 	if _, err := canonicalConditions(cur.Conditions); err != nil {
 		return callsCursor{}, err
+	}
+	if cur.Order != "" && cur.Order != OrderNewest && cur.Order != OrderSlowest {
+		return callsCursor{}, errors.Errorf("cursor order %q is not supported", cur.Order)
 	}
 	return cur, nil
 }

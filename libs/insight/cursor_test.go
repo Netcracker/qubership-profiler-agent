@@ -138,14 +138,14 @@ func TestQueryServiceChecksTheCursorConditions(t *testing.T) {
 	}
 	prod := []string{"namespace=prod", "service=billing"}
 
-	honest := encodeCallsCursor(serverCursor(t, frozenTo("prod")), prod)
+	honest := encodeCallsCursor(serverCursor(t, frozenTo("prod")), prod, "")
 	res, err := c.Calls(context.Background(), CallsInput{Cursor: honest, Window: Window{Since: time.Minute}})
 	require.NoError(t, err)
 	assert.False(t, res.Restarted, "the server accepts the conditions its cursor froze")
 	require.Len(t, reqs, 1)
 	assert.Empty(t, reqs[0].Get("from"), "the window of page 1 holds; the one given is not resolved again")
 
-	forged := encodeCallsCursor(serverCursor(t, frozenTo("secret")), prod)
+	forged := encodeCallsCursor(serverCursor(t, frozenTo("secret")), prod, "")
 	res, err = c.Calls(context.Background(), CallsInput{Cursor: forged})
 	require.NoError(t, err)
 	assert.True(t, res.Restarted, "the server rejected the cursor")
