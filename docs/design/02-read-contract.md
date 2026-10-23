@@ -681,10 +681,14 @@ This holds for any mix of replica windows: a new or empty replica reports `hot_w
 moves no boundary, because `t_lo` is the earliest window rather than the latest. A window that ends before `t_lo` is
 cold only and reads no hash sets. A hash collision makes the cold scan skip a call that no replica holds, with a
 probability near `n² / 2⁶⁵` for `n` hot calls, which is about 3·10⁻⁶ at ten million. The hash sets are charged to the
-read memory budget (§7.5) at 8 bytes per call, and when the budget is exhausted the response is `partial` with reason
-`read_budget_exhausted`. When the hot tier is degraded (§4.3), the cold scan aggregates the whole window without a
-hash check and the response is `partial`. Each replica aggregates its own rows through `/internal/v1/stats` (§3) and
-returns mergeable partial aggregates.
+read memory budget (§7.5) at 8 bytes per call. When the budget cannot hold them, `query` drops the hot aggregates and
+proceeds as for a degraded hot tier, and `partial_reasons` holds `read_budget_exhausted`. The hot tier is degraded
+when discovery fails, when it finds no replica, or when no replica answers its health probe (§4.3); the cold scan
+then aggregates the whole window without a hash check and the response is `partial`. A replica that fails its probe
+or its `/internal/v1/stats` call while others answer is left out: `t_lo` comes from the replicas that answered the
+probe, the calls only the failed replica holds are missing, and the response is `partial`. Leaving it out counts no
+call twice, because the cold scan checks only the hash sets it received. Each replica aggregates its own rows through
+`/internal/v1/stats` (§3) and returns mergeable partial aggregates.
 
 Compaction leaves its output and its inputs side by side until the delete grace has passed (`01-write-contract.md`
 §6.6), so the cold scan removes that overlap by lineage, not by PK. Before it aggregates, it reads the footer of each
@@ -701,14 +705,18 @@ both inside the shortest TTL that matters to it, or adds `duration>=100ms` to bo
 
 **Bounded memory.** A source keeps at most `PROFILER_STATS_MAX_GROUPS` (default 10,000) groups. Past that, it tracks
 the groups with Space-Saving, weighted by the `order` metric: the heaviest groups stay, a new value replaces the
-lightest one, and the response sets `approximate: true`. The counts of an approximate row can then exceed the exact
-counts, by at most the window's total divided by `PROFILER_STATS_MAX_GROUPS`, and its sums and percentiles cover the
-calls since the value last entered the summary. `distinct` is then a lower bound. Groupings by a high-cardinality
-param, such as a request ID, are the expected case; the stage A groupings rarely reach the limit.
+lightest one, and the response sets `approximate: true`. The new value inherits the `order` metric of the value it
+replaces (the call count for `count_desc`, the `duration_ms` sum for `duration_sum_desc`), as Space-Saving requires.
+That metric of an approximate row can then exceed the exact value, by at most the window's total of it divided by
+`PROFILER_STATS_MAX_GROUPS`; the row's other members cover the calls since the value last entered the summary.
+`distinct` is then a lower bound. A `time` grouping holds at most 1,000 buckets and is never bounded this way.
+Groupings by a high-cardinality param, such as a request ID, are the expected case; the stage A groupings rarely reach
+the limit.
 
 **Guard, budget, and errors.** The wide-query guard (§2.3.2) applies with the same layers, the same narrowing
 filters, and no exemption for an order: an aggregate reads every file of the window, so its cost is the full
-estimate. The read memory budget (§7.5) charges the cold scan's batches and every source's groups and sketches.
+estimate. The read memory budget (§7.5) charges the cold scan's batches and every source's groups and sketches. A
+denial of any of these answers `503` as on `/calls` (§7.5); only the hash sets above degrade to `partial`.
 `partial` and `partial_reasons` follow §7.4. A missing or unknown `group_by`, `buckets` or `limit` out of range, an
 `order` other than the two above, and a parameter that does not apply to the grouping all answer `400` with
 `code: invalid_request`.
@@ -737,7 +745,7 @@ Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in
 | GET | `/internal/v1/pods/{pod-restart}/values` | Batched big-parameter values from this replica's `sql` / `xml` segments: `?ref=<stream>:<seq>:<offset>` (repeatable) → `{ "values": { "<ref>": "<value>", ... } }`. A reference that does not resolve is absent, and `query` marks it `unresolved` in the tree (§2.5.3). Internal only — the external API never exposes the value streams (§2.5). |
 | GET | `/internal/v1/calls` | Same params as `/api/v1/calls`; returns only rows this replica holds. |
 | GET | `/internal/v1/calls/{pk}` | Single-row fetch from this replica. |
-| GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, no `other` row, and the PK hashes of the rows it aggregated, so `query` can merge the replicas and the cold scan, skipping cold rows a replica already counted, before it ranks and cuts to `limit` (§2.9). |
+| GET | `/internal/v1/stats` | Same params as `/api/v1/stats`, over the rows this replica holds. Returns every group up to `PROFILER_STATS_MAX_GROUPS` with its DDSketch bins rather than percentiles, no `other` row, and the PK hashes of the rows it aggregated, so `query` can merge the replicas and the cold scan, skipping cold rows a replica already counted, before it ranks and cuts to `limit` (§2.9). Three more parameters serve the fan-out: `bucket_origin_ms` and `bucket_ms` place the calls of `[t_lo, to)` on the buckets of the external window, and `max_groups` passes `query`'s `PROFILER_STATS_MAX_GROUPS`. The hashes travel as `pk_hashes`, the base64 of their 8-byte big-endian forms. |
 | GET | `/internal/v1/calls/{pk}/trace` | Blob from this replica. |
 | GET | `/internal/v1/health/hot-window` | `{ "hot_window_oldest_ms": ..., "hot_window_now_ms": ... }`. Reports the earliest `ts_ms` this replica still serves. Lets `query` compute the cold cutoff dynamically (§4.3). |
 
