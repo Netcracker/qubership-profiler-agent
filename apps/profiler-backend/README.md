@@ -10,10 +10,11 @@ states, and the process wiring.
 | `collect` | Collector write path: agent TCP (`:1715`), seal and upload loops, `/internal/v1` (`:8081`) | `libs/collector` |
 | `query` | Read path: `/api/v1` (`:8080`) over the hot fan-out and cold S3 tiers | `libs/query` |
 | `maintain` | S3 compaction + per-class retention TTL; loop by default, `--run-now` for a CronJob | `libs/maintain` |
+| `mcp` | MCP server for AI agents: the `libs/insight` operations as tools at `/mcp` (`:8090`), reading from `query` over HTTP | `libs/insight` |
 
 `all` (`03-lifecycle.md` §9) is not implemented yet.
 
-Every subcommand serves Prometheus `/metrics`: `collect` on the internal port
+Every subcommand except `mcp` serves Prometheus `/metrics`: `collect` on the internal port
 (scrapable through LOADING/RECOVERY), `query` and `maintain` on a dedicated
 metrics port (`PROFILER_METRICS_PORT`; `maintain` binds it only in loop mode,
 since `--run-now` exits too fast to scrape). query keeps `/metrics` and
@@ -89,6 +90,16 @@ Not wired yet (their features belong to later Stage 1 tasks):
 | `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling per `/calls` scan. |
 | `PROFILER_STATS_MAX_GROUPS` | `10000` | Groups one `/stats` source keeps before it switches to an approximate top N. |
 | `PROFILER_DURATION_THRESHOLDS` | `100ms,1s,10s` | Must mirror the collector's value: the cold class pruning derives from the same tier table (01 §6.4). |
+
+### `mcp`
+
+`mcp` reads no S3 and none of the S3 variables above. It keeps no state, so it reports READY at once and does not
+wait for `query`. v1 has no authentication: run it in-cluster only (`docs/agent-access.md`).
+
+| Env | Default | Description |
+|---|---|---|
+| `PROFILER_URL` | — (required) | Base URL of the query service, such as `http://profiler-profiler-backend-query:8080`. |
+| `PROFILER_MCP_PORT` | `8090` | The MCP endpoint `/mcp` and the health probes `/health/ready` and `/health/live`. |
 
 ## Lifecycle
 

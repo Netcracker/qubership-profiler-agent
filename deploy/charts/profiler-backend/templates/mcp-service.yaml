@@ -1,0 +1,19 @@
+{{- if .Values.mcp.enabled }}
+# In-cluster entry point of the MCP server (/mcp). v1 has no authentication on
+# MCP or on /api/v1, so the chart renders no Ingress or HTTPRoute for it:
+# reach it from inside the cluster or through `kubectl port-forward`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "profiler-backend.fullname" . }}-mcp
+  labels:
+    {{- include "profiler-backend.labels" (dict "root" . "component" "mcp") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "profiler-backend.selectorLabels" (dict "root" . "component" "mcp") | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ .Values.mcp.port }}
+      targetPort: mcp
+{{- end }}

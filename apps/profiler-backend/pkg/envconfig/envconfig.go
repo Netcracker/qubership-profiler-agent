@@ -197,6 +197,20 @@ type (
 		S3 S3
 	}
 
+	// MCP is the `mcp` subcommand configuration: the MCP server over the
+	// query service (section 6.3 of the agent-access plan). It reads no S3:
+	// every tool calls query over HTTP. The env names are an implementation
+	// choice; PROFILER_URL is the one the profiler CLI reads too.
+	MCP struct {
+		LogLevel string `envconfig:"PROFILER_LOG_LEVEL" default:"info"`
+		// QueryURL is the query service base URL, such as
+		// http://profiler-backend-query:8080.
+		QueryURL string `envconfig:"PROFILER_URL" required:"true"`
+		// Port serves the MCP endpoint at /mcp and the health probes.
+		Port               int           `envconfig:"PROFILER_MCP_PORT" default:"8090"`
+		ShutdownDrainGrace time.Duration `envconfig:"PROFILER_SHUTDOWN_DRAIN_GRACE" default:"30s"`
+	}
+
 	// S3 carries the object-store connection shared by the subcommands
 	// (01 §9). The scheme of S3_ENDPOINT selects TLS. S3_PATH_PREFIX roots
 	// EVERY object key (parquet and the pods manifests) below the bucket, so
@@ -300,6 +314,20 @@ func ParseMaintain() (Maintain, error) {
 		return m, errors.Wrap(err, "parse maintain env")
 	}
 	return m, validateTimeBucket(m.TimeBucket)
+}
+
+// ParseMCP reads the `mcp` configuration from the environment.
+func ParseMCP() (MCP, error) {
+	var m MCP
+	if err := envconfig.Process("", &m); err != nil {
+		return m, errors.Wrap(err, "parse mcp env")
+	}
+	// required rejects an unset variable only; an empty one would fail on
+	// the first tool call instead of at startup.
+	if strings.TrimSpace(m.QueryURL) == "" {
+		return m, errors.New("PROFILER_URL must name the query service, such as http://profiler-backend-query:8080")
+	}
+	return m, nil
 }
 
 // validateTimeBucket rejects a PROFILER_TIME_BUCKET that does not divide the
