@@ -246,6 +246,19 @@ func TestCallsRestartKeepsTheOrderOfPageOne(t *testing.T) {
 	assert.Equal(t, OrderSlowest, next.Order, "the restarted listing's cursor keeps the order")
 }
 
+func TestCallsCursorKeepsAStageBOrder(t *testing.T) {
+	c, r := newReplay(t, nil,
+		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
+		ok("calls.json"))
+	cursor := encodeCallsCursor("stale", nil, "cpu_asc")
+	res, err := c.Calls(context.Background(), CallsInput{Cursor: cursor})
+	require.NoError(t, err)
+	assert.True(t, res.Restarted)
+	assert.Equal(t, "stale", r.reqs[0].URL.Query().Get("cursor"), "an order beyond newest and slowest decodes")
+	assert.Equal(t, "cpu_asc", r.reqs[0].URL.Query().Get("order"))
+	assert.Equal(t, "cpu_asc", r.reqs[1].URL.Query().Get("order"), "the restart keeps the recorded order")
+}
+
 func TestCallsAcceptsACursorWithoutAnOrder(t *testing.T) {
 	c, r := newReplay(t, nil,
 		reply{status: http.StatusBadRequest, fixture: "problem_cursor_rejected.json"},
@@ -266,6 +279,7 @@ func TestCallsRestartsFromPageOneOnACursorThatDoesNotDecode(t *testing.T) {
 		"***",
 		encodeCallsCursor("", nil, ""),
 		encodeCallsCursor("x", []string{"service"}, ""),
+		encodeCallsCursor("x", nil, "slowest"), // not <field>_<asc|desc>
 	} {
 		c, r := newReplay(t, nil, ok("calls.json"))
 		res, err := c.Calls(context.Background(), CallsInput{Cursor: junk, Filters: Filters{Service: "prod/billing"}})
