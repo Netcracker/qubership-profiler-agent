@@ -59,7 +59,7 @@ service is slow.
 | Tool | CLI equivalent | What it does |
 | --- | --- | --- |
 | `profiler_list_services` | `profiler services` | Lists the namespaces, services, and pods with data in a window. |
-| `profiler_find_calls` | `profiler calls` | Finds the newest or slowest calls that match conditions. |
+| `profiler_find_calls` | `profiler calls` | Finds the calls that match conditions, newest first or in another order. |
 | `profiler_explain_call` | `profiler explain` | Reduces one call's tree to its hot path, top methods, and top SQL. |
 | `profiler_hotspots` | `profiler hotspots` | Ranks calls by total time per group; samples inner methods and SQL. |
 | `profiler_timeline` | `profiler timeline` | Counts calls and errors per time bucket, with duration percentiles. |
