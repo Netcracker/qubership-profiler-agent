@@ -220,3 +220,26 @@ func TestTimelineCommandSendsTheBuckets(t *testing.T) {
 	assert.Equal(t, "2", q.Get("buckets"))
 	assert.Contains(t, out, "2 calls, 1 errors, in 2 buckets of 30m0s.")
 }
+
+func TestCompareCommandPlacesTheBaseline(t *testing.T) {
+	u, rec := serveRecorded(t)
+	out, err := run(t, "compare", "--url", u, "--service", "prod/billing",
+		"--from", "1760430000000", "--to", "1760433600000", "--baseline-shift", "1d")
+	require.NoError(t, err)
+	var froms []string
+	for _, q := range rec.byPath["/api/v1/stats"] {
+		froms = append(froms, q.Get("from")+".."+q.Get("to"))
+	}
+	assert.ElementsMatch(t, []string{"1760430000000..1760433600000", "1760343600000..1760347200000"}, froms)
+	assert.Contains(t, out, "Compared, the largest change in time per minute first:")
+	assert.Contains(t, out, "no group got slower by 20% or more and none is new")
+
+	for _, args := range [][]string{
+		{"compare", "--url", u, "--baseline-from", "1760340000000"},
+		{"compare", "--url", u, "--baseline-shift", "1d", "--baseline-from", "1", "--baseline-to", "2"},
+		{"compare", "--url", u, "--baseline-shift", "soon"},
+	} {
+		_, err := run(t, args...)
+		assert.Error(t, err, "%v", args)
+	}
+}

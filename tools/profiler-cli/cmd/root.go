@@ -29,7 +29,7 @@ func NewRoot(out io.Writer) *cobra.Command {
 		Short: "Investigate slow calls with the Qubership profiler",
 		Long: "profiler reads the Qubership profiler backend: list the services with data, find calls by\n" +
 			"service, duration, error, or a request or trace ID, explain where a call spent its time, rank\n" +
-			"where a service spends its time, and count calls over time.\n\n" +
+			"where a service spends its time, count calls over time, and compare two windows.\n\n" +
 			"Set the query service URL with --url or " + urlEnv + ", for example after\n" +
 			"  kubectl port-forward -n <profiler-namespace> svc/<release>-query 8080:8080\n" +
 			"with " + urlEnv + "=http://localhost:8080.",
@@ -41,7 +41,7 @@ func NewRoot(out io.Writer) *cobra.Command {
 	root.PersistentFlags().StringVar(&flags.url, "url", "", "query service base URL (default $"+urlEnv+")")
 	root.PersistentFlags().BoolVar(&flags.json, "json", false, "print the result as JSON")
 	root.AddCommand(newServicesCmd(&flags), newCallsCmd(&flags), newExplainCmd(&flags),
-		newHotspotsCmd(&flags), newTimelineCmd(&flags))
+		newHotspotsCmd(&flags), newTimelineCmd(&flags), newCompareCmd(&flags))
 	return root
 }
 
