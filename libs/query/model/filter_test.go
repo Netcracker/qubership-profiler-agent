@@ -83,8 +83,7 @@ func TestConditionRejections(t *testing.T) {
 		{`pod in a\`, "ends with a backslash"},
 		{"retention_class=hot", "is not a retention class"},
 		{"method=~(", "is not a valid regular expression"},
-		{"class=Foo", "is not implemented"},
-		{"endpoint=GET /x", "is not implemented"},
+		{"class=None", "does not apply"},
 	} {
 		c, err := ParseCondition(tc.text)
 		if err == nil {

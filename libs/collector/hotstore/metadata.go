@@ -1138,12 +1138,15 @@ func (m *metaDb) MinTsMs(bucket int64) (*int64, error) {
 }
 
 // callsQueryWhere renders the SQL-pushable predicates of q (№15): the ts
-// window, the duration bounds, the error flag, the retention classes, and
-// the pod and identity filters (pod_restart is "<pod_id>/<restartMs>", so a
-// pod, a service, or a namespace matches by prefix), each from the
-// conditions' narrowed views. Every other condition,
-// the method filter among them, stays in Go — it matches the
-// dictionary-resolved name, which SQL does not have.
+// window, the duration bounds, the error flag, the retention classes a
+// condition selects or excludes, and the pod and identity filters with `=`
+// or `in` (pod_restart is "<pod_id>/<restartMs>", so a pod, a service, or a
+// namespace matches by prefix), each from the conditions' narrowed views.
+// Every other condition stays in Go, which re-checks every row anyway:
+// method and class match the dictionary-resolved name, which SQL does not
+// have; params, trace_id, request_id, and endpoint live in params_json; and
+// an identity negation or regular expression cannot be written as a prefix
+// of the composite pod_restart key.
 func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
 	where := "ts_ms >= ? AND ts_ms < ?"
 	args := []any{fromMs, toMs}
@@ -1165,6 +1168,12 @@ func callsQueryWhere(q model.CallsQuery, fromMs, toMs int64) (string, []any) {
 		}
 		where += " AND retention_class IN (?" + strings.Repeat(",?", len(classes)-1) + ")"
 		for _, c := range classes {
+			args = append(args, c)
+		}
+	}
+	if excluded := q.ExcludedRetentionClasses(); len(excluded) > 0 {
+		where += " AND retention_class NOT IN (?" + strings.Repeat(",?", len(excluded)-1) + ")"
+		for _, c := range excluded {
 			args = append(args, c)
 		}
 	}

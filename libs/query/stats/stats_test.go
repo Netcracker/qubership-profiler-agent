@@ -294,7 +294,7 @@ func TestParseRequest(t *testing.T) {
 	bad(params("group_by", "service", "limit", "1001"), "limit must be")
 	bad(params("group_by", "service", "order", "start_desc"), "order must be count_desc or duration_sum_desc")
 	bad(params("group_by", "service", "cursor", "x"), "cursor does not apply")
-	bad(params("group_by", "service", "filter", "service!=x"), "is not implemented")
+	bad(params("group_by", "service", "filter", "service=~("), "is not a valid regular expression")
 	_, detail := ParseRequest(url.Values{"group_by": {"time"}})
 	assert.Contains(t, detail, "from and to are required")
 

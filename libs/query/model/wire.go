@@ -233,9 +233,6 @@ func ParseCallsQuery(params url.Values) (CallsQuery, string) {
 		if err == nil {
 			_, err = compileCondition(c)
 		}
-		if err == nil {
-			err = checkImplemented(c)
-		}
 		if err != nil {
 			return q, "filter " + strconv.Quote(text) + ": " + err.Error()
 		}
