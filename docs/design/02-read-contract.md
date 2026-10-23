@@ -320,7 +320,8 @@ UI's filter bar turns a typed word into `method=~<word>`.
     "param_operators": ["="],
     "special_values": [],
     "orders": ["start_desc"],
-    "group_by": []
+    "group_by": [],
+    "group_by_params": false
   }
 }
 ```
@@ -328,8 +329,10 @@ UI's filter bar turns a typed word into `method=~<word>`.
 - `fields` maps each implemented field to its implemented operators. A field that is missing is not implemented.
 - `param_operators` lists the operators that work on call params.
 - `special_values` lists `None` and `Any` once they work.
-- `orders` lists the `/calls` orders the build implements (§2.3.5), and `group_by` the `/stats` groupings (§2.9). A
-  build without either holds only `start_desc` and no grouping, as the example shows.
+- `orders` lists the `/calls` orders the build implements (§2.3.5), and `group_by` the named `/stats` groupings
+  (§2.9). A build without either holds only `start_desc` and no grouping, as the example shows.
+- `group_by_params` is `true` when `group_by` also takes the name of a call param (§2.9). A build that does not
+  report it groups by no param.
 
 A client that finds no `filter_capabilities`, from a build older than the filter model, assumes the legacy parameters
 only.
@@ -677,9 +680,13 @@ ascending. `count_desc` ranks by call count, and `duration_sum_desc` by the sum 
 does the time go" ranking of `hotspots`. `other` is a row without a key that aggregates every value past the top
 `limit`, or `null` when there is none. `distinct` is the number of distinct values. A key is the field's value as
 §2.3.3 defines it, so `<field>=<key>` is a condition that selects the row's calls. A call that lacks the field (a
-param it does not carry) falls into no row; it still counts in the totals.
+param it does not carry) falls into no row; it still counts in the totals. A call with several distinct values of a
+param, or of `trace_id`, counts once in the row of each, because `<param>=<value>` selects it for each, so the rows of
+such a grouping can add up to more than the totals. An empty value is no key, because `<field>=` is no condition.
+`duration` has no such values and is no grouping.
 
-**Totals.** `totals` counts the calls and the errors under the conditions, across every row and `other`.
+**Totals.** `totals` counts the calls and the errors under the conditions, each call once, whatever rows it falls
+into.
 
 **Percentiles.** Each group keeps a DDSketch with a relative accuracy of 1%: logarithmic bins of ratio
 `γ = 1.01 / 0.99`, plus one bin for `duration_ms = 0`. A reported percentile is within 1% of the exact value of that
@@ -755,10 +762,15 @@ implemented ones.
 | Stage | Groupings |
 |---|---|
 | A | `time`, `method`, `namespace`, `service`, `pod` |
-| B | Call params, the derived fields `class` and `endpoint`, `error`, `retention_class`, and `param_name` |
+| B | Call params, `trace_id`, `request_id`, the derived fields `class` and `endpoint`, `error`, `retention_class`, and `param_name` |
 
 `group_by=param_name` counts, for each call-param name in the window, the calls that carry it; the UI's filter bar
-offers those names as fields. It takes `limit` and `order` like a field grouping.
+offers those names as fields. A param recorded with no value counts as absent, as in §2.3.3, and a call counts once
+under each name it carries. It takes `limit` and `order` like a field grouping. A call param named `param_name` or
+`time` cannot be grouped by, as a param that shares a name with a field cannot be filtered on.
+
+`filter_capabilities.group_by` (§2.3.4) lists the named groupings, and `group_by_params: true` reports that `group_by`
+also takes the name of any call param, which a list cannot enumerate.
 
 ## 3. Internal hot-read API on collector
 
