@@ -165,12 +165,7 @@ func Explain(w io.Writer, res insight.ExplainResult) error {
 			out.printf("%8d ms  x%-6d %s\n", s.DurationMs, s.Executions, s.Statement)
 		}
 	}
-	if len(res.Notes) > 0 {
-		out.println("\nNotes:")
-		for _, n := range res.Notes {
-			out.printf("- %s\n", n)
-		}
-	}
+	writeNotes(out, res.Notes)
 	return out.err
 }
 

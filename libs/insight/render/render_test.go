@@ -162,6 +162,11 @@ func TestTextReportsWriteErrors(t *testing.T) {
 				Notes: []string{"n"},
 			})
 		},
+		"hotspots": func(w io.Writer) error { return render.Hotspots(w, sampleHotspots()) },
+		"hotspots, empty": func(w io.Writer) error {
+			return render.Hotspots(w, insight.HotspotsResult{Window: window, Approximate: true, Notes: []string{"n"}})
+		},
+		"timeline": func(w io.Writer) error { return render.Timeline(w, sampleTimeline()) },
 	} {
 		var full bytes.Buffer
 		require.NoError(t, write(&full), name)
@@ -169,4 +174,75 @@ func TestTextReportsWriteErrors(t *testing.T) {
 			assert.ErrorIs(t, write(&shortWriter{n: n}), io.ErrClosedPipe, "%s cut at byte %d of %d", name, n, full.Len())
 		}
 	}
+}
+
+func i64(v int64) *int64 { return &v }
+
+func sampleHotspots() insight.HotspotsResult {
+	calls := sampleCalls()
+	return insight.HotspotsResult{
+		Window: window, GroupBy: "method", Order: insight.OrderDurationSumDesc,
+		Groups: []insight.StatsRow{
+			{Key: "void com.example.Billing.charge(long) (Billing.java) [billing.jar]", StatsValues: insight.StatsValues{
+				Count: 120, Errors: 3, DurationMsSum: 96000, P50Ms: i64(700), P95Ms: i64(1900), P99Ms: i64(2400),
+				CPUMsSum: 12000, WaitMsSum: 70000, SuspendMsSum: 900,
+			}},
+			{Key: "com.example.Health.check", StatsValues: insight.StatsValues{
+				Count: 1100, DurationMsSum: 2200, P50Ms: i64(2), P95Ms: i64(3), P99Ms: i64(5), CPUMsSum: 1100,
+			}},
+		},
+		Other:    &insight.StatsValues{Count: 20, Errors: 1, DurationMsSum: 1800, P50Ms: i64(80), P95Ms: i64(200), P99Ms: i64(250)},
+		Distinct: 7, Totals: insight.StatsTotals{Count: 1240, Errors: 4},
+		Partial: []string{"collector 10.0.0.7 stats: timeout"},
+		Sample: &insight.HotspotsSample{
+			SampleInfo: insight.SampleInfo{
+				Conditions: []string{"namespace=prod", "service=billing", `method=~^(?:x|y)$`},
+				Requested:  20, Listed: 20, Trees: 19, Of: 1220, Calls: calls[:1],
+				Skipped: []string{"1 calls have no tree (buffer_full)"},
+			},
+			Groups: []string{"void com.example.Billing.charge(long) (Billing.java) [billing.jar]", "com.example.Health.check"},
+			Methods: []insight.SampledMethod{
+				{MethodStat: insight.MethodStat{Method: "a.Jdbc.execute", SelfMs: 30500, Executions: 1710}, Calls: 19},
+				{MethodStat: insight.MethodStat{Method: "com.example.Http.call()", SelfMs: 4100, Executions: 21}, Calls: 7},
+			},
+			SQL: []insight.SampledSQL{
+				{SQLStat: insight.SQLStat{Statement: "select * from orders where id = ?", DurationMs: 28000, Executions: 1650}, Calls: 19},
+			},
+		},
+		Notes: []string{
+			"5 more groups with 20 calls are summed as other; a larger limit lists more",
+			"the sample reads 20 of 1220 calls; a larger sample reads more",
+		},
+	}
+}
+
+func TestHotspotsText(t *testing.T) {
+	var b bytes.Buffer
+	require.NoError(t, render.Hotspots(&b, sampleHotspots()))
+	golden(t, "hotspots", b.String())
+	assert.Contains(t, b.String(), "Sampled, not exact: methods and SQL from the trees of the 20 slowest of 1220 calls in the top 2 groups",
+		"the sampled layer says it is a sample and of how many calls")
+
+	b.Reset()
+	require.NoError(t, render.Hotspots(&b, insight.HotspotsResult{Window: window, GroupBy: "service", Order: insight.OrderCountDesc}))
+	assert.Contains(t, b.String(), "No calls match.")
+	assert.NotContains(t, b.String(), "Sampled")
+}
+
+func sampleTimeline() insight.TimelineResult {
+	return insight.TimelineResult{
+		Window: window, BucketMs: 1_200_000, Totals: insight.StatsTotals{Count: 1300, Errors: 9},
+		Buckets: []insight.TimelineBucket{
+			{Start: t0, End: t0.Add(20 * time.Minute), Count: 400, Errors: 1, P50Ms: i64(110), P95Ms: i64(400), P99Ms: i64(700)},
+			{Start: t0.Add(20 * time.Minute), End: t0.Add(40 * time.Minute), Count: 900, Errors: 8, P50Ms: i64(150), P95Ms: i64(2100), P99Ms: i64(3900)},
+			{Start: t0.Add(40 * time.Minute), End: t0.Add(time.Hour)},
+		},
+		Partial: []string{"s3 list: timeout"},
+	}
+}
+
+func TestTimelineText(t *testing.T) {
+	var b bytes.Buffer
+	require.NoError(t, render.Timeline(&b, sampleTimeline()))
+	golden(t, "timeline", b.String())
 }
