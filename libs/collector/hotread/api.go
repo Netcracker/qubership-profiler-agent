@@ -59,6 +59,7 @@ func New(store *hotstore.Store) *API {
 	a := &API{store: store, echo: e}
 	e.GET("/internal/v1/calls", a.handleCalls)
 	e.GET("/internal/v1/calls/:pk", a.handleCall)
+	e.GET("/internal/v1/stats", a.handleStats)
 	e.GET("/internal/v1/calls/:pk/trace", a.handleTrace)
 	e.GET("/internal/v1/pods", a.handlePods)
 	e.GET("/internal/v1/pods/:podRestart/dictionary", a.handleDictionary)
