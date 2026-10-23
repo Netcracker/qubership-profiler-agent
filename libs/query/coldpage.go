@@ -58,14 +58,15 @@ func (s *Service) coldCalls(ctx context.Context, q model.CallsQuery, after *mode
 	return res, nil, nil
 }
 
-// coldCallsByDuration is the duration_desc cold read (02 §2.3.5): the clean
-// bands from `band` down, each merged with the error classes, which hold
-// calls of any duration and are read with the first band. The walk stops once
-// `limit` rows sit at or above the lower bound of the band just read, since
-// every row of a shorter band is shorter. The cost guard runs before each band
-// opens, over what the page has opened so far plus that band: the first band
-// over the limits rejects the page, a later one stops it at the lower bound
-// of the last band read.
+// coldCallsByDuration is the cold read of a duration order (02 §2.3.5): the
+// clean bands in walk order from `band` on, longest first for duration_desc
+// and shortest first for duration_asc, each merged with the error classes,
+// which hold calls of any duration and are read with the first band. The walk
+// stops once `limit` rows sit at or before the frontier of the band just read,
+// since every row of a later band sorts after them. The cost guard runs before
+// each band opens, over what the page has opened so far plus that band: the
+// first band over the limits rejects the page, a later one stops it at the
+// frontier of the last band read. bands come in walk order.
 func (s *Service) coldCallsByDuration(bands []model.DurationBand, band string) coldScan {
 	return func(ctx context.Context, q model.CallsQuery, after *model.Position, limit int,
 		page *budget.Lease) (coldPage, *guardRejection, error) {
@@ -91,7 +92,7 @@ func (s *Service) coldCallsByDuration(bands []model.DurationBand, band string) c
 			b := &bands[i]
 			started = started || b.Class == band
 			if !started || !slices.Contains(allowed, b.Class) || b.LowerMs > maxMs {
-				continue // longer than the cursor, or excluded by a condition
+				continue // before the cursor, or excluded by a condition
 			}
 			steps = append(steps, step{classes: []string{b.Class}, band: b})
 		}
@@ -108,7 +109,7 @@ func (s *Service) coldCallsByDuration(bands []model.DurationBand, band string) c
 		}
 		opened := &cold.Discovery{}
 		res.discovery = opened
-		lastLowerMs := int64(-1)
+		lastFrontier := int64(-1)
 		for i, st := range steps {
 			d, err := s.cold.DiscoverClasses(ctx, q, st.classes)
 			if err != nil {
@@ -119,9 +120,10 @@ func (s *Service) coldCallsByDuration(bands []model.DurationBand, band string) c
 				if i == 0 {
 					return res, rej, nil
 				}
-				// Every row at or above the last band's lower bound has been
-				// read; the next page starts at the band that did not fit.
-				res.stop = &model.Position{DurationMs: int32(lastLowerMs), NoPK: true}
+				// Every row up to the last band's frontier has been read; the
+				// next page starts at the band that did not fit.
+				stop := q.Order.PositionAt(lastFrontier)
+				res.stop = &stop
 				break
 			}
 			opened.Files = files
@@ -136,8 +138,8 @@ func (s *Service) coldCallsByDuration(bands []model.DurationBand, band string) c
 			if st.band == nil {
 				continue
 			}
-			lastLowerMs = st.band.LowerMs
-			if rows := ls.Rows(); len(rows) == limit && int64(rows[limit-1].DurationMs) >= lastLowerMs {
+			lastFrontier = q.Order.Frontier(*st.band)
+			if rows := ls.Rows(); len(rows) == limit && q.Order.Reaches(int64(rows[limit-1].DurationMs), lastFrontier) {
 				break
 			}
 		}
@@ -150,12 +152,12 @@ func (s *Service) coldCallsByDuration(bands []model.DurationBand, band string) c
 	}
 }
 
-// cursorBand reads the band a duration_desc cursor resumes at. A cursor
+// cursorBand reads the band a duration-order cursor resumes at. A cursor
 // without one, which only a forged token can be, resumes at the band of its
 // position.
-func cursorBand(bands []model.DurationBand, tok cursorToken) (string, error) {
+func cursorBand(order model.Order, bands []model.DurationBand, tok cursorToken) (string, error) {
 	if tok.Band == "" {
-		return model.BandFor(bands, tok.Pos), nil
+		return model.BandFor(order, bands, tok.Pos), nil
 	}
 	for _, b := range bands {
 		if b.Class == tok.Band {

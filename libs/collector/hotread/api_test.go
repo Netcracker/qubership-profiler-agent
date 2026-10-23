@@ -290,7 +290,7 @@ func TestInternalCallsDurationOrder(t *testing.T) {
 	params := url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"duration_desc"},
 		"after_pk": {pk(0)}}
 	assert.Equal(t, http.StatusBadRequest, getJSON(t, srv, "/internal/v1/calls", params, nil))
-	params = url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"cpu_desc"}}
+	params = url.Values{"from": {fmt.Sprint(baseMs)}, "to": {fmt.Sprint(baseMs + 1)}, "order": {"size_desc"}}
 	assert.Equal(t, http.StatusBadRequest, getJSON(t, srv, "/internal/v1/calls", params, nil))
 }
 

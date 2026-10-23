@@ -145,7 +145,7 @@ func (ls *ListScan) consume(ctx context.Context, _ int, _ int64, rows []storagep
 		}
 		run = append(run, row)
 	}
-	if ls.order.ByDuration() {
+	if ls.order.NeedsSort() {
 		ls.order.SortRows(run)
 	}
 	if len(run) > ls.limit {

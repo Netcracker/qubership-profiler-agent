@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 
@@ -120,16 +119,16 @@ type callsResponse struct {
 
 // handleCalls serves GET /internal/v1/calls: the §2.3 filter params, the
 // order, and the keyset position the fan-out seeks past on pages 2..N
-// (§2.3.1): after_ts_ms / after_pk for start_desc, after_duration_ms with an
-// optional after_pk for duration_desc (§2.3.5). Rows come only from this
-// replica's call index.
+// (§2.3.1): the sort key in after_ts_ms, after_duration_ms, or after_key,
+// with after_pk, which only a band stop of a duration order leaves out
+// (§2.3.5, model.ParseAfter). Rows come only from this replica's call index.
 func (a *API) handleCalls(c echo.Context) error {
 	params := c.QueryParams()
 	q, errDetail := model.ParseCallsQuery(params)
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
-	after, errDetail := parseAfter(q.Order, params)
+	after, errDetail := model.ParseAfter(q.Order, params)
 	if errDetail != "" {
 		return badRequest(c, errDetail)
 	}
@@ -143,8 +142,8 @@ func (a *API) handleCalls(c echo.Context) error {
 	}
 
 	queryCalls := a.queryCalls
-	if q.Order.ByDuration() {
-		queryCalls = a.queryCallsByDuration
+	if q.Order.NeedsSort() {
+		queryCalls = a.queryCallsSorted
 	}
 	rows, err := queryCalls(q, after, limit)
 	if err != nil {
@@ -155,52 +154,6 @@ func (a *API) handleCalls(c echo.Context) error {
 		resp.Calls = append(resp.Calls, row.JSON())
 	}
 	return c.JSON(http.StatusOK, resp)
-}
-
-func parseAfter(order model.Order, params url.Values) (*model.Position, string) {
-	if order.ByDuration() {
-		return parseAfterDuration(params.Get("after_duration_ms"), params.Get("after_pk"))
-	}
-	tsRaw, pkRaw := params.Get("after_ts_ms"), params.Get("after_pk")
-	if tsRaw == "" && pkRaw == "" {
-		return nil, ""
-	}
-	if tsRaw == "" || pkRaw == "" {
-		return nil, "after_ts_ms and after_pk must be sent together"
-	}
-	tsMs, err := strconv.ParseInt(tsRaw, 10, 64)
-	if err != nil {
-		return nil, "after_ts_ms must be Unix ms"
-	}
-	pk, err := model.ParsePKPath(pkRaw)
-	if err != nil {
-		return nil, err.Error()
-	}
-	return &model.Position{TsMs: tsMs, PK: pk}, ""
-}
-
-// parseAfterDuration reads a duration_desc position. Without after_pk it is a
-// position with no PK, which passes only strictly shorter calls (02 §2.3.5).
-func parseAfterDuration(durRaw, pkRaw string) (*model.Position, string) {
-	if durRaw == "" {
-		if pkRaw != "" {
-			return nil, "after_pk needs after_duration_ms with order=duration_desc"
-		}
-		return nil, ""
-	}
-	d, err := strconv.ParseInt(durRaw, 10, 32)
-	if err != nil || d < 0 {
-		return nil, "after_duration_ms must be a non-negative integer"
-	}
-	pos := &model.Position{DurationMs: int32(d), NoPK: pkRaw == ""}
-	if pkRaw != "" {
-		pk, err := model.ParsePKPath(pkRaw)
-		if err != nil {
-			return nil, err.Error()
-		}
-		pos.PK = pk
-	}
-	return pos, ""
 }
 
 // queryCalls walks the call partitions newest-first. Partitions are disjoint
@@ -277,12 +230,12 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 	return out, nil
 }
 
-// queryCallsByDuration is queryCalls for duration_desc (02 §2.3.5). A
-// duration order does not follow the partitions, so each partition in the
-// window contributes its own top `limit` rows past the cursor, paged down by
-// duration with the same complete-tie-group rule, and the runs merge with the
-// shared comparator.
-func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
+// queryCallsSorted is queryCalls for every order but start_desc
+// (02 §2.3.5). Such an order does not follow the partitions, so each
+// partition in the window contributes its own first `limit` rows past the
+// cursor, paged along the sort key with the same complete-tie-group rule,
+// and the runs merge with the shared comparator.
+func (a *API) queryCallsSorted(q model.CallsQuery, after *model.Position, limit int) ([]model.CallRow, error) {
 	cfg := a.store.Config()
 	buckets, err := a.store.Buckets()
 	if err != nil {
@@ -292,34 +245,42 @@ func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, li
 	if err != nil {
 		return nil, err
 	}
-	maxDurationMs := int64(math.MaxInt32)
+	// step moves a key one place along the order; a page starts at the key
+	// after the last one it has seen.
+	step := int64(1)
+	start := int64(math.MinInt64)
+	if q.Order.Desc() {
+		step, start = -1, math.MaxInt64
+	}
 	if after != nil {
-		maxDurationMs = int64(after.DurationMs)
+		start = q.Order.Key(*after)
 		if after.NoPK {
-			maxDurationMs--
+			start += step
 		}
 	}
 
 	var runs [][]model.CallRow
 	for _, bucket := range buckets {
-		start := cfg.BucketStartMs(bucket)
-		if start >= q.ToMs || start+cfg.TimeBucket.Milliseconds() <= q.FromMs {
+		bucketStart := cfg.BucketStartMs(bucket)
+		if bucketStart >= q.ToMs || bucketStart+cfg.TimeBucket.Milliseconds() <= q.FromMs {
 			continue
 		}
 		var rows []model.CallRow
-		pageMax := maxDurationMs
-		for pageMax >= 0 && len(rows) < limit {
+		bound := start
+		for len(rows) < limit {
 			want := limit - len(rows)
-			idxRows, err := a.store.CallsPageByDuration(bucket, q, q.FromMs, q.ToMs, pageMax, want)
+			idxRows, err := a.store.CallsPageBy(bucket, q, q.FromMs, q.ToMs, q.Order, bound, want)
 			if err != nil {
 				return nil, err
 			}
+			var last model.Position
 			for _, idx := range idxRows {
 				row, err := a.toCallRow(idx)
 				if err != nil {
 					return nil, err
 				}
-				if !matcher.Match(&row) || (after != nil && !q.Order.Past(row.Position(), *after)) {
+				last = row.Position()
+				if !matcher.Match(&row) || (after != nil && !q.Order.Past(last, *after)) {
 					continue
 				}
 				rows = append(rows, row)
@@ -327,7 +288,11 @@ func (a *API) queryCallsByDuration(q model.CallsQuery, after *model.Position, li
 			if len(idxRows) < want {
 				break
 			}
-			pageMax = int64(idxRows[len(idxRows)-1].DurationMs) - 1
+			key := q.Order.Key(last)
+			if key == math.MinInt64 || key == math.MaxInt64 {
+				break // no key lies past the last one
+			}
+			bound = key + step
 		}
 		q.Order.SortRows(rows)
 		runs = append(runs, rows)

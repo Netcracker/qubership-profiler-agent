@@ -54,7 +54,7 @@ func ScanFile(ctx context.Context, store ObjectStore, ref FileRef, q model.Calls
 	if err != nil {
 		return nil, err
 	}
-	if q.Order.ByDuration() {
+	if q.Order.NeedsSort() {
 		q.Order.SortRows(out)
 	}
 	return out, nil

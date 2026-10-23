@@ -68,7 +68,8 @@ func TestConfigEndpoint(t *testing.T) {
 		assert.Equal(t, []string{"=", "!=", "=~"}, caps.Fields["request_id"])
 		assert.Equal(t, []string{"=", "!=", "=~", "!~", "in", "not in"}, caps.ParamOperators)
 		assert.Equal(t, []string{"None", "Any"}, caps.SpecialValues)
-		assert.Equal(t, []string{"start_desc", "duration_desc"}, caps.Orders)
+		assert.Equal(t, []string{"start_desc", "start_asc", "duration_desc", "duration_asc", "cpu_desc", "cpu_asc",
+			"queue_desc", "queue_asc", "calls_desc", "calls_asc", "net_desc", "net_asc"}, caps.Orders)
 		assert.Equal(t, []string{"time", "method", "namespace", "service", "pod"}, caps.GroupBy)
 	})
 

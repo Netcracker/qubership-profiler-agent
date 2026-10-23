@@ -13,19 +13,37 @@ import (
 // produce alike. The zero value is the default, start_desc.
 type Order string
 
-// The orders this build implements (02 §2.3.5, stage A).
+// The orders that read the retention classes as duration bands, and the
+// default.
 const (
 	OrderStartDesc    Order = "start_desc"
 	OrderDurationDesc Order = "duration_desc"
+	OrderDurationAsc  Order = "duration_asc"
 )
 
-// orderFields are the sort fields of the §2.3.5 table. An order on one of
-// them that the build lacks is "not implemented", not unknown.
-var orderFields = []string{"start", "duration", "cpu", "queue", "calls", "net"}
+// The sort fields of the §2.3.5 table.
+const (
+	OrderFieldStart    = "start"
+	OrderFieldDuration = "duration"
+	OrderFieldCPU      = "cpu"
+	OrderFieldQueue    = "queue"
+	OrderFieldCalls    = "calls"
+	OrderFieldNet      = "net"
+)
+
+var orderFields = []string{
+	OrderFieldStart, OrderFieldDuration, OrderFieldCPU, OrderFieldQueue, OrderFieldCalls, OrderFieldNet,
+}
 
 // ImplementedOrders lists the orders /calls accepts, for
-// filter_capabilities.orders (02 §2.3.4).
-var ImplementedOrders = []Order{OrderStartDesc, OrderDurationDesc}
+// filter_capabilities.orders (02 §2.3.4): every field in both directions.
+var ImplementedOrders = func() []Order {
+	out := make([]Order, 0, 2*len(orderFields))
+	for _, f := range orderFields {
+		out = append(out, Order(f+"_desc"), Order(f+"_asc"))
+	}
+	return out
+}()
 
 // ParseOrder validates the `order` parameter. An empty value is the default.
 // The error text is the 400 detail and names the order.
@@ -53,22 +71,68 @@ func (o Order) String() string {
 	return string(o)
 }
 
-// ByDuration reports whether the order sorts by duration_ms.
-func (o Order) ByDuration() bool { return o == OrderDurationDesc }
+// Field returns the sort field: start, duration, cpu, queue, calls, or net.
+func (o Order) Field() string {
+	field, _, _ := strings.Cut(o.String(), "_")
+	return field
+}
 
-func (o Order) key(p Position) int64 {
-	if o.ByDuration() {
+// Desc reports whether the order puts the highest sort key first.
+func (o Order) Desc() bool { return strings.HasSuffix(o.String(), "_desc") }
+
+// ByDuration reports whether the order sorts by duration_ms, in either
+// direction: such an order walks the duration bands (02 §2.3.5).
+func (o Order) ByDuration() bool { return o.Field() == OrderFieldDuration }
+
+// NeedsSort reports whether rows in the order the stores keep them, start_desc
+// within a file or a partition page, must be sorted into this order.
+func (o Order) NeedsSort() bool { return o.String() != string(OrderStartDesc) }
+
+// Key returns the position's sort key under the order.
+func (o Order) Key(p Position) int64 {
+	switch o.Field() {
+	case OrderFieldDuration:
 		return int64(p.DurationMs)
+	case OrderFieldCPU:
+		return p.CpuTimeMs
+	case OrderFieldQueue:
+		return int64(p.QueueWaitMs)
+	case OrderFieldCalls:
+		return int64(p.ChildCalls)
+	case OrderFieldNet:
+		return p.NetBytes
 	}
 	return p.TsMs
 }
 
+// PositionAt returns a position with the given sort key and no PK; the
+// caller sets the PK of a row position.
+func (o Order) PositionAt(key int64) Position {
+	p := Position{NoPK: true}
+	switch o.Field() {
+	case OrderFieldDuration:
+		p.DurationMs = int32(key)
+	case OrderFieldCPU:
+		p.CpuTimeMs = key
+	case OrderFieldQueue:
+		p.QueueWaitMs = int32(key)
+	case OrderFieldCalls:
+		p.ChildCalls = int32(key)
+	case OrderFieldNet:
+		p.NetBytes = key
+	default:
+		p.TsMs = key
+	}
+	return p
+}
+
 // Before reports whether a sorts strictly before b: the higher sort key
-// first, then the lower PK. A position with no PK sorts after every row of
-// its key, so it passes only strictly lower keys.
+// first for a descending order and the lower one for an ascending order,
+// then the lower PK. A position with no PK sorts after every row of its key,
+// so it passes only keys strictly later in the order.
 func (o Order) Before(a, b Position) bool {
-	if ka, kb := o.key(a), o.key(b); ka != kb {
-		return ka > kb
+	if ka, kb := o.Key(a), o.Key(b); ka != kb {
+		return (ka > kb) == o.Desc()
 	}
 	switch {
 	case a.NoPK:
@@ -124,18 +188,57 @@ func DurationBands(thresholds []time.Duration) []DurationBand {
 	return bands
 }
 
-// BandFor returns the class of the longest band a page past the cursor
-// position may still need: the band that holds the position's duration, or,
-// for a position with no PK, the band just below it.
-func BandFor(bands []DurationBand, cursor Position) string {
+// WalkBands returns the bands in the order a duration order reads them
+// (02 §2.3.5): longest first for duration_desc, shortest first for
+// duration_asc. bands come longest first, as DurationBands returns them.
+func (o Order) WalkBands(bands []DurationBand) []DurationBand {
+	out := slices.Clone(bands)
+	if !o.Desc() {
+		slices.Reverse(out)
+	}
+	return out
+}
+
+// Frontier returns the key that bounds the band in the walk direction: every
+// row at or before it in the order belongs to this band or an earlier one.
+// It is the lower bound of the band for duration_desc and the last duration
+// inside it for duration_asc.
+func (o Order) Frontier(b DurationBand) int64 {
+	if o.Desc() {
+		return b.LowerMs
+	}
+	return b.UpperMs - 1
+}
+
+// Reaches reports whether a duration sits at or before the frontier in the
+// order.
+func (o Order) Reaches(durationMs, frontier int64) bool {
+	if o.Desc() {
+		return durationMs >= frontier
+	}
+	return durationMs <= frontier
+}
+
+// BandFor returns the class of the first band in the walk direction that a
+// page past the cursor position may still need: the band that holds the
+// position's duration, or, for a position with no PK, the next band when the
+// position ends its band.
+func BandFor(o Order, bands []DurationBand, cursor Position) string {
 	d := int64(cursor.DurationMs)
 	if cursor.NoPK {
-		d--
+		if o.Desc() {
+			d--
+		} else {
+			d++
+		}
 	}
 	for _, b := range bands {
-		if d >= b.LowerMs {
+		if d >= b.LowerMs && d < b.UpperMs {
 			return b.Class
 		}
 	}
-	return bands[len(bands)-1].Class
+	if d < 0 {
+		return bands[len(bands)-1].Class
+	}
+	return bands[0].Class
 }

@@ -41,9 +41,10 @@ type guardRejection struct {
 // prunes by, so the class check runs without the negative conditions.
 // order=duration_desc exempts too: its first page lists only the longest band
 // and the error classes, and the cost layer checks every band before it
-// opens (02 §2.3.5).
+// opens (02 §2.3.5). duration_asc does not: its first band, short_clean, is
+// the largest class.
 func (s *Service) hasNarrowingFilter(q model.CallsQuery) bool {
-	return hasPodFilter(q) || q.Order.ByDuration() || len(s.cold.ClassesFor(q.WithoutNegations())) < len(model.RetentionClasses)
+	return hasPodFilter(q) || q.Order == model.OrderDurationDesc || len(s.cold.ClassesFor(q.WithoutNegations())) < len(model.RetentionClasses)
 }
 
 // hasPodFilter reports a `pod` filter or a namespace, service, or pod

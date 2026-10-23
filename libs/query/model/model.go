@@ -58,9 +58,14 @@ type (
 	// seeks past (02 §2.3.1, §2.3.5). It carries the sort key of every
 	// implemented order, and Order picks the one it compares.
 	Position struct {
-		TsMs       int64 `json:"ts_ms"`
-		DurationMs int32 `json:"duration_ms,omitempty"`
-		PK         PK    `json:"pk"`
+		TsMs        int64 `json:"ts_ms"`
+		DurationMs  int32 `json:"duration_ms,omitempty"`
+		CpuTimeMs   int64 `json:"cpu_time_ms,omitempty"`
+		QueueWaitMs int32 `json:"queue_wait_ms,omitempty"`
+		ChildCalls  int32 `json:"child_calls,omitempty"`
+		// NetBytes is net_read + net_written, the sort key of the net order.
+		NetBytes int64 `json:"net_bytes,omitempty"`
+		PK       PK    `json:"pk"`
 		// NoPK marks a position that ends a key without naming a row: the
 		// lower bound of a duration band a page stopped at (§2.3.5). It
 		// passes only strictly lower keys.
@@ -186,7 +191,10 @@ func (p Position) After(cursor Position) bool {
 
 // Position returns the row's point in the pagination order.
 func (r CallRow) Position() Position {
-	return Position{TsMs: r.TsMs, DurationMs: r.DurationMs, PK: r.PK}
+	return Position{
+		TsMs: r.TsMs, DurationMs: r.DurationMs, CpuTimeMs: r.CpuTimeMs, QueueWaitMs: r.QueueWaitMs,
+		ChildCalls: r.ChildCalls, NetBytes: r.NetRead + r.NetWritten, PK: r.PK,
+	}
 }
 
 // mergeHeap orders run heads by the order, then by Tier so a duplicate PK
