@@ -693,10 +693,14 @@ call twice, because the cold scan checks only the hash sets it received. Each re
 Compaction leaves its output and its inputs side by side until the delete grace has passed (`01-write-contract.md`
 §6.6), so the cold scan removes that overlap by lineage, not by PK. Before it aggregates, it reads the footer of each
 discovered compacted object (its key carries the `maintain` replica token) and skips every discovered object that a
-footer's `profiler.compaction_inputs` lists, including a compacted object that a later compaction took as input. The
-footers are read anyway to plan the scan, so this costs no extra request. A call that two replicas both hold after a
-replica transition (§6.2) still counts twice; that case is rare, and removing it would need a PK set as large as the
+footer's `profiler.compaction_inputs` lists, including a compacted object that a later compaction took as input. This
+costs one footer read per discovered compacted object before the scan starts. A call that two replicas both hold after
+a replica transition (§6.2) still counts twice; that case is rare, and removing it would need a PK set as large as the
 window.
+
+A call in both tiers is counted from its hot copy, unlike `/calls`, which prefers the cold copy (§6.3). The hot index
+holds `error` and `suspend_ms` as of the call's arrival, and the sealed row can differ, so for calls younger than the
+hot retention the `/stats` error count and suspension sum can differ slightly from what `/calls` shows.
 
 **Retention.** `/stats` counts the calls the store still holds. The clean classes have shorter TTLs than the error
 classes (`01-write-contract.md` §6.4), so a window older than two days holds no `short_clean` calls, and its counts,
