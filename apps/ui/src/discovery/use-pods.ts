@@ -31,6 +31,10 @@ export function usePods(fromMs: number | null, toMs: number | null): { state: Po
     setState({ kind: 'loading' });
     fetchPods(fromMs, toMs, controller.signal)
       .then((res) => {
+        // A response that resolved before the abort still lands here; drop it,
+        // or an older window could overwrite a newer one, or a test's unmounted
+        // page could schedule a render after its environment is gone.
+        if (controller.signal.aborted) return;
         setState({
           kind: 'ready',
           namespaces: groupPods(res.pods, Date.now()),
