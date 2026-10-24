@@ -1,0 +1,58 @@
+name: Auto Release
+
+# Starts the Release workflow on main when a security fix has landed since the latest release,
+# or when about a month has passed since the latest release.
+on:
+  schedule:
+    # Mondays, after the Sunday run of security-scan.yml has refreshed the code scanning alerts
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Report the decision without starting the Release workflow
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  decide-and-release:
+    name: Decide whether to release
+    if: ${{ github.repository == 'Netcracker/qubership-profiler-agent' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # starts release.yaml and checks whether a release run is in progress
+      actions: write
+      # reads code scanning alerts
+      security-events: read
+      # reads Dependabot alerts
+      vulnerability-alerts: read
+    steps:
+      - name: Checkout the decision script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Decide and start the Release workflow
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DRY_RUN: ${{ inputs.dry-run == true }}
+        with:
+          # language=javascript
+          script: |
+            const autoRelease = require('./.github/scripts/auto-release.cjs');
+            await autoRelease({
+              github, context, core,
+              now: new Date(),
+              branch: 'main',
+              workflowId: 'release.yaml',
+              dryRun: process.env.DRY_RUN === 'true',
+            });
