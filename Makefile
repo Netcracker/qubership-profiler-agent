@@ -8,7 +8,8 @@
 	tools-build tools-clean tools-test tools-docker tools-archive \
 	charts-build charts-clean \
 	examples-build examples-clean \
-	delivery-build delivery-clean
+	delivery-build delivery-clean \
+	ui-dev ui-dev-mock ui-test ui-build
 
 # Variables
 APPS_DIR := apps
@@ -66,6 +67,12 @@ help:
 		echo "  $$tool-docker       - Build $$tool Docker image"; \
 		echo "  $$tool-archive      - Create $$tool deployment archive"; \
 	done
+	@echo ""
+	@echo "UI targets (apps/ui; see make -C apps/ui help):"
+	@echo "  ui-dev-mock      - Run the UI locally against the MSW mock, no backend needed"
+	@echo "  ui-dev           - Run the UI locally against a query at VITE_QUERY_URL (default :8080)"
+	@echo "  ui-test          - Run the UI tests"
+	@echo "  ui-build         - Build the UI bundle the query binary embeds"
 	@echo ""
 	@echo "Utility targets:"
 	@echo "  help-apps         - Show help for apps build system"
@@ -252,6 +259,24 @@ profiler-backend-archive:
 	@echo "==> Creating archive for profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend archive
 
+
+# =============================================================================
+# UI TARGETS
+# =============================================================================
+
+UI_DIR := apps/ui
+
+ui-dev-mock:
+	$(MAKE) -C $(UI_DIR) dev-mock
+
+ui-dev:
+	$(MAKE) -C $(UI_DIR) dev
+
+ui-test:
+	$(MAKE) -C $(UI_DIR) test
+
+ui-build:
+	$(MAKE) -C $(UI_DIR) build
 
 # =============================================================================
 # SMOKE TEST (docker-compose stack: collector + query + SeaweedFS)
