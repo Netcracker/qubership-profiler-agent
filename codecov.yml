@@ -63,12 +63,14 @@ component_management:
         - "!apps/agent/diagtools/**"
 
 fixes:
-  # `go test -coverprofile` records import paths, not repository paths. The two
-  # Go modules have unrelated module paths, so each needs its own rule. The root
-  # module maps onto the repository root; the diagtools rule strips its prefix
-  # down to the `apps/agent/diagtools/` directory it now lives in.
+  # `go test -coverprofile` records import paths, not repository paths, so each
+  # Go module needs its own rule. The root module maps onto the repository root.
+  # libs/wire and diagtools share the `qubership-profiler-agent` prefix, so each
+  # rule names its module in full: a rule for the bare prefix would send
+  # libs/wire to `apps/agent/libs/wire/`, which does not exist.
   - "github.com/Netcracker/qubership-profiler-backend/::"
-  - "github.com/Netcracker/qubership-profiler-agent/::apps/agent/"
+  - "github.com/Netcracker/qubership-profiler-agent/libs/wire/::libs/wire/"
+  - "github.com/Netcracker/qubership-profiler-agent/diagtools/::apps/agent/diagtools/"
   # vitest runs from apps/ui, so lcov SF: entries read `src/app.tsx`.
   - "src/::apps/ui/src/"
 

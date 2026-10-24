@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotread"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
 	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

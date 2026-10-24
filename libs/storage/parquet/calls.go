@@ -5,7 +5,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/storage/index"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
 )
 
 // Data Structure for Parquet files

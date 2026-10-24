@@ -6,7 +6,7 @@
 // unconditionally whenever they stream directly to a collector, regardless
 // of whether GC-log harvesting is even enabled. Before the fix the
 // collector treated "gc" as an unknown stream and tore the WHOLE connection
-// down on it (libs/server/server_connection.go's CommandInitStream),
+// down on it (libs/wire/server/server_connection.go's CommandInitStream),
 // so a pre-v3.1.4 agent wrote no data at all — not just its GC-log bytes.
 //
 // This test drives the ACTUAL v3.1.3 Java agent against the running Go

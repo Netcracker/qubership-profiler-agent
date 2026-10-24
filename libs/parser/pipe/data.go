@@ -1,7 +1,7 @@
 package pipe
 
 import (
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 	"time"
 )
 

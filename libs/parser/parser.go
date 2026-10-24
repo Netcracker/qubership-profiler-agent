@@ -3,11 +3,11 @@ package parser
 import (
 	"context"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/io"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 type (

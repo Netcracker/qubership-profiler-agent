@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/vdumper"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 	"go.k6.io/k6/v2/metrics"
 )
 

@@ -165,7 +165,7 @@ saturation signal fires.
 - 1 replica; thousands of nearly idle connections (keep-alive traffic only), ramp from 1000 upward.
 - Measure RAM and goroutine cost per connection and per tracked pod-restart; find where accept latency, RAM
   (`PROFILER_MEM_BUDGET` pressure), or file-descriptor limits bite.
-- Note: there is no accept-side connection cap today (`libs/server/services.go`); record what failure looks like.
+- Note: there is no accept-side connection cap today (`libs/wire/server/services.go`); record what failure looks like.
 
 ### T4. Soak
 

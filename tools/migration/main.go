@@ -8,7 +8,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/tools/migration/pkg/cleaner"
 	"github.com/Netcracker/qubership-profiler-backend/tools/migration/pkg/envconfig"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 type deleteDunction = func(ctx context.Context) error

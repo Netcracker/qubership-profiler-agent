@@ -8,11 +8,11 @@ import (
 	"time"
 	"unicode/utf16"
 
+	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/emutest"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/vdumper"
-	profio "github.com/Netcracker/qubership-profiler-backend/libs/io"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

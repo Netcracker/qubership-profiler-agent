@@ -5,7 +5,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/tools/migration/pkg/envconfig"
 	"github.com/Netcracker/qubership-profiler-backend/libs/files"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"

@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
-	"github.com/Netcracker/qubership-profiler-backend/libs/io"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

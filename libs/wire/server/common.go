@@ -3,8 +3,8 @@ package server
 import (
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/io"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/pkg/errors"
 )
 
