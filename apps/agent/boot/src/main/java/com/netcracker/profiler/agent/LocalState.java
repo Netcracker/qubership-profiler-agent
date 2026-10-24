@@ -14,6 +14,14 @@ public class LocalState {
     private long largeEventsVolume;
     public int sp;
     public CallInfo callInfo = new CallInfo(this);
+    /**
+     * The span that is current on this thread, as a tracer last reported it to {@link TraceIds},
+     * or null when no span is current. It outlives a call, because a tracer makes a span current
+     * before the call it belongs to starts.
+     */
+    String currentTraceId;
+    String currentSpanId;
+    boolean currentSpanRemote;
     public final String shortThreadName = getShortThreadName(thread.getName());
 
     /**
@@ -328,6 +336,7 @@ public class LocalState {
     }
 
     private void callFinished() {
+        TraceIds.recordSpanAtCallStart(this);
         THREAD_INFO_PROVIDER.updateThreadCounters(this);
         CallInfo callInfo = this.callInfo;
         callInfo.cpuTime = cpuTime;
