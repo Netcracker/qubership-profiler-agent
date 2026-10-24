@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -110,8 +111,14 @@ func (t hotTier) coldToMs(q model.CallsQuery, overlapMs int64) int64 {
 // hot window misses the query range entirely counts as neither. A budget
 // denial comes back as budgetDenied and fails the whole request with 503
 // rather than degrading to a partial result.
-func (s *Service) hotCalls(ctx context.Context, tier hotTier, q model.CallsQuery,
-	after *model.Position, limit int, page *budget.Lease) (runs [][]model.CallRow, succeeded, failed int, reasons []string, budgetDenied error) {
+//
+// Every row is re-checked with match: a collector that predates the filter
+// model ignores `filter` and returns a superset (model.CallsQuery.Values).
+// A replica that filled its page may hold unseen rows past its last one, so
+// that row's position comes back in fullAt even when the re-check dropped it;
+// the caller must not page past it.
+func (s *Service) hotCalls(ctx context.Context, tier hotTier, q model.CallsQuery, match *model.Matcher,
+	after *model.Position, limit int, page *budget.Lease) (runs [][]model.CallRow, fullAt []model.Position, succeeded, failed int, reasons []string, budgetDenied error) {
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -147,13 +154,17 @@ func (s *Service) hotCalls(ctx context.Context, tier hotTier, q model.CallsQuery
 			succeeded++
 			lease.TransferTo(page, lease.Held())
 			lease.Release()
+			if len(rows) == limit {
+				fullAt = append(fullAt, rows[len(rows)-1].Position())
+			}
+			rows = slices.DeleteFunc(rows, func(r model.CallRow) bool { return !match.Match(&r) })
 			if len(rows) > 0 {
 				runs = append(runs, rows)
 			}
 		}(r.baseURL, rq)
 	}
 	wg.Wait()
-	return runs, succeeded, failed, reasons, budgetDenied
+	return runs, fullAt, succeeded, failed, reasons, budgetDenied
 }
 
 // hotPods fans /internal/v1/pods out to every discovered replica. /pods needs
