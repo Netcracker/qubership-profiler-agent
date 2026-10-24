@@ -12,7 +12,7 @@ import type { CallsReady } from './use-calls-query';
 // wide-query prompt, partial markers, cursor expiry, and bounded empty-page
 // auto-follow (09 §5).
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
