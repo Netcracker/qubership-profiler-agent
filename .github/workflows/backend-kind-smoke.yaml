@@ -60,6 +60,22 @@ jobs:
         # language=bash
         run: make rules-test
 
+      # Releases ship the charts in the transfer image, outside the source
+      # tree. Render profiler-backend from that copy, with the subchart off
+      # and on, so a chart that is missing its SeaweedFS archive fails here.
+      - name: Render the profiler-backend chart from the transfer image
+        # language=bash
+        run: |
+          docker build -t profiler-transfer:ci -f deploy/docker-transfer/Dockerfile .
+          cid="$(docker create profiler-transfer:ci unused)"
+          docker cp "${cid}:/charts" "${RUNNER_TEMP}/charts"
+          docker rm "${cid}"
+          chart="${RUNNER_TEMP}/charts/profiler-backend"
+          helm template render-test "${chart}" \
+            --set s3.endpoint=http://s3.invalid:9000 \
+            --set s3.auth.existingSecret=profiler-s3 >/dev/null
+          helm template render-test "${chart}" -f deploy/kind/values-kind.yaml >/dev/null
+
   kind-smoke:
     name: In-cluster smoke (kind)
     runs-on: ubuntu-latest
