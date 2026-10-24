@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { BROWSER_ZONE } from '../controls/time-range';
 import { server } from '../mocks/node';
@@ -15,6 +15,7 @@ import { PodsPage } from './pods-page';
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
+  vi.restoreAllMocks();
   cleanup();
   setZone(BROWSER_ZONE); // the display zone is a module singleton; keep tests isolated
 });
@@ -122,11 +123,15 @@ describe('PodsPage', () => {
 
   // PR 708 review #6: an individual pod= selection must filter the table, not
   // just service selections.
-  it('filters the table to an individually selected pod', async () => {
+  it.each([
+    { now: '2026-10-23T09:58:00Z', restartRows: 2 },
+    { now: '2026-10-23T10:01:00Z', restartRows: 1 },
+  ])('filters an individually selected pod with $restartRows restart rows', async ({ now, restartRows }) => {
     const tupleOf = (row: HTMLElement): string =>
       within(row).getByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c)).textContent ?? '';
 
-    const to = Date.now();
+    const to = Date.parse(now);
+    vi.spyOn(Date, 'now').mockReturnValue(to);
     const from = to - 15 * 60 * 1000;
 
     // First load with no pod filter to read a real pod tuple from the data.
@@ -138,8 +143,9 @@ describe('PodsPage', () => {
     unmount();
 
     renderPodsPage(`/pods?from=${from}&to=${to}&pod=${encodeURIComponent(selected)}&duration_min_ms=0`);
-    await screen.findByText(selected, undefined, { timeout: 5000 });
+    await screen.findAllByText(selected, undefined, { timeout: 5000 });
     const filtered = screen.getAllByRole('row').slice(1).map(tupleOf);
+    expect(filtered).toHaveLength(restartRows);
     expect(new Set(filtered)).toEqual(new Set([selected]));
   });
 
