@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { server } from '../mocks/node';
 import { AppShell } from './app-shell';
@@ -24,6 +24,7 @@ beforeEach(() => withoutAgentConfig());
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  vi.restoreAllMocks();
   localStorage.clear();
 });
 afterAll(() => server.close());
@@ -164,5 +165,19 @@ describe('NavRail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand navigation' }));
     expect(localStorage.getItem(RAIL_KEY)).toBe('0');
+  });
+
+  it('starts open and still toggles when storage is unavailable', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    renderShell('/calls');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigation' }));
+
+    expect(screen.getByRole('button', { name: 'Expand navigation' })).toHaveAttribute('aria-expanded', 'false');
   });
 });
