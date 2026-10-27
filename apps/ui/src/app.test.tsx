@@ -1,10 +1,10 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { RouterProvider, createMemoryRouter } from 'react-router';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ConfigProvider } from './api/use-config';
-import { APP_ROUTES } from './app';
+import { APP_ROUTES, App } from './app';
 import { server } from './mocks/node';
 
 // The route table under the app's own providers.
@@ -15,6 +15,8 @@ afterEach(() => {
   server.resetHandlers();
   server.events.removeAllListeners();
   localStorage.clear();
+  vi.unstubAllEnvs();
+  window.history.pushState({}, '', '/');
 });
 afterAll(() => server.close());
 
@@ -59,5 +61,25 @@ describe('the route table', () => {
     // Give a second, unshared request the time to show up.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(requests).toBe(1);
+  });
+});
+
+describe('App', () => {
+  it('routes the browser URL through the shell', async () => {
+    window.history.pushState({}, '', '/');
+    render(<App />);
+    await waitFor(() => expect(window.location.pathname).toBe('/calls'));
+    expect(screen.getByRole('link', { name: 'Calls' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('mounts the routes under a non-root build base', async () => {
+    // The router is created once per module load, so a fresh copy reads the stubbed base.
+    vi.stubEnv('BASE_URL', '/ui/');
+    vi.resetModules();
+    const { App: AppUnderBase } = await import('./app');
+    window.history.pushState({}, '', '/ui/');
+    render(<AppUnderBase />);
+    await waitFor(() => expect(window.location.pathname).toBe('/ui/calls'));
+    expect(screen.getByRole('link', { name: 'Pods Info' })).toHaveAttribute('href', '/ui/pods');
   });
 });

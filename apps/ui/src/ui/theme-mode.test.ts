@@ -127,6 +127,22 @@ describe('theme mode', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBe('light');
   });
 
+  it('falls back to Auto and keeps the choice in memory when storage is unavailable', () => {
+    stageSystem(true);
+    for (const method of ['getItem', 'setItem', 'removeItem'] as const) {
+      vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new DOMException('denied', 'SecurityError');
+      });
+    }
+    syncThemeMode();
+    expect(getThemePreference()).toBe('auto');
+    expect(getThemeMode()).toBe('dark');
+
+    setThemePreference('light');
+    expect(getThemePreference()).toBe('light');
+    expect(document.documentElement.dataset['theme']).toBe('light');
+  });
+
   it('resolves Auto to a concrete mode, which is what an export saves', () => {
     stageSystem(true);
     syncThemeMode();
