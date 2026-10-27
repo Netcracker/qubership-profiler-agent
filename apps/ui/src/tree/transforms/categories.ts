@@ -24,9 +24,23 @@ function wildcardToRegExp(ref: string): RegExp {
   return new RegExp(escaped.join('.*'));
 }
 
-/** hsl(i·150° mod 360) at 95% lightness — the old category palette. */
+/** How many category colors theme.css defines; the palette repeats after that. */
+export const CATEGORY_COLORS = 6;
+
+/**
+ * The fill of a category's badge. A theme variable, so the same category reads
+ * in the light and the dark theme; the old fixed pastel only suited a light page.
+ */
 function categoryColor(index: number): string {
-  return `hsl(${(index * 150) % 360},100%,95%)`;
+  return `var(--pf-color-cat-${(index % CATEGORY_COLORS) + 1})`;
+}
+
+/**
+ * The fill of a category's flame graph frame: the hue of its badge, stronger,
+ * because a frame is the whole picture and a badge sits on a row.
+ */
+export function categoryBlockColor(category: CategoryDef): string {
+  return category.color.replace('--pf-color-cat-', '--pf-color-flame-');
 }
 
 function parseCategoryLines(text: string): {

@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { http, HttpResponse } from 'msw';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { pkToPath } from '../api/pk';
@@ -77,12 +78,22 @@ function renderTreePage(path: string) {
   return render(
     <AntdApp>
       <MemoryRouter initialEntries={[path]}>
+        <SearchProbe />
         <Routes>
           <Route path="/tree/:pk" element={<TreePage />} />
         </Routes>
       </MemoryRouter>
     </AntdApp>,
   );
+}
+
+/** Publishes the router's query string, so a test can read what the page wrote to the URL. */
+function SearchProbe() {
+  return <span data-testid="search">{useLocation().search}</span>;
+}
+
+function treePath(call: CallJSON, extra = ''): string {
+  return `/tree/${encodeURIComponent(pkToPath(call.pk))}?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}${extra}`;
 }
 
 describe('TreePage', () => {
@@ -94,12 +105,20 @@ describe('TreePage', () => {
     // The synthetic tree always roots at CoyoteAdapter.service.
     expect(await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 })).toBeInTheDocument();
     // The degenerate entry chain is skipped: reveal badges are present.
-    expect((await screen.findAllByText(/⤵/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/^\+\d+$/)).length).toBeGreaterThan(0);
     // A loaded tree makes the header actions usable again, including the
     // self-contained HTML export.
-    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Adjust duration/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Setup categories/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Download HTML/ })).toBeEnabled();
+    // Each toolbar button carries an icon, the way Download HTML always did.
+    for (const [name, icon] of [
+      [/Adjust duration/, 'field-time'],
+      [/Setup categories/, 'tags'],
+      [/Download HTML/, 'download'],
+    ] as const) {
+      expect(within(screen.getByRole('button', { name })).getByRole('img', { name: icon })).toBeInTheDocument();
+    }
   });
 
   it('keeps derived views as closeable tabs', async () => {
@@ -123,9 +142,151 @@ describe('TreePage', () => {
     expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
 
     // Closing the incoming tab keeps the outgoing one open.
-    fireEvent.click(incomingTab.closest('.ant-tabs-tab')!.querySelector('.ant-tabs-tab-remove')!);
+    fireEvent.click(incomingTab.querySelector('button[aria-label="Close tab"]')!);
     expect(screen.queryByRole('tab', { name: /Incoming · CoyoteAdapter\.service/ })).toBeNull();
     expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
+  });
+
+  it('shows the call identity and its chips in the header', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['web.url'] !== undefined, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByRole('link', { name: 'Back to Calls' })).toHaveAttribute('href', '/calls');
+    const identity = `${call.pk.pod_namespace} / ${call.pk.pod_service} / ${call.pk.pod_name}`;
+    expect(screen.getByTitle(identity).textContent).toBe(identity);
+    expect(screen.getByTitle("From the root call's web.method and web.url parameters").textContent).toMatch(
+      /^(GET|POST) \//,
+    );
+    // The retention class moved from a tag of its own to the time chip's tooltip.
+    expect(screen.getByTitle(`Start time. Retention class: ${call.retention_class}`)).toBeInTheDocument();
+    expect(screen.getByTitle('Duration')).toBeInTheDocument();
+    expect(screen.queryByText(call.retention_class)).toBeNull();
+  });
+
+  it('opens the fixed tab the URL names', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call, '&tab=params'));
+    // The Call Tree pane is not mounted until its tab opens, so wait for the tab bar.
+    const paramsTab = await screen.findByRole('tab', { name: 'Parameters' }, { timeout: 5000 });
+    expect(paramsTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('falls back to Call Tree on an unknown tab', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call, '&tab=gantt'));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('writes a fixed tab to the URL and keeps a derived tab out of it', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    const hints = `?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}`;
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Hotspots' }));
+    expect(screen.getByTestId('search').textContent).toBe(`${hints}&tab=hotspots`);
+    expect(screen.getByRole('tab', { name: 'Hotspots' })).toHaveAttribute('aria-selected', 'true');
+
+    // A derived tab is browser state: it becomes active, and the URL still names Hotspots.
+    fireEvent.click(screen.getByRole('tab', { name: 'Call Tree' }));
+    expect(screen.getByTestId('search').textContent).toBe(hints);
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    fireEvent.click(await screen.findByText('Outgoing calls'));
+    const outgoingTab = await screen.findByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ });
+    expect(outgoingTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('search').textContent).toBe(hints);
+
+    // Closing it returns to the fixed tab of the URL.
+    fireEvent.click(outgoingTab.querySelector('button[aria-label="Close tab"]')!);
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('shares the selection between the Call Tree and the Flame graph tabs', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    const rootLabel = await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    // Select the root row in the tree; its block is selected in the flame graph.
+    fireEvent.click(rootLabel.closest('[role="button"]')!);
+    fireEvent.click(screen.getByRole('tab', { name: 'Flame graph' }));
+    expect(screen.getByTestId('search').textContent).toContain('tab=flame');
+    const rootBlock = await screen.findByRole('button', { name: /^CoyoteAdapter\.service · / });
+    expect(rootBlock).toHaveAttribute('aria-pressed', 'true');
+
+    // Select another block; back in the tree its row is selected and the root's is not.
+    const blocks = screen.getAllByRole('button', { name: / of the call · self / });
+    const other = blocks.find((b) => b !== rootBlock && !/^(CoyoteAdapter|.*Filter)/.test(b.getAttribute('aria-label')!))!;
+    const otherName = other.getAttribute('aria-label')!.split(' · ')[0]!;
+    fireEvent.click(other);
+    expect(other).toHaveAttribute('aria-pressed', 'true');
+    expect(rootBlock).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Call Tree' }));
+    const selectedRows = document.querySelectorAll('[role="button"][aria-pressed="true"]');
+    const selectedInTree = [...selectedRows].filter((el) => el.tagName === 'SPAN');
+    expect(selectedInTree).toHaveLength(1);
+    expect(selectedInTree[0]!.textContent).toContain(otherName);
+    // No strip of operations appears beside the search field on either tab.
+    expect(screen.queryByRole('button', { name: 'Incoming calls' })).toBeNull();
+  });
+
+  it('shows the trace chip and expands the configured links for a traced call', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['trace.id'] !== undefined, Date.now());
+    const traceId = call.params['trace.id']![0]!;
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByTitle(`trace_id ${traceId}`).textContent).toBe(`trace ${traceId.slice(0, 12)}…`);
+    expect(screen.queryByText('not traced')).toBeNull();
+
+    const trace = await screen.findByRole('link', { name: /Open trace · Tempo/ });
+    expect(trace).toHaveAttribute('href', `https://grafana.example.com/explore?trace=${traceId}`);
+    expect(trace).toHaveAttribute('target', '_blank');
+    expect(trace).toHaveAttribute('rel', 'noopener noreferrer');
+
+    const logs = screen.getByRole('link', { name: /Logs · Grafana/ });
+    const url = new URL(logs.getAttribute('href')!);
+    expect(url.searchParams.get('namespace')).toBe(call.pk.pod_namespace);
+    expect(url.searchParams.get('pod')).toBe(call.pk.pod_name);
+    expect(url.searchParams.get('from')).toBe(String(call.ts_ms));
+    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms));
+
+    // The links come after the page's own actions.
+    const download = screen.getByRole('button', { name: /Download HTML/ });
+    expect(download.compareDocumentPosition(trace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('disables a link that needs a trace ID on an untraced call and says why', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['trace.id'] === undefined, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByText('not traced')).toBeInTheDocument();
+    // The logs template uses no trace ID, so that link still works.
+    expect(await screen.findByRole('link', { name: /Logs · Grafana/ })).toBeInTheDocument();
+    // The trace button stays in place, as a disabled button with no href to follow.
+    const trace = screen.getByRole('button', { name: /Open trace · Tempo/ });
+    expect(trace).toBeDisabled();
+    expect(screen.queryByRole('link', { name: /Open trace · Tempo/ })).toBeNull();
+
+    // A disabled button fires no pointer events; its wrapper takes them for the tooltip.
+    fireEvent.mouseEnter(trace.parentElement!);
+    expect(await screen.findByText('Unavailable: this call carries no trace ID')).toBeInTheDocument();
+  });
+
+  it('shows no link buttons when the deployment configures none', async () => {
+    server.use(http.get('/api/v1/config', () => HttpResponse.json({ dumps_collector_url: '' })));
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    // Give the config request time to settle before asserting an absence.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.queryByText(/Open trace/)).toBeNull();
+    expect(screen.queryByText(/Logs · Grafana/)).toBeNull();
+    expect(screen.getByRole('button', { name: /Download HTML/ })).toBeEnabled();
   });
 
   it('shows the cold-call state for a bare PK outside the hot window', async () => {
@@ -138,8 +299,8 @@ describe('TreePage', () => {
     expect(screen.getByText(/Reopen the call from its row/)).toBeInTheDocument();
     // No tree model exists to adjust/categorize or to export — the header
     // actions must not look usable (PR 708 review #20).
-    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Adjust duration/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Setup categories/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Download HTML/ })).toBeDisabled();
   });
 
