@@ -217,13 +217,14 @@ export function FlameView({ model, selectedId, onSelect }: FlameViewProps) {
   }, [width, theme]);
 
   // A selection made in the Call Tree tab zooms on its frame. One made here
-  // is zoomed on already.
+  // is zoomed on already. A node with no time has no frame to zoom on: the
+  // zoom would hide the whole graph, so the view stays as it is.
   useEffect(() => {
     if (selectedId !== ownSelection.current) {
       ownSelection.current = selectedId;
       if (selectedId !== null) {
         const frame = findFrame(selectedId);
-        if (frame !== null) zoomQuietly(frame);
+        if (frame !== null && frame.data.value > 0) zoomQuietly(frame);
       }
     }
     decorate();

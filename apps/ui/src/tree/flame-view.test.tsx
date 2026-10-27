@@ -200,6 +200,16 @@ describe('FlameView', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('does not zoom on a node selected in the Call Tree tab that takes no time', () => {
+    const model = fixture();
+    const view = render(<FlameView model={model} selectedId={null} onSelect={() => undefined} />);
+    // Tiny.blip takes no time, so the graph draws no frame for it.
+    view.rerender(<FlameView model={model} selectedId={byMethod(model, 4).id} onSelect={() => undefined} />);
+    expect(screen.getByText(/^Tiny\.blip · /, { selector: 'span' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Reset zoom/ })).toBeNull();
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH * 0.5);
+  });
+
   it('keeps the zoom when the model is rebuilt', () => {
     const first = fixture();
     const view = render(<FlameView model={first} selectedId={null} onSelect={() => undefined} />);
