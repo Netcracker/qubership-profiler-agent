@@ -1,0 +1,57 @@
+/* The shell clamps the screen to the viewport, so this page scrolls itself. */
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.column {
+  max-width: 1160px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.dim {
+  color: var(--pf-color-dim);
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inherited {
+  padding: 8px 12px;
+  border: 1px solid var(--pf-color-border);
+  border-radius: 6px;
+  background: var(--pf-color-surface2);
+}
+
+.inherited strong {
+  font-weight: 500;
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

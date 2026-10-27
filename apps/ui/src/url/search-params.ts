@@ -1,3 +1,5 @@
+import { DEFAULT_SCOPE } from '../agents/types';
+import type { AgentConfigScopeId } from '../agents/types';
 import { isRelativeExpr, resolveUrlTime } from '../controls/time-range';
 import { isRetentionClass } from '../api/types';
 import { DEFAULT_ORDER, isCallsOrder } from '../calls/sort-order';
@@ -193,4 +195,34 @@ export function withTreeTab(sp: URLSearchParams, tab: TreeTab): URLSearchParams 
 export function treeHref(pkPath: string, tsMs: number, retentionClass: RetentionClass, tab: TreeTab = 'tree'): string {
   const sp = withTreeTab(new URLSearchParams({ ts_ms: String(tsMs), retention_class: retentionClass }), tab);
   return `${import.meta.env.BASE_URL}tree/${encodeURIComponent(pkPath)}?${sp.toString()}`;
+}
+
+export const AGENTS_TABS = ['settings', 'raw', 'agents'] as const;
+
+export type AgentsTab = (typeof AGENTS_TABS)[number];
+
+/** /ui/agents query state: the scope being configured and the open tab. */
+export interface AgentsSearchState {
+  /** Not checked against the scope tree here; the API answers 404 for an unknown id. */
+  scope: AgentConfigScopeId;
+  tab: AgentsTab;
+}
+
+export const EMPTY_AGENTS_SEARCH: AgentsSearchState = { scope: DEFAULT_SCOPE, tab: 'settings' };
+
+export function parseAgentsSearch(sp: URLSearchParams): AgentsSearchState {
+  const scope = sp.get('scope') ?? '';
+  const tab = sp.get('tab') ?? '';
+  return {
+    scope: scope === '' ? EMPTY_AGENTS_SEARCH.scope : scope,
+    tab: (AGENTS_TABS as readonly string[]).includes(tab) ? (tab as AgentsTab) : EMPTY_AGENTS_SEARCH.tab,
+  };
+}
+
+/** Inverse of parseAgentsSearch; omits values equal to the defaults. */
+export function agentsSearchToParams(state: AgentsSearchState): URLSearchParams {
+  const sp = new URLSearchParams();
+  if (state.scope !== EMPTY_AGENTS_SEARCH.scope) sp.set('scope', state.scope);
+  if (state.tab !== EMPTY_AGENTS_SEARCH.tab) sp.set('tab', state.tab);
+  return sp;
 }
