@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { BROWSER_ZONE } from '../controls/time-range';
@@ -22,13 +23,26 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
+function Location() {
+  const location = useLocation();
+  return <div data-testid="location">{decodeURIComponent(location.search)}</div>;
+}
+
 // Wrapped in AntdApp, as in app.tsx: the page shows its toast through the App.
 function renderPodsPage(path: string) {
   return render(
     <AntdApp>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/pods" element={<PodsPage />} />
+          <Route
+            path="/pods"
+            element={
+              <>
+                <PodsPage />
+                <Location />
+              </>
+            }
+          />
         </Routes>
       </MemoryRouter>
     </AntdApp>,
@@ -55,6 +69,31 @@ describe('PodsPage', () => {
     // Calls' own conditions are not Pods Info's to show.
     expect(screen.queryByRole('button', { name: 'Remove the filter duration > 1s' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove the filter service = billing' })).toBeInTheDocument();
+  });
+
+  it('applies a filter built in the bar, keeping the conditions only Calls uses', async () => {
+    const to = Date.now();
+    const duration = encodeURIComponent('duration>1s');
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&filter=${duration}`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    expect(screen.getAllByRole('row').slice(1).some((row) => !row.textContent!.includes('/billing/'))).toBe(true);
+
+    const bar = screen.getByRole('combobox', { name: 'Filter calls' });
+    await userEvent.click(bar);
+    await userEvent.type(bar, 'service{Enter}');
+    // The table filters by pod tuples, so only = and in can be picked.
+    expect(screen.getByRole('option', { name: /^!=/ })).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.type(bar, '={Enter}billing{Enter}');
+    expect(screen.getByRole('button', { name: 'Remove the filter service = billing' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Apply$/ }));
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('filter=service=billing'));
+    expect(screen.getByTestId('location')).toHaveTextContent('filter=duration>1s');
+    await waitFor(() => {
+      const rows = screen.getAllByRole('row').slice(1);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.textContent!.includes('/billing/'))).toBe(true);
+    });
   });
 
   it('puts the time range in the shell header and keeps Apply in the page', () => {

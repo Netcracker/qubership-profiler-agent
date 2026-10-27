@@ -146,6 +146,17 @@ describe('CallsPage', () => {
     }
   });
 
+  it('says the filters exclude each other and sends nothing', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&filter=${encodeURIComponent('duration>5s')}&filter=${encodeURIComponent('duration<1s')}`);
+      await screen.findByText('The filters exclude each other, so no call can match.');
+      expect(calls.urls).toEqual([]);
+    } finally {
+      calls.stop();
+    }
+  });
+
   it('edits a draft and sends it only on Run query', async () => {
     const calls = recordCalls();
     try {

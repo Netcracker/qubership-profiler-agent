@@ -23,6 +23,24 @@ describe('stageView', () => {
     expect(view.foot).toMatch(/^Showing 8 of 20 values\./);
   });
 
+  it('offers range presets for between and single durations for the other operators', () => {
+    const range = stageView({ ...base, draft: { field: 'duration', op: 'between', values: [] } });
+    expect(range.items.map((i) => i.label)).toEqual(['100ms..500ms', '500ms..2s', '1s..5s']);
+    expect(range.foot).toBe('Type a range such as 100ms..2s.');
+
+    const bound = stageView({ ...base, draft: { field: 'duration', op: '>', values: [] }, text: '1' });
+    expect(bound.items.map((i) => i.label)).toEqual(['Use "1"', '10ms', '100ms', '1s']);
+    expect(bound.foot).toBe('Type any duration such as 250ms or 1.5s.');
+  });
+
+  it('offers None and Any for = and != on an optional field only, and not while typing', () => {
+    const labels = (draft: StageInput['draft'], text = '') => stageView({ ...base, draft, text }).items.map((i) => i.label);
+    expect(labels({ field: 'trace_id', op: '!=', values: [] })).toEqual(['None', 'Any']);
+    expect(labels({ field: 'trace_id', op: '=~', values: [] })).toEqual([]);
+    expect(labels({ field: 'trace_id', op: '=', values: [] }, 'ab')).toEqual(['Use "ab"']);
+    expect(labels({ field: 'pod', op: '=', values: [] })).toEqual([]);
+  });
+
   it('leaves out the values already picked for in', () => {
     const view = stageView({
       ...base,
