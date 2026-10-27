@@ -1,5 +1,12 @@
 import type { CallJSON } from '../api/types';
-import { TRACE_ID_PARAMS } from '../tree/links';
+
+/**
+ * The param names the agent records a trace ID under, in order of preference:
+ * `trace.id` from the Jaeger and OpenTelemetry plugins, `brave.trace_id` from
+ * the Brave plugin, and the incoming `X-B3-TraceId` header that the servlet
+ * instrumentation records.
+ */
+const TRACE_ID_PARAMS = ['trace.id', 'brave.trace_id', 'X-B3-TraceId'] as const;
 
 /**
  * The trace ID of a calls row, or null for "not traced". A row carries no `trace_id` member (02 §2.3); the ID comes

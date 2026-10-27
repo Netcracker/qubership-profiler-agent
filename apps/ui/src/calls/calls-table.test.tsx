@@ -123,7 +123,8 @@ describe('CallsTable', () => {
     renderTable({ rows: [slow] });
     const link = within(rowOf(slow)).getByRole('link', { name: '3.0s' });
     expect(link).toHaveAttribute('href', expect.stringContaining('/tree/'));
-    expect(link.previousElementSibling).toHaveStyle({ background: 'var(--pf-color-crit)' });
+    // Read the inline style: jsdom resolves the computed `background` shorthand and drops an unknown variable.
+    expect((link.previousElementSibling as HTMLElement).style.background).toBe('var(--pf-color-crit)');
     // The dot and the fixed-width text box share one wrapper, so the dot does not follow the text width.
     expect(link.parentElement!.firstElementChild).toBe(link.previousElementSibling);
     expect(link).toHaveClass('pf-mono');
