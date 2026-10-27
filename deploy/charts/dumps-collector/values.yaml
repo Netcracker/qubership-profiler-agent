@@ -53,6 +53,12 @@ cloud:
     # Default:
     host: 'http://esc-collector-service:8080'
 
+# Optional annotations for the dumps PersistentVolumeClaim. Leave the map empty
+# to omit the annotations block. Entries are copied onto the claim unchanged.
+pvc:
+  metadata:
+    annotations: {}
+
 ############# Dumps Collector Service #############
 
 dumpsCollector:
