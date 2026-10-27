@@ -95,6 +95,10 @@ describe('App', () => {
     window.history.pushState({}, '', '/ui/');
     render(<AppUnderBase />);
     await waitFor(() => expect(window.location.pathname).toBe('/ui/calls'));
-    expect(screen.getByRole('link', { name: 'Pods Info' })).toHaveAttribute('href', '/ui/pods');
+    // The rail keeps each screen's query string, so match the path only.
+    expect(screen.getByRole('link', { name: 'Pods Info' })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/ui\/pods(\?|$)/),
+    );
   });
 });
