@@ -1,13 +1,15 @@
-import { HttpResponse, delay, http } from 'msw';
+import { HttpResponse, http } from 'msw';
 
 import { parsePkPath } from '../api/pk';
 import { isRetentionClass } from '../api/types';
-import type { FilterCapabilities, ProblemDetails } from '../api/types';
+import type { FilterCapabilities } from '../api/types';
 import { parseDurationMs, parseDurationRange } from '../calls/duration-filter';
+import { fieldDef } from '../filter/catalog';
 import type { Condition } from '../filter/condition';
 import { parseCondition } from '../filter/grammar';
 import { encodeTree } from '../msgpack/encode';
-import { fieldDef } from '../filter/catalog';
+import { agentConfigHandlers } from './agent-config';
+import { pace, problem } from './respond';
 import { PARAM_NAME, TIME, fieldStats, timeStats } from './stats';
 import { HOT_WINDOW_MS, callsInWindow, callsPage, findCall, parseMockOrder, podsInRange, treeForCall } from './synthetic';
 import type { CallsQueryShape, Position } from './synthetic';
@@ -22,13 +24,7 @@ export const CURSOR_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
 
-function problem(p: ProblemDetails): Response {
-  return HttpResponse.json(p, {
-    status: p.status,
-    headers: { 'Content-Type': 'application/problem+json' },
-  });
-}
-
+// The mock's own problems carry `code` (02 §8); respond.ts serves the agent-config handlers.
 const badRequest = (detail: string): Response =>
   problem({ type: 'about:blank', title: 'invalid request', status: 400, detail, code: 'invalid_request' });
 
@@ -59,11 +55,6 @@ export const MOCK_FILTER_CAPABILITIES: FilterCapabilities = {
   group_by: ['time', 'method', 'namespace', 'service', 'pod', 'trace_id', 'request_id', 'class', 'endpoint', 'error', 'retention_class', 'param_name'],
   group_by_params: true,
 };
-
-// Human pacing in the browser; instant under vitest.
-async function pace(): Promise<void> {
-  if (import.meta.env.MODE !== 'test') await delay(120 + Math.random() * 200);
-}
 
 // --- Window and filter parsing (mirrors model.ParseWindow / ParseCallsQuery) ---
 
@@ -335,6 +326,8 @@ export const handlers = [
     return HttpResponse.json({
       dumps_collector_url: 'https://dumps-collector-petclinic.example.com',
       filter_capabilities: MOCK_FILTER_CAPABILITIES,
+      // No backend sets the flag yet; the mock serves the draft API it gates.
+      features: { agent_config: true },
       links: [
         {
           label: 'Open trace · Tempo',
@@ -350,6 +343,8 @@ export const handlers = [
       ],
     });
   }),
+
+  ...agentConfigHandlers,
 
   http.get('/api/v1/pods', async ({ request }) => {
     await pace();

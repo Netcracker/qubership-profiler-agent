@@ -103,6 +103,13 @@ export interface ConfigResponse {
    * as an empty list.
    */
   links?: ConfigLink[];
+  /** What the build implements of the filter model (02 §2.3.4). Absent on a build that predates it. */
+  filter_capabilities?: FilterCapabilities;
+  /** Optional screens. A backend that predates a flag omits it, which means off. */
+  features?: {
+    /** The agent-configuration page and its draft API (agents/types.ts). */
+    agent_config?: boolean;
+  };
 }
 
 /** One `links` entry of GET /config: a button label and a URL template the client expands (02 §2.8). */
@@ -111,10 +118,6 @@ export interface ConfigLink {
   kind: 'trace' | 'logs';
   /** An absolute http or https URL with `{placeholder}` parts; see tree/links.ts. */
   url_template: string;
-}
-
-  /** What the build implements of the filter model (02 §2.3.4). Absent on a build that predates it. */
-  filter_capabilities?: FilterCapabilities;
 }
 
 /** The `filter_capabilities` member of /config (02 §2.3.4). */

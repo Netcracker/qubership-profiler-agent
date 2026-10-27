@@ -1,0 +1,20 @@
+.dot {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pf-color-faint);
+}
+
+.dot[data-status='applied'] {
+  background: var(--pf-color-ok);
+}
+
+.dot[data-status='pending'] {
+  background: var(--pf-color-warn);
+}
+
+.dot[data-status='failed'] {
+  background: var(--pf-color-crit);
+}
