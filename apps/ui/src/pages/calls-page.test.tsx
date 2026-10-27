@@ -3,15 +3,16 @@ import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import type { FilterCapabilities } from '../api/types';
 import { podsInRange } from '../mocks/synthetic';
 import { server } from '../mocks/node';
 import { CallsPage } from './calls-page';
 
-// End-to-end DOM behaviour against the MSW mock: the filter bar drives /calls
-// through the translation of redesign plan §4.2.1, and the wide-query
-// rejection turns into one-click narrowing that re-runs the query (09 §5).
+// End-to-end DOM behaviour against the MSW mock. With the filter model, the filter bar sends its conditions as
+// `filter` parameters (02 §2.3.3); on an older backend it drives /calls through the translation of redesign plan
+// §4.2.1. The wide-query rejection turns into one-click narrowing that re-runs the query (09 §5).
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -56,8 +57,11 @@ function recordCalls(): { urls: URL[]; stop: () => void } {
   return { urls, stop: () => server.events.removeListener('request:start', onRequestStart) };
 }
 
+// Waits for a call row. AntD's empty-table placeholder is a row too, so counting rows is not enough.
 const rowsLoaded = () =>
-  waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+  waitFor(() => expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeGreaterThan(0), {
+    timeout: 5000,
+  });
 
 const window15m = (): string => {
   const to = Date.now();
@@ -74,9 +78,20 @@ function durationMs(text: string): number {
   }, 0);
 }
 
-const filterBar = () =>screen.getByRole('combobox', { name: 'Filter calls' });
+const filterBar = () => screen.getByRole('combobox', { name: 'Filter calls' });
 
-describe('CallsPage', () => {
+/** Serves a /config with the given filter capabilities, or one from a build without the filter model. */
+function serveConfig(fc: FilterCapabilities | undefined): void {
+  server.use(
+    http.get('/api/v1/config', () =>
+      HttpResponse.json({ dumps_collector_url: '', ...(fc === undefined ? {} : { filter_capabilities: fc }) }),
+    ),
+  );
+}
+
+describe('CallsPage on a backend without the filter model', () => {
+  beforeEach(() => serveConfig(undefined));
+
   it('renders no discovery rail, only the filter bar', () => {
     renderCallsPage(window15m());
     expect(filterBar()).toBeInTheDocument();
@@ -311,20 +326,6 @@ describe('CallsPage', () => {
     }
   });
 
-  it('sends an order the server sorts by and adds no footer note', async () => {
-    vi.stubEnv('VITE_ENABLE_MSW', '1');
-    const calls = recordCalls();
-    try {
-      renderCallsPage(`${window15m()}&order=cpu_desc`);
-      await rowsLoaded();
-      expect(calls.urls[0]!.searchParams.get('order')).toBe('cpu_desc');
-      expect(screen.queryByText(/applies to the loaded rows only/)).not.toBeInTheDocument();
-    } finally {
-      calls.stop();
-      vi.unstubAllEnvs();
-    }
-  });
-
   it('replaces the trace_id token on a row pick and filters the loaded rows in the browser', async () => {
     const calls = recordCalls();
     try {
@@ -457,6 +458,164 @@ describe('CallsPage', () => {
       await userEvent.click(within(alert as HTMLElement).getByRole('button', { name: 'Clear selection' }));
       await waitFor(() => expect(screen.queryByText('Selection too wide')).not.toBeInTheDocument());
       expect(screen.queryByRole('button', { name: 'Remove the filter service = billing' })).not.toBeInTheDocument();
+    } finally {
+      calls.stop();
+    }
+  });
+});
+
+describe('CallsPage with the filter model', () => {
+  /** A build of stage A (02 §2.3.4): no negations, no regex but on method, and two orders. */
+  const STAGE_A: FilterCapabilities = {
+    fields: {
+      duration: ['>', '>=', '<', '<=', 'between'],
+      namespace: ['=', 'in'],
+      service: ['=', 'in'],
+      pod: ['=', 'in'],
+      error: ['='],
+      retention_class: ['=', 'in'],
+      trace_id: ['='],
+      request_id: ['='],
+      method: ['=~'],
+    },
+    param_operators: ['='],
+    special_values: [],
+    orders: ['start_desc', 'duration_desc'],
+    group_by: ['time', 'method', 'namespace', 'service', 'pod'],
+  };
+
+  const filterParam = (texts: string[]): string => texts.map((t) => `filter=${encodeURIComponent(t)}`).join('&');
+
+  it('sends each condition unchanged as a filter parameter', async () => {
+    const calls = recordCalls();
+    const texts = ['service=billing', 'duration>100ms', 'user.tenant!=acme', 'trace_id!=None'];
+    try {
+      renderCallsPage(`${window15m()}&${filterParam(texts)}`);
+      await rowsLoaded();
+      const sp = calls.urls[0]!.searchParams;
+      expect(sp.getAll('filter')).toEqual(texts);
+      expect(sp.has('pod')).toBe(false);
+      expect(sp.has('duration_min_ms')).toBe(false);
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('sends an old link as the conditions it converts to', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&service=payments/billing&error_only=true`);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      const sp = calls.urls[0]!.searchParams;
+      expect(sp.getAll('filter')).toEqual(expect.arrayContaining(['namespace=payments', 'service=billing', 'error=true']));
+      expect(sp.has('pod')).toBe(false);
+      expect(sp.has('error_only')).toBe(false);
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('keeps a condition the build lacks as a disabled token and does not send it', async () => {
+    serveConfig(STAGE_A);
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&${filterParam(['service!=billing', 'duration>=1s'])}`);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      expect(calls.urls[0]!.searchParams.getAll('filter')).toEqual(['duration>=1s']);
+      const token = screen.getByRole('button', { name: 'Remove the filter service != billing' }).parentElement!;
+      expect(token).toHaveAttribute('data-applied', 'false');
+      expect(token).toHaveAttribute('title', 'This backend does not support != on service.');
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('does not send None to a build that cannot match it', async () => {
+    serveConfig(STAGE_A);
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&${filterParam(['trace_id=None'])}`);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      expect(calls.urls[0]!.searchParams.getAll('filter')).toEqual([]);
+      const token = screen.getByRole('button', { name: 'Remove the filter trace_id = None' }).parentElement!;
+      expect(token).toHaveAttribute('title', 'This backend cannot match None yet.');
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('sends an order the build lists and adds no footer note', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&order=cpu_desc`);
+      await rowsLoaded();
+      expect(calls.urls[0]!.searchParams.get('order')).toBe('cpu_desc');
+      expect(screen.queryByText(/applies to the loaded rows only/)).not.toBeInTheDocument();
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('sorts the loaded rows in the browser for an order the build does not list', async () => {
+    serveConfig(STAGE_A);
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&order=cpu_desc`);
+      await rowsLoaded();
+      expect(calls.urls[0]!.searchParams.has('order')).toBe(false);
+      expect(screen.getByText('Sort by CPU time applies to the loaded rows only')).toBeInTheDocument();
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('sends a picked trace ID as a filter', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(window15m());
+      await rowsLoaded();
+      const pick = screen.getAllByTitle(/^Filter by trace_id /)[0]!;
+      const id = pick.getAttribute('title')!.replace('Filter by trace_id ', '');
+      const before = calls.urls.length;
+      await userEvent.click(pick);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      expect(calls.urls.at(-1)!.searchParams.getAll('filter')).toContain(`trace_id=${id}`);
+      const token = screen.getByRole('button', { name: `Remove the filter trace_id = ${id}` }).parentElement!;
+      expect(token).not.toHaveAttribute('data-applied', 'browser');
+      await rowsLoaded();
+      expect(screen.queryByText(/hidden by the trace_id filter/)).not.toBeInTheDocument();
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('shows the reason when the backend rejects the query', async () => {
+    server.use(
+      http.get('/api/v1/calls', () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'invalid request',
+            status: 400,
+            code: 'invalid_request',
+            detail: '!= on service is not implemented',
+          },
+          { status: 400, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    );
+    renderCallsPage(window15m());
+    expect(await screen.findByText('The backend rejected the query', undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText('!= on service is not implemented')).toBeInTheDocument();
+  });
+
+  it('narrows a wide query with a namespace filter', async () => {
+    const calls = recordCalls();
+    try {
+      const to = Date.now();
+      renderCallsPage(`from=${to - 7 * 60 * 60 * 1000}&to=${to}&${filterParam(['namespace=payments'])}`);
+      await rowsLoaded();
+      expect(screen.queryByText('Query too wide')).not.toBeInTheDocument();
     } finally {
       calls.stop();
     }

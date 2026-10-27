@@ -1,6 +1,8 @@
 import { comparePk, pkToPath } from '../api/pk';
 import type { CallJSON, CallPK, PodEntry, RetentionClass } from '../api/types';
+import type { Condition } from '../filter/condition';
 import type { ParamGroupWire, TreeNodeWire, TreeWire } from '../msgpack/tree-wire';
+import { matchCondition } from './match';
 
 // Deterministic synthetic dataset behind the MSW mock. Every value derives
 // from a hash of (pod, time bucket), so any window renders the same rows on
@@ -253,7 +255,9 @@ export interface CallsQueryShape {
   durationMaxMs: number;
   errorOnly: boolean;
   retentionClasses: string[];
-  /** `<field>_<asc|desc>` (agent-access plan §5.2); absent in a cursor minted before the mock took `order`. */
+  /** The `filter` conditions (02 §2.3.3); absent in a cursor minted before the mock took `filter`. */
+  conditions?: Condition[];
+  /** `<field>_<asc|desc>` (02 §2.3.5); absent in a cursor minted before the mock took `order`. */
   order?: string;
 }
 
@@ -264,7 +268,7 @@ export interface Position {
   key?: number;
 }
 
-/** The sort key of each `order` field of the contract (agent-access plan §5.2). */
+/** The sort key of each `order` field of the contract (02 §2.3.5). */
 export const ORDER_KEYS: Readonly<Record<string, (c: CallJSON) => number>> = {
   start: (c) => c.ts_ms,
   duration: (c) => c.duration_ms,
@@ -291,7 +295,7 @@ function matches(call: CallJSON, q: CallsQueryShape): boolean {
   if (q.durationMaxMs > 0 && call.duration_ms > q.durationMaxMs) return false;
   if (q.errorOnly && !call.error_flag) return false;
   if (q.retentionClasses.length > 0 && !q.retentionClasses.includes(call.retention_class)) return false;
-  return true;
+  return (q.conditions ?? []).every((c) => matchCondition(call, c));
 }
 
 /**
