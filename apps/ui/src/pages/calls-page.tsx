@@ -26,6 +26,7 @@ import { DiscoveryRail, selectionEquals } from '../discovery/discovery-rail';
 import type { RailSelection } from '../discovery/discovery-rail';
 import { expandSelection } from '../discovery/group-pods';
 import { usePods } from '../discovery/use-pods';
+import { HeaderSlot } from '../shell/header-slot';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
 import type { CallsFilter } from '../api/endpoints';
 import { callsSearchToParams, freezeWindow, hasRelativeWindow, parseCallsSearch } from '../url/search-params';
@@ -33,9 +34,9 @@ import type { CallsSearchState } from '../url/search-params';
 import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
 import styles from './calls-page.module.css';
 
-// Discovery + Calls (09 §2). The URL is the source of truth; the rail and the
-// period picker edit a draft that Apply commits to the URL, which keys the
-// /calls fetch. Toolbar filters narrow an applied query and commit directly.
+// Discovery + Calls (09 §2). The URL is the source of truth. The rail edits a
+// draft that Apply commits to the URL, which keys the /calls fetch. The period
+// picker, shown in the shell header, and the toolbar filters commit directly.
 
 // jsdom reports zero heights, which starves the virtual scroller of rows.
 const VIRTUAL = import.meta.env.MODE !== 'test';
@@ -127,7 +128,7 @@ export function CallsPage() {
     });
   };
 
-  // The sibling Apply commits rail-selection edits against the committed window.
+  // Apply commits rail-selection edits against the committed window.
   const apply = (): void =>
     commitSearch({ ...search, services: draftSelection.services, pods: draftSelection.pods });
   // Apply has work only when the draft selection diverges from the committed one.
@@ -194,13 +195,24 @@ export function CallsPage() {
         <DiscoveryRail pods={railPodsState} selection={draftSelection} onSelectionChange={setDraftSelection} />
       </Layout.Sider>
       <Layout.Content className={`${styles.content}${railCollapsed ? ` ${styles.railGutter}` : ''}`}>
-        <PeriodControls
-          value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
-          onCommitRange={commitRange}
-          onApply={apply}
-          canApply={selectionDirty}
-          applying={state.kind === 'loading'}
-        />
+        <HeaderSlot>
+          <PeriodControls
+            value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
+            onCommitRange={commitRange}
+          />
+        </HeaderSlot>
+        {/* Enabled only when there is unwritten selection work — a dirty state, so
+            the button documents itself: grey means "everything is applied". */}
+        <Space>
+          <Button
+            type="primary"
+            onClick={apply}
+            loading={state.kind === 'loading'}
+            disabled={search.fromMs === null || search.toMs === null || !selectionDirty}
+          >
+            Apply
+          </Button>
+        </Space>
         <CallsToolbar
           search={search}
           onSearchChange={commitSearch}

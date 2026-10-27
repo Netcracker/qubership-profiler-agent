@@ -1,19 +1,10 @@
-import {
-  ClockCircleOutlined,
-  DoubleLeftOutlined,
-  DoubleRightOutlined,
-  DownOutlined,
-  GlobalOutlined,
-  SearchOutlined,
-  ZoomInOutlined,
-  ZoomOutOutlined,
-} from '@ant-design/icons';
-import { Button, Input, Popover, Select, Space, Typography, theme } from 'antd';
+import { GlobalOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Input, Popover, Select, Typography, theme } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import {
   QUICK_RANGES,
-  ZOOM_IN_FACTOR,
   ZOOM_OUT_FACTOR,
   describeWindow,
   exprFromMs,
@@ -37,24 +28,20 @@ export interface RangeTokens {
   to: string;
 }
 
-// Grafana-style period picker (09 §2.2). The trigger opens a popover with an
-// absolute From/To range, searchable quick ranges, and a zone selector; flanking
-// it are Grafana's navigation controls (shift back/forward, zoom). Choosing a
-// range applies it at once, the way Grafana refetches on a range change. The
-// sibling Apply stays for committing rail-selection edits (still draft-gated).
+// Grafana-style period picker for the shell header (09 §1, §2.2). The trigger
+// opens a popover with an absolute From/To range, searchable quick ranges, and
+// a zone selector; around it are Grafana's navigation controls: shift back,
+// shift forward, and zoom out. Choosing a range applies it at once, the way
+// Grafana refetches on a range change. The buttons are plain elements, not antd
+// buttons: they sit on the header color in both themes.
 
 interface PeriodControlsProps {
   value: TimeRange;
   /** A range change: commit the raw tokens (relative stays live in the URL). */
   onCommitRange: (tokens: RangeTokens) => void;
-  /** The sibling Apply: commit the current rail-selection edits. */
-  onApply: () => void;
-  /** Whether the rail selection differs from the committed one — Apply's dirty state. */
-  canApply: boolean;
-  applying: boolean;
 }
 
-export function PeriodControls({ value, onCommitRange, onApply, canApply, applying }: PeriodControlsProps) {
+export function PeriodControls({ value, onCommitRange }: PeriodControlsProps) {
   const hasWindow = value.fromMs !== null && value.toMs !== null;
 
   // Shifting/zooming resolves the live window, so it commits absolute ms — a
@@ -63,38 +50,53 @@ export function PeriodControls({ value, onCommitRange, onApply, canApply, applyi
   const ms: DraftWindow = { fromMs: value.fromMs, toMs: value.toMs };
 
   return (
-    <Space wrap size={4}>
-      <Button
-        icon={<DoubleLeftOutlined />}
-        aria-label="Move time range backwards"
-        disabled={!hasWindow}
-        onClick={() => nudge(shiftWindow(ms, -1))}
-      />
-      <TimeRangePicker value={value} onCommit={onCommitRange} />
-      <Button
-        icon={<DoubleRightOutlined />}
-        aria-label="Move time range forwards"
-        disabled={!hasWindow}
-        onClick={() => nudge(shiftWindow(ms, 1))}
-      />
-      <Button
-        icon={<ZoomOutOutlined />}
-        aria-label="Zoom out time range"
-        disabled={!hasWindow}
-        onClick={() => nudge(zoomWindow(ms, ZOOM_OUT_FACTOR))}
-      />
-      <Button
-        icon={<ZoomInOutlined />}
-        aria-label="Zoom in time range"
-        disabled={!hasWindow}
-        onClick={() => nudge(zoomWindow(ms, ZOOM_IN_FACTOR))}
-      />
-      {/* Enabled only when there is unwritten selection work — a dirty state, so
-          the button documents itself: grey means "everything is applied". */}
-      <Button type="primary" onClick={onApply} loading={applying} disabled={!hasWindow || !canApply}>
-        Apply
-      </Button>
-    </Space>
+    <div className={styles.range}>
+      <span className={styles.rangeCaption}>Time range:</span>
+      <div className={styles.group}>
+        <StepButton label="Move time range backwards" disabled={!hasWindow} onClick={() => nudge(shiftWindow(ms, -1))}>
+          <path d="M7.5 3 4 7l3.5 4M11 3 7.5 7l3.5 4" />
+        </StepButton>
+        <TimeRangePicker value={value} onCommit={onCommitRange} />
+        <StepButton label="Move time range forwards" disabled={!hasWindow} onClick={() => nudge(shiftWindow(ms, 1))}>
+          <path d="M6.5 3 10 7l-3.5 4M3 3l3.5 4L3 11" />
+        </StepButton>
+        <StepButton
+          label="Zoom out time range"
+          disabled={!hasWindow}
+          onClick={() => nudge(zoomWindow(ms, ZOOM_OUT_FACTOR))}
+        >
+          <circle cx="7" cy="7" r="4.4" />
+          <path d="M5 7h4M10.4 10.4 14 14" />
+        </StepButton>
+      </div>
+    </div>
+  );
+}
+
+function StepButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${styles.headerBtn} ${styles.step}`}
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <svg className={styles.icon} width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+        {children}
+      </svg>
+    </button>
   );
 }
 
@@ -276,13 +278,20 @@ function TimeRangePicker({ value, onCommit }: { value: TimeRange; onCommit: (tok
   );
 
   return (
-    <Popover trigger="click" placement="bottomLeft" open={open} onOpenChange={setOpen} content={content}>
-      <Button icon={<ClockCircleOutlined />} aria-label="Time range">
+    <Popover trigger="click" placement="bottomRight" open={open} onOpenChange={setOpen} content={content}>
+      <button type="button" className={`${styles.headerBtn} ${styles.trigger}`} aria-label="Time range">
+        <svg className={styles.icon} width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 4.5V8l2.5 1.5" />
+        </svg>
         <span className={styles.triggerLabel}>
           {describeWindow(value, applied.from, applied.to, zone)}
         </span>
-        <DownOutlined className={styles.caret} />
-      </Button>
+        {value.toMs === null ? null : <span className={styles.zone}>{zoneOffsetLabel(zone, value.toMs)}</span>}
+        <svg className={styles.icon} width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M2.5 4.5 6 8l3.5-3.5" />
+        </svg>
+      </button>
     </Popover>
   );
 }
