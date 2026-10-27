@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AppShell } from './app-shell';
 import { HeaderSlot } from './header-slot';
@@ -12,6 +12,7 @@ const RAIL_KEY = 'profiler.navRail.collapsed';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   localStorage.clear();
 });
 
@@ -108,5 +109,19 @@ describe('NavRail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand navigation' }));
     expect(localStorage.getItem(RAIL_KEY)).toBe('0');
+  });
+
+  it('starts open and still toggles when storage is unavailable', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    renderShell('/calls');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigation' }));
+
+    expect(screen.getByRole('button', { name: 'Expand navigation' })).toHaveAttribute('aria-expanded', 'false');
   });
 });
