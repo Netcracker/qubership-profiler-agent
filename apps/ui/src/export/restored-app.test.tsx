@@ -104,6 +104,12 @@ describe('RestoredApp', () => {
     expect(screen.getByRole('button', { name: /^InvoiceService\.handle · / })).toBeInTheDocument();
   });
 
+  it('reopens on a derived tab that was active at export time', () => {
+    render(<RestoredApp payload={payload({ tabs: [{ op: 'incoming', methodIdx: 1 }], activeTab: 'r0' })} />);
+    expect(screen.getByRole('tab', { name: /Incoming · InvoiceDao\.select/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'false');
+  });
+
   it('follows the browser when an older export names no theme', () => {
     localStorage.setItem('profiler.theme', 'dark');
     syncThemeMode();

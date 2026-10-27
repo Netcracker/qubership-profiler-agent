@@ -200,6 +200,17 @@ describe('FlameView', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('selects the whole call from the top frame, with nothing to reset', () => {
+    const onSelect = vi.fn();
+    const model = fixture();
+    render(<Harness model={model} onSelect={onSelect} />);
+    fireEvent.click(frame(/^Entry\.handle · /));
+    expect(onSelect).toHaveBeenLastCalledWith(model.root.id);
+    expect(frame(/^Entry\.handle · /)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: /Reset zoom/ })).toBeNull();
+    expect(widthOf(/^ServiceB\.other · /)).toBe(WIDTH * 0.4);
+  });
+
   it('does not zoom on a node selected in the Call Tree tab that takes no time', () => {
     const model = fixture();
     const view = render(<FlameView model={model} selectedId={null} onSelect={() => undefined} />);
@@ -208,6 +219,17 @@ describe('FlameView', () => {
     expect(screen.getByText(/^Tiny\.blip · /, { selector: 'span' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Reset zoom/ })).toBeNull();
     expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH * 0.5);
+  });
+
+  it('names a frame by the raw method text when the text is not a Java signature', () => {
+    const model = buildTreeModel({
+      v: 1,
+      methods: [METHODS[0]!, 'native-frame'],
+      params: [],
+      root: node(0, 1000, 400, [node(1, 600, 600)]),
+    });
+    render(<Harness model={model} />);
+    expect(widthOf(/^native-frame · 600ms · 60% of the call/)).toBe(WIDTH * 0.6);
   });
 
   it('keeps the zoom when the model is rebuilt', () => {
