@@ -158,6 +158,148 @@ describe('TreeView row layout', () => {
   });
 });
 
+describe('TreeView row interactions', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const childRow = (): HTMLElement => screen.getByTitle(METHODS[1]!).closest('div')!;
+
+  /** Types a query and presses Enter. The key goes up again, or the input ignores the next Enter. */
+  const search = (text: string): void => {
+    const input = screen.getByPlaceholderText('Search in the tree');
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyUp(input, { key: 'Enter' });
+  };
+
+  it('keeps the selection when a click ends a text selection on the label', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    vi.spyOn(window, 'getSelection').mockReturnValue({ toString: () => 'CheckoutFlow' } as Selection);
+    fireEvent.click(screen.getByTitle(METHODS[1]!));
+    expect(screen.getByTitle(METHODS[1]!)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('selects a row with Space and ignores other keys', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    fireEvent.keyDown(screen.getByTitle(METHODS[1]!), { key: 'a' });
+    expect(screen.getByTitle(METHODS[1]!)).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.keyDown(screen.getByTitle(METHODS[1]!), { key: ' ' });
+    expect(screen.getByTitle(METHODS[1]!)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('ignores a shared selection that is not in the model', () => {
+    const model = buildTreeModel(wire());
+    render(<TreeView model={model} selectedId={9999} onSelect={() => undefined} />);
+    expect(document.querySelectorAll('[aria-pressed="true"]')).toHaveLength(0);
+    expect(screen.getByTitle(METHODS[1]!)).toBeInTheDocument();
+  });
+
+  it('marks a row red from its menu and unmarks it again', async () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    fireEvent.click(within(childRow()).getByTitle('Operations'));
+    fireEvent.click(await screen.findByText('Mark red'));
+    expect(childRow().className).toContain(styles.rowMarked);
+
+    // The same entry now undoes the mark.
+    fireEvent.click(within(childRow()).getByTitle('Operations'));
+    fireEvent.click((await screen.findAllByText('Unmark red'))[0]!);
+    expect(childRow().className).not.toContain(styles.rowMarked);
+  });
+
+  it('counts the matches of a search, highlights them, and dims the other rows', () => {
+    render(<TreeView model={buildTreeModel(wire())} />);
+    search('CheckoutFlow');
+    expect(screen.getByText('1 match')).toBeInTheDocument();
+    expect(screen.getByTitle(METHODS[1]!).querySelectorAll('span')[1]!.className).toContain(styles.match);
+    expect(childRow().className).not.toContain(styles.rowDim);
+    expect(screen.getByTitle(METHODS[0]!).closest('div')!.className).toContain(styles.rowDim);
+
+    search('.jar');
+    expect(screen.getByText('2 matches')).toBeInTheDocument();
+
+    // Clearing the field ends the search.
+    fireEvent.change(screen.getByPlaceholderText('Search in the tree'), { target: { value: '' } });
+    expect(screen.getByText('Ctrl+hover a row for its stats.')).toBeInTheDocument();
+    expect(screen.getByTitle(METHODS[0]!).closest('div')!.className).not.toContain(styles.rowDim);
+  });
+
+  it('shows a method that is not a Java signature as its raw text, and highlights it on a match', () => {
+    const raw = wire();
+    raw.methods[1] = 'native-frame';
+    render(<TreeView model={buildTreeModel(raw)} />);
+    const label = screen.getByTitle('native-frame');
+    expect(label.textContent).toBe('native-frame');
+
+    search('native');
+    expect(screen.getByTitle('native-frame').querySelector('span')!.className).toContain(styles.match);
+  });
+});
+
+describe('TreeView parameter rows', () => {
+  afterEach(cleanup);
+
+  // The root carries an SQL group with one bind under it, and the ::other
+  // group that folds the values the server did not keep.
+  function paramWire(): TreeWire {
+    return {
+      v: 1,
+      methods: [...METHODS],
+      params: ['sql', 'binds'],
+      root: {
+        methodIdx: 0,
+        durationMs: 1000,
+        selfDurationMs: 1000,
+        suspensionMs: 0,
+        selfSuspensionMs: 0,
+        executions: 1,
+        selfExecutions: 1,
+        params: [
+          {
+            paramIdx: 0,
+            groups: [
+              {
+                value: 'select ?',
+                durationMs: 500,
+                executions: 1,
+                params: [{ paramIdx: 1, groups: [{ value: 'bind-42', durationMs: 500, executions: 1 }] }],
+              },
+              { value: '::other', durationMs: 10, executions: 3 },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  it('opens and closes the binds under an SQL group', () => {
+    render(
+      <AntdApp>
+        <TreeView model={buildTreeModel(paramWire())} />
+      </AntdApp>,
+    );
+    expect(screen.queryByTitle('bind-42')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand parameter' }));
+    expect(screen.getByTitle('bind-42')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse parameter' }));
+    expect(screen.queryByTitle('bind-42')).toBeNull();
+  });
+
+  it('shows the ::other group muted and with no full-value viewer', () => {
+    render(
+      <AntdApp>
+        <TreeView model={buildTreeModel(paramWire())} />
+      </AntdApp>,
+    );
+    const other = screen.getByTitle('::other');
+    expect(other.className).toContain(styles.paramOther);
+    expect(within(other.closest('div')!).queryByTitle('View full value')).toBeNull();
+    // The SQL row next to it keeps its viewer.
+    expect(within(screen.getByTitle('select ?').closest('div')!).getByTitle('View full value')).toBeInTheDocument();
+  });
+});
+
 describe('TreeView display switches and help', () => {
   afterEach(() => {
     cleanup();

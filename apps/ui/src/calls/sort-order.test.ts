@@ -1,20 +1,18 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { CallJSON } from '../api/types';
 import {
   CALLS_ORDERS,
   DEFAULT_ORDER,
+  LEGACY_ORDERS,
   ORDER_FIELDS,
   makeOrder,
   orderDirection,
   orderField,
   orderLabel,
   serverCanOrder,
-  serverOrders,
   sortCalls,
 } from './sort-order';
-
-afterEach(() => vi.unstubAllEnvs());
 
 /** A call whose every sortable metric is `n`, so each order sorts the same way. */
 function call(n: number): CallJSON {
@@ -76,14 +74,8 @@ describe('sort orders', () => {
 });
 
 describe('serverCanOrder', () => {
-  it('sends only start time, newest first, to the real backend', () => {
-    for (const order of CALLS_ORDERS) expect(serverCanOrder(order)).toBe(order === DEFAULT_ORDER);
-  });
-
-  it('sends every order to the dev mock', () => {
-    vi.stubEnv('VITE_ENABLE_MSW', '1');
-    expect(serverOrders().size).toBe(CALLS_ORDERS.length);
-    for (const order of CALLS_ORDERS) expect(serverCanOrder(order)).toBe(true);
+  it('sends only start time, newest first, to a backend that predates order', () => {
+    for (const order of CALLS_ORDERS) expect(serverCanOrder(order, LEGACY_ORDERS)).toBe(order === DEFAULT_ORDER);
   });
 
   it('takes the set of served orders as a parameter', () => {

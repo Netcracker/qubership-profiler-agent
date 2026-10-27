@@ -231,6 +231,24 @@ describe('expandAll', () => {
     expect(capped).toBe(true);
     expect([...expanded]).toEqual([model.root.id]);
   });
+
+  it('builds the children of a lazy node before it walks them', () => {
+    // A hotspot tree grafts a node's callers on first expansion; Expand all must not skip them.
+    const lazy = buildTreeModel(WIRE);
+    const small = lazy.root.children.find((c) => lazy.methods[c.methodIdx]!.includes('Small'))!;
+    const grafted = small.children;
+    small.children = [];
+    small.notComputed = true;
+    const computed: number[] = [];
+    const { expanded } = expandAll(lazy.root, 10_000, new Set(), (n) => {
+      computed.push(n.id);
+      n.children = grafted;
+      n.notComputed = false;
+    });
+    expect(computed).toEqual([small.id]);
+    expect(expanded.has(small.id)).toBe(true);
+    expect(names(lazy, buildRows(lazy, { ...noState, expanded }))).toContain('a.Child.bit@2');
+  });
 });
 
 describe('guideCells', () => {

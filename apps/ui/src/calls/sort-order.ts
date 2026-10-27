@@ -1,8 +1,7 @@
 import type { CallJSON } from '../api/types';
 
-// "Sort by" (09 §2.2): `order=<field>_<asc|desc>` on /calls, with the fields of the agent-access plan §5.2. The
-// backend sorts by start time, newest first, until that plan's `order` lands; every other order sorts the loaded rows
-// in the browser. serverCanOrder is the one place that decides, so it is the one place to widen.
+// "Sort by" (09 §2.2): `order=<field>_<asc|desc>` on /calls (02 §2.3.5). The backend lists the orders it implements in
+// `filter_capabilities.orders`; any other order sorts the loaded rows in the browser.
 
 export const ORDER_FIELDS = [
   { field: 'start', label: 'Start time', key: (c: CallJSON) => c.ts_ms },
@@ -47,16 +46,11 @@ export function orderLabel(order: CallsOrder): string {
   return ORDER_FIELDS.find((f) => f.field === field)!.label;
 }
 
-/**
- * The orders the server sorts by. The real backend has start time, newest first, only. `npm run dev:mock` serves
- * every order of the contract, so the server path can be seen before the backend has it.
- */
-export function serverOrders(): ReadonlySet<CallsOrder> {
-  return import.meta.env.VITE_ENABLE_MSW === '1' ? new Set(CALLS_ORDERS) : new Set([DEFAULT_ORDER]);
-}
+/** The orders of a backend that predates `order`: start time, newest first. */
+export const LEGACY_ORDERS: ReadonlySet<CallsOrder> = new Set([DEFAULT_ORDER]);
 
 /** True when /calls sorts by this order; otherwise the page sorts the loaded rows in the browser. */
-export function serverCanOrder(order: CallsOrder, served: ReadonlySet<CallsOrder> = serverOrders()): boolean {
+export function serverCanOrder(order: CallsOrder, served: ReadonlySet<string>): boolean {
   return served.has(order);
 }
 

@@ -103,6 +103,8 @@ export interface ConfigResponse {
    * as an empty list.
    */
   links?: ConfigLink[];
+  /** What the build implements of the filter model (02 §2.3.4). Absent on a build that predates it. */
+  filter_capabilities?: FilterCapabilities;
   /** Optional screens. A backend that predates a flag omits it, which means off. */
   features?: {
     /** The agent-configuration page and its draft API (agents/types.ts). */
@@ -116,6 +118,52 @@ export interface ConfigLink {
   kind: 'trace' | 'logs';
   /** An absolute http or https URL with `{placeholder}` parts; see tree/links.ts. */
   url_template: string;
+}
+
+/** The `filter_capabilities` member of /config (02 §2.3.4). */
+export interface FilterCapabilities {
+  /** Each implemented field and its implemented operators. A missing field is not implemented. */
+  fields: Record<string, string[]>;
+  /** The operators that work on call params. */
+  param_operators: string[];
+  /** `None` and `Any`, once they work. */
+  special_values: string[];
+  /** The implemented `/calls` orders (02 §2.3.5). */
+  orders: string[];
+  /** The implemented named `/stats` groupings (02 §2.9). */
+  group_by: string[];
+  /** True when `group_by` also takes the name of any call param. */
+  group_by_params?: boolean;
+}
+
+/** One /stats row (02 §2.9). `key` is absent on the `other` row. */
+export interface StatsRow {
+  key?: string;
+  count: number;
+  errors: number;
+  duration_ms_sum: number;
+  /** Null for a row with no calls. */
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  cpu_time_ms_sum: number;
+  wait_time_ms_sum: number;
+  queue_wait_ms_sum: number;
+  suspend_ms_sum: number;
+}
+
+/** GET /stats body (02 §2.9). */
+export interface StatsResponse {
+  group_by: string;
+  /** `group_by=time` only: the width of each bucket; the last one may be shorter. */
+  bucket_ms?: number;
+  rows: StatsRow[];
+  other: StatsRow | null;
+  distinct: number;
+  totals: { count: number; errors: number };
+  approximate: boolean;
+  partial: boolean;
+  partial_reasons: string[];
 }
 
 /** RFC 7807 body with the §2.3.2 wide-query guard extensions (02 §8). */

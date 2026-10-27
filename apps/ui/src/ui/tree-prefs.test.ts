@@ -33,5 +33,17 @@ describe('tree display switches', () => {
     localStorage.setItem('profiler.tree.prefs', JSON.stringify({ treeLines: 'no', rowLines: false }));
     syncTreePrefs();
     expect(getTreePrefs()).toEqual({ treeLines: true, rowLines: false });
+
+    localStorage.setItem('profiler.tree.prefs', JSON.stringify({ treeLines: false, rowLines: 1 }));
+    syncTreePrefs();
+    expect(getTreePrefs()).toEqual({ treeLines: false, rowLines: true });
+  });
+
+  it('writes nothing when a switch already holds the value', () => {
+    const before = getTreePrefs();
+    setTreePref('treeLines', true);
+    expect(localStorage.getItem('profiler.tree.prefs')).toBeNull();
+    // The same object, so a subscribed component does not re-render.
+    expect(getTreePrefs()).toBe(before);
   });
 });

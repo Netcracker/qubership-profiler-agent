@@ -1,7 +1,7 @@
 import { RETENTION_CLASSES } from '../api/types';
 import type { Operator } from './condition';
 
-// The fields of the read contract's filter model (agent-access plan §5.1) and the operators each one takes. A name
+// The fields of the read contract's filter model (02 §2.3.3) and the operators each one takes. A name
 // outside the catalog is a call parameter, such as `user.tenant`.
 
 export type FieldKind = 'duration' | 'enum' | 'text' | 'id' | 'bool' | 'param';

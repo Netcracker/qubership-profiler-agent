@@ -2,9 +2,9 @@ import type { CallJSON } from '../api/types';
 import { callTraceId } from '../calls/trace-id';
 import type { Condition, Operator } from './condition';
 
-// Conditions the calls page applies to the loaded rows in the browser, because /calls cannot filter by them yet
-// (redesign plan §4.2.1). Such a condition is not sent; it narrows the rows the server returned. Task 3.6 sends them
-// as `filter` parameters instead and deletes this module.
+// Conditions the calls page applies to the loaded rows in the browser, because a backend without the filter model
+// cannot filter by them (redesign plan §4.2.1). Such a condition is not sent; it narrows the rows the server
+// returned. With the filter model, they go out as `filter` parameters (calls/query-plan.ts).
 
 /** The tooltip of a token that filters the loaded rows only. */
 export const BROWSER_TRACE_NOTE =

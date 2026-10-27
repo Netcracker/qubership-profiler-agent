@@ -173,6 +173,22 @@ describe('scope picker', () => {
     expect(scopeButton()).toHaveTextContent('prod-billing / billing-core');
     expect(await screen.findByRole('tab', { name: 'Agents (2)' })).toHaveAttribute('aria-selected', 'true');
   });
+  it('closes the list without leaving the scope when the open scope is picked again', async () => {
+    const router = renderAgentsPage('/agents?scope=prod-billing');
+    fireEvent.click(option(await openScopeList(), 'prod-billing'));
+
+    await waitFor(() => expect(scopeButton()).toHaveAttribute('aria-expanded', 'false'));
+    expect(router.state.location.search).toBe('?scope=prod-billing');
+  });
+
+  it('closes the list on a second click of the button', async () => {
+    renderAgentsPage('/agents');
+    await openScopeList();
+    expect(scopeButton()).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(scopeButton());
+    await waitFor(() => expect(scopeButton()).toHaveAttribute('aria-expanded', 'false'));
+  });
 });
 
 describe('tabs', () => {
@@ -369,6 +385,25 @@ describe('applying changes', () => {
     ]);
     expect(screen.queryByRole('button', { name: 'Use inherited config' })).not.toBeInTheDocument();
     await waitFor(() => expect(router.state.location.search).toContain('tab=agents'));
+  });
+
+  it('reports a failed return to the inherited config and keeps the own config', async () => {
+    server.use(http.delete('/api/v1/agent-config/:scope', () => new HttpResponse(null, { status: 503 })));
+    const router = renderAgentsPage('/agents?scope=prod-orders%2Forder-processing');
+    fireEvent.click(await screen.findByRole('button', { name: 'Use inherited config' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete own config' }));
+
+    const error = await screen.findByText(/^Could not return to the inherited config: 503/);
+    expect(screen.getByText('revision 14')).toBeInTheDocument();
+    expect(screen.queryByText(/This scope has no config of its own/)).not.toBeInTheDocument();
+    expect(router.state.location.search).toBe('?scope=prod-orders%2Forder-processing');
+
+    const alert = error.closest('[role="alert"]');
+    if (!(alert instanceof HTMLElement)) throw new Error('the error is not an alert');
+    fireEvent.click(within(alert).getByRole('button', { name: /close/i }));
+    await waitFor(() =>
+      expect(screen.queryByText(/^Could not return to the inherited config/)).not.toBeInTheDocument(),
+    );
   });
 
   it('offers no way back to an inherited config on Default', async () => {

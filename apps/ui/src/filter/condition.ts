@@ -1,5 +1,5 @@
-// The filter model of the read contract (agent-access plan §5.1, draft): a condition is a field, an operator, and a
-// value, and all conditions of a query must match. The UI's filter tokens, the URL's `filter` parameters, and the
+// The filter model of the read contract (02 §2.3.3): a condition is a field, an operator, and a value, and all
+// conditions of a query must match. The UI's filter tokens, the URL's `filter` parameters, and the
 // CLI's `--filter` flag carry the same conditions.
 
 /** Every operator of the contract, in the order the filter bar lists them. */

@@ -100,6 +100,19 @@ describe('translateConditions', () => {
     expect(two.skipped.map((s) => s.condition.values[0])).toEqual(['Tax']);
   });
 
+  // The grammar rejects these, so they reach the translation only from a caller that builds conditions by hand.
+  it.each<[Condition, RegExp]>([
+    [{ field: 'pod', op: '=', values: ['Any'] }, /cannot match pod = None or Any/],
+    [{ field: 'retention_class', op: 'in', values: ['long_clean', 'hot'] }, /does not support this filter/],
+    [{ field: 'method', op: '=~', values: [] }, /needs a value/],
+    [{ field: 'duration', op: '>', values: ['fast'] }, /duration bound cannot be sent/],
+    [{ field: 'duration', op: 'between', values: ['2s'] }, /duration bound cannot be sent/],
+  ])('skips the unchecked condition %j and sends nothing for it', (condition, reason) => {
+    const t = translateConditions([condition], NAMESPACES);
+    expect(t.params).toEqual({});
+    expect(t.skipped).toEqual([{ condition, reason: expect.stringMatching(reason) }]);
+  });
+
   it.each(['pod!=checkout-a', 'service not in cart', 'namespace=~ord', 'method!~health', 'trace_id=abc', 'user.tenant=acme', 'endpoint=None'])(
     'skips %s with a reason',
     (text) => {

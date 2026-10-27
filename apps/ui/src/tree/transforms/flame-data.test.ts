@@ -100,6 +100,13 @@ describe('toFlameData', () => {
     expect(toFlameData(util, nameOf).category?.name).toBe('svc');
   });
 
+  it('starts a subtree with no category when none of its ancestors has one', () => {
+    const model = fixture();
+    applyCategories(model, parseCategoryConfig('db db.Query.run'));
+    const util = model.root.children[0]!.children[1]!;
+    expect(toFlameData(util, nameOf).category).toBeNull();
+  });
+
   it('clips children to the time their parent has left', () => {
     // A merged or adjusted tree can claim more time below a node than the node has.
     const root = createNode(0, 0);

@@ -3,9 +3,7 @@ import { fieldDef } from './catalog';
 import { ANY, NONE, isListOperator } from './condition';
 import type { Condition, Operator } from './condition';
 
-// The text form of a condition, as a `filter=` URL parameter carries it. The read contract (agent-access plan §5.1)
-// leaves the exact grammar and escaping to its task 1.1, so this module is the one place that follows the draft and
-// the one place to change when the contract lands:
+// The text form of a condition, as a `filter=` URL parameter carries it (02 §2.3.3):
 //
 //   <field><op><value>              op is = != =~ !~ > >= < <=      duration>100ms, namespace=prod-orders
 //   <field> in <value>,<value>      also `not in`; a comma or a backslash in a value is escaped with a backslash

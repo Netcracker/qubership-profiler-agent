@@ -2,10 +2,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { RouterProvider, createMemoryRouter } from 'react-router';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfigProvider } from './api/use-config';
-import { APP_ROUTES } from './app';
+import { APP_ROUTES, App } from './app';
 import { resetAgentConfigMock } from './mocks/agent-config';
 import { server } from './mocks/node';
 
@@ -19,6 +19,8 @@ afterEach(() => {
   server.resetHandlers();
   server.events.removeAllListeners();
   localStorage.clear();
+  vi.unstubAllEnvs();
+  window.history.pushState({}, '', '/');
 });
 afterAll(() => server.close());
 
@@ -74,5 +76,29 @@ describe('the /agents route', () => {
     renderApp('/pods');
     expect(await screen.findByRole('link', { name: 'Agents' })).toBeInTheDocument();
     await waitFor(() => expect(requests).toBe(1));
+  });
+});
+
+describe('App', () => {
+  it('routes the browser URL through the shell', async () => {
+    window.history.pushState({}, '', '/');
+    render(<App />);
+    await waitFor(() => expect(window.location.pathname).toBe('/calls'));
+    expect(screen.getByRole('link', { name: 'Calls' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('mounts the routes under a non-root build base', async () => {
+    // The router is created once per module load, so a fresh copy reads the stubbed base.
+    vi.stubEnv('BASE_URL', '/ui/');
+    vi.resetModules();
+    const { App: AppUnderBase } = await import('./app');
+    window.history.pushState({}, '', '/ui/');
+    render(<AppUnderBase />);
+    await waitFor(() => expect(window.location.pathname).toBe('/ui/calls'));
+    // The rail keeps each screen's query string, so match the path only.
+    expect(screen.getByRole('link', { name: 'Pods Info' })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/ui\/pods(\?|$)/),
+    );
   });
 });

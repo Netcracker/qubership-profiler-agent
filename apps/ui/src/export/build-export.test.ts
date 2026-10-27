@@ -110,6 +110,32 @@ describe('buildExportHtml', () => {
     expect(html).not.toContain('.woff2');
   });
 
+  it('inlines a font with no unicode-range as woff, and drops a face whose range it cannot read', async () => {
+    const css = [
+      "@font-face{font-family:'Any';src:url(/ui/assets/any.woff) format('woff')}",
+      "@font-face{font-family:'Odd';src:url(/ui/assets/odd.woff2) format('woff2');unicode-range:latin}",
+    ].join('');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        const body = u.endsWith('index.html') ? INDEX : u.endsWith('.css') ? css : APP_JS;
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          text: async () => body,
+          arrayBuffer: async () => new TextEncoder().encode('ANY').buffer,
+        } as Response;
+      }),
+    );
+    const html = await buildExportHtml(payload());
+    // No range covers every character, Basic Latin included. btoa('ANY') = 'QU5Z'.
+    expect(html).toContain("src:url(data:font/woff;base64,QU5Z) format('woff')");
+    expect(html).not.toContain("'Odd'");
+    expect(html).not.toContain('/ui/assets/');
+  });
+
   it('carries the theme of the exporting page in the payload', async () => {
     stubFetch(INDEX);
     const html = await buildExportHtml(payload({ theme: 'dark', activeTab: 'flame' }));

@@ -57,6 +57,20 @@ describe('FilterBar', () => {
     expect(last()).toEqual([{ field: 'pod', op: '=', values: ['checkout-b'] }]);
   });
 
+  it('reports the field whose values it lists, and adds the footer note', async () => {
+    const onValueField = vi.fn<(field: string | null) => void>();
+    const { input } = setup({ onValueField, valueNote: (field) => (field === 'pod' ? 'Loading values…' : null) });
+    await userEvent.click(input);
+    await userEvent.type(input, 'pod');
+    await userEvent.keyboard('{Enter}');
+    expect(onValueField).toHaveBeenLastCalledWith(null);
+    await userEvent.keyboard('{Enter}');
+    expect(onValueField).toHaveBeenLastCalledWith('pod');
+    expect(screen.getByText(/^Loading values… /)).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}{Backspace}');
+    expect(onValueField).toHaveBeenLastCalledWith(null);
+  });
+
   it('moves the highlight with the arrows', async () => {
     const { input } = setup();
     await userEvent.click(input);
@@ -138,6 +152,67 @@ describe('FilterBar', () => {
     expect(screen.getByRole('listbox', { name: 'Values for duration' })).toBeInTheDocument();
     await userEvent.keyboard('{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}1s{Enter}');
     expect(last()).toEqual([{ field: 'duration', op: '>', values: ['1s'] }]);
+  });
+
+  it('drops the last picked value of an in list with Backspace', async () => {
+    const { input, last } = setup();
+    await userEvent.click(input);
+    await userEvent.type(input, 'pod{Enter}in');
+    await userEvent.keyboard('{Enter}{Enter}{ArrowDown}{Enter}');
+    expect(screen.getByRole('option', { name: /Apply 2 values/ })).toBeInTheDocument();
+    await userEvent.keyboard('{Backspace}');
+    expect(screen.getByRole('option', { name: /Apply 1 value/ })).toBeInTheDocument();
+    await userEvent.keyboard('{Enter}');
+    expect(last()).toEqual([{ field: 'pod', op: 'in', values: ['checkout-a'] }]);
+  });
+
+  it('steps back into an in token with its values as the draft', async () => {
+    const { input, last } = setup({ initial: [{ field: 'pod', op: 'in', values: ['checkout-a', 'billing-a'] }] });
+    await userEvent.click(input);
+    await userEvent.keyboard('{Backspace}');
+    expect(last()).toEqual([]);
+    expect(input).toHaveValue('');
+    expect(screen.getByRole('option', { name: /Apply 2 values/ })).toBeInTheDocument();
+    // The picked values leave the suggestions.
+    expect(options().map((o) => o.textContent)).not.toContain('billing-a');
+    await userEvent.keyboard('{ArrowDown}{Enter}{Enter}');
+    expect(last()).toEqual([{ field: 'pod', op: 'in', values: ['checkout-a', 'billing-a', 'checkout-b'] }]);
+  });
+
+  it('does nothing on Backspace in an empty bar', async () => {
+    const { input, onConditions } = setup();
+    await userEvent.click(input);
+    await userEvent.keyboard('{Backspace}');
+    expect(onConditions).not.toHaveBeenCalled();
+    expect(screen.getByRole('listbox', { name: 'Filter by' })).toBeInTheDocument();
+  });
+
+  it('reopens a closed list with Enter instead of picking', async () => {
+    const { input, onConditions } = setup();
+    await userEvent.click(input);
+    await userEvent.type(input, 'pod');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByRole('listbox', { name: 'Filter by' })).toBeInTheDocument();
+    expect(onConditions).not.toHaveBeenCalled();
+  });
+
+  it('hides the list when nothing matches the typed text', async () => {
+    const { input } = setup({ fields: ['namespace', 'service', 'pod'] });
+    await userEvent.click(input);
+    await userEvent.type(input, 'zzz');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-expanded', 'false');
+    expect(input).not.toHaveAttribute('aria-activedescendant');
+  });
+
+  it('moves the highlight to the hovered option', async () => {
+    const { input } = setup();
+    await userEvent.click(input);
+    await userEvent.hover(options()[2]!);
+    expect(options()[2]).toHaveAttribute('aria-selected', 'true');
+    expect(input).toHaveAttribute('aria-activedescendant', options()[2]!.id);
   });
 
   it('closes the list with Escape and runs with Ctrl+Enter', async () => {

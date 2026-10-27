@@ -6,8 +6,8 @@ import type { NamespaceNode } from '../discovery/group-pods';
 import { ANY, NONE, regexLiteral } from './condition';
 import type { Condition, Operator } from './condition';
 
-// Until /calls takes the `filter` parameter, the applied conditions are sent as the parameters /calls has today
-// (UI redesign plan §4.2.1). Task 3.6 deletes this module.
+// A backend without the filter model reports no `filter_capabilities` (02 §2.3.4) and takes only the legacy /calls
+// parameters, so the applied conditions are translated to them (UI redesign plan §4.2.1). See calls/query-plan.ts.
 
 /** The reason shown on a field, an operator, or a token that the backend cannot apply yet. */
 export const UNSUPPORTED_REASON = 'The backend does not support this filter yet.';
@@ -68,10 +68,11 @@ function allPodTuples(namespaces: readonly NamespaceNode[]): { tuple: string; na
 /** Why one condition cannot be sent, or null when it can. */
 function valueReason(c: Condition): string | null {
   if (unsupportedReason(c.field, c.op) !== null) return UNSUPPORTED_REASON;
+  if (c.values.length === 0) return `The filter ${c.field} ${c.op} needs a value.`;
   if (c.values.some((v) => v === NONE || v === ANY)) return `The backend cannot match ${c.field} ${c.op} None or Any yet.`;
   if (c.field === 'error' && c.values[0] !== 'true') return 'Only error=true can be sent until the backend takes filters.';
   if (c.field === 'retention_class' && !c.values.every(isRetentionClass)) return UNSUPPORTED_REASON;
-  if (c.field === 'method' && regexLiteral(c.values[0] ?? '') === null) {
+  if (c.field === 'method' && regexLiteral(c.values[0]!) === null) {
     return 'The backend matches a plain word in the method only; regular expressions come later.';
   }
   return null;

@@ -12,6 +12,7 @@ import {
   SelectionTooWideBanner,
   TooWideBanner,
 } from '../calls/calls-banners';
+import { CallsHistogram } from '../calls/calls-histogram';
 import { CallsTable } from '../calls/calls-table';
 import { loadColumnPrefs, saveColumnPrefs } from '../calls/column-prefs';
 import type { ColumnPrefs } from '../calls/column-prefs';
@@ -19,21 +20,30 @@ import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
 import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
 import type { PresetToken } from '../calls/filter-bar/filter-bar';
+import { ALL_FIELDS } from '../calls/filter-bar/suggestions';
+import type { ValueSuggestion } from '../calls/filter-bar/suggestions';
+import { suggestionNote, useParamNames, useValueSuggestions } from '../calls/filter-bar/use-value-suggestions';
 import { HIDE_SYSTEM_TOKEN, isIdleMethod } from '../calls/idle-tags';
 import { QueryControls, SortBy } from '../calls/query-controls';
-import { DEFAULT_ORDER, orderLabel, serverCanOrder, sortCalls } from '../calls/sort-order';
+import { planQuery } from '../calls/query-plan';
+import { orderLabel, sortCalls } from '../calls/sort-order';
 import type { CallsOrder } from '../calls/sort-order';
 import { useCallsQuery } from '../calls/use-calls-query';
+import { useStats } from '../calls/use-stats';
 import { PeriodControls } from '../controls/period-controls';
 import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
-import { browserNote, browserSupports, filterInBrowser, isBrowserCondition } from '../filter/browser';
+import { browserNote, browserSupports, filterInBrowser } from '../filter/browser';
+import { capabilitiesOf } from '../filter/capabilities';
+import { fieldDef } from '../filter/catalog';
+import type { Capabilities } from '../filter/capabilities';
 import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
-import { translateConditions, unsupportedReason } from '../filter/translate';
+import { unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
-import type { CallsFilter } from '../api/endpoints';
+import { useConfig } from '../api/use-config';
+import type { CallsFilter, StatsQuery } from '../api/endpoints';
 import { callsSearchToParams, freezeWindow, hasRelativeWindow, parseCallsSearch } from '../url/search-params';
 import type { CallsSearchState } from '../url/search-params';
 import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
@@ -55,9 +65,15 @@ interface QueryDraft {
 
 const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem, d.order]);
 
-/** The fields and operators the bar offers: those /calls takes, and those the browser applies to the loaded rows. */
-const supportedHere = (field: string, op?: Operator): string | null =>
+/**
+ * The fields and operators the bar offers on a backend without the filter model: those the translation sends, and
+ * those the browser applies to the loaded rows.
+ */
+const legacySupported = (field: string, op?: Operator): string | null =>
   browserSupports(field, op) ? null : unsupportedReason(field, op);
+
+/** The bars of the histogram (redesign plan §4.3). */
+const HISTOGRAM_BUCKETS = 60;
 
 const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
 
@@ -87,26 +103,65 @@ export function CallsPage() {
 
   const [prefs, setPrefs] = useState<ColumnPrefs>(() => loadColumnPrefs(DEFAULT_COLUMN_ORDER));
 
-  // /pods for the window feeds the namespace, service, and pod translation and the bar's value suggestions.
+  // What the backend implements of the filter model: undefined while /config loads, null for a backend without it.
+  const config = useConfig();
+  const fc = config.kind === 'ready' ? config.config.filter_capabilities : undefined;
+  const caps: Capabilities | null | undefined = useMemo(
+    () => (config.kind === 'loading' ? undefined : fc === undefined ? null : capabilitiesOf(fc)),
+    [config.kind, fc],
+  );
+
+  // /pods for the window feeds the bar's value suggestions and, without the filter model, the translation of the
+  // namespace, service, and pod conditions to pod tuples.
   const { state: podsState, refetch: refetchPods } = usePods(search.fromMs, search.toMs);
   const namespaces = podsState.kind === 'ready' ? podsState.namespaces : null;
-  const values = useMemo(() => podValueSource(namespaces), [namespaces]);
+  const podValues = useMemo(() => podValueSource(namespaces), [namespaces]);
 
-  // /calls takes no `filter` parameter yet: the applied conditions travel as today's parameters (plan §4.2.1).
-  const translation = useMemo(() => translateConditions(search.conditions, namespaces), [search.conditions, namespaces]);
-  const needsPods = search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field));
-  const waitingForPods = translation.params === null && podsState.kind !== 'error';
+  // Value suggestions come from /stats when the backend groups by the field, with the other draft conditions, and
+  // from /pods otherwise (redesign plan §4.3). The bar says which field it lists values for.
+  const [valueField, setValueField] = useState<string | null>(null);
+  const suggestions = useValueSuggestions({
+    field: valueField,
+    fromMs: search.fromMs,
+    toMs: search.toMs,
+    conditions: draft.conditions,
+    caps,
+  });
+  const values = useCallback(
+    (field: string): readonly ValueSuggestion[] =>
+      suggestions !== null && suggestions.field === field
+        ? suggestions.kind === 'ready'
+          ? suggestions.values
+          : []
+        : podValues(field),
+    [suggestions, podValues],
+  );
+  const valueNote = useCallback((field: string) => suggestionNote(suggestions, field), [suggestions]);
 
-  // A draft token the translation skips renders disabled with the reason, and is not sent. A trace_id token is not
-  // sent either, but it filters the loaded rows in the browser, so it renders applied, with that note.
+  // The call param names of the window join the field list, so a tag such as `user.tenant` need not be typed.
+  const paramNames = useParamNames(search.fromMs, search.toMs, caps);
+  const fields = useMemo(
+    () => [...ALL_FIELDS, ...paramNames.filter((name) => fieldDef(name)?.kind === 'param')],
+    [paramNames],
+  );
+
+  const plan = useMemo(
+    () => planQuery(search.conditions, search.order, caps, namespaces),
+    [search.conditions, search.order, caps, namespaces],
+  );
+  const needsPods = plan.expandsPods && search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field));
+  const waitingForPods = plan.waitingForPods && podsState.kind !== 'error';
+
+  // A draft token the backend cannot take renders disabled with the reason, and is not sent. Without the filter
+  // model, a trace_id token is not sent either, but it filters the loaded rows in the browser, so it renders applied,
+  // with that note.
   const draftReasons = useMemo(
-    () => new Map(translateConditions(draft.conditions, namespaces).skipped.map((s) => [s.condition, s.reason])),
-    [draft.conditions, namespaces],
+    () => new Map(planQuery(draft.conditions, draft.order, caps, namespaces).skipped.map((s) => [s.condition, s.reason])),
+    [draft.conditions, draft.order, caps, namespaces],
   );
-  const tokenReason = useCallback(
-    (c: Condition) => (isBrowserCondition(c) ? null : (draftReasons.get(c) ?? null)),
-    [draftReasons],
-  );
+  const tokenReason = useCallback((c: Condition) => draftReasons.get(c) ?? null, [draftReasons]);
+  const supported = caps ? caps.supported : legacySupported;
+  const tokenNote = caps ? undefined : browserNote;
 
   // "Hide system/proxy" shows in the bar as a token of the draft: the switch adds and removes it, and so do its ×
   // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2).
@@ -114,23 +169,25 @@ export function CallsPage() {
     ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
     : [];
 
-  const serverOrdered = serverCanOrder(search.order);
   const rawFilter: CallsFilter | null = useMemo(() => {
-    if (search.fromMs === null || search.toMs === null) return null;
-    if (translation.params === null || translation.noPods || translation.contradiction) return null;
-    // An order the server cannot sort by stays out of the request; the loaded rows are sorted below instead.
-    const order = serverOrdered && search.order !== DEFAULT_ORDER ? { order: search.order } : {};
-    return { fromMs: search.fromMs, toMs: search.toMs, ...translation.params, ...order };
-  }, [search.fromMs, search.toMs, translation, serverOrdered, search.order]);
+    if (search.fromMs === null || search.toMs === null || plan.params === null) return null;
+    return { fromMs: search.fromMs, toMs: search.toMs, ...plan.params };
+  }, [search.fromMs, search.toMs, plan]);
 
-  // A wide namespace or service filter expands to repeatable `pod` params (no
-  // `service` param exists, 02 §2.3) and can build a request line a proxy
-  // or browser rejects outright; catch that before sending it rather than
-  // surfacing an opaque network failure (PR 708 review #8).
-  const selectionTooWide = rawFilter !== null && callsQueryUrlLength(rawFilter) > CALLS_URL_LENGTH_LIMIT;
+  // Without the filter model, a wide namespace or service filter expands to repeatable `pod` params and can build a
+  // request line a proxy or browser rejects outright; catch that before sending it rather than surfacing an opaque
+  // network failure (PR 708 review #8).
+  const selectionTooWide = plan.expandsPods && rawFilter !== null && callsQueryUrlLength(rawFilter) > CALLS_URL_LENGTH_LIMIT;
   const filter = selectionTooWide ? null : rawFilter;
 
   const { state, loadMore, refetch } = useCallsQuery(filter);
+
+  // The histogram counts the same query by time (redesign plan §4.3), on a backend that groups by time.
+  const statsQuery: StatsQuery | null = useMemo(() => {
+    if (filter === null || !caps || !caps.canGroupBy('time')) return null;
+    return { fromMs: filter.fromMs, toMs: filter.toMs, filters: filter.filters, groupBy: 'time', buckets: HISTOGRAM_BUCKETS };
+  }, [filter, caps]);
+  const { state: statsState, refetch: refetchStats } = useStats(statsQuery);
 
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
 
@@ -139,6 +196,7 @@ export function CallsPage() {
     setDraft(next);
     commitSearch({ ...search, ...next });
     refetch();
+    refetchStats();
   };
   const run = (): void => runQuery(draft);
 
@@ -167,13 +225,13 @@ export function CallsPage() {
     [rows, search.hideSystem],
   );
   const hiddenCount = rows.length - unhiddenRows.length;
-  const shownRows = useMemo(() => filterInBrowser(unhiddenRows, search.conditions), [unhiddenRows, search.conditions]);
+  const shownRows = useMemo(() => filterInBrowser(unhiddenRows, plan.browser), [unhiddenRows, plan.browser]);
   const traceHiddenCount = unhiddenRows.length - shownRows.length;
   const visibleRows = useMemo(
-    () => (serverOrdered ? shownRows : sortCalls(shownRows, search.order)),
-    [shownRows, serverOrdered, search.order],
+    () => (plan.serverOrdered ? shownRows : sortCalls(shownRows, search.order)),
+    [shownRows, plan.serverOrdered, search.order],
   );
-  const sortNote = serverOrdered ? undefined : `Sort by ${orderLabel(search.order)} applies to the loaded rows only`;
+  const sortNote = plan.serverOrdered ? undefined : `Sort by ${orderLabel(search.order)} applies to the loaded rows only`;
 
   const footer =
     state.kind === 'ready' ? (
@@ -191,11 +249,7 @@ export function CallsPage() {
     ) : undefined;
 
   const applyConditions = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions });
-  const noMatch = translation.contradiction
-    ? 'The filters exclude each other, so no call can match.'
-    : translation.noPods
-      ? 'No pod in this window matches the namespace, service, and pod filters.'
-      : null;
+  const noMatch = plan.noMatch;
 
   return (
     <Layout className={styles.page}>
@@ -215,10 +269,13 @@ export function CallsPage() {
                   conditions={draft.conditions}
                   onChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
                   presets={presets}
-                  supported={supportedHere}
-                  tokenNote={browserNote}
+                  supported={supported}
+                  tokenNote={tokenNote}
                   tokenReason={tokenReason}
                   values={values}
+                  valueNote={valueNote}
+                  onValueField={setValueField}
+                  fields={fields}
                   onRun={run}
                 />
               </div>
@@ -236,10 +293,23 @@ export function CallsPage() {
             />
           </div>
         </ConfigProvider>
+        {search.fromMs !== null && search.toMs !== null && statsState.kind !== 'idle' && statsState.kind !== 'hidden' ? (
+          <CallsHistogram
+            state={statsState}
+            fromMs={search.fromMs}
+            toMs={search.toMs}
+            onZoom={(from, to) => commitRange({ from: String(from), to: String(to) })}
+            onRetry={refetchStats}
+            hideSystem={search.hideSystem}
+          />
+        ) : null}
         <Space orientation="vertical" className={styles.fullWidth} size={8}>
           {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={applyConditions} /> : null}
           {state.kind === 'too-wide' ? (
             <TooWideBanner problem={state.problem} conditions={search.conditions} onApply={applyConditions} />
+          ) : null}
+          {state.kind === 'invalid' ? (
+            <Alert type="warning" showIcon title="The backend rejected the query" description={state.detail} />
           ) : null}
           {state.kind === 'all-failed' ? <AllFailedBanner detail={state.detail} onRetry={refetch} /> : null}
           {state.kind === 'error' ? (
@@ -282,9 +352,9 @@ export function CallsPage() {
         </Space>
         {/* jsdom cannot size the virtual scroller; tests render plain rows. */}
         {/* selectionTooWide already has its own banner above; no Empty needed. */}
-        {state.kind === 'idle' && !waitingForPods && !selectionTooWide ? (
+        {state.kind === 'idle' && !waitingForPods && caps !== undefined && !selectionTooWide ? (
           <Empty className={styles.emptyTop} description={noMatch ?? 'Pick a time range to see calls.'} />
-        ) : state.kind === 'loading' || (state.kind === 'idle' && waitingForPods) ? (
+        ) : state.kind === 'loading' || (state.kind === 'idle' && (waitingForPods || caps === undefined)) ? (
           <CallsTable rows={[]} loading prefs={prefs} onPrefsChange={changePrefs} virtual={VIRTUAL} />
         ) : state.kind === 'ready' ? (
           visibleRows.length === 0 && state.nextCursor === null && !state.emptyPaused ? (
