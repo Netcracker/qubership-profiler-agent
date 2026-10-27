@@ -1,6 +1,6 @@
 import { buildUrl, getBinary, getJson } from './client';
 import { pkToPath } from './pk';
-import type { CallPK, CallsResponse, ConfigResponse, PodsResponse, RetentionClass } from './types';
+import type { CallPK, CallsResponse, ConfigResponse, PodsResponse, RetentionClass, StatsResponse } from './types';
 import { TREE_WIRE_VERSION, decodeTree } from '../msgpack/decode';
 import type { TreeWire } from '../msgpack/tree-wire';
 
@@ -8,6 +8,8 @@ import type { TreeWire } from '../msgpack/tree-wire';
 export interface CallsFilter {
   fromMs: number;
   toMs: number;
+  /** Conditions in their text form, one repeatable `filter` parameter each (02 §2.3.3). */
+  filters?: readonly string[];
   /** `namespace/service/pod` tuples. */
   pods?: readonly string[];
   /** Substring match on the method column. */
@@ -16,6 +18,11 @@ export interface CallsFilter {
   durationMaxMs?: number;
   errorOnly?: boolean;
   retentionClasses?: readonly RetentionClass[];
+  /**
+   * `order=<field>_<asc|desc>` (02 §2.3.5). Set only for an order the server sorts by (`serverCanOrder`); absent
+   * means start time, newest first.
+   */
+  order?: string;
   limit?: number;
 }
 
@@ -23,12 +30,14 @@ function callsQueryParams(filter: CallsFilter) {
   return {
     from: filter.fromMs,
     to: filter.toMs,
+    filter: filter.filters,
     pod: filter.pods,
     method: filter.method || undefined,
     duration_min_ms: filter.durationMinMs || undefined,
     duration_max_ms: filter.durationMaxMs || undefined,
     error_only: filter.errorOnly || undefined,
     retention_class: filter.retentionClasses,
+    order: filter.order,
     limit: filter.limit,
   };
 }
@@ -63,6 +72,28 @@ export const CALLS_URL_LENGTH_LIMIT = 6000;
  */
 export function fetchCallsNextPage(cursor: string, signal?: AbortSignal): Promise<CallsResponse> {
   return getJson<CallsResponse>('/api/v1/calls', { cursor }, signal);
+}
+
+/** A /stats request (02 §2.9): the conditions of a /calls query and one grouping. */
+export interface StatsQuery {
+  fromMs: number;
+  toMs: number;
+  filters?: readonly string[];
+  /** `time`, a field of 02 §2.3.3, a call param name, or `param_name`. */
+  groupBy: string;
+  /** `group_by=time` only. */
+  buckets?: number;
+  /** Field groupings only. */
+  limit?: number;
+  order?: 'count_desc' | 'duration_sum_desc';
+}
+
+export function fetchStats(q: StatsQuery, signal?: AbortSignal): Promise<StatsResponse> {
+  return getJson<StatsResponse>(
+    '/api/v1/stats',
+    { from: q.fromMs, to: q.toMs, filter: q.filters, group_by: q.groupBy, buckets: q.buckets, limit: q.limit, order: q.order },
+    signal,
+  );
 }
 
 export function fetchPods(fromMs: number, toMs: number, signal?: AbortSignal): Promise<PodsResponse> {

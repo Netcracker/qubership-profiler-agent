@@ -19,3 +19,21 @@
   z-index: 1;
   user-select: none;
 }
+
+/* The mockup's compact tags (11 px text on a 16 px line), so a tagged row keeps the 28 px row height. */
+.tableContainer :global(.ant-table-cell .ant-tag) {
+  font-size: 11px;
+  line-height: 16px;
+  padding-inline: 6px;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.footerEnd {
+  margin-left: auto;
+}

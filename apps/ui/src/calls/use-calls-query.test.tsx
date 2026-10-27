@@ -54,7 +54,25 @@ describe('useCallsQuery', () => {
     const state = result.current.state;
     if (state.kind !== 'too-wide') throw new Error('unreachable');
     expect(state.problem.title).toBe('query too wide');
-    expect(state.problem.suggested_filters).toEqual(['pod', 'retention_class', 'duration_min_ms', 'error_only']);
+    expect(state.problem.suggested_filters).toEqual(['pod', 'namespace', 'service', 'retention_class', 'duration_min_ms', 'error_only']);
+  });
+
+  it('reports a rejected filter with the detail, not as a load failure', async () => {
+    const { result } = renderHook(() => useCallsQuery({ ...FILTER, filters: ['duration=1s'] }));
+    await waitFor(() => expect(result.current.state.kind).toBe('invalid'), { timeout: 5000 });
+    const state = result.current.state;
+    if (state.kind !== 'invalid') throw new Error('unreachable');
+    expect(state.detail).toContain('"duration=1s"');
+  });
+
+  it('refetches when the filter conditions change', async () => {
+    let filters = ['service=billing'];
+    const { result, rerender } = renderHook(() => useCallsQuery({ ...FILTER, filters }));
+    await waitFor(() => expect(result.current.state.kind).toBe('ready'), { timeout: 5000 });
+    filters = ['service!=billing'];
+    rerender();
+    await waitFor(() => expect(result.current.state.kind).toBe('ready'), { timeout: 5000 });
+    expect(ready(result.current.state).rows.every((c) => c.pk.pod_service !== 'billing')).toBe(true);
   });
 
   it('passes partial markers through to the ready state', async () => {

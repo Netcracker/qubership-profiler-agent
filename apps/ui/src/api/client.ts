@@ -23,29 +23,34 @@ export class ApiError extends Error {
   }
 }
 
-// TODO(error-classification-fragility): the helpers below (and the /tree state
-// machine in tree/use-tree.ts) branch on the RFC 7807 `title` / `detail` prose,
-// which 02 §8 does not pin as a stable contract. A backend wording change would
-// silently misroute an error. A machine-readable error code needs a contract +
-// backend change (out of Focus E scope), so this stays string-matched for now.
+// Classify errors by the problem `code` (02 §8). A build older than the code member sends none; for it, the helpers
+// fall back on the `title` and `detail` prose that build wrote.
 
-/** Wide-query guard rejection (02 §2.3.2); api.go titles it "query too wide". */
+/** True when the problem carries `code`, or carries no code and `legacy` matches the older build's prose. */
+function hasCode(e: unknown, status: number, code: string, legacy: (p: ProblemDetails) => boolean): e is ApiError {
+  if (!(e instanceof ApiError) || e.status !== status || e.problem === null) return false;
+  return e.problem.code !== undefined ? e.problem.code === code : legacy(e.problem);
+}
+
+/** Wide-query guard rejection (02 §2.3.2). */
 export function isWideQueryRejection(e: unknown): e is ApiError {
-  return e instanceof ApiError && e.status === 400 && e.problem?.title === 'query too wide';
+  return hasCode(e, 400, 'query_too_wide', (p) => p.title === 'query too wide');
 }
 
 /**
- * Cursor rejection — expired, malformed, or frozen-query mismatch (02 §2.3.1).
- * The backend reports every cursor failure as a 400 whose detail names the
- * cursor (decodeCursor / frozenQueryMismatch in libs/query); the
- * client's reaction is the same for all of them: restart from page one.
+ * Cursor rejection: expired, malformed, or contradicted by re-sent filters (02 §2.3.1). The client restarts from page
+ * one for all of them.
  */
 export function isCursorRejection(e: unknown): e is ApiError {
-  return (
-    e instanceof ApiError &&
-    e.status === 400 &&
-    (e.problem?.detail ?? '').toLowerCase().includes('cursor')
-  );
+  return hasCode(e, 400, 'cursor_rejected', (p) => (p.detail ?? '').toLowerCase().includes('cursor'));
+}
+
+/**
+ * A request the backend rejected as malformed (02 §8), such as a filter it does not implement (02 §2.3.4). Retrying
+ * the same request gets the same answer.
+ */
+export function isInvalidRequest(e: unknown): e is ApiError {
+  return hasCode(e, 400, 'invalid_request', (p) => p.title === 'invalid request');
 }
 
 export type QueryParamValue = string | number | boolean | undefined;
