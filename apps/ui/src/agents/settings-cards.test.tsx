@@ -143,6 +143,29 @@ describe('SettingsCards', () => {
     expect(cards.current().params).toEqual([{ name: 'user.tenant', index: true, list: false }]);
   });
 
+  it('reads an emptied number field as zero', () => {
+    const cards = renderCards();
+    fireEvent.change(within(card('Profiling')).getByRole('spinbutton', { name: 'Skip method calls shorter than' }), {
+      target: { value: '' },
+    });
+    const packages = card('Packages');
+    fireEvent.change(within(packages).getByRole('spinbutton', { name: 'Minimum method size for com.shop.**' }), {
+      target: { value: '' },
+    });
+    expect(cards.current()).toMatchObject({
+      min_duration_ms: 0,
+      include: [{ pattern: 'com.shop.**', min_method_size: 0 }],
+    });
+  });
+
+  it('ignores a pattern to profile or a parameter that is already listed', () => {
+    const cards = renderCards();
+    add(card('Packages'), 'Package or class pattern to profile', 'com.shop.**');
+    add(card('Call parameters'), 'Parameter name', 'request.id');
+    expect(cards.current().include).toEqual(SETTINGS.include);
+    expect(cards.current().params).toEqual(SETTINGS.params);
+  });
+
   it('shows the startup values without a way to edit them', () => {
     renderCards();
     const startup = card('Set at startup');
