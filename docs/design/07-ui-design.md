@@ -245,6 +245,14 @@ The rest of the old operation set to preserve (`profiler.mjs`, `user-guide.md` �
   open, `main.tsx` reads `window.__PROFILER_RESTORE__`, re-decodes the embedded bytes, and boots into the
   tree. Method *indexes* (not words) are stable because the export carries the exact wire the server sent.
   This replaces the old server-baked download; xlsx and stackcollapse/flamegraph export stay deferred.
+  - *Tabs.* The copy has all four fixed tabs, the flame graph included, and reopens on the tab that was
+    active. It has no link buttons, because it has no backend to ask for the templates.
+  - *Theme.* The payload records the theme active at export time, and the copy opens in it, whatever the
+    reader's browser prefers. Opening the file stores nothing; the theme switch in the copy still works.
+  - *Fonts.* A font URL does not load from a file on disk, so the export inlines the Latin subsets of Inter
+    and JetBrains Mono as `data:` URLs and drops the `@font-face` rules of the other subsets. Text in another
+    script falls back to the system fonts at the end of the font stacks. The two subsets add about 120 KB;
+    all 13 would add about 410 KB to every export.
 
 Open-in-IDE is dropped for the in-cluster UI (it needs a local IDE bridge).
 
@@ -368,3 +376,15 @@ classified by effort in [`08-ui-backend-requirements.md`](08-ui-backend-requirem
 - [x] **Bundled Inter and JetBrains Mono at a 13 px base, reversing "typography left out of the theme"** — local
   `woff2` files, because the embedded UI must not fetch from another host. D6 stands: the redesign stays on plain
   AntD 6 — accepted (2026-10-13).
+- [x] **A fourth tree tab, Flame graph, reversing "one indented tree in v1"** — the tree page has the fixed tabs
+  Call Tree, Flame graph, Hotspots, and Parameters, drawn as line tabs, and the open one is in the URL as `tab`
+  (§3.2 and §6 of `09`). The flame graph is a client-side transform of the same merged model, so it needs no
+  backend change — accepted (2026-10-13).
+- [x] **The flame graph draws with d3-flame-graph, replacing the hand-written block layout** — version 5.0.0,
+  Apache-2.0, with the d3 modules it depends on (`d3-selection`, `d3-hierarchy`, `d3-scale`, `d3-transition`, and
+  others) rather than the full `d3` bundle. The library brings a tested partition layout, click zoom with a faded
+  path back, and frame culling, which the hand-written view reimplemented; zoom on click replaces the double-click
+  re-root. It is a chart library, not a component kit, so D6 stands. The view keeps what the library lacks: theme
+  colors, keyboard access, accessible names, and the selection shared with the Call Tree tab. Cost from
+  `vite build`: the app chunk grows by 60.6 KB (21.1 KB gzipped) and the CSS by 0.7 KB. The bundle carries it,
+  so the HTML export inlines it and works offline — accepted (2026-10-14).

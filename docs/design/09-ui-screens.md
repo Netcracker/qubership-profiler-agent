@@ -122,56 +122,149 @@ not lose the list.
 
 ### 3.1 Context header
 
-Replaces the top bar. Shows the breadcrumb (`service / pod`), the call identity chip (`time · duration`), the
-`trace_id` chip, and the deep-link-out buttons (`Open trace · Tempo`, `Logs · Grafana`). The links are the
-correlation seam — provisioned, wiring deferred (07 §3.4).
+The tree route has no navigation rail, and this header replaces the shell's. From left to right:
+
+| Element | Content |
+|---------|---------|
+| Back arrow | A link to Calls. An exported copy has no Calls screen and leaves the arrow out. |
+| Product name | `Profiler`. |
+| Identity | `namespace / service / pod`, with the pod name at full strength. |
+| Endpoint chip | `METHOD /path`, from the root call's `web.method` and `web.url` params. Absent when the call has none. |
+| Start time chip | The call's start in the display time zone. Its tooltip names the retention class. |
+| Duration chip | The call's total duration. |
+| Trace chip | `trace` and the first 12 characters of the call's trace ID, with the full ID in the tooltip. A call without one shows `not traced`. |
+| Offline chip | `offline copy`, in an exported copy only. |
+| Theme switch | At the far right (§1). |
+
+The trace ID is a param of the call. The agent records it as `trace.id` (the Jaeger and OpenTelemetry plugins),
+`brave.trace_id` (the Brave plugin), or `X-B3-TraceId` (the incoming header). The UI reads the root call's params
+first. A tracer that starts its span a few frames down records the ID there, so the UI then takes the first ID it
+meets in the tree.
 
 ### 3.2 Tabs and toolbar
 
-Tabs: **Call Tree**, **Hotspots**, **Parameters**. The old Database and Gantt tabs are dropped.
+Four fixed tabs, drawn as line tabs: **Call Tree**, **Flame graph** (§3.6), **Hotspots**, **Parameters**. The old
+Database and Gantt tabs are dropped. The open fixed tab is in the URL as `tab` (§6), so a shared link reopens it.
 
-Toolbar: tree search, `Adjust duration`, `Setup categories`, `Download`.
+The `Incoming` / `Outgoing` / `Find usages` / `Local hotspots` results open as derived-view tabs after the fixed
+ones, each with a close button. A derived tab holds the recipe `(op, method, category)` and re-derives from the
+current model, so it follows Adjust and Setup edits. Derived tabs are client-side state only: they persist through
+the 10b HTML export (07 §5.3), not the URL. Closing the active one returns to the fixed tab that the URL names.
 
-The `Incoming` / `Outgoing` / `Find usages` / `Local hotspots` results open as derived-view tabs that hold the
-recipe `(op, method, category)` and re-derive from the current model, so they follow Adjust and Setup edits.
-Tab state is client-side only; it persists through the 10b HTML export (07 §5.3), not the URL.
+The toolbar sits at the right end of the tab bar: `Adjust duration`, `Setup categories`, `Download HTML`, each with an
+`@ant-design/icons` icon (field-time, tags, download), as the link buttons have one. The slot between
+`Setup categories` and `Download HTML` is reserved for `Explain` and stays empty until the assistant ships. Without
+a tree (loading, cold call, error) there are no tabs; the toolbar then has a row of its own, with its
+buttons disabled. The tree search belongs to the Call Tree tab, not to the toolbar.
+
+**Link buttons** follow `Download HTML`, after a divider: one per entry of `links` in `/api/v1/config`, in the
+operator's order, with the entry's label (02 §2.8). The UI fills the template with the call's trace ID, its pod
+identity, and its window: `from_ms` is the call's start and `to_ms` is the start plus the duration. Each value is
+encoded as `encodeURIComponent` does. A button opens its link in a new tab.
+
+| Case | Button |
+|------|--------|
+| The deployment configures no links | Absent, along with the divider. |
+| The call has a value for every placeholder of the template | Enabled. |
+| The template uses a placeholder the call has no value for, typically `{trace_id}` on an untraced call | Shown disabled, with the reason in a tooltip. |
+
+An exported copy has no backend to ask for the templates and shows no link buttons.
 
 ### 3.3 Tree rows
 
-Each row is a merged node (08 R5–R7):
+Each row is a merged node (08 R5–R7), 28 px high. From left to right:
 
 | Part | Content |
 |------|---------|
-| Caret | Expand / collapse. Expanding **skips degenerate chains** — a pass-through chain opens in one click to the next node that spends time or branches (07 §5.4). |
-| Duration bar | Proportional to the node's share. |
-| Metrics | `total (self)` duration, `inv`, `×N` direct executions, child `calls` — every metric as self and total. |
-| Signature | `Class.method(args)`; `source:line` and `jar` parse from the method string on Ctrl+hover. |
-| Category | A color spanning the tagged subtree, plus a badge (§3.5). |
+| Caret | Expand / collapse. Expanding **skips degenerate chains** — a pass-through chain opens in one click to the next node that spends time or branches (07 §5.4). A leaf has an empty slot instead. |
+| Three dots | The row's operations menu (§3.4). |
+| Numbers | `total (self) ×calls`: the node's total duration, its self duration, and its direct executions. The suspension pair and the total executions are in the Ctrl+hover stats. |
+| Signature | `package.Class.method(args)`, with the package dimmed. Clicking it selects the row; the text stays selectable, so the qualified name can be copied. `source:line` and `jar` parse from the method string on Ctrl+hover. |
+| Chain badge | `+N` on a node that skips `N` pass-through levels; clicking it shows them. A revealed chain shows `−N`, which skips them again. |
+| Category badge | The category name on the node where the category starts (§3.5). The nodes below inherit the category without a badge. |
+| Share bar | 100 px for the whole call. The solid part is the node's self time and the light part is time in its children. Hidden on a narrow viewport. |
+| Share | The node's total as a percentage of the call. |
+
+**Highlighting is always on**; there is no switch for it. The thresholds are shares of this call, never absolute
+times, because 4 s is normal for one call and a disaster for another:
+
+| Number | Orange | Red | Bold |
+|--------|--------|-----|------|
+| Self time | from 10% of the call | from 25% of the call | with either color |
+| Call count | from 10 | from 100 | with either color |
+| Total | — | — | from 50% of the call |
+
+The method name is bold when its self time is colored. A search match gets a yellow mark on the name, and the rows
+that do not match are dimmed in place. `Mark red` tints the whole row.
 
 **Params under a node** are a mini-tree, not flat values (08 R11): metadata rows (`node.name`, `java.thread`,
 `memory.allocated`, …) and aggregated `sql` groups — top shapes by time plus an `::other` bucket, similar SQL
-grouped by a normalized signature, binds nested under their SQL. Rendered inline and summarized in the
-Parameters tab.
+grouped by a normalized signature, binds nested under their SQL. Each one is a row under its method, before the
+method's child calls: `time ×count`, the key as a badge, and the value, with SQL, XML, and JSON values colored. The
+row truncates a long value, and a button opens the full one. The Parameters tab summarizes them.
+
+**Connectors.** A rounded line runs from a method down to each method it calls. A parameter row has no line of its
+own, because a parameter is not a call; only the line to the child calls passes it. `visible-rows.ts` records, per
+row, which ancestor lines run past it, and the row turns that into one 18 px cell per level.
+
+**The tab's controls**, above the rows:
+
+| Control | Behavior |
+|---------|----------|
+| Search | Filters by method, numbers, and parameter text (`tree/search.ts`). Beside it: the match count, or the Ctrl+hover hint. |
+| Legend | The two parts of the share bar: self time, and time in children. |
+| Tree lines | Switch, on by default. Off hides the connectors and keeps the indent. |
+| Row lines | Switch, on by default. Off hides the line between rows. |
+| Expand all | A button with a plus-square icon. Opens every node, level by level from the root, up to the 20,000-row budget (07 §5.4). Pass-through chains stay skipped. A tree past the budget opens only as far as the budget allows, and a message says so. |
+| Collapse all | A button with a minus-square icon. Closes every node under the root, so the root's children stay in view. |
+| Help | A popover that takes one example row apart and explains the colors, the bar, the badges, parameter rows, the three-dot menu, and Ctrl+hover. |
+
+The two switches are stored in `localStorage`. They are a reader's taste and not part of a view, so they are not in
+the URL, and one choice holds for every call and every tab.
 
 ### 3.4 Per-node operations
 
-The three core operations — **Incoming calls**, **Outgoing calls**, **Get stacktrace** — sit directly on the
-selected row or toolbar; a row kebab (`⋮`, on hover) holds the rest: **Find usages**, **Local hotspots**,
-**Adjust duration**, **Add category**, **Mark red**. Ctrl+hover on a node shows the stats popover: self and
-total duration and suspension, invocations, average, `source jar`, and `line`.
+Every operation is in the row's three-dot menu: **Incoming calls**, **Outgoing calls**, and **Get stacktrace**
+first, then **Find usages**, **Local hotspots**, **Adjust duration**, **Add category**, and **Mark red**. Selecting
+a row adds no buttons anywhere: there is no strip of operations beside the search field. Ctrl+hover on a node shows
+the stats popover: self and total duration and suspension, invocations, average, `source jar`, and `line`.
 
 ### 3.5 Hotspots and categories
 
 **Setup categories** tags a method by pattern; the category propagates down its whole subtree (a child tag
-overrides) and colors it. **Hotspots** is a flat self-time profile; when categories are set it groups by
+overrides). The tree shows it as a badge where it starts, in one of six theme colors. **Hotspots** is a flat self-time profile; when categories are set it groups by
 category first, then flat-profiles within — so a business operation's share of time and its SQL read directly
 (07 §5.3).
 
 ### 3.6 Rendering
 
-Virtualised over the flattened visible nodes; lazy expansion; degenerate-chain collapse; a size guard against
-a pathological blob (07 §5.4). One indented tree in v1 — flame/icicle is deferred and, if built, must apply
-the same degenerate-frame skipping.
+**Call Tree.** Virtualised over the flattened visible nodes; lazy expansion; degenerate-chain collapse; a size guard
+against a pathological blob (07 §5.4).
+
+**Flame graph.** The same merged model as frames, drawn by
+[d3-flame-graph](https://github.com/spiermar/d3-flame-graph) as an SVG icicle with the whole call on top
+(07 §11). A client-side transform (`tree/transforms/flame-data.ts`) turns the model into the library's
+`{name, value, children}` tree: the value is the node's total time, and each datum keeps its model node, so a
+frame maps back to a tree row. Children follow the model's order, from the parent's left edge, so the part of a
+frame with nothing under it is the method's self time. A child is clipped to the time its parent has left, so a
+merged or adjusted tree whose totals disagree still nests.
+
+| Element | Behavior |
+|---------|----------|
+| Frame | 28 px rows; a 2 px stroke in the surface color draws the gap between frames. It shows `Class.method · duration` when it is at least 35 px wide (the library's rule); its tooltip and accessible name always carry the method, the duration, the share of the call, the self time, and the call count. |
+| Color | By category, in the stronger variant of the badge color (§3.5). A frame without a category takes the share bar's light color. The colors are theme variables resolved when the graph draws, and the graph redraws on a theme change. The legend lists the categories in the call and `No category`. |
+| Readout | A line above the graph with the numbers of the hovered or focused frame, else of the selected one. |
+| Selection and zoom | A click, or Enter on a focused frame, zooms on the frame and selects its node: the frame spans the graph, the frames above it stay as a faded path back, and a click on one of them zooms out to it. A second click on the selected frame clears the selection and keeps the zoom. A `Reset zoom` link returns to the whole call and keeps the selection. Shares stay shares of the whole call. |
+| Shared selection | The selection is shared with the Call Tree tab. A frame selected here opens the way to its row in the tree, through closed nodes and skipped chains, and scrolls to it. A row selected in the tree zooms the graph on its frame. Selecting adds no buttons. |
+| Width and culling | The graph follows the width of its pane. A frame 1 px wide or narrower is not drawn, and neither is anything under it, which bounds a row at one frame per pixel. |
+
+The flame graph does not skip pass-through chains: a chain is a stack of equally wide frames, which reads at a
+glance and costs one frame per level. The library draws SVG elements, five per frame; the view adds the keyboard
+focus, the accessible names, and the selection ring that the library leaves out. Measured under jsdom on synthetic
+trees at 1200 px: the largest mock tree (2,062 nodes) draws 286 frames, 1,440 elements, in about 0.5 s, and a
+20,000-node tree, the row budget, draws 777 frames, 3,895 elements, in about 1.6 s. jsdom is much slower than a
+browser, so the times bound the order of magnitude only. A canvas renderer is the fallback if a real tree proves
+this too slow.
 
 ## 4. Pods Info
 
@@ -207,9 +300,13 @@ needs a choice.
 |--------|------|---------------------|
 | Calls | `/ui/calls` | `from`, `to` (Unix ms); `pod` (repeatable `ns/svc/pod`); `service` (repeatable); `duration_min_ms`; `error_only`; `retention_class` (repeatable); `q` (method / `$param`) |
 | Pods Info | `/ui/pods` | `from`, `to`; `service` (repeatable) |
-| Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints |
+| Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints; `tab` (`tree`, `flame`, `hotspots`, `params`) |
 
 The `cursor` is never in the URL — it is transient scroll state and expires (07 §3.2).
+
+On the tree route, `tab` names the open fixed tab. The default, `tree`, is left out of the URL, and a missing or
+unknown value opens Call Tree. A tab switch replaces the history entry, so Back leaves the page instead of stepping
+through tabs. Derived tabs never enter the URL (§3.2).
 
 ## 7. Non-goals for v1
 

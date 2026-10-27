@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_DURATION_MIN_MS,
+  TREE_TABS,
   EMPTY_CALLS_SEARCH,
   callsSearchToParams,
   freezeWindow,
@@ -9,6 +10,7 @@ import {
   parseCallsSearch,
   parseTreeSearch,
   treeHref,
+  withTreeTab,
 } from './search-params';
 import type { CallsSearchState } from './search-params';
 
@@ -108,13 +110,36 @@ describe('tree search state', () => {
     // The href hangs off the build-time base (default '/'); assert against it.
     expect(path).toBe(`${import.meta.env.BASE_URL}tree/${encodeURIComponent('ns:svc:pod-1:1714060800000:5:12340:0')}`);
     const hints = parseTreeSearch(new URLSearchParams(query));
-    expect(hints).toEqual({ tsMs: 1714060812345, retentionClass: 'long_clean' });
+    expect(hints).toEqual({ tsMs: 1714060812345, retentionClass: 'long_clean', tab: 'tree' });
   });
 
   it('treats missing or unknown hints as absent', () => {
     expect(parseTreeSearch(new URLSearchParams('retention_class=nope'))).toEqual({
       tsMs: null,
       retentionClass: null,
+      tab: 'tree',
     });
+  });
+
+  it.each(TREE_TABS)('round-trips tab=%s through the href', (tab) => {
+    const href = treeHref('ns:svc:pod-1:1714060800000:5:12340:0', 1714060812345, 'long_clean', tab);
+    const query = new URLSearchParams(href.split('?')[1]);
+    expect(parseTreeSearch(query).tab).toBe(tab);
+    // The default tab stays out of the link.
+    expect(query.has('tab')).toBe(tab !== 'tree');
+  });
+
+  it('falls back to Call Tree on an unknown tab', () => {
+    expect(parseTreeSearch(new URLSearchParams('tab=flame')).tab).toBe('flame');
+    expect(parseTreeSearch(new URLSearchParams('tab=gantt')).tab).toBe('tree');
+    expect(parseTreeSearch(new URLSearchParams('tab=')).tab).toBe('tree');
+    // A derived tab key is browser state; one that leaks into a link is ignored.
+    expect(parseTreeSearch(new URLSearchParams('tab=z1')).tab).toBe('tree');
+  });
+
+  it('keeps the hints when the tab changes', () => {
+    const sp = withTreeTab(new URLSearchParams('ts_ms=5&retention_class=long_clean'), 'params');
+    expect(sp.toString()).toBe('ts_ms=5&retention_class=long_clean&tab=params');
+    expect(withTreeTab(sp, 'tree').toString()).toBe('ts_ms=5&retention_class=long_clean');
   });
 });
