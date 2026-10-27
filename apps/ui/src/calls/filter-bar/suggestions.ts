@@ -18,6 +18,9 @@ export interface ValueSuggestion {
 /** The values offered for a field; the bar narrows them by the typed text. */
 export type ValueSource = (field: string) => readonly ValueSuggestion[];
 
+/** A note on the values of a field for the dropdown footer, such as "Loading values…", or null. */
+export type ValueNote = (field: string) => string | null;
+
 /** The part of a condition picked so far. */
 export interface Draft {
   field: string | null;
@@ -82,12 +85,13 @@ export interface StageInput {
   fields: readonly string[];
   supported: SupportedPredicate;
   values: ValueSource;
+  valueNote?: ValueNote;
 }
 
 /** The fields of the catalog, in catalog order. */
 export const ALL_FIELDS: readonly string[] = FIELDS.map((f) => f.name);
 
-export function stageView({ draft, text, fields, supported, values }: StageInput): StageView {
+export function stageView({ draft, text, fields, supported, values, valueNote }: StageInput): StageView {
   const typed = text.trim();
   const needle = typed.toLowerCase();
 
@@ -172,7 +176,8 @@ export function stageView({ draft, text, fields, supported, values }: StageInput
       items.push({ label: s.value, hint: '', count: s.count, action: { kind: 'value', value: s.value } });
     }
     const shown = matching.length > MAX_VALUES ? `Showing ${MAX_VALUES} of ${matching.length.toLocaleString('en-US')} values. ` : '';
-    foot = shown + (multi ? 'Pick several values, then press Enter.' : 'Type to search, or enter your own value.');
+    const note = valueNote?.(draft.field);
+    foot = (note ? `${note} ` : '') + shown + (multi ? 'Pick several values, then press Enter.' : 'Type to search, or enter your own value.');
   }
   return { stage: 'value', title: `Values for ${draft.field}`, foot, items };
 }

@@ -20,6 +20,9 @@ import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
 import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
 import type { PresetToken } from '../calls/filter-bar/filter-bar';
+import { ALL_FIELDS } from '../calls/filter-bar/suggestions';
+import type { ValueSuggestion } from '../calls/filter-bar/suggestions';
+import { suggestionNote, useParamNames, useValueSuggestions } from '../calls/filter-bar/use-value-suggestions';
 import { HIDE_SYSTEM_TOKEN, isIdleMethod } from '../calls/idle-tags';
 import { QueryControls, SortBy } from '../calls/query-controls';
 import { planQuery } from '../calls/query-plan';
@@ -32,6 +35,7 @@ import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
 import { browserNote, browserSupports, filterInBrowser } from '../filter/browser';
 import { capabilitiesOf } from '../filter/capabilities';
+import { fieldDef } from '../filter/catalog';
 import type { Capabilities } from '../filter/capabilities';
 import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
@@ -111,7 +115,35 @@ export function CallsPage() {
   // namespace, service, and pod conditions to pod tuples.
   const { state: podsState, refetch: refetchPods } = usePods(search.fromMs, search.toMs);
   const namespaces = podsState.kind === 'ready' ? podsState.namespaces : null;
-  const values = useMemo(() => podValueSource(namespaces), [namespaces]);
+  const podValues = useMemo(() => podValueSource(namespaces), [namespaces]);
+
+  // Value suggestions come from /stats when the backend groups by the field, with the other draft conditions, and
+  // from /pods otherwise (redesign plan §4.3). The bar says which field it lists values for.
+  const [valueField, setValueField] = useState<string | null>(null);
+  const suggestions = useValueSuggestions({
+    field: valueField,
+    fromMs: search.fromMs,
+    toMs: search.toMs,
+    conditions: draft.conditions,
+    caps,
+  });
+  const values = useCallback(
+    (field: string): readonly ValueSuggestion[] =>
+      suggestions !== null && suggestions.field === field
+        ? suggestions.kind === 'ready'
+          ? suggestions.values
+          : []
+        : podValues(field),
+    [suggestions, podValues],
+  );
+  const valueNote = useCallback((field: string) => suggestionNote(suggestions, field), [suggestions]);
+
+  // The call param names of the window join the field list, so a tag such as `user.tenant` need not be typed.
+  const paramNames = useParamNames(search.fromMs, search.toMs, caps);
+  const fields = useMemo(
+    () => [...ALL_FIELDS, ...paramNames.filter((name) => fieldDef(name)?.kind === 'param')],
+    [paramNames],
+  );
 
   const plan = useMemo(
     () => planQuery(search.conditions, search.order, caps, namespaces),
@@ -241,6 +273,9 @@ export function CallsPage() {
                   tokenNote={tokenNote}
                   tokenReason={tokenReason}
                   values={values}
+                  valueNote={valueNote}
+                  onValueField={setValueField}
+                  fields={fields}
                   onRun={run}
                 />
               </div>

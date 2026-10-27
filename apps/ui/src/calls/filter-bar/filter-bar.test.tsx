@@ -57,6 +57,20 @@ describe('FilterBar', () => {
     expect(last()).toEqual([{ field: 'pod', op: '=', values: ['checkout-b'] }]);
   });
 
+  it('reports the field whose values it lists, and adds the footer note', async () => {
+    const onValueField = vi.fn<(field: string | null) => void>();
+    const { input } = setup({ onValueField, valueNote: (field) => (field === 'pod' ? 'Loading values…' : null) });
+    await userEvent.click(input);
+    await userEvent.type(input, 'pod');
+    await userEvent.keyboard('{Enter}');
+    expect(onValueField).toHaveBeenLastCalledWith(null);
+    await userEvent.keyboard('{Enter}');
+    expect(onValueField).toHaveBeenLastCalledWith('pod');
+    expect(screen.getByText(/^Loading values… /)).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}{Backspace}');
+    expect(onValueField).toHaveBeenLastCalledWith(null);
+  });
+
   it('moves the highlight with the arrows', async () => {
     const { input } = setup();
     await userEvent.click(input);

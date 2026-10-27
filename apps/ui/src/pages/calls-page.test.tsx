@@ -636,8 +636,7 @@ describe('CallsPage with the filter model', () => {
       renderCallsPage(`${window15m()}&${filterParam(['duration>=1s'])}`);
       await rowsLoaded();
       expect(await screen.findByText(/^[\d,]+ calls? · [\d,]+ errors?$/, undefined, { timeout: 5000 })).toBeInTheDocument();
-      const sp = stats.urls[0]!.searchParams;
-      expect(sp.get('group_by')).toBe('time');
+      const sp = stats.urls.find((u) => u.searchParams.get('group_by') === 'time')!.searchParams;
       expect(sp.get('buckets')).toBe('60');
       expect(sp.getAll('filter')).toEqual(['duration>=1s']);
     } finally {
@@ -681,6 +680,27 @@ describe('CallsPage with the filter model', () => {
     await rowsLoaded();
     expect(await screen.findByText('Counting the calls failed', undefined, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeGreaterThan(0);
+  });
+
+  it('suggests values with call counts from /stats', async () => {
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    await userEvent.click(filterBar());
+    await userEvent.type(filterBar(), 'service');
+    await userEvent.keyboard('{Enter}{Enter}');
+    const list = await screen.findByRole('listbox', { name: 'Values for service' });
+    await waitFor(() => expect(within(list).getAllByRole('option').some((o) => /\d$/.test(o.textContent ?? ''))).toBe(true), {
+      timeout: 5000,
+    });
+  });
+
+  it('offers the param names of the window as fields', async () => {
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    await userEvent.click(filterBar());
+    await userEvent.type(filterBar(), 'web.');
+    const list = screen.getByRole('listbox', { name: 'Filter by' });
+    await waitFor(() => expect(within(list).getByText('web.url')).toBeInTheDocument(), { timeout: 5000 });
   });
 
   it('narrows a wide query with a namespace filter', async () => {

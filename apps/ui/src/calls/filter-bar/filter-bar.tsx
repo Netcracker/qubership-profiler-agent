@@ -1,11 +1,11 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
 import { isListOperator } from '../../filter/condition';
 import type { Condition } from '../../filter/condition';
 import { validateCondition } from '../../filter/grammar';
 import { ALL_FIELDS, EMPTY_DRAFT, stageView } from './suggestions';
-import type { Draft, Item, SupportedPredicate, ValueSource } from './suggestions';
+import type { Draft, Item, SupportedPredicate, ValueNote, ValueSource } from './suggestions';
 import styles from './filter-bar.module.css';
 
 // The filter bar of the calls page (CallsAlt mockup): one token per condition, and an input that builds the next
@@ -42,6 +42,10 @@ export interface FilterBarProps {
   presets?: readonly PresetToken[];
   /** Value suggestions per field. */
   values?: ValueSource;
+  /** A footer note on the values of a field, such as that they are loading. */
+  valueNote?: ValueNote;
+  /** Called with the field whose values the bar lists, or null when it lists none, so the page can load them. */
+  onValueField?: (field: string | null) => void;
   /** The fields the bar lists; every field of the catalog when absent. */
   fields?: readonly string[];
   /** Ctrl+Enter or Cmd+Enter in the input. */
@@ -68,6 +72,8 @@ export function FilterBar({
   fields = ALL_FIELDS,
   onRun,
   placeholder,
+  valueNote,
+  onValueField,
 }: FilterBarProps) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [text, setText] = useState('');
@@ -76,7 +82,13 @@ export function FilterBar({
   const [error, setError] = useState<string | null>(null);
   const listId = useId();
 
-  const view = useMemo(() => stageView({ draft, text, fields, supported, values }), [draft, text, fields, supported, values]);
+  const view = useMemo(
+    () => stageView({ draft, text, fields, supported, values, valueNote }),
+    [draft, text, fields, supported, values, valueNote],
+  );
+
+  const valueField = draft.op !== null ? draft.field : null;
+  useEffect(() => onValueField?.(valueField), [valueField, onValueField]);
   const items = view.items;
   const active = Math.max(0, Math.min(highlight, items.length - 1));
 
