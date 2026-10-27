@@ -4,7 +4,7 @@ import { parsePkPath } from '../api/pk';
 import { isRetentionClass } from '../api/types';
 import type { ProblemDetails } from '../api/types';
 import { encodeTree } from '../msgpack/encode';
-import { HOT_WINDOW_MS, callsPage, findCall, podsInRange, treeForCall } from './synthetic';
+import { HOT_WINDOW_MS, callsPage, findCall, parseMockOrder, podsInRange, treeForCall } from './synthetic';
 import type { CallsQueryShape, Position } from './synthetic';
 
 // MSW handlers that mirror the query service's external behaviour: same
@@ -60,6 +60,13 @@ function parseCallsQuery(sp: URLSearchParams): CallsQueryShape | string {
     errorOnly: false,
     retentionClasses: sp.getAll('retention_class'),
   };
+  // `order` follows the agent-access plan §5.2, so `npm run dev:mock` shows server-side ordering before the backend
+  // has it. The real backend sorts by start time, newest first, only; the UI sorts in the browser there.
+  const order = sp.get('order');
+  if (order !== null && order !== '') {
+    if (parseMockOrder(order) === null) return `unknown order: ${order}`;
+    q.order = order;
+  }
   for (const p of q.pods) {
     if (p.split('/').length !== 3) return `pod must be <namespace>/<service>/<pod>: ${p}`;
   }
@@ -187,6 +194,7 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
   if (sp.get('duration_min_ms') !== null) resent.durationMinMs = Number(sp.get('duration_min_ms'));
   if (sp.get('duration_max_ms') !== null) resent.durationMaxMs = Number(sp.get('duration_max_ms'));
   if (sp.get('error_only') !== null) resent.errorOnly = sp.get('error_only') === 'true';
+  if (sp.get('order') !== null) resent.order = sp.get('order') ?? '';
   if (JSON.stringify(resent) !== JSON.stringify(frozen)) {
     return 're-sent filters do not match the query frozen in the cursor; restart from page 1';
   }

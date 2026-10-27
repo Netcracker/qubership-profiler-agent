@@ -37,16 +37,29 @@ export function formatTs(tsMs: number, zone: string = BROWSER_ZONE): string {
   return (zone === BROWSER_ZONE ? dayjs(tsMs) : dayjs(tsMs).tz(zone)).format('YYYY-MM-DD HH:mm:ss.SSS');
 }
 
+/**
+ * The Start cell (CallsAlt mockup): the time alone for a call of today, and the date and time otherwise, both in the
+ * display timezone. A call of another year keeps the year. The full timestamp goes in the cell's tooltip.
+ */
+export function formatStart(tsMs: number, zone: string = BROWSER_ZONE, nowMs: number = Date.now()): string {
+  const at = (ms: number) => (zone === BROWSER_ZONE ? dayjs(ms) : dayjs(ms).tz(zone));
+  const t = at(tsMs);
+  const now = at(nowMs);
+  if (t.format('YYYY-MM-DD') === now.format('YYYY-MM-DD')) return t.format('HH:mm:ss.SSS');
+  return t.format(t.year() === now.year() ? 'MMM D HH:mm:ss.SSS' : 'YYYY-MM-DD HH:mm:ss.SSS');
+}
+
 export function formatTsShort(tsMs: number, zone: string = BROWSER_ZONE): string {
   return (zone === BROWSER_ZONE ? dayjs(tsMs) : dayjs(tsMs).tz(zone)).format('MM-DD HH:mm:ss');
 }
 
-// Heat colour for the duration dot: success → warning → mid-amber → error.
-// Every step is a theme variable: three antd semantic tokens plus the brand
-// mid-amber (--pf-color-heat-mid, defined in theme/theme.css).
+/**
+ * The color of the duration heat dot: under 100 ms, under 1 s, under 3 s, and 3 s or more. Each step is a theme
+ * variable from theme/theme.css, so the dot follows the light and dark themes.
+ */
 export function durationHeat(ms: number): string {
-  if (ms < 100) return 'var(--ant-color-success)';
-  if (ms < 1000) return 'var(--ant-color-warning)';
+  if (ms < 100) return 'var(--pf-color-ok)';
+  if (ms < 1000) return 'var(--pf-color-warn)';
   if (ms < 3000) return 'var(--pf-color-heat-mid)';
-  return 'var(--ant-color-error)';
+  return 'var(--pf-color-crit)';
 }

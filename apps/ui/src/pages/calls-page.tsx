@@ -1,5 +1,5 @@
-import { Alert, Button, Empty, Layout, Space, Typography, message } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { Alert, App, Button, ConfigProvider, Empty, Layout, Space, Typography } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import {
@@ -13,19 +13,24 @@ import {
   TooWideBanner,
 } from '../calls/calls-banners';
 import { CallsTable } from '../calls/calls-table';
-import { CallsToolbar } from '../calls/calls-toolbar';
 import { loadColumnPrefs, saveColumnPrefs } from '../calls/column-prefs';
 import type { ColumnPrefs } from '../calls/column-prefs';
 import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
-import { isIdleMethod } from '../calls/idle-tags';
+import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
+import { FilterBar } from '../calls/filter-bar/filter-bar';
+import type { PresetToken } from '../calls/filter-bar/filter-bar';
+import { HIDE_SYSTEM_TOKEN, isIdleMethod } from '../calls/idle-tags';
+import { QueryControls, SortBy } from '../calls/query-controls';
+import { DEFAULT_ORDER, orderLabel, serverCanOrder, sortCalls } from '../calls/sort-order';
+import type { CallsOrder } from '../calls/sort-order';
 import { useCallsQuery } from '../calls/use-calls-query';
 import { PeriodControls } from '../controls/period-controls';
-import type { DraftWindow } from '../controls/period-controls';
-import { resolveUrlTime } from '../controls/time-range';
-import { DiscoveryRail, selectionEquals } from '../discovery/discovery-rail';
-import type { RailSelection } from '../discovery/discovery-rail';
-import { expandSelection } from '../discovery/group-pods';
+import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
+import { browserNote, browserSupports, filterInBrowser, isBrowserCondition } from '../filter/browser';
+import type { Condition, Operator } from '../filter/condition';
+import { formatCondition } from '../filter/grammar';
+import { translateConditions, unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
 import type { CallsFilter } from '../api/endpoints';
@@ -34,75 +39,91 @@ import type { CallsSearchState } from '../url/search-params';
 import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
 import styles from './calls-page.module.css';
 
-// Discovery + Calls (09 §2). The URL is the source of truth. The rail edits a
-// draft that Apply commits to the URL, which keys the /calls fetch. The period
-// picker, shown in the shell header, and the toolbar filters commit directly.
+// Calls (09 §2). The filter bar, the duration chips, the switches, and "Sort by"
+// edit a draft; "Run query" writes it to the URL, which keys the /calls fetch. A time
+// range change and a row shortcut apply at once (redesign plan §4.2).
 
 // jsdom reports zero heights, which starves the virtual scroller of rows.
 const VIRTUAL = import.meta.env.MODE !== 'test';
 
+/** The part of the query the controls edit before it runs. */
+interface QueryDraft {
+  conditions: Condition[];
+  hideSystem: boolean;
+  order: CallsOrder;
+}
+
+const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem, d.order]);
+
+/** The fields and operators the bar offers: those /calls takes, and those the browser applies to the loaded rows. */
+const supportedHere = (field: string, op?: Operator): string | null =>
+  browserSupports(field, op) ? null : unsupportedReason(field, op);
+
+const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
+
 export function CallsPage() {
+  // The App's toast renders in the app's own React tree and unmounts with it.
+  // The static `message` mounts a separate root that nothing unmounts.
+  const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   // Resolve relative window tokens against one `now` per URL change; the memo
   // freezes it, so `now-3h` does not drift (and refetch) on every render.
-  const search = useMemo(() => parseCallsSearch(searchParams, Date.now(), { defaultWindow: true }), [searchParams]);
+  const search = useMemo(() => parseCallsSearch(searchParams, Date.now(), { defaults: true }), [searchParams]);
 
-  const [draftWindow, setDraftWindow] = useState<DraftWindow>({ fromMs: search.fromMs, toMs: search.toMs });
-  const [draftSelection, setDraftSelection] = useState<RailSelection>({
-    services: search.services,
-    pods: search.pods,
-  });
-  const [prefs, setPrefs] = useState<ColumnPrefs>(() => loadColumnPrefs(DEFAULT_COLUMN_ORDER));
-  // Tracked so the content can reserve a gutter for the collapsed rail's
-  // trigger, which is pinned to the top-left corner (PR 708 review #8).
-  const [railCollapsed, setRailCollapsed] = useState(false);
-
-  // Resync drafts when the committed state changes under us (back/forward,
-  // a shared link, a pinned pod).
-  const selectionKey = [...search.services, '|', ...search.pods].join(',');
+  // A visit with no query string gets the defaults; write them, so the URL is complete from then on.
+  const bare = searchParams.size === 0;
   useEffect(() => {
-    setDraftWindow({ fromMs: search.fromMs, toMs: search.toMs });
-    setDraftSelection({ services: search.services, pods: search.pods });
+    if (bare) setSearchParams(callsSearchToParams(search), { replace: true });
+  }, [bare, search, setSearchParams]);
+
+  const appliedKey = draftKey(search);
+  const [draft, setDraft] = useState<QueryDraft>(() => draftOf(search));
+  // Resync the draft when the applied state changes under it (back/forward, a shared link).
+  useEffect(() => {
+    setDraft(draftOf(search));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.fromMs, search.toMs, selectionKey]);
+  }, [appliedKey]);
+  const dirty = draftKey(draft) !== appliedKey;
 
-  // The rail follows the draft window, so services are selectable before the
-  // first Apply.
-  const { state: railPodsState } = usePods(draftWindow.fromMs, draftWindow.toMs);
+  const [prefs, setPrefs] = useState<ColumnPrefs>(() => loadColumnPrefs(DEFAULT_COLUMN_ORDER));
 
-  // The calls fan-out stays keyed on the committed URL: expanding the
-  // committed selection must use /pods for the committed window, not the
-  // draft one, or moving the draft period re-expands the still-committed
-  // services into a different pod set before Apply.
-  const { state: committedPodsState, refetch: refetchCommittedPods } = usePods(search.fromMs, search.toMs);
-  const namespaces = committedPodsState.kind === 'ready' ? committedPodsState.namespaces : null;
+  // /pods for the window feeds the namespace, service, and pod translation and the bar's value suggestions.
+  const { state: podsState, refetch: refetchPods } = usePods(search.fromMs, search.toMs);
+  const namespaces = podsState.kind === 'ready' ? podsState.namespaces : null;
+  const values = useMemo(() => podValueSource(namespaces), [namespaces]);
 
-  // /calls has no service param (02 §2.3): expand selected services into pod
-  // tuples once /pods data is there.
-  const podFilter = useMemo(
-    () => expandSelection(namespaces, search.services, search.pods),
-    [namespaces, search.services, search.pods],
+  // /calls takes no `filter` parameter yet: the applied conditions travel as today's parameters (plan §4.2.1).
+  const translation = useMemo(() => translateConditions(search.conditions, namespaces), [search.conditions, namespaces]);
+  const needsPods = search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field));
+  const waitingForPods = translation.params === null && podsState.kind !== 'error';
+
+  // A draft token the translation skips renders disabled with the reason, and is not sent. A trace_id token is not
+  // sent either, but it filters the loaded rows in the browser, so it renders applied, with that note.
+  const draftReasons = useMemo(
+    () => new Map(translateConditions(draft.conditions, namespaces).skipped.map((s) => [s.condition, s.reason])),
+    [draft.conditions, namespaces],
   );
-  const hasSelection = search.services.length > 0 || search.pods.length > 0;
-  const selectionEmpty = hasSelection && podFilter !== null && podFilter.length === 0;
-  const waitingForExpansion = search.fromMs !== null && podFilter === null && committedPodsState.kind !== 'error';
+  const tokenReason = useCallback(
+    (c: Condition) => (isBrowserCondition(c) ? null : (draftReasons.get(c) ?? null)),
+    [draftReasons],
+  );
 
+  // "Hide system/proxy" shows in the bar as a token of the draft: the switch adds and removes it, and so do its ×
+  // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2).
+  const presets: PresetToken[] = draft.hideSystem
+    ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
+    : [];
+
+  const serverOrdered = serverCanOrder(search.order);
   const rawFilter: CallsFilter | null = useMemo(() => {
     if (search.fromMs === null || search.toMs === null) return null;
-    if (podFilter === null || selectionEmpty) return null;
-    return {
-      fromMs: search.fromMs,
-      toMs: search.toMs,
-      pods: podFilter,
-      method: search.query === '' ? undefined : search.query,
-      durationMinMs: search.durationMinMs === 0 ? undefined : search.durationMinMs,
-      durationMaxMs: search.durationMaxMs === 0 ? undefined : search.durationMaxMs,
-      errorOnly: search.errorOnly ? true : undefined,
-      retentionClasses: search.retentionClasses.length === 0 ? undefined : search.retentionClasses,
-    };
-  }, [search, podFilter, selectionEmpty]);
+    if (translation.params === null || translation.noPods || translation.contradiction) return null;
+    // An order the server cannot sort by stays out of the request; the loaded rows are sorted below instead.
+    const order = serverOrdered && search.order !== DEFAULT_ORDER ? { order: search.order } : {};
+    return { fromMs: search.fromMs, toMs: search.toMs, ...translation.params, ...order };
+  }, [search.fromMs, search.toMs, translation, serverOrdered, search.order]);
 
-  // A wide service selection expands to repeatable `pod` params (no
+  // A wide namespace or service filter expands to repeatable `pod` params (no
   // `service` param exists, 02 §2.3) and can build a request line a proxy
   // or browser rejects outright; catch that before sending it rather than
   // surfacing an opaque network failure (PR 708 review #8).
@@ -113,26 +134,21 @@ export function CallsPage() {
 
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
 
-  // A range change stores its raw tokens (a relative range stays live) and
-  // applies at once, keeping the current rail selection; the rail follows via
-  // the draft window without waiting for the URL round-trip.
-  const commitRange = (tokens: { from: string; to: string }): void => {
-    const now = Date.now();
-    setDraftWindow({ fromMs: resolveUrlTime(tokens.from, now), toMs: resolveUrlTime(tokens.to, now) });
-    commitSearch({
-      ...search,
-      from: tokens.from || null,
-      to: tokens.to || null,
-      services: draftSelection.services,
-      pods: draftSelection.pods,
-    });
+  // Runs a query state: the URL takes it, and the fetch restarts from page one even when nothing changed.
+  const runQuery = (next: QueryDraft): void => {
+    setDraft(next);
+    commitSearch({ ...search, ...next });
+    refetch();
   };
+  const run = (): void => runQuery(draft);
 
-  // Apply commits rail-selection edits against the committed window.
-  const apply = (): void =>
-    commitSearch({ ...search, services: draftSelection.services, pods: draftSelection.pods });
-  // Apply has work only when the draft selection diverges from the committed one.
-  const selectionDirty = !selectionEquals(draftSelection, search);
+  // A row shortcut replaces that field's token and runs the query (plan §4.2).
+  const pickFilter = (field: 'pod' | 'trace_id', value: string): void =>
+    runQuery({ ...draft, conditions: [...draft.conditions.filter((c) => c.field !== field), { field, op: '=', values: [value] }] });
+
+  // A range change stores its raw tokens (a relative range stays live) and applies at once; the draft stays a draft.
+  const commitRange = (tokens: { from: string; to: string }): void =>
+    commitSearch({ ...search, from: tokens.from || null, to: tokens.to || null });
 
   // `y` freezes a live relative range into an absolute permalink (GitHub-style).
   usePermalinkHotkey(hasRelativeWindow(search), () => {
@@ -140,22 +156,24 @@ export function CallsPage() {
     message.success('Time range pinned to a permalink');
   });
 
-  const pinPod = (tuple: string): void => {
-    if (search.pods.includes(tuple)) return;
-    commitSearch({ ...search, pods: [...search.pods, tuple] });
-  };
-
   const changePrefs = (next: ColumnPrefs): void => {
     setPrefs(next);
     saveColumnPrefs(next);
   };
 
   const rows = state.kind === 'ready' ? state.rows : [];
-  const visibleRows = useMemo(
+  const unhiddenRows = useMemo(
     () => (search.hideSystem ? rows.filter((c) => !isIdleMethod(c.method)) : rows),
     [rows, search.hideSystem],
   );
-  const hiddenCount = rows.length - visibleRows.length;
+  const hiddenCount = rows.length - unhiddenRows.length;
+  const shownRows = useMemo(() => filterInBrowser(unhiddenRows, search.conditions), [unhiddenRows, search.conditions]);
+  const traceHiddenCount = unhiddenRows.length - shownRows.length;
+  const visibleRows = useMemo(
+    () => (serverOrdered ? shownRows : sortCalls(shownRows, search.order)),
+    [shownRows, serverOrdered, search.order],
+  );
+  const sortNote = serverOrdered ? undefined : `Sort by ${orderLabel(search.order)} applies to the loaded rows only`;
 
   const footer =
     state.kind === 'ready' ? (
@@ -166,64 +184,62 @@ export function CallsPage() {
         <Typography.Text type="secondary">
           {state.rows.length} loaded
           {hiddenCount > 0 ? ` · ${hiddenCount} hidden as system/proxy` : ''}
+          {traceHiddenCount > 0 ? ` · ${traceHiddenCount} hidden by the trace_id filter` : ''}
           {state.nextCursor === null ? ' · end of range' : ''}
         </Typography.Text>
       </Space>
     ) : undefined;
 
+  const applyConditions = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions });
+  const noMatch = translation.contradiction
+    ? 'The filters exclude each other, so no call can match.'
+    : translation.noPods
+      ? 'No pod in this window matches the namespace, service, and pod filters.'
+      : null;
+
   return (
     <Layout className={styles.page}>
-      <Layout.Sider
-        width={320}
-        theme="light"
-        breakpoint="lg"
-        collapsedWidth={0}
-        onCollapse={setRailCollapsed}
-        // The default zero-width trigger has no header row to sit in here
-        // (CallsPage has none) and ends up painted under the toolbar; pin it
-        // to the top-left corner, above everything, so it stays visible and
-        // clickable once the sider auto-collapses on narrow viewports. The
-        // content reserves a left gutter while collapsed so it does not sit on
-        // top of the period control (PR 708 review #8).
-        zeroWidthTriggerStyle={{ top: 0, left: 0, zIndex: 20 }}
-        // `overflow: auto` here (rather than on DiscoveryRail's own Tree,
-        // which already scrolls itself) clips the zero-width trigger to
-        // invisible once the sider collapses to ~1px — the trigger is an
-        // absolutely-positioned sibling inside this same clipped box.
-        className={styles.sider}
-      >
-        <DiscoveryRail pods={railPodsState} selection={draftSelection} onSelectionChange={setDraftSelection} />
-      </Layout.Sider>
-      <Layout.Content className={`${styles.content}${railCollapsed ? ` ${styles.railGutter}` : ''}`}>
+      <Layout.Content className={styles.content}>
         <HeaderSlot>
           <PeriodControls
             value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
             onCommitRange={commitRange}
           />
         </HeaderSlot>
-        {/* Enabled only when there is unwritten selection work — a dirty state, so
-            the button documents itself: grey means "everything is applied". */}
-        <Space>
-          <Button
-            type="primary"
-            onClick={apply}
-            loading={state.kind === 'loading'}
-            disabled={search.fromMs === null || search.toMs === null || !selectionDirty}
-          >
-            Apply
-          </Button>
-        </Space>
-        <CallsToolbar
-          search={search}
-          onSearchChange={commitSearch}
-          prefs={prefs}
-          onPrefsChange={changePrefs}
-          disabled={search.fromMs === null}
-        />
+        {/* One control height for the bar, "Sort by", the chips, the switches, and "Run query". */}
+        <ConfigProvider theme={CONTROL_THEME}>
+          <div className={styles.controls} style={CONTROL_HEIGHT_STYLE}>
+            <div className={styles.barRow}>
+              <div className={styles.bar}>
+                <FilterBar
+                  conditions={draft.conditions}
+                  onChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
+                  presets={presets}
+                  supported={supportedHere}
+                  tokenNote={browserNote}
+                  tokenReason={tokenReason}
+                  values={values}
+                  onRun={run}
+                />
+              </div>
+              <SortBy value={draft.order} onChange={(order) => setDraft((d) => ({ ...d, order }))} />
+            </div>
+            <QueryControls
+              conditions={draft.conditions}
+              onConditionsChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
+              hideSystem={draft.hideSystem}
+              onHideSystemChange={(hideSystem) => setDraft((d) => ({ ...d, hideSystem }))}
+              dirty={dirty}
+              running={state.kind === 'loading'}
+              disabled={search.fromMs === null || search.toMs === null}
+              onRun={run}
+            />
+          </div>
+        </ConfigProvider>
         <Space orientation="vertical" className={styles.fullWidth} size={8}>
-          {selectionTooWide ? <SelectionTooWideBanner search={search} onSearchChange={commitSearch} /> : null}
+          {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={applyConditions} /> : null}
           {state.kind === 'too-wide' ? (
-            <TooWideBanner problem={state.problem} search={search} onSearchChange={commitSearch} />
+            <TooWideBanner problem={state.problem} conditions={search.conditions} onApply={applyConditions} />
           ) : null}
           {state.kind === 'all-failed' ? <AllFailedBanner detail={state.detail} onRetry={refetch} /> : null}
           {state.kind === 'error' ? (
@@ -239,21 +255,21 @@ export function CallsPage() {
               }
             />
           ) : null}
-          {committedPodsState.kind === 'error' && hasSelection ? (
+          {podsState.kind === 'error' && needsPods ? (
             <Alert
               type="error"
               showIcon
-              title="Cannot resolve the service selection without /pods"
-              description={committedPodsState.message}
+              title="Cannot resolve the namespace, service, and pod filters without /pods"
+              description={podsState.message}
               action={
-                <Button size="small" onClick={refetchCommittedPods}>
+                <Button size="small" onClick={refetchPods}>
                   Retry
                 </Button>
               }
             />
           ) : null}
-          {committedPodsState.kind === 'ready' && committedPodsState.partial && hasSelection ? (
-            <PodsPartialBanner reasons={committedPodsState.partialReasons} onRetry={refetchCommittedPods} />
+          {podsState.kind === 'ready' && podsState.partial && needsPods ? (
+            <PodsPartialBanner reasons={podsState.partialReasons} onRetry={refetchPods} />
           ) : null}
           {state.kind === 'ready' && state.partial ? (
             <PartialBanner reasons={state.partialReasons} onRetry={refetch} />
@@ -266,16 +282,9 @@ export function CallsPage() {
         </Space>
         {/* jsdom cannot size the virtual scroller; tests render plain rows. */}
         {/* selectionTooWide already has its own banner above; no Empty needed. */}
-        {state.kind === 'idle' && !waitingForExpansion && !selectionTooWide ? (
-          <Empty
-            className={styles.emptyTop}
-            description={
-              selectionEmpty
-                ? 'The selected services have no pods in this window.'
-                : 'Select a namespace or service, then Apply.'
-            }
-          />
-        ) : state.kind === 'loading' || waitingForExpansion ? (
+        {state.kind === 'idle' && !waitingForPods && !selectionTooWide ? (
+          <Empty className={styles.emptyTop} description={noMatch ?? 'Pick a time range to see calls.'} />
+        ) : state.kind === 'loading' || (state.kind === 'idle' && waitingForPods) ? (
           <CallsTable rows={[]} loading prefs={prefs} onPrefsChange={changePrefs} virtual={VIRTUAL} />
         ) : state.kind === 'ready' ? (
           visibleRows.length === 0 && state.nextCursor === null && !state.emptyPaused ? (
@@ -286,9 +295,10 @@ export function CallsPage() {
               loading={false}
               prefs={prefs}
               onPrefsChange={changePrefs}
-              handlers={{ onPinPod: pinPod }}
+              onPickFilter={pickFilter}
               virtual={VIRTUAL}
               footer={footer}
+              sortNote={sortNote}
             />
           )
         ) : null}

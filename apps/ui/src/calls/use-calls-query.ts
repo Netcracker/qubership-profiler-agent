@@ -77,6 +77,7 @@ export function useCallsQuery(filter: CallsFilter | null): UseCallsQueryResult {
           filter.durationMaxMs ?? 0,
           filter.errorOnly ?? false,
           [...(filter.retentionClasses ?? [])].sort(),
+          filter.order ?? '',
         ]);
 
   useEffect(() => {

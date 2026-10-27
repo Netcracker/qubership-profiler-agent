@@ -16,6 +16,11 @@ export interface CallsFilter {
   durationMaxMs?: number;
   errorOnly?: boolean;
   retentionClasses?: readonly RetentionClass[];
+  /**
+   * `order=<field>_<asc|desc>` (agent-access plan §5.2). Set only for an order the server sorts by
+   * (`serverCanOrder`); absent means start time, newest first.
+   */
+  order?: string;
   limit?: number;
 }
 
@@ -29,6 +34,7 @@ function callsQueryParams(filter: CallsFilter) {
     duration_max_ms: filter.durationMaxMs || undefined,
     error_only: filter.errorOnly || undefined,
     retention_class: filter.retentionClasses,
+    order: filter.order,
     limit: filter.limit,
   };
 }
