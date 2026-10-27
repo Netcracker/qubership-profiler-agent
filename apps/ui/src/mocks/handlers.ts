@@ -7,7 +7,9 @@ import { parseDurationMs, parseDurationRange } from '../calls/duration-filter';
 import type { Condition } from '../filter/condition';
 import { parseCondition } from '../filter/grammar';
 import { encodeTree } from '../msgpack/encode';
-import { HOT_WINDOW_MS, callsPage, findCall, parseMockOrder, podsInRange, treeForCall } from './synthetic';
+import { fieldDef } from '../filter/catalog';
+import { PARAM_NAME, TIME, fieldStats, timeStats } from './stats';
+import { HOT_WINDOW_MS, callsInWindow, callsPage, findCall, parseMockOrder, podsInRange, treeForCall } from './synthetic';
 import type { CallsQueryShape, Position } from './synthetic';
 
 // MSW handlers that mirror the query service's external behaviour: same
@@ -280,6 +282,50 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
   return '';
 }
 
+// --- /stats parameters (02 §2.9) ---
+
+const MAX_BUCKETS = 1000;
+const MAX_STATS_LIMIT = 1000;
+
+interface StatsParams {
+  groupBy: string;
+  buckets: number;
+  limit: number;
+  order: 'count_desc' | 'duration_sum_desc';
+}
+
+/** An integer parameter in [1, max], its default when absent, or a message. */
+function boundedInt(sp: URLSearchParams, name: string, fallback: number, max: number): number | string {
+  const raw = sp.get(name);
+  if (raw === null || raw === '') return fallback;
+  const v = Number(raw);
+  if (!Number.isInteger(v) || v < 1 || v > max) return `${name} must be an integer from 1 to ${max}`;
+  return v;
+}
+
+function parseStatsParams(sp: URLSearchParams): StatsParams | string {
+  const groupBy = sp.get('group_by') ?? '';
+  if (groupBy === '') return 'group_by is required';
+  const time = groupBy === TIME;
+  if (!time && groupBy !== PARAM_NAME) {
+    const def = fieldDef(groupBy);
+    if (def === null || def.kind === 'duration') return `unknown group_by: ${groupBy}`;
+    if (def.kind === 'param' ? !MOCK_FILTER_CAPABILITIES.group_by_params : !MOCK_FILTER_CAPABILITIES.group_by.includes(groupBy)) {
+      return `group_by=${groupBy} is not implemented`;
+    }
+  }
+  for (const name of time ? ['limit', 'order'] : ['buckets']) {
+    if (sp.has(name)) return `${name} does not apply to group_by=${groupBy}`;
+  }
+  const buckets = boundedInt(sp, 'buckets', 60, MAX_BUCKETS);
+  if (typeof buckets === 'string') return buckets;
+  const limit = boundedInt(sp, 'limit', 20, MAX_STATS_LIMIT);
+  if (typeof limit === 'string') return limit;
+  const order = sp.get('order') ?? 'count_desc';
+  if (order !== 'count_desc' && order !== 'duration_sum_desc') return `unknown order: ${order}`;
+  return { groupBy, buckets, limit, order };
+}
+
 // --- Handlers ---
 
 export const handlers = [
@@ -336,6 +382,26 @@ export const handlers = [
       partial: false,
       partial_reasons: [],
     });
+  }),
+
+  http.get('/api/v1/stats', async ({ request }) => {
+    await pace();
+    const sp = new URL(request.url).searchParams;
+    const params = parseStatsParams(sp);
+    if (typeof params === 'string') return badRequest(params);
+    // The conditions are those of /calls; the grouping parameters are not /calls parameters.
+    const callsParams = new URLSearchParams(sp);
+    for (const name of ['group_by', 'buckets', 'limit', 'order']) callsParams.delete(name);
+    const q = parseCallsQuery(callsParams);
+    if (typeof q === 'string') return badRequest(q);
+    const rejection = guardSpan(q);
+    if (rejection !== null) return rejection;
+    const calls = callsInWindow(q, Date.now());
+    return HttpResponse.json(
+      params.groupBy === TIME
+        ? timeStats(calls, q.fromMs, q.toMs, params.buckets)
+        : fieldStats(calls, params.groupBy, params.limit, params.order),
+    );
   }),
 
   http.get('/api/v1/calls/:pk/tree', async ({ request, params }) => {

@@ -620,6 +620,69 @@ describe('CallsPage with the filter model', () => {
     expect(screen.getByText('!= on service is not implemented')).toBeInTheDocument();
   });
 
+  /** Records the /stats requests while a test runs. */
+  function recordStats(): { urls: URL[]; stop: () => void } {
+    const urls: URL[] = [];
+    const onRequestStart = ({ request }: { request: Request }): void => {
+      if (request.url.includes('/api/v1/stats')) urls.push(new URL(request.url));
+    };
+    server.events.on('request:start', onRequestStart);
+    return { urls, stop: () => server.events.removeListener('request:start', onRequestStart) };
+  }
+
+  it('counts the same query by time above the table', async () => {
+    const stats = recordStats();
+    try {
+      renderCallsPage(`${window15m()}&${filterParam(['duration>=1s'])}`);
+      await rowsLoaded();
+      expect(await screen.findByText(/^[\d,]+ calls? · [\d,]+ errors?$/, undefined, { timeout: 5000 })).toBeInTheDocument();
+      const sp = stats.urls[0]!.searchParams;
+      expect(sp.get('group_by')).toBe('time');
+      expect(sp.get('buckets')).toBe('60');
+      expect(sp.getAll('filter')).toEqual(['duration>=1s']);
+    } finally {
+      stats.stop();
+    }
+  });
+
+  it('zooms the time range to a selection of the histogram', async () => {
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    const plot = await screen.findByTestId('histogram-plot', undefined, { timeout: 5000 });
+    await waitFor(() => expect(screen.getAllByTestId('histogram-bar')).toHaveLength(60));
+    plot.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 96, right: 600, bottom: 96, x: 0, y: 0, toJSON: () => ({}) });
+    fireEvent.mouseDown(plot, { clientX: 5, button: 0 });
+    fireEvent.mouseMove(plot, { clientX: 15 });
+    fireEvent.mouseUp(plot, { clientX: 15 });
+    await userEvent.click(screen.getByRole('button', { name: /Zoom in/ }));
+    const params = new URLSearchParams(screen.getByTestId('location').textContent!);
+    const from = Number(params.get('from'));
+    const to = Number(params.get('to'));
+    // Two of sixty buckets of a 15-minute window: 30 seconds.
+    expect(to - from).toBe(30_000);
+  });
+
+  it('shows no histogram on a build that cannot group by time', async () => {
+    serveConfig({ ...STAGE_A, group_by: [] });
+    const stats = recordStats();
+    try {
+      renderCallsPage(window15m());
+      await rowsLoaded();
+      expect(screen.queryByRole('region', { name: 'Calls over time' })).toBeNull();
+      expect(stats.urls).toHaveLength(0);
+    } finally {
+      stats.stop();
+    }
+  });
+
+  it('keeps the table when /stats fails', async () => {
+    server.use(http.get('/api/v1/stats', () => HttpResponse.json({ title: 'boom', status: 500 }, { status: 500 })));
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    expect(await screen.findByText('Counting the calls failed', undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeGreaterThan(0);
+  });
+
   it('narrows a wide query with a namespace filter', async () => {
     const calls = recordCalls();
     try {

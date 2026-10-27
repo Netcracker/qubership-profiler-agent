@@ -12,6 +12,7 @@ import {
   SelectionTooWideBanner,
   TooWideBanner,
 } from '../calls/calls-banners';
+import { CallsHistogram } from '../calls/calls-histogram';
 import { CallsTable } from '../calls/calls-table';
 import { loadColumnPrefs, saveColumnPrefs } from '../calls/column-prefs';
 import type { ColumnPrefs } from '../calls/column-prefs';
@@ -25,6 +26,7 @@ import { planQuery } from '../calls/query-plan';
 import { orderLabel, sortCalls } from '../calls/sort-order';
 import type { CallsOrder } from '../calls/sort-order';
 import { useCallsQuery } from '../calls/use-calls-query';
+import { useStats } from '../calls/use-stats';
 import { PeriodControls } from '../controls/period-controls';
 import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
@@ -37,7 +39,7 @@ import { unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
 import { useConfig } from '../api/use-config';
-import type { CallsFilter } from '../api/endpoints';
+import type { CallsFilter, StatsQuery } from '../api/endpoints';
 import { callsSearchToParams, freezeWindow, hasRelativeWindow, parseCallsSearch } from '../url/search-params';
 import type { CallsSearchState } from '../url/search-params';
 import { usePermalinkHotkey } from '../url/use-permalink-hotkey';
@@ -65,6 +67,9 @@ const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(for
  */
 const legacySupported = (field: string, op?: Operator): string | null =>
   browserSupports(field, op) ? null : unsupportedReason(field, op);
+
+/** The bars of the histogram (redesign plan §4.3). */
+const HISTOGRAM_BUCKETS = 60;
 
 const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
 
@@ -145,6 +150,13 @@ export function CallsPage() {
 
   const { state, loadMore, refetch } = useCallsQuery(filter);
 
+  // The histogram counts the same query by time (redesign plan §4.3), on a backend that groups by time.
+  const statsQuery: StatsQuery | null = useMemo(() => {
+    if (filter === null || !caps || !caps.canGroupBy('time')) return null;
+    return { fromMs: filter.fromMs, toMs: filter.toMs, filters: filter.filters, groupBy: 'time', buckets: HISTOGRAM_BUCKETS };
+  }, [filter, caps]);
+  const { state: statsState, refetch: refetchStats } = useStats(statsQuery);
+
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
 
   // Runs a query state: the URL takes it, and the fetch restarts from page one even when nothing changed.
@@ -152,6 +164,7 @@ export function CallsPage() {
     setDraft(next);
     commitSearch({ ...search, ...next });
     refetch();
+    refetchStats();
   };
   const run = (): void => runQuery(draft);
 
@@ -245,6 +258,16 @@ export function CallsPage() {
             />
           </div>
         </ConfigProvider>
+        {search.fromMs !== null && search.toMs !== null && statsState.kind !== 'idle' && statsState.kind !== 'hidden' ? (
+          <CallsHistogram
+            state={statsState}
+            fromMs={search.fromMs}
+            toMs={search.toMs}
+            onZoom={(from, to) => commitRange({ from: String(from), to: String(to) })}
+            onRetry={refetchStats}
+            hideSystem={search.hideSystem}
+          />
+        ) : null}
         <Space orientation="vertical" className={styles.fullWidth} size={8}>
           {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={applyConditions} /> : null}
           {state.kind === 'too-wide' ? (

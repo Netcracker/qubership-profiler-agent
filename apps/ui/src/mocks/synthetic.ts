@@ -346,6 +346,23 @@ export function callsPage(
   };
 }
 
+/** Every call of the window that meets the query, in no particular order. /stats and the non-default orders use it. */
+export function callsInWindow(q: CallsQueryShape, nowMs: number): CallJSON[] {
+  const all: CallJSON[] = [];
+  const restarts = podRestarts(q.fromMs, q.toMs, nowMs);
+  const topBucket = Math.floor((Math.min(q.toMs, nowMs) - 1) / BUCKET_MS);
+  for (let bucket = Math.floor(q.fromMs / BUCKET_MS); bucket <= topBucket; bucket++) {
+    const bucketStart = bucket * BUCKET_MS;
+    for (const pr of restarts) {
+      if (bucketStart < pr.restartTimeMs || bucketStart >= pr.endMs) continue;
+      for (const call of callsInBucket(pr, bucketStart)) {
+        if (call.ts_ms >= q.fromMs && call.ts_ms < q.toMs && matches(call, q)) all.push(call);
+      }
+    }
+  }
+  return all;
+}
+
 /**
  * One keyset page in another order: rows strictly after `after` in (key, pk ASC) order, the key ascending or
  * descending. No order but start time prunes anything, so this materializes the whole window, as the backend's stage
@@ -360,18 +377,7 @@ function orderedCallsPage(
   const { field, asc } = parseMockOrder(q.order!)!;
   const key = ORDER_KEYS[field]!;
   const sign = asc ? 1 : -1;
-  const all: CallJSON[] = [];
-  const restarts = podRestarts(q.fromMs, q.toMs, nowMs);
-  const topBucket = Math.floor((Math.min(q.toMs, nowMs) - 1) / BUCKET_MS);
-  for (let bucket = Math.floor(q.fromMs / BUCKET_MS); bucket <= topBucket; bucket++) {
-    const bucketStart = bucket * BUCKET_MS;
-    for (const pr of restarts) {
-      if (bucketStart < pr.restartTimeMs || bucketStart >= pr.endMs) continue;
-      for (const call of callsInBucket(pr, bucketStart)) {
-        if (call.ts_ms >= q.fromMs && call.ts_ms < q.toMs && matches(call, q)) all.push(call);
-      }
-    }
-  }
+  const all = callsInWindow(q, nowMs);
   const cmp = (ka: number, pa: string, kb: number, pb: string): number =>
     sign * (ka - kb) || (pa < pb ? -1 : pa > pb ? 1 : 0);
   all.sort((a, b) => cmp(key(a), pkToPath(a.pk), key(b), pkToPath(b.pk)));
