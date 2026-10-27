@@ -63,9 +63,8 @@ the table. The histogram between the controls and the table comes later (redesig
 ### 2.1 Filter bar
 
 One token per condition, and all conditions must match. A condition is a field, an operator, and a value, in the
-text form of the read contract's filter model (agent-access plan §5.1, draft): `duration>100ms`,
-`namespace=prod-orders`, `pod in a,b`, `duration between 100ms..2s`. The grammar and the field catalog live in
-`apps/ui/src/filter/`, the one place to change when the contract lands.
+text form of the read contract's filter model (02 §2.3.3): `duration>100ms`, `namespace=prod-orders`, `pod in a,b`,
+`duration between 100ms..2s`. The grammar and the field catalog live in `apps/ui/src/filter/`.
 
 | Element | Behavior |
 |---------|-----------|
@@ -75,13 +74,19 @@ text form of the read contract's filter model (agent-access plan §5.1, draft): 
 | A word | A typed word that names no field offers `method =~ <word>`, quoted so that it matches as written. |
 | A whole condition | Typing `duration>1s` offers it as one item. |
 | Keyboard | Up and Down move the highlight, Enter picks, Escape closes the list, Ctrl+Enter runs the query. Backspace in an empty input steps back: a value, then the operator, then the field, then into the last token, which comes back with its value in the input for editing. |
-| Disabled options | A field or an operator the backend cannot apply yet is listed but disabled, with the reason as a tooltip. |
-| Disabled tokens | A condition from a link that the backend cannot apply yet shows as a crossed-out token with the reason. It is kept in the URL and not sent. |
+| Disabled options | A field or an operator the backend does not implement is listed but disabled, with the reason as a tooltip. |
+| Disabled tokens | A condition from a link that the backend does not implement, including `None` or `Any` on a build without them, shows as a crossed-out token with the reason. It is kept in the URL and not sent. |
 | Browser-side tokens | A token that filters the loaded rows in the browser rather than the query, such as "Hide system/proxy" (§2.3), has a dashed outline and says so in its tooltip. |
 | Preset tokens | A token the page owns, such as "Hide system/proxy", comes before the conditions. Its × removes it, and so does Backspace once no condition is left before the input. "Clear all filters" removes it too. |
 
-**Before the `filter` parameter.** `/calls` takes no `filter` parameter yet, so the applied conditions travel as
-its existing parameters (redesign plan §4.2.1):
+**Sending the conditions.** `/api/v1/config` reports what the backend implements in `filter_capabilities`
+(02 §2.3.4): fields with their operators, param operators, `None` and `Any`, orders, and `/stats` groupings. The
+page reads it once and sends every applied condition it allows, unchanged, as a repeatable `filter` parameter.
+The rest become disabled tokens. The page sends nothing until `/config` answers, so the first request already has
+the right form. `apps/ui/src/calls/query-plan.ts` makes this choice for both kinds of backend.
+
+**Without the filter model.** A backend that reports no `filter_capabilities` takes only the legacy parameters, so
+the applied conditions travel as those (redesign plan §4.2.1):
 
 | Condition | Sent as |
 |-----------|---------|
@@ -129,11 +134,11 @@ right-aligned in a fixed six-character box, so the dot keeps one x position down
 **Pod and `trace_id` shortcuts.** A click on a row's pod or trace ID filters the calls by that value: the pod
 name, or the full trace ID, of which the cell shows the first 12 characters. The table reports the click to its
 page through `onPickFilter(field, value)`; a page that passes no handler gets plain text in both cells. The calls
-page replaces that field's token with `field=value` and runs the query. `/calls` cannot filter by `trace_id` yet,
-and a disabled token would make the click do nothing, so `trace_id=<id>` is not sent and filters the loaded rows in
-the browser instead: by the ID the row's cell shows, with a dashed outline and a tooltip that says so, and a footer
-count of the rows it hides. The pages loaded before the click are the rows it can find; a call of the trace outside
-them shows only after "Load more".
+page replaces that field's token with `field=value` and runs the query. A backend without the filter model cannot
+filter by `trace_id`, and a disabled token would make the click do nothing, so there `trace_id=<id>` is not sent and
+filters the loaded rows in the browser instead: by the ID the row's cell shows, with a dashed outline and a tooltip
+that says so, and a footer count of the rows it hides. The pages loaded before the click are the rows it can find; a
+call of the trace outside them shows only after "Load more".
 
 **`trace_id`.** A `/calls` row has no `trace_id` member (02 §2.3). The cell reads the ID from the call's own
 params, under the names the tracing plugins record it with (`trace.id`, `brave.trace_id`, `X-B3-TraceId`), the
@@ -146,7 +151,7 @@ closes that gap.
 | Duration chips | `All`, `>10ms`, `>100ms`, `>500ms`, `>3s`, `>5s`. A chip replaces every `duration` token with `duration > <chip>`; `All` removes them. A chip is lit when exactly one `duration >` token has its value. The default `>500ms` keeps page one free of sub-millisecond noise. This is the v1 "slowest" affordance (true ranking is 08 R2). |
 | Errors only | A switch for the `error=true` token: it shows whether the token is present, and adds or removes it. |
 | Hide system/proxy | A switch, on by default: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. It filters the loaded rows in the browser until `/config` serves the patterns for a `method !~` condition (redesign plan §4.6). The switch shows in the filter bar as the first token, `method !~ system/proxy`, with a dashed outline for "applies in the browser" and that limit in its tooltip. The token is part of the draft: the switch adds and removes it, its × or Backspace removes it and turns the switch off, and "Run query" applies it. The URL keeps `hide_system=1`, not the condition. |
-| Sort by | Start time, duration, CPU time, queue wait, child calls, or net IO, and a direction button. It edits the draft and maps to `order=<field>_<asc\|desc>` (agent-access plan §5.2). The backend sorts by start time, newest first, only, so that order goes to the server and every other one sorts the loaded rows in the browser, with a footer note that it applies to the loaded rows only. `serverCanOrder` in `apps/ui/src/calls/sort-order.ts` decides, and the MSW mock sorts by every order, so `npm run dev:mock` shows the server path. |
+| Sort by | Start time, duration, CPU time, queue wait, child calls, or net IO, and a direction button. It edits the draft and maps to `order=<field>_<asc\|desc>` (02 §2.3.5). An order the backend lists in `filter_capabilities.orders` goes to the server; any other one sorts the loaded rows in the browser, with a footer note that it applies to the loaded rows only. A backend without the filter model sorts by start time, newest first, only. The MSW mock sorts by every order. |
 | Run query | Applies the draft (§2.2). |
 | Columns | The "Columns" button at the right end of the table footer, next to the row count: show, hide, reorder, reset. It has no header column of its own, so the data columns keep the width, and it is there while the table loads. The controls row above holds only what edits the query draft; column settings apply at once to the table. Drag a header border to resize. Persisted in local storage; an entry from before the redesign is migrated to the new column keys, and keys the table no longer has are dropped. |
 | Sort | By column, within loaded pages. Cross-range ranking needs 08 R2. While a column sort is on, the footer says that it applies to the loaded rows only, so it does not read as global. |
@@ -242,6 +247,8 @@ With a fan-out backend these are frequent, so each names what happened and the o
 | Partial | `partial: true` | Shows the rows that returned, with a banner listing `partial_reasons`; offers retry. It does not invent a source count. |
 | All sources failed | `504` | "No source answered in time. Narrow the range or retry." |
 | Too wide | `400` wide-query guard | Turns `suggested_filters` into one-click narrowing chips, sized by the dominant `retention_class` (`by_class`). |
+| Rejected | `400` with `code: invalid_request` | "The backend rejected the query" with the problem's `detail`, such as a filter the build does not implement. Retrying would get the same answer, so it offers none. |
+| Error codes | any problem | The client branches on the problem `code` (02 §8), and on the `title` and `detail` of a build that sends no code. |
 | Cold call | `404` on `/tree` | Hot lookup failed and the cold lookup needs `ts_ms`; `retention_class` sharpens pruning but is optional. "Reopen the call from its row so the hints travel with it." |
 | Blob truncated | `404`, `truncated_reason` set | "The trace for this call was dropped under load — no tree to show." |
 | Big params unresolved | tree carries `unresolved` params | Renders the tree but flags the affected params (the value segment was evicted before seal); does not present them as complete. |
