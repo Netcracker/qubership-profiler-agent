@@ -1,0 +1,46 @@
+suite: dumps-collector pvc annotations
+templates:
+  - templates/persistencevolumeclaim.yaml
+release:
+  name: test
+  namespace: test-ns
+tests:
+  - it: empty annotations map omits the annotations block
+    set:
+      cloud.dumpsStorage.storageClassName: nfs
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PersistentVolumeClaim
+      - notExists:
+          path: metadata.annotations
+
+  - it: null pvc omits the annotations block
+    set:
+      cloud.dumpsStorage.storageClassName: nfs
+      pvc: null
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PersistentVolumeClaim
+      - notExists:
+          path: metadata.annotations
+
+  - it: annotations map is copied onto the claim
+    set:
+      cloud.dumpsStorage.storageClassName: nfs
+      pvc.metadata.annotations:
+        argocd.argoproj.io/sync-options: Prune=false
+        example.com/keep: "yes"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: metadata.annotations
+          value:
+            argocd.argoproj.io/sync-options: Prune=false
+            example.com/keep: "yes"
