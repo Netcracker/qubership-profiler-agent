@@ -98,6 +98,14 @@ describe('loadColumnPrefs', () => {
     expect(prefs.hidden).toEqual(DEFAULT_HIDDEN_COLUMNS.filter((k) => k === 'memory'));
   });
 
+  it('reads an entry with missing or malformed lists and widths as the defaults plus what it has', () => {
+    localStorage.setItem(V2, JSON.stringify({ hidden: ['cpu'], widths: null }));
+    expect(loadColumnPrefs()).toEqual({ order: [...DEFAULT_COLUMN_ORDER], hidden: ['cpu', ...DEFAULT_HIDDEN_COLUMNS], widths: {} });
+
+    localStorage.setItem(V2, JSON.stringify({ order: 'start', hidden: {}, widths: [] }));
+    expect(loadColumnPrefs()).toEqual(defaultColumnPrefs());
+  });
+
   it('falls back to the defaults on unparseable storage', () => {
     localStorage.setItem(V2, '{not json');
     expect(loadColumnPrefs()).toEqual(defaultColumnPrefs());

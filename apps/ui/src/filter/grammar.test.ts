@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { FIELDS, fieldDef } from './catalog';
 import type { FieldDef } from './catalog';
-import { ANY, NONE, escapeRegex, isListOperator, regexLiteral } from './condition';
+import { ANY, NONE, conditionEquals, escapeRegex, isListOperator, isOperator, regexLiteral } from './condition';
 import type { Condition, Operator } from './condition';
 import { formatCondition, parseCondition, validateCondition } from './grammar';
 
@@ -121,6 +121,38 @@ describe('filter grammar', () => {
       expect(r.ok).toBe(false);
       expect(r.ok ? '' : r.error).toContain(message);
     }
+  });
+});
+
+describe('validateCondition', () => {
+  // The grammar never builds these; a caller that assembles a condition by hand can.
+  it.each<[Condition, string]>([
+    [{ field: 'bad name', op: '=', values: ['x'] }, '"bad name" is not a field name.'],
+    [{ field: 'pod', op: '=', values: [] }, 'The filter pod = needs a value.'],
+    [{ field: 'pod', op: '=', values: ['a', 'b'] }, 'The operator = takes one value.'],
+    [{ field: 'pod', op: 'in', values: ['a', ' b'] }, 'The filter pod in has an empty value.'],
+  ])('rejects %j', (c, message) => {
+    expect(validateCondition(c)).toBe(message);
+  });
+});
+
+describe('isOperator', () => {
+  it('accepts the operators of the contract only', () => {
+    for (const op of ['=', '!=', '=~', '!~', 'in', 'not in', '>', '>=', '<', '<=', 'between']) expect(isOperator(op)).toBe(true);
+    expect(isOperator('==')).toBe(false);
+    expect(isOperator('IN')).toBe(false);
+  });
+});
+
+describe('conditionEquals', () => {
+  const c: Condition = { field: 'pod', op: 'in', values: ['a', 'b'] };
+
+  it('compares the field, the operator, and the values in order', () => {
+    expect(conditionEquals(c, { field: 'pod', op: 'in', values: ['a', 'b'] })).toBe(true);
+    expect(conditionEquals(c, { ...c, field: 'service' })).toBe(false);
+    expect(conditionEquals(c, { ...c, op: 'not in' })).toBe(false);
+    expect(conditionEquals(c, { ...c, values: ['b', 'a'] })).toBe(false);
+    expect(conditionEquals(c, { ...c, values: ['a'] })).toBe(false);
   });
 });
 

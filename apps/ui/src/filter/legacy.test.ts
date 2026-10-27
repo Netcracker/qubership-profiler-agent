@@ -32,6 +32,10 @@ describe('conditionsFromLegacyParams', () => {
     expect(convert('')).toEqual([{ field: 'duration', op: '>=', values: ['500ms'] }]);
   });
 
+  it.each(['abc', '-5', '1.5', ''])('applies the 500 ms default for duration_min_ms=%j', (raw) => {
+    expect(convert(`duration_min_ms=${raw}`)).toEqual([{ field: 'duration', op: '>=', values: ['500ms'] }]);
+  });
+
   it('turns duration_min_ms into a lower bound', () => {
     expect(convert('duration_min_ms=3000')).toEqual([{ field: 'duration', op: '>=', values: ['3s'] }]);
   });
