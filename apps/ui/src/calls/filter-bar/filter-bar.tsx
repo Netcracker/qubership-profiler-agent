@@ -44,6 +44,11 @@ export interface FilterBarProps {
   values?: ValueSource;
   /** The fields the bar lists; every field of the catalog when absent. */
   fields?: readonly string[];
+  /**
+   * True when the bar takes a call parameter typed by hand, such as `user.tenant=acme`. Defaults to true without
+   * `fields` and to false with it, so a bar narrowed to some fields stays narrowed.
+   */
+  params?: boolean;
   /** Ctrl+Enter or Cmd+Enter in the input. */
   onRun?: () => void;
   placeholder?: string;
@@ -65,10 +70,12 @@ export function FilterBar({
   tokenNote,
   presets = NO_PRESETS,
   values = NO_VALUES,
-  fields = ALL_FIELDS,
+  fields,
+  params = fields === undefined,
   onRun,
   placeholder,
 }: FilterBarProps) {
+  const listed = fields ?? ALL_FIELDS;
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [text, setText] = useState('');
   const [highlight, setHighlight] = useState(0);
@@ -76,7 +83,10 @@ export function FilterBar({
   const [error, setError] = useState<string | null>(null);
   const listId = useId();
 
-  const view = useMemo(() => stageView({ draft, text, fields, supported, values }), [draft, text, fields, supported, values]);
+  const view = useMemo(
+    () => stageView({ draft, text, fields: listed, params, supported, values }),
+    [draft, text, listed, params, supported, values],
+  );
   const items = view.items;
   const active = Math.max(0, Math.min(highlight, items.length - 1));
 

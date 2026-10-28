@@ -11,6 +11,33 @@ describe('stageView', () => {
     expect(view.items[0]).toMatchObject({ label: 'duration>1s', action: { kind: 'condition' } });
   });
 
+  it('offers a whole call parameter condition when the bar takes call parameters', () => {
+    const view = stageView({ ...base, params: true, text: 'user.tenant=acme' });
+    expect(view.items[0]).toMatchObject({
+      label: 'user.tenant=acme',
+      action: { kind: 'condition', condition: { field: 'user.tenant', op: '=', values: ['acme'] } },
+    });
+    expect(view.foot).toContain('call parameter');
+  });
+
+  it('offers a typed call parameter name as a field after the method search', () => {
+    const view = stageView({ ...base, params: true, text: 'user.tenant', supported: (f) => (f === 'user.tenant' ? 'no' : null) });
+    expect(view.items.map((i) => i.label)).toEqual(['method =~ user.tenant', 'user.tenant']);
+    expect(view.items[1]).toMatchObject({ hint: 'Call parameter', disabledReason: 'no', action: { kind: 'field', field: 'user.tenant' } });
+  });
+
+  it('offers no call parameter when the bar does not take them', () => {
+    const fields = ['namespace', 'service', 'pod'];
+    expect(stageView({ ...base, fields, text: 'user.tenant=acme' }).items).toEqual([]);
+    expect(stageView({ ...base, fields, text: 'user.tenant' }).items).toEqual([]);
+    expect(stageView({ ...base, text: 'user.tenant=acme' }).items.map((i) => i.label)).toEqual([]);
+  });
+
+  it('offers no call parameter for a catalog field left out of the list', () => {
+    const view = stageView({ ...base, fields: ['pod'], params: true, text: 'duration>1s' });
+    expect(view.items).toEqual([]);
+  });
+
   it('lists the catalog values of a closed field instead of the source', () => {
     const view = stageView({ ...base, draft: { field: 'error', op: '=', values: [] }, values: () => [{ value: 'x' }] });
     expect(view.items.map((i) => i.label)).toEqual(['true', 'false']);

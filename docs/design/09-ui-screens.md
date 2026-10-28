@@ -72,8 +72,8 @@ text form of the read contract's filter model (agent-access plan §5.1, draft): 
 | Input | Builds the next condition in three stages: field, operator, value. Each stage lists its options in a dropdown that narrows as the user types. |
 | Fields | `duration`, `namespace`, `service`, `pod`, `endpoint`, `class`, `method`, `error`, `trace_id`, `request_id`, `retention_class`, and any other name as a call parameter, typed by hand. |
 | Values | `in` and `not in` collect several values, applied with Enter. `None` and `Any` are offered for a field a call can lack. Namespace, service, and pod values come from `/pods` for the time range; other fields take the value as typed. A value that does not parse, such as a bad duration, shows an error line and adds nothing. |
-| A word | A typed word that names no field offers `method =~ <word>`, quoted so that it matches as written. |
-| A whole condition | Typing `duration>1s` offers it as one item. |
+| A word | A typed word that names no field offers `method =~ <word>`, quoted so that it matches as written, and then the word as a call parameter name. |
+| A whole condition | Typing `duration>1s` offers it as one item, and so does a call parameter condition such as `user.tenant=acme`, whether or not value suggestions list that parameter. A bar narrowed to some fields, such as the one of Pods Info (§4), takes no call parameter. |
 | Keyboard | Up and Down move the highlight, Enter picks, Escape closes the list, Ctrl+Enter runs the query. Backspace in an empty input steps back: a value, then the operator, then the field, then into the last token, which comes back with its value in the input for editing. |
 | Disabled options | A field or an operator the backend cannot apply yet is listed but disabled, with the reason as a tooltip. |
 | Disabled tokens | A condition from a link that the backend cannot apply yet shows as a crossed-out token with the reason. It is kept in the URL and not sent. |
