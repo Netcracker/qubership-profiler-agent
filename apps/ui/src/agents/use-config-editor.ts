@@ -34,7 +34,7 @@ export interface ConfigEditor {
   discardRawXml: () => void;
   /** Drops the edits and shows the loaded config again. */
   discard: () => void;
-  /** True while an apply or a return to the inherited config of this scope is on its way. */
+  /** True while an apply or a return to the inherited config sent from this visit to the scope is on its way. */
   saving: boolean;
   /** Why the last apply or return to the inherited config failed, as a sentence. */
   error: string | null;
@@ -49,7 +49,9 @@ export interface ConfigEditor {
    * Saves the edits as the scope's own config, against the revision the page
    * loaded. Edits made while the save is on its way stay as edits on top of the
    * saved config. Resolves to whether the save went through with the scope
-   * still open: once another scope is open, the answer changes nothing on the page.
+   * still open since the save was sent: once the user opens another scope, the
+   * answer changes nothing on the page, even if the user comes back before it
+   * arrives.
    */
   apply: () => Promise<boolean>;
   /**
@@ -72,12 +74,18 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
   // Edits of another scope are dropped for good, so they do not come back when
   // that scope is opened again.
   const edits = useMemo<Edits>(() => (stored.scope === scope ? stored : { scope }), [stored, scope]);
-  // The scope whose write is on its way, so that another scope does not show it as saving.
-  const [savingScope, setSavingScope] = useState<AgentConfigScopeId | null>(null);
-  // The scope open now, read when a write answers: the answer of a scope the
-  // user has left must not touch the page.
-  const currentScope = useRef(scope);
-  currentScope.current = scope;
+  // Counts the visits to a scope: it goes up each time another scope opens. A
+  // write answers to the visit that sent it, so once the user has left, the
+  // answer must not touch the page, even after a return to the same scope:
+  // by then the config may have been loaded again at a newer revision.
+  const visitScope = useRef(scope);
+  const visit = useRef(0);
+  if (visitScope.current !== scope) {
+    visitScope.current = scope;
+    visit.current += 1;
+  }
+  // The visit whose write is on its way, so that no other visit shows it as saving.
+  const [savingVisit, setSavingVisit] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   useEffect(() => {
@@ -113,21 +121,22 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
    */
   const write = async (send: () => Promise<AgentConfigResponse>, failure: string): Promise<boolean> => {
     const sent = edits;
-    setSavingScope(scope);
+    const sentIn = visit.current;
+    setSavingVisit(sentIn);
     setError(null);
     try {
       const saved = await send();
-      if (currentScope.current !== scope) return false;
+      if (visit.current !== sentIn) return false;
       set(saved);
       setStored((old) => (old === sent ? { scope } : old));
       return true;
     } catch (e) {
-      if (currentScope.current !== scope) return false;
+      if (visit.current !== sentIn) return false;
       if (isRevisionConflict(e)) setConflict(true);
       else setError(`${failure}: ${messageOf(e)}`);
       return false;
     } finally {
-      setSavingScope((old) => (old === scope ? null : old));
+      setSavingVisit((old) => (old === sentIn ? null : old));
     }
   };
 
@@ -151,7 +160,7 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
     editRawXml,
     discardRawXml,
     discard,
-    saving: savingScope === scope,
+    saving: savingVisit === visit.current,
     error,
     clearError: useCallback(() => setError(null), []),
     conflict,
