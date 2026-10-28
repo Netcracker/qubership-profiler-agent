@@ -4,12 +4,14 @@ import { useSearchParams } from 'react-router';
 
 import { useConfig } from '../api/use-config';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
+import { selectionTokens } from '../calls/filter-bar/selection-token';
 import { formatTs } from '../calls/format';
 import { PeriodControls } from '../controls/period-controls';
 import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
 import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
+import type { PodSelection } from '../filter/legacy';
 import { UNSUPPORTED_REASON, translateConditions } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
 import { useZone } from '../ui/timezone';
@@ -66,7 +68,8 @@ function podFieldReason(field: string, op?: Operator): string | null {
   return op === undefined || op === '=' || op === 'in' ? null : UNSUPPORTED_REASON;
 }
 
-const conditionsKey = (cs: readonly Condition[]): string => cs.map(formatCondition).join('\n');
+const filtersKey = (cs: readonly Condition[], selection: PodSelection | null): string =>
+  JSON.stringify([cs.map(formatCondition), selection]);
 
 interface PodRow {
   key: string;
@@ -92,14 +95,17 @@ export function PodsPage() {
 
   const applied = useMemo(() => search.conditions.filter(isPodCondition), [search.conditions]);
   const [draft, setDraft] = useState<Condition[]>(applied);
+  // The selection of an old link shows as a token until it is removed.
+  const [draftSelection, setDraftSelection] = useState<PodSelection | null>(search.selection);
   // Resync the draft when the applied filters change under it (back/forward, a shared link).
-  const appliedKey = conditionsKey(applied);
+  const appliedKey = filtersKey(applied, search.selection);
   useEffect(() => {
     setDraft(applied);
+    setDraftSelection(search.selection);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedKey]);
   // Apply has work only when the draft differs from the applied filters.
-  const dirty = conditionsKey(draft) !== appliedKey;
+  const dirty = filtersKey(draft, draftSelection) !== appliedKey;
 
   const { state, refetch } = usePods(search.fromMs, search.toMs);
   const namespaces = state.kind === 'ready' ? state.namespaces : null;
@@ -122,7 +128,11 @@ export function PodsPage() {
 
   // Apply writes the draft in place of the applied pod filters and keeps the conditions only Calls uses.
   const apply = (): void => {
-    commitSearch({ ...search, conditions: [...search.conditions.filter((c) => !isPodCondition(c)), ...draft] });
+    commitSearch({
+      ...search,
+      conditions: [...search.conditions.filter((c) => !isPodCondition(c)), ...draft],
+      selection: draftSelection,
+    });
     refetch();
   };
 
@@ -135,7 +145,7 @@ export function PodsPage() {
   const rows = useMemo<PodRow[]>(() => {
     if (state.kind !== 'ready') return [];
     // The pod filters expand to pod tuples the same way Calls sends them; with none, every pod-restart shows.
-    const selected = translateConditions(applied, state.namespaces).params?.pods;
+    const selected = translateConditions(applied, state.namespaces, search.selection).params?.pods;
     const tuples = selected === undefined ? null : new Set(selected);
     const out: PodRow[] = [];
     for (const ns of state.namespaces) {
@@ -158,7 +168,7 @@ export function PodsPage() {
       }
     }
     return out;
-  }, [state, applied]);
+  }, [state, applied, search.selection]);
 
   return (
     <Layout className={styles.page}>
@@ -174,6 +184,7 @@ export function PodsPage() {
             <FilterBar
               conditions={draft}
               onChange={setDraft}
+              presets={selectionTokens(draftSelection, () => setDraftSelection(null))}
               fields={POD_FIELDS}
               supported={podFieldReason}
               tokenReason={tokenReason}

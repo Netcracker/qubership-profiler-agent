@@ -75,6 +75,17 @@ describe('planQuery', () => {
     expect(plan.params).toBeNull();
   });
 
+  describe('with the selection of an old link', () => {
+    const selection = { services: ['payments/billing'], pods: ['orders/checkout/checkout-1'] };
+
+    it('expands it and intersects it with the conditions without the filter model', () => {
+      expect(planQuery([service], 'start_desc', null, NAMESPACES, selection).params).toEqual({ pods: ['payments/billing/billing-1'] });
+      const plan = planQuery([], 'start_desc', null, null, selection);
+      expect(plan.waitingForPods).toBe(true);
+      expect(plan.needsPods).toBe(true);
+    });
+  });
+
   it('sorts in the browser for any order but the default without the filter model', () => {
     expect(planQuery([], 'duration_desc', null, null).serverOrdered).toBe(false);
   });
