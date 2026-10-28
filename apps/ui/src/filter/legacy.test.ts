@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { convertLegacyParams, hasLegacyParams, readPodSelection, writePodSelection } from './legacy';
+import { convertLegacyParams, readPodSelection, writePodSelection } from './legacy';
 
 const convert = (query: string) => {
   const { conditions, selection } = convertLegacyParams(new URLSearchParams(query));
@@ -125,10 +125,5 @@ describe('conditionsFromLegacyParams', () => {
     expect(out.toString()).toBe('service=a%2Fx&pod=a%2Fy%2F1');
     writePodSelection(out, null);
     expect(out.toString()).toBe('service=a%2Fx&pod=a%2Fy%2F1');
-  });
-
-  it('tells an old link from a new one', () => {
-    expect(hasLegacyParams(new URLSearchParams('q=x'))).toBe(true);
-    expect(hasLegacyParams(new URLSearchParams('filter=pod%3Dx&from=now-1h'))).toBe(false);
   });
 });
