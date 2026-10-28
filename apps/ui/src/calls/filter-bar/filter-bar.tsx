@@ -5,7 +5,7 @@ import { isListOperator } from '../../filter/condition';
 import type { Condition } from '../../filter/condition';
 import { validateCondition } from '../../filter/grammar';
 import { ALL_FIELDS, EMPTY_DRAFT, stageView } from './suggestions';
-import type { Draft, Item, SupportedPredicate, ValueNote, ValueSource } from './suggestions';
+import type { ConditionPredicate, Draft, Item, SupportedPredicate, ValueNote, ValueSource } from './suggestions';
 import styles from './filter-bar.module.css';
 
 // The filter bar of the calls page (CallsAlt mockup): one token per condition, and an input that builds the next
@@ -31,6 +31,11 @@ export interface FilterBarProps {
   onChange: (next: Condition[]) => void;
   /** Why a field or an operator cannot be picked. Everything can be picked when it is absent. */
   supported?: SupportedPredicate;
+  /**
+   * Why a whole condition, values included, cannot be picked from the dropdown, such as `None` on a backend that
+   * cannot match it. `supported` decides alone when it is absent.
+   */
+  conditionReason?: ConditionPredicate;
   /** Why a token is not applied; a token with a reason renders disabled. */
   tokenReason?: (condition: Condition) => string | null;
   /**
@@ -65,6 +70,7 @@ export function FilterBar({
   conditions,
   onChange,
   supported = ALL_SUPPORTED,
+  conditionReason,
   tokenReason,
   tokenNote,
   presets = NO_PRESETS,
@@ -83,8 +89,8 @@ export function FilterBar({
   const listId = useId();
 
   const view = useMemo(
-    () => stageView({ draft, text, fields, supported, values, valueNote }),
-    [draft, text, fields, supported, values, valueNote],
+    () => stageView({ draft, text, fields, supported, conditionReason, values, valueNote }),
+    [draft, text, fields, supported, conditionReason, values, valueNote],
   );
 
   const valueField = draft.op !== null ? draft.field : null;

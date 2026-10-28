@@ -109,11 +109,24 @@ export function TooWideBanner({ problem, conditions, onApply }: TooWideBannerPro
  */
 export function SelectionTooWideBanner({
   conditions,
+  expandsPods = true,
   onApply,
 }: {
   conditions: readonly Condition[];
+  /** True when the namespace, service, and pod filters expand to pods, so they make the request long. */
+  expandsPods?: boolean;
   onApply: (next: Condition[]) => void;
 }) {
+  if (!expandsPods) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        title="Query too long"
+        description="The filters make the request too long to send. Use fewer values in an in list, or a regex instead."
+      />
+    );
+  }
   return (
     <Alert
       type="error"

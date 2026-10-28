@@ -103,11 +103,13 @@ export function CallsPage() {
 
   const [prefs, setPrefs] = useState<ColumnPrefs>(() => loadColumnPrefs(DEFAULT_COLUMN_ORDER));
 
-  // What the backend implements of the filter model: undefined while /config loads, null for a backend without it.
+  // What the backend implements of the filter model: null for a backend without it, and undefined while that is
+  // unknown. A failed /config leaves it unknown and holds the query: a legacy query would drop the conditions a
+  // backend with the filter model takes.
   const config = useConfig();
   const fc = config.kind === 'ready' ? config.config.filter_capabilities : undefined;
   const caps: Capabilities | null | undefined = useMemo(
-    () => (config.kind === 'loading' ? undefined : fc === undefined ? null : capabilitiesOf(fc)),
+    () => (config.kind !== 'ready' ? undefined : fc === undefined ? null : capabilitiesOf(fc)),
     [config.kind, fc],
   );
 
@@ -174,10 +176,10 @@ export function CallsPage() {
     return { fromMs: search.fromMs, toMs: search.toMs, ...plan.params };
   }, [search.fromMs, search.toMs, plan]);
 
-  // Without the filter model, a wide namespace or service filter expands to repeatable `pod` params and can build a
-  // request line a proxy or browser rejects outright; catch that before sending it rather than surfacing an opaque
-  // network failure (PR 708 review #8).
-  const selectionTooWide = plan.expandsPods && rawFilter !== null && callsQueryUrlLength(rawFilter) > CALLS_URL_LENGTH_LIMIT;
+  // A long `in` list, or without the filter model a wide namespace or service filter expanded to repeatable `pod`
+  // params, can build a request line a proxy or browser rejects outright; catch that before sending it rather than
+  // surfacing an opaque network failure (PR 708 review #8).
+  const selectionTooWide = rawFilter !== null && callsQueryUrlLength(rawFilter) > CALLS_URL_LENGTH_LIMIT;
   const filter = selectionTooWide ? null : rawFilter;
 
   const { state, loadMore, refetch } = useCallsQuery(filter);
@@ -197,6 +199,7 @@ export function CallsPage() {
     commitSearch({ ...search, ...next });
     refetch();
     refetchStats();
+    if (config.kind === 'error') config.retry();
   };
   const run = (): void => runQuery(draft);
 
@@ -270,6 +273,7 @@ export function CallsPage() {
                   onChange={(conditions) => setDraft((d) => ({ ...d, conditions }))}
                   presets={presets}
                   supported={supported}
+                  conditionReason={caps?.conditionReason}
                   tokenNote={tokenNote}
                   tokenReason={tokenReason}
                   values={values}
@@ -304,7 +308,22 @@ export function CallsPage() {
           />
         ) : null}
         <Space orientation="vertical" className={styles.fullWidth} size={8}>
-          {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={applyConditions} /> : null}
+          {config.kind === 'error' ? (
+            <Alert
+              type="error"
+              showIcon
+              title="Cannot run the query: loading /config failed"
+              description={config.message}
+              action={
+                <Button size="small" onClick={config.retry}>
+                  Retry
+                </Button>
+              }
+            />
+          ) : null}
+          {selectionTooWide ? (
+            <SelectionTooWideBanner conditions={search.conditions} expandsPods={plan.expandsPods} onApply={applyConditions} />
+          ) : null}
           {state.kind === 'too-wide' ? (
             <TooWideBanner problem={state.problem} conditions={search.conditions} onApply={applyConditions} />
           ) : null}
@@ -354,7 +373,7 @@ export function CallsPage() {
         {/* selectionTooWide already has its own banner above; no Empty needed. */}
         {state.kind === 'idle' && !waitingForPods && caps !== undefined && !selectionTooWide ? (
           <Empty className={styles.emptyTop} description={noMatch ?? 'Pick a time range to see calls.'} />
-        ) : state.kind === 'loading' || (state.kind === 'idle' && (waitingForPods || caps === undefined)) ? (
+        ) : state.kind === 'loading' || (state.kind === 'idle' && (waitingForPods || config.kind === 'loading')) ? (
           <CallsTable rows={[]} loading prefs={prefs} onPrefsChange={changePrefs} virtual={VIRTUAL} />
         ) : state.kind === 'ready' ? (
           visibleRows.length === 0 && state.nextCursor === null && !state.emptyPaused ? (
