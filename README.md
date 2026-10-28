@@ -44,6 +44,8 @@ Distribution tracing:
 * [Brave (Zipkin agent)](apps/agent/plugins/brave)
 * [Jaeger](apps/agent/plugins/jaeger)
 * [Ocelot](apps/agent/plugins/ocelot)
+* [OpenTelemetry SDK](apps/agent/plugins/opentelemetry)
+* [OpenTelemetry Java agent](apps/agent/plugins/opentelemetry_javaagent)
 
 HTTP clients:
 
