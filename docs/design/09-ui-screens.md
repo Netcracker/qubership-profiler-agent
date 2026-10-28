@@ -90,7 +90,7 @@ its existing parameters (redesign plan §4.2.1):
 | `error=true` | `error_only=true` |
 | `retention_class` with `=` or `in` | `retention_class`; several conditions intersect |
 | `method =~ <word>`, the word without regular-expression syntax | `method`, the substring match; one per query |
-| `trace_id = <id>` | Nothing: it filters the loaded rows in the browser (§2.3), from `apps/ui/src/filter/browser.ts` |
+| `trace_id = <id>`, `trace_id = None`, or `trace_id = Any` | Nothing: it filters the loaded rows in the browser (§2.3), from `apps/ui/src/filter/browser.ts`. `None` keeps the calls without a trace ID, and `Any` keeps the calls with one |
 
 Everything else is disabled. Conditions that exclude each other, or identity filters that match no pod in the
 window, send nothing and say so.
