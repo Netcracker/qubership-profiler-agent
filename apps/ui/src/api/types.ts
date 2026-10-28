@@ -137,8 +137,8 @@ export interface FilterCapabilities {
 }
 
 /** One /stats row (02 §2.9). `key` is absent on the `other` row. */
-export interface StatsRow {
-  key?: string;
+/** The aggregates of a group of calls (02 §2.9). */
+export interface StatsAggregate {
   count: number;
   errors: number;
   duration_ms_sum: number;
@@ -152,13 +152,19 @@ export interface StatsRow {
   suspend_ms_sum: number;
 }
 
+/** One group of `/stats`: a time bucket's start in Unix ms, or a value of the field. */
+export interface StatsRow extends StatsAggregate {
+  key: string;
+}
+
 /** GET /stats body (02 §2.9). */
 export interface StatsResponse {
   group_by: string;
   /** `group_by=time` only: the width of each bucket; the last one may be shorter. */
   bucket_ms?: number;
   rows: StatsRow[];
-  other: StatsRow | null;
+  /** The values past the top `limit`, together; it has no key. */
+  other: StatsAggregate | null;
   distinct: number;
   totals: { count: number; errors: number };
   approximate: boolean;

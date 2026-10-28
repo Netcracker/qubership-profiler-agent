@@ -703,6 +703,66 @@ describe('CallsPage with the filter model', () => {
     await waitFor(() => expect(within(list).getByText('web.url')).toBeInTheDocument(), { timeout: 5000 });
   });
 
+  it('holds the query while /config fails and sends the conditions once it loads', async () => {
+    let fail = true;
+    server.use(
+      http.get('/api/v1/config', () =>
+        fail
+          ? HttpResponse.json({ title: 'unavailable', status: 503, detail: 'config is unavailable' }, { status: 503 })
+          : HttpResponse.json({ dumps_collector_url: '', filter_capabilities: STAGE_A }),
+      ),
+    );
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&${filterParam(['service=billing'])}`);
+      expect(
+        await screen.findByText('Cannot run the query: loading /config failed', undefined, { timeout: 5000 }),
+      ).toBeInTheDocument();
+      expect(screen.getByText('config is unavailable')).toBeInTheDocument();
+      expect(calls.urls).toEqual([]);
+
+      fail = false;
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      expect(calls.urls[0]!.searchParams.getAll('filter')).toEqual(['service=billing']);
+      expect(screen.queryByText('Cannot run the query: loading /config failed')).not.toBeInTheDocument();
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('retries /config when the query runs again', async () => {
+    let fail = true;
+    server.use(
+      http.get('/api/v1/config', () =>
+        fail ? HttpResponse.json({}, { status: 503 }) : HttpResponse.json({ dumps_collector_url: '' }),
+      ),
+    );
+    const calls = recordCalls();
+    try {
+      renderCallsPage(window15m());
+      await screen.findByText('Cannot run the query: loading /config failed', undefined, { timeout: 5000 });
+      fail = false;
+      await userEvent.click(screen.getByRole('button', { name: /Run query/ }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('does not send a filter that makes the request too long', async () => {
+    const services = Array.from({ length: 800 }, (_, i) => `service-${i}`);
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`${window15m()}&${filterParam([`service in ${services.join(',')}`])}`);
+      expect(await screen.findByText('Query too long', undefined, { timeout: 5000 })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Clear selection' })).not.toBeInTheDocument();
+      expect(calls.urls).toEqual([]);
+    } finally {
+      calls.stop();
+    }
+  });
+
   it('narrows a wide query with a namespace filter', async () => {
     const calls = recordCalls();
     try {

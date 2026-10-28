@@ -71,6 +71,25 @@ describe('FilterBar', () => {
     expect(onValueField).toHaveBeenLastCalledWith(null);
   });
 
+  it('shows the value note while there is nothing to pick yet', async () => {
+    let note: string | null = 'Loading values…';
+    const { input } = setup({ valueNote: () => note });
+    await userEvent.click(input);
+    await userEvent.type(input, 'service');
+    await userEvent.keyboard('{Enter}{Enter}');
+    const list = screen.getByRole('listbox', { name: 'Values for service' });
+    expect(within(list).queryAllByRole('option')).toEqual([]);
+    expect(screen.getByText(/^Loading values… /)).toBeInTheDocument();
+
+    cleanup();
+    note = null;
+    const again = setup({ valueNote: () => note });
+    await userEvent.click(again.input);
+    await userEvent.type(again.input, 'service');
+    await userEvent.keyboard('{Enter}{Enter}');
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
   it('moves the highlight with the arrows', async () => {
     const { input } = setup();
     await userEvent.click(input);

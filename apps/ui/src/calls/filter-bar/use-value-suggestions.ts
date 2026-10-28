@@ -16,7 +16,17 @@ export const SUGGESTION_DEBOUNCE_MS = 250;
 
 export type ValueSuggestionsState =
   | { kind: 'loading'; field: string }
-  | { kind: 'ready'; field: string; values: ValueSuggestion[]; distinct: number }
+  | {
+      kind: 'ready';
+      field: string;
+      values: ValueSuggestion[];
+      /** The number of distinct values; a lower bound when `approximate`. */
+      distinct: number;
+      /** The counts are estimates of a high-cardinality grouping (02 §2.9). */
+      approximate: boolean;
+      /** Some sources did not answer, so the counts may be low. */
+      partial: boolean;
+    }
   | { kind: 'failed'; field: string };
 
 export interface ValueSuggestionsInput {
@@ -52,8 +62,8 @@ export function useValueSuggestions({ field, fromMs, toMs, conditions, caps }: V
     const timer = setTimeout(() => {
       fetchStats({ fromMs: fromMs!, toMs: toMs!, filters, groupBy: f, limit: SUGGESTION_LIMIT }, controller.signal)
         .then((data) => {
-          const values = data.rows.flatMap((r) => (r.key === undefined ? [] : [{ value: r.key, count: r.count }]));
-          setState({ kind: 'ready', field: f, values, distinct: data.distinct });
+          const values = data.rows.map((r) => ({ value: r.key, count: r.count }));
+          setState({ kind: 'ready', field: f, values, distinct: data.distinct, approximate: data.approximate, partial: data.partial });
         })
         .catch(() => {
           if (!controller.signal.aborted) setState({ kind: 'failed', field: f });
@@ -75,10 +85,14 @@ export function suggestionNote(state: ValueSuggestionsState | null, field: strin
   if (state === null || state.field !== field) return null;
   if (state.kind === 'loading') return 'Loading values…';
   if (state.kind === 'failed') return 'Could not load values; enter your own.';
+  const notes: string[] = [];
   if (state.distinct > state.values.length) {
-    return `The ${state.values.length} most frequent of ${state.distinct.toLocaleString('en-US')} values.`;
+    const total = `${state.approximate ? 'at least ' : ''}${state.distinct.toLocaleString('en-US')}`;
+    notes.push(`The ${state.values.length} most frequent of ${total} values.`);
   }
-  return null;
+  if (state.approximate) notes.push('The counts are estimates.');
+  if (state.partial) notes.push('Some sources did not answer, so the counts may be low.');
+  return notes.length > 0 ? notes.join(' ') : null;
 }
 
 /**
@@ -96,7 +110,7 @@ export function useParamNames(fromMs: number | null, toMs: number | null, caps: 
     }
     const controller = new AbortController();
     fetchStats({ fromMs: fromMs!, toMs: toMs!, groupBy: 'param_name', limit: SUGGESTION_LIMIT }, controller.signal)
-      .then((data) => setNames(data.rows.flatMap((r) => (r.key === undefined ? [] : [r.key]))))
+      .then((data) => setNames(data.rows.map((r) => r.key)))
       .catch(() => {
         if (!controller.signal.aborted) setNames([]);
       });

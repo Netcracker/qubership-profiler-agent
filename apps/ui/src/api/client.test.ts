@@ -25,6 +25,7 @@ describe('error classification', () => {
     expect(isWideQueryRejection(problem({ title: 'query too wide' }))).toBe(true);
     expect(isCursorRejection(problem({ detail: 'Cursor expired' }))).toBe(true);
     expect(isInvalidRequest(problem({ title: 'invalid request', detail: 'limit must be positive' }))).toBe(true);
+    expect(isCursorRejection(problem({ title: 'invalid request' }))).toBe(false);
   });
 
   it('needs the status and a problem body', () => {

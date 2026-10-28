@@ -70,7 +70,7 @@ text form of the read contract's filter model (02 §2.3.3): `duration>100ms`, `n
 |---------|-----------|
 | Input | Builds the next condition in three stages: field, operator, value. Each stage lists its options in a dropdown that narrows as the user types. |
 | Fields | `duration`, `namespace`, `service`, `pod`, `endpoint`, `class`, `method`, `error`, `trace_id`, `request_id`, `retention_class`, and any other name as a call parameter. The call param names of the window follow the catalog fields, from `/stats?group_by=param_name` (02 §2.9) when the backend groups by param name. |
-| Values | `in` and `not in` collect several values, applied with Enter. `None` and `Any` are offered for a field a call can lack. When the backend groups by the field, the values are its 50 most frequent in the window under the draft's other conditions, with their call counts, from `/stats?group_by=<field>&limit=50`. The request waits 250 ms after the last change, and a newer one cancels the older. The footer says when values load, when they fail, and when more exist than are listed. Without such a grouping, namespace, service, and pod values come from `/pods` for the time range, and other fields take the value as typed. A failed request leaves the value as typed too. A value that does not parse, such as a bad duration, shows an error line and adds nothing. |
+| Values | `in` and `not in` collect several values, applied with Enter. `None` and `Any` are offered for a field a call can lack, and disabled on a build without them. When the backend groups by the field, the values are its 50 most frequent in the window under the draft's other conditions, with their call counts, from `/stats?group_by=<field>&limit=50`. The request waits 250 ms after the last change, and a newer one cancels the older. The footer says when values load, when they fail, when more exist than are listed, when the counts are estimates (`approximate`, with `distinct` as a lower bound), and when some sources did not answer (`partial`). The dropdown opens with that note even before there is a value to pick. Without such a grouping, namespace, service, and pod values come from `/pods` for the time range, and other fields take the value as typed. A failed request leaves the value as typed too. A value that does not parse, such as a bad duration, shows an error line and adds nothing. |
 | A word | A typed word that names no field offers `method =~ <word>`, quoted so that it matches as written. |
 | A whole condition | Typing `duration>1s` offers it as one item. |
 | Keyboard | Up and Down move the highlight, Enter picks, Escape closes the list, Ctrl+Enter runs the query. Backspace in an empty input steps back: a value, then the operator, then the field, then into the last token, which comes back with its value in the input for editing. |
@@ -82,8 +82,11 @@ text form of the read contract's filter model (02 §2.3.3): `duration>100ms`, `n
 **Sending the conditions.** `/api/v1/config` reports what the backend implements in `filter_capabilities`
 (02 §2.3.4): fields with their operators, param operators, `None` and `Any`, orders, and `/stats` groupings. The
 page reads it once and sends every applied condition it allows, unchanged, as a repeatable `filter` parameter.
-The rest become disabled tokens. The page sends nothing until `/config` answers, so the first request already has
-the right form. `apps/ui/src/calls/query-plan.ts` makes this choice for both kinds of backend.
+The rest become disabled tokens, and the dropdown disables a choice the build cannot apply, such as `None` without
+`special_values`. The page sends nothing until `/config` answers, so the first request already has the right form;
+when `/config` fails, the page holds the query and offers Retry rather than guess the backend's kind. A request
+longer than the 6000-character request-line guard is not sent either. `apps/ui/src/calls/query-plan.ts` makes this
+choice for both kinds of backend.
 
 **Without the filter model.** A backend that reports no `filter_capabilities` takes only the legacy parameters, so
 the applied conditions travel as those (redesign plan §4.2.1):
@@ -361,6 +364,8 @@ With a fan-out backend these are frequent, so each names what happened and the o
 | All sources failed | `504` | "No source answered in time. Narrow the range or retry." |
 | Too wide | `400` wide-query guard | Turns `suggested_filters` into one-click narrowing chips, sized by the dominant `retention_class` (`by_class`). |
 | Rejected | `400` with `code: invalid_request` | "The backend rejected the query" with the problem's `detail`, such as a filter the build does not implement. Retrying would get the same answer, so it offers none. |
+| No configuration | `/config` fails | "Cannot run the query: loading /config failed" with Retry; "Run query" retries it too. No `/calls` request goes out until it loads. |
+| Query too long | the request line exceeds the guard | "Query too long": fewer values in an `in` list, or a regex. Without the filter model, "Selection too wide" instead, with "Clear selection". |
 | Error codes | any problem | The client branches on the problem `code` (02 §8), and on the `title` and `detail` of a build that sends no code. |
 | Cold call | `404` on `/tree` | Hot lookup failed and the cold lookup needs `ts_ms`; `retention_class` sharpens pruning but is optional. "Reopen the call from its row so the hints travel with it." |
 | Blob truncated | `404`, `truncated_reason` set | "The trace for this call was dropped under load — no tree to show." |
