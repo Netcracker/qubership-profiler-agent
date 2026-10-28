@@ -12,7 +12,7 @@ import { server } from './mocks/node';
 // The route table under the app's own providers: /agents exists only when
 // /config reports the agent-configuration feature.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 beforeEach(() => resetAgentConfigMock());
 afterEach(() => {
   cleanup();

@@ -9,7 +9,7 @@ import { server } from '../../mocks/node';
 import { SUGGESTION_LIMIT, suggestionNote, useParamNames, useValueSuggestions } from './use-value-suggestions';
 import type { ValueSuggestionsInput } from './use-value-suggestions';
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

@@ -6,7 +6,7 @@ import { resetAgentConfigMock } from '../mocks/agent-config';
 import { server } from '../mocks/node';
 import { useConfigEditor } from './use-config-editor';
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   server.events.removeAllListeners();

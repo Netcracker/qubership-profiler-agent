@@ -17,7 +17,7 @@ function withoutAgentConfig(): void {
   server.use(http.get('/api/v1/config', () => HttpResponse.json({ dumps_collector_url: '' })));
 }
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 // The mock reports the feature. Most cases here are about the two screens every
 // deployment has, so they start without it.
 beforeEach(() => withoutAgentConfig());
