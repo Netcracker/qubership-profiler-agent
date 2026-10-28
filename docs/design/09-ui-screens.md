@@ -42,7 +42,8 @@ export saves the mode in effect, so a copy exported under Auto opens in the mode
 
 **Fonts.** Inter for text at a 13 px base size, and JetBrains Mono as the fixed-width font for code and, through
 the `.pf-mono` class, for numbers. Both are bundled as local `woff2` files: the UI is embedded in the query binary
-and loads nothing from another host.
+and loads nothing from another host. An HTML export embeds their Latin subsets, so the copy keeps its fonts offline
+(07 §5, Export).
 
 **Routing.** One SPA served at `/ui` (`go:embed`, 07 §6).
 

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { theme } from 'antd';
 import { describe, expect, it } from 'vitest';
 
+import { CATEGORY_COLORS, categoryColor } from '../tree/transforms/categories';
 import { FONT_MONO, FONT_SANS, darkPalette, lightPalette, profilerThemes } from './profiler-theme';
 import type { Palette } from './profiler-theme';
 
@@ -106,6 +107,17 @@ describe('theme.css', () => {
   it('gives every color variable a dark value', () => {
     const light = [...declarations(':root').keys()].filter((name) => !name.startsWith('--pf-font-'));
     expect([...declarations(":root[data-theme='dark']").keys()].sort()).toEqual(light.sort());
+  });
+
+  it('defines every category color in both themes', () => {
+    const light = declarations(':root');
+    const dark = declarations(":root[data-theme='dark']");
+    for (let i = 0; i < CATEGORY_COLORS; i += 1) {
+      const name = /^var\((--[\w-]+)\)$/.exec(categoryColor(i))![1]!;
+      expect(light.has(name), name).toBe(true);
+      expect(dark.has(name), name).toBe(true);
+    }
+    expect(light.has(`--pf-color-cat-${CATEGORY_COLORS + 1}`)).toBe(false);
   });
 
   it('declares the same font stacks as the antd tokens', () => {
