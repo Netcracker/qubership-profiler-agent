@@ -23,7 +23,7 @@ export interface UseStatsResult {
 }
 
 function queryKey(q: StatsQuery | null): string | null {
-  return q === null ? null : JSON.stringify([q.fromMs, q.toMs, q.filters ?? [], q.groupBy, q.buckets, q.limit, q.order]);
+  return q === null ? null : JSON.stringify([q.fromMs, q.toMs, q.filters ?? [], q.pods ?? [], q.groupBy, q.buckets, q.limit, q.order]);
 }
 
 export function useStats(query: StatsQuery | null): UseStatsResult {

@@ -174,10 +174,12 @@ export function CallsPage() {
 
   const { state, loadMore, refetch } = useCallsQuery(filter);
 
-  // The histogram counts the same query by time (redesign plan §4.3), on a backend that groups by time.
+  // The histogram counts the same query by time (redesign plan §4.3), on a backend that groups by time: the window
+  // that Run query resolves, the conditions, and an old link's selection as pod tuples.
   const statsQuery: StatsQuery | null = useMemo(() => {
     if (filter === null || !caps || !caps.canGroupBy('time')) return null;
-    return { fromMs: filter.fromMs, toMs: filter.toMs, filters: filter.filters, groupBy: 'time', buckets: HISTOGRAM_BUCKETS };
+    const { fromMs, toMs, filters, pods } = filter;
+    return { fromMs, toMs, filters, pods, groupBy: 'time', buckets: HISTOGRAM_BUCKETS };
   }, [filter, caps]);
   const { state: statsState, refetch: refetchStats } = useStats(statsQuery);
 

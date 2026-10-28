@@ -755,6 +755,53 @@ describe('CallsPage with the filter model', () => {
     }
   });
 
+  it('counts the selection of an old link with the same pod tuples as /calls', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}`);
+      await rowsLoaded();
+      await waitFor(() => expect(stats.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      const pods = stats.urls[0]!.searchParams.getAll('pod');
+      expect(pods).toContain(pinned);
+      expect(pods).toEqual(calls.urls[0]!.searchParams.getAll('pod'));
+    } finally {
+      calls.stop();
+      stats.stop();
+    }
+  });
+
+  it('resolves a relative window again for /calls and /stats on Run query', async () => {
+    const realNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offsetMs);
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage('from=now-1h&to=now&order=start_desc');
+      await rowsLoaded();
+      await waitFor(() => expect(stats.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      const firstTo = Number(stats.urls[0]!.searchParams.get('to'));
+      const [callsBefore, statsBefore] = [calls.urls.length, stats.urls.length];
+
+      offsetMs = 60_000;
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(stats.urls.length).toBeGreaterThan(statsBefore));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(callsBefore));
+      const statsTo = Number(stats.urls[stats.urls.length - 1]!.searchParams.get('to'));
+      expect(statsTo - firstTo).toBeGreaterThanOrEqual(60_000);
+      expect(Number(calls.urls[calls.urls.length - 1]!.searchParams.get('to'))).toBe(statsTo);
+    } finally {
+      calls.stop();
+      stats.stop();
+      clock.mockRestore();
+    }
+  });
+
   it('zooms the time range to a selection of the histogram', async () => {
     renderCallsPage(window15m());
     await rowsLoaded();

@@ -174,7 +174,8 @@ timestamp.
 ### 2.4 Histogram
 
 "Calls over time" sits between the controls and the table. It counts the applied query with
-`/stats?group_by=time&buckets=60` (02 §2.9), sent beside `/calls` with the same window and conditions.
+`/stats?group_by=time&buckets=60` (02 §2.9), sent beside `/calls` with the same window and conditions, and with the
+`pod` tuples of an old link's selection (§6). Run query resolves a relative window once for both.
 
 - **Bars.** One bar per bucket, clean calls at the bottom and failed calls stacked on top, in the theme's bar
   colors. The y axis starts at 0 and ends at the smallest 1, 2, or 5 times a power of ten that holds the tallest
