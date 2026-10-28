@@ -6,6 +6,7 @@
 // contract between the builder (build-export.ts) and the boot path (main.tsx,
 // restored-app.tsx).
 
+
 export const RESTORE_VERSION = 1;
 
 /** The global the exported HTML sets and the boot path reads. */

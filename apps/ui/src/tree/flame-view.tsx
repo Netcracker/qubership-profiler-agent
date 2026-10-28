@@ -201,8 +201,14 @@ export function FlameView({ model, selectedId, onSelect }: FlameViewProps) {
     if (el.querySelector('svg') === null) select(el).datum(data).call(chart);
     else chart.update(data);
     const zoomed = zoomedRef.current;
-    if (zoomed !== null) zoomQuietly(findFrame(zoomed));
-    else decorate();
+    if (zoomed !== null) {
+      // Adjust can take all the time from the zoomed frame, and a zoom on a
+      // frame with no width hides the graph. The zoom then moves up to the
+      // nearest ancestor that still takes time, or to the whole call.
+      let frame = findFrame(zoomed);
+      while (frame !== null && frame.data.value <= 0) frame = frame.parent;
+      zoomQuietly(frame);
+    } else decorate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, names]);
 

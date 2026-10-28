@@ -2,8 +2,8 @@ import { bytesToBase64, RESTORE_GLOBAL } from './restore';
 import type { RestorePayload } from './restore';
 
 // Builds the self-contained HTML file (design 10b, option 2): fetch the app's
-// own built JS + CSS, inline them, and embed the restore payload. The result
-// opens and renders offline with no backend.
+// own built JS + CSS, inline them along with the fonts the CSS loads, and embed
+// the restore payload. The result opens and renders offline with no backend.
 //
 // The bundle is inlined, so a working file only comes out of a *built* app (a
 // deployment or `vite preview`). Under `vite dev` the index points at source
