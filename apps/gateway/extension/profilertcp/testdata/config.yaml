@@ -1,0 +1,18 @@
+profiler_tcp:
+profiler_tcp/custom:
+  endpoint: 127.0.0.1:11715
+  upstream: profiler-collector-agent.profiler.svc:1715
+  mode: discard
+  connect_timeout: 2s
+  max_connections: 64
+  copy_buffer_size: 16KiB
+  handshake_timeout: 3s
+  discard:
+    rotation_period: 10m
+    required_rotation_size: 8MiB
+  rules_file: /etc/gateway/rules/rules.yaml
+  rules:
+    - match: { service: "billing-*" }
+      mode: passthrough
+profiler_tcp/unknown_key:
+  max_conns: 1

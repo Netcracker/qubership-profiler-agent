@@ -352,7 +352,7 @@ restart to undo defeats the purpose of the gateway. Revisit only with a named co
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `endpoint` | `0.0.0.0:1715` | Bind address. Needs the `libs/server` change below. |
+| `endpoint` | `0.0.0.0:1715` | Bind address. |
 | `upstream` | none | `host:port` of the collector. Required unless `mode` is `discard`. |
 | `mode` | `passthrough` | Default mode: `passthrough` or `discard`. |
 | `connect_timeout` | `1s` | Upstream dial deadline. Matches nginx. |
@@ -363,15 +363,18 @@ restart to undo defeats the purpose of the gateway. Revisit only with a named co
 | `discard.rotation_period` | `0` | `INIT_STREAM_V2` reply field in `discard`. |
 | `discard.required_rotation_size` | `4MiB` | `INIT_STREAM_V2` reply field; the `libs/server` default. |
 | `rules`, `rules_file` | none | Per-source overrides (§8). |
-| `drain_timeout` | `10s` | Shutdown grace. |
+
+There is no `drain_timeout` on this surface. A connection lives as long as its pod and carries no resumable state,
+so shutdown closes every connection at once; waiting would only delay the agent's reconnect.
 
 Per connection, `passthrough` costs two goroutines, two descriptors, and about 80–100 KB; `discard` costs one
 descriptor and about 40 KB. A per-namespace instance sees tens of connections, so the default cap of 256 is a
 safety net, not a tuning target. Keep `max_connections` below half the pod's `nofile` limit.
 
-**One change in `libs/server`.** `Service.Start` binds `net.Listen("tcp4", fmt.Sprintf(":%d", port))`
-(`services.go:34`): IPv4 only, port only. Add `Endpoint string` to `ConnectionOpts` and fall back to the current
-bind when it is empty.
+**One change in `libs/server`.** The extension owns its listener, because it reads the handshake before it decides
+where the connection goes. So `libs/wire/server` does not need a bind address; it needs a way to serve a connection
+accepted elsewhere. `Service.ServeConn(ctx, conn)` runs the handler on such a connection, and `Stop` closes it like
+the connections `Start` accepts. The gateway passes a connection that replays the handshake bytes it already read.
 
 ## 6. Traces
 
@@ -603,7 +606,7 @@ No code. Each answer closes an assumption in this plan.
 
 ### Stage G3: `profiler_tcp` passthrough
 
-- `Endpoint` added to `ConnectionOpts` in `libs/wire/server`, defaulting to today's behavior.
+- The agent emulator moves to `libs/wire/emulator` (§3.2), so the tests can drive a synthetic agent.
 - `internal/tcp` with the bidirectional splice; the `profilertcp` extension; `max_connections` with refusal;
   `connect_timeout`; `componentstatus`.
 - **Acceptance:** `libs/wire/emulator` drives a synthetic agent through the gateway into a real `libs/server`, and the
@@ -614,7 +617,7 @@ No code. Each answer closes an assumption in this plan.
 ### Stage G4: TCP discard and rules
 
 - Handshake sniffing with replay; rule matching on `namespace`, `service`, `pod`; `handshake_timeout`.
-- `discard` through a null `Listener` from `libs/wire/server`.
+- `discard` through `Service.ServeConn` in `libs/wire/server` (§5.4) and a `Listener` that stores nothing.
 - Reload that closes connections whose effective mode changed (§8.2).
 - **Acceptance:** in `discard`, a synthetic agent completes the handshake, opens streams, sends several `RCV_DATA`,
   and flushes, with every ack drained and no `ACK_ERROR_MAGIC`, while nothing reaches the upstream. A rules-file

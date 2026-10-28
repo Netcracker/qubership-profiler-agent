@@ -18,7 +18,10 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
+require github.com/pkg/errors v0.9.1 // indirect
+
 require (
+	github.com/Netcracker/qubership-profiler-agent/libs/wire v0.0.0
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -42,5 +45,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )
+
+replace github.com/Netcracker/qubership-profiler-agent/libs/wire => ../../libs/wire
