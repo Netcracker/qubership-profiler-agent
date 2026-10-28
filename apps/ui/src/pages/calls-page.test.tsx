@@ -597,6 +597,31 @@ describe('CallsPage with the filter model', () => {
     }
   });
 
+  it('sends the selection of an old link as pod tuples alongside the filters', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}&error_only=true`);
+      await rowsLoaded();
+      const sp = calls.urls[0]!.searchParams;
+      expect(sp.getAll('filter')).toEqual(['duration>=500ms', 'error=true']);
+      const pods = sp.getAll('pod');
+      expect(pods).toContain(pinned);
+      expect(pods.filter((p) => p !== pinned).every((p) => p.startsWith('payments/billing/'))).toBe(true);
+      expect(pods.length).toBeGreaterThan(1);
+      // The mock applies both: every row comes from a selected pod.
+      const tuples = new Set(pods);
+      const rowPods = screen.getAllByTitle(/^Filter by pod /).map((c) => c.getAttribute('title')!.replace('Filter by pod ', ''));
+      expect(rowPods.length).toBeGreaterThan(0);
+      expect(rowPods.every((name) => [...tuples].some((t) => t.endsWith(`/${name}`)))).toBe(true);
+    } finally {
+      calls.stop();
+    }
+  });
+
   it('sends an old link as the conditions it converts to', async () => {
     const calls = recordCalls();
     try {

@@ -108,6 +108,14 @@ function valueReason(c: Condition): string | null {
 }
 
 /**
+ * The pod tuples of an old link's selection, for a request that sends its conditions as they are. Null while services
+ * wait for the /pods data.
+ */
+export function selectionPods(selection: PodSelection, namespaces: readonly NamespaceNode[] | null): string[] | null {
+  return selectionTuples(selection, namespaces)?.map((p) => p.tuple) ?? null;
+}
+
+/**
  * Turns the applied conditions into today's /calls parameters. Namespace, service, and pod conditions expand to pod
  * tuples from the /pods data, intersected across conditions and with the selection of an old link; duration bounds
  * intersect, and a strict bound moves by 1 ms; retention classes intersect. One method search can be sent.

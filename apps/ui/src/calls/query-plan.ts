@@ -4,7 +4,7 @@ import type { Capabilities } from '../filter/capabilities';
 import type { Condition } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
 import type { PodSelection } from '../filter/legacy';
-import { translateConditions } from '../filter/translate';
+import { selectionPods, translateConditions } from '../filter/translate';
 import type { SkippedCondition, TranslatedParams } from '../filter/translate';
 import { DEFAULT_ORDER, LEGACY_ORDERS, serverCanOrder } from './sort-order';
 import type { CallsOrder } from './sort-order';
@@ -37,8 +37,17 @@ const NO_POD_MATCHES = 'No pod in this window matches the namespace, service, an
 /** True when the request expands the selection's services, which takes the /pods data. */
 const selectionNeedsPods = (selection: PodSelection | null): boolean => (selection?.services.length ?? 0) > 0;
 
-/** The plan with the filter model. A condition the build lacks is skipped, and the rest are sent unchanged. */
-function filterPlan(conditions: readonly Condition[], order: CallsOrder, caps: Capabilities): QueryPlan {
+/**
+ * The plan with the filter model. A condition the build lacks is skipped, and the rest are sent unchanged. An old
+ * link's selection has no text form, so it travels as the `pod` tuples /calls takes alongside `filter` (02 §2.3.3).
+ */
+function filterPlan(
+  conditions: readonly Condition[],
+  order: CallsOrder,
+  caps: Capabilities,
+  selection: PodSelection | null,
+  namespaces: readonly NamespaceNode[] | null,
+): QueryPlan {
   const skipped: SkippedCondition[] = [];
   const sent: string[] = [];
   for (const condition of conditions) {
@@ -49,16 +58,22 @@ function filterPlan(conditions: readonly Condition[], order: CallsOrder, caps: C
   const serverOrdered = serverCanOrder(order, caps.orders);
   const params: TranslatedParams = { filters: sent };
   if (serverOrdered && order !== DEFAULT_ORDER) params.order = order;
-  return {
+  const plan: QueryPlan = {
     params,
     skipped,
     browser: [],
     waitingForPods: false,
-    needsPods: false,
+    needsPods: selectionNeedsPods(selection),
     noMatch: null,
     serverOrdered,
-    expandsPods: false,
+    expandsPods: selection !== null,
   };
+  if (selection === null) return plan;
+  const pods = selectionPods(selection, namespaces);
+  // An empty `pod` list would select every pod, so a selection with no pod in the window sends nothing.
+  if (pods === null) return { ...plan, params: null, waitingForPods: true };
+  if (pods.length === 0) return { ...plan, params: null, noMatch: NO_POD_MATCHES };
+  return { ...plan, params: { ...params, pods } };
 }
 
 /** The plan for a backend without the filter model. */
@@ -113,5 +128,5 @@ export function planQuery(
   }
   return caps === null
     ? legacyPlan(conditions, order, namespaces, selection)
-    : filterPlan(conditions, order, caps);
+    : filterPlan(conditions, order, caps, selection, namespaces);
 }

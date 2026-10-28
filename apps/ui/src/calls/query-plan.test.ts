@@ -78,12 +78,40 @@ describe('planQuery', () => {
   describe('with the selection of an old link', () => {
     const selection = { services: ['payments/billing'], pods: ['orders/checkout/checkout-1'] };
 
+    it('sends its pod tuples alongside the filters with the filter model', () => {
+      const plan = planQuery([service], 'start_desc', FULL, NAMESPACES, selection);
+      expect(plan.params).toEqual({ filters: ['service=billing'], pods: ['orders/checkout/checkout-1', 'payments/billing/billing-1'] });
+      expect(plan.expandsPods).toBe(true);
+      expect(plan.needsPods).toBe(true);
+    });
+
+    it('waits for /pods to expand its services with the filter model', () => {
+      const plan = planQuery([], 'start_desc', FULL, null, selection);
+      expect(plan.params).toBeNull();
+      expect(plan.waitingForPods).toBe(true);
+      const podsOnly = planQuery([], 'start_desc', FULL, null, { services: [], pods: ['a/b/c'] });
+      expect(podsOnly.params).toEqual({ filters: [], pods: ['a/b/c'] });
+      expect(podsOnly.needsPods).toBe(false);
+    });
+
+    it('sends nothing when no pod of the window is selected, with the filter model', () => {
+      const plan = planQuery([], 'start_desc', FULL, NAMESPACES, { services: ['orders/cart'], pods: [] });
+      expect(plan.params).toBeNull();
+      expect(plan.noMatch).toBe('No pod in this window matches the namespace, service, and pod filters.');
+    });
+
     it('expands it and intersects it with the conditions without the filter model', () => {
       expect(planQuery([service], 'start_desc', null, NAMESPACES, selection).params).toEqual({ pods: ['payments/billing/billing-1'] });
       const plan = planQuery([], 'start_desc', null, null, selection);
       expect(plan.waitingForPods).toBe(true);
       expect(plan.needsPods).toBe(true);
     });
+  });
+
+  it('sends trace_id None and Any as filters with the filter model', () => {
+    const none: Condition = { field: 'trace_id', op: '=', values: ['None'] };
+    const any: Condition = { field: 'trace_id', op: '=', values: ['Any'] };
+    expect(planQuery([none, any], 'start_desc', FULL, null).params).toEqual({ filters: ['trace_id=None', 'trace_id=Any'] });
   });
 
   it('sorts in the browser for any order but the default without the filter model', () => {

@@ -253,7 +253,7 @@ With a fan-out backend these are frequent, so each names what happened and the o
 | Too wide | `400` wide-query guard | Turns `suggested_filters` into one-click narrowing chips, sized by the dominant `retention_class` (`by_class`). |
 | Rejected | `400` with `code: invalid_request` | "The backend rejected the query" with the problem's `detail`, such as a filter the build does not implement. Retrying would get the same answer, so it offers none. |
 | No configuration | `/config` fails | "Cannot run the query: loading /config failed" with Retry; "Run query" retries it too. No `/calls` request goes out until it loads. |
-| Query too long | the request line exceeds the guard | "Query too long": fewer values in an `in` list, or a regex. Without the filter model, "Selection too wide" instead, with "Clear selection". |
+| Query too long | the request line exceeds the guard | "Query too long": fewer values in an `in` list, or a regex. Without the filter model, or with an old link's selection (§6), "Selection too wide" instead, with "Clear selection", which also removes that selection. |
 | Error codes | any problem | The client branches on the problem `code` (02 §8), and on the `title` and `detail` of a build that sends no code. |
 | Cold call | `404` on `/tree` | Hot lookup failed and the cold lookup needs `ts_ms`; `retention_class` sharpens pruning but is optional. "Reopen the call from its row so the hints travel with it." |
 | Blob truncated | `404`, `truncated_reason` set | "The trace for this call was dropped under load — no tree to show." |
@@ -299,9 +299,11 @@ combination of their values. The link keeps selecting the same calls:
   `service in billing,ledger`.
 - Otherwise, such as services from two namespaces or a service and a pod of another service, the selection stays as
   it was. It shows as one token, `service or pod in prod/orders, stage/billing`, that the query applies like the old
-  page did: the pods of the services in the window, and the pods as listed, intersected with any namespace, service,
-  or pod condition. The URL keeps it as `service` and `pod` parameters until its token is removed; they are the only
-  old parameters written back.
+  page did: the pods of the services in the window, and the pods as listed. Without the filter model, the
+  translation intersects them with any namespace, service, or pod condition. With it, they travel as the `pod` tuples
+  that `/calls` takes alongside `filter` (02 §2.3.3), and the backend intersects them with the conditions; either way
+  the services wait for `/pods`, and a selection with no pod in the window sends nothing. The URL keeps it as
+  `service` and `pod` parameters until its token is removed; they are the only old parameters written back.
 
 ## 7. Non-goals for v1
 
