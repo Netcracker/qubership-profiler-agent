@@ -26,7 +26,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // ContentType is the RFC 7807 media type every problem body is served with.

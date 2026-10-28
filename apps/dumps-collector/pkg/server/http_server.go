@@ -12,8 +12,8 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/labstack/echo-contrib/echoprometheus"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 )
 
 func StartHttpServer(ctx context.Context, requestProcessor *task.RequestProcessor, bindAddress string, extraRoutes ...func(*echo.Echo)) error {

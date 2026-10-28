@@ -24,7 +24,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // The §2.3 page-size bounds; the fan-out always sends an explicit limit, the

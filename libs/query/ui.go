@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // The first asset URL in the built index.html carries the Vite base, e.g.
