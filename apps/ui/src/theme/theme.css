@@ -149,11 +149,13 @@ body {
 }
 
 /* highlight.js ships one stylesheet per theme, and param-value-viewer.tsx
-   imports the light one (github.css). Its colors are too dark for the dark
-   surfaces, so the dark theme recolors the token classes that the SQL, XML,
-   and JSON grammars emit. */
+   imports the light one (github.css). Its white block and dark text do not fit
+   the dark surfaces, so the dark theme drops the block background, letting the
+   full-value modal show through, and recolors the token classes that the SQL,
+   XML, and JSON grammars emit. */
 :root[data-theme='dark'] .hljs {
   color: var(--pf-color-text);
+  background: transparent;
 }
 
 :root[data-theme='dark'] .hljs-keyword,
