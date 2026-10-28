@@ -175,7 +175,8 @@ export function FilterBar({
       : view.stage === 'op'
         ? 'Operator'
         : 'Value';
-  const showList = open && (items.length > 0 || error !== null);
+  // A value note, such as "Loading values…", keeps the list open while there is nothing to pick yet.
+  const showList = open && (items.length > 0 || error !== null || view.note !== undefined);
   const optionId = (i: number): string => `${listId}-option-${i}`;
 
   return (

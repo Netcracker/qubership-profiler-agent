@@ -55,6 +55,8 @@ export interface StageView {
   title: string;
   foot: string;
   items: Item[];
+  /** The value note of the field, such as "Loading values…"; the dropdown shows it even with no items. */
+  note?: string;
 }
 
 /** The most values listed at once; the footer says how many matched. */
@@ -167,6 +169,7 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
   if (typed !== '') items.push({ label: `Use "${typed}"`, hint: 'as typed', action: { kind: 'value', value: typed } });
 
   let foot: string;
+  let note: string | undefined;
   if (def?.kind === 'duration') {
     const presets = draft.op === 'between' ? RANGE_PRESETS : DURATION_PRESETS;
     for (const p of presets.filter((v) => v.includes(needle))) items.push({ label: p, hint: '', action: { kind: 'value', value: p } });
@@ -187,8 +190,8 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
       items.push({ label: s.value, hint: '', count: s.count, action: { kind: 'value', value: s.value } });
     }
     const shown = matching.length > MAX_VALUES ? `Showing ${MAX_VALUES} of ${matching.length.toLocaleString('en-US')} values. ` : '';
-    const note = valueNote?.(draft.field);
-    foot = (note ? `${note} ` : '') + shown + (multi ? 'Pick several values, then press Enter.' : 'Type to search, or enter your own value.');
+    note = valueNote?.(draft.field) ?? undefined;
+    foot = (note !== undefined ? `${note} ` : '') + shown + (multi ? 'Pick several values, then press Enter.' : 'Type to search, or enter your own value.');
   }
-  return { stage: 'value', title: `Values for ${draft.field}`, foot, items };
+  return { stage: 'value', title: `Values for ${draft.field}`, foot, items, note };
 }

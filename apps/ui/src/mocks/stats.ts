@@ -1,4 +1,4 @@
-import type { CallJSON, StatsResponse, StatsRow } from '../api/types';
+import type { CallJSON, StatsAggregate, StatsResponse, StatsRow } from '../api/types';
 import { fieldValues } from './match';
 
 // The mock's GET /stats aggregation (02 §2.9). It sees every call of the window, so it counts exactly: percentiles
@@ -14,12 +14,11 @@ export function percentile(sortedAsc: readonly number[], q: number): number | nu
   return sortedAsc[Math.floor(q * (sortedAsc.length - 1))]!;
 }
 
-/** One row over a group of calls. */
-export function statsRow(calls: readonly CallJSON[], key?: string): StatsRow {
+/** The aggregates of a group of calls. */
+export function statsAggregate(calls: readonly CallJSON[]): StatsAggregate {
   const durations = calls.map((c) => c.duration_ms).sort((a, b) => a - b);
   const sum = (f: (c: CallJSON) => number): number => calls.reduce((acc, c) => acc + f(c), 0);
   return {
-    ...(key === undefined ? {} : { key }),
     count: calls.length,
     errors: calls.filter((c) => c.error_flag).length,
     duration_ms_sum: sum((c) => c.duration_ms),
@@ -31,6 +30,11 @@ export function statsRow(calls: readonly CallJSON[], key?: string): StatsRow {
     queue_wait_ms_sum: sum((c) => c.queue_wait_ms),
     suspend_ms_sum: sum((c) => c.suspend_ms),
   };
+}
+
+/** One row over a group of calls. */
+export function statsRow(calls: readonly CallJSON[], key: string): StatsRow {
+  return { key, ...statsAggregate(calls) };
 }
 
 function totals(calls: readonly CallJSON[]): StatsResponse['totals'] {
@@ -85,13 +89,13 @@ export function fieldStats(
   }
   const metric = (row: StatsRow): number => (order === 'count_desc' ? row.count : row.duration_ms_sum);
   const rows = [...groups.entries()].map(([key, g]) => statsRow(g, key));
-  rows.sort((a, b) => metric(b) - metric(a) || (a.key! < b.key! ? -1 : a.key! > b.key! ? 1 : 0));
+  rows.sort((a, b) => metric(b) - metric(a) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const rest = rows.slice(limit);
-  const restCalls = new Set(rest.flatMap((r) => groups.get(r.key!)!));
+  const restCalls = new Set(rest.flatMap((r) => groups.get(r.key)!));
   return {
     group_by: groupBy,
     rows: rows.slice(0, limit),
-    other: rest.length === 0 ? null : statsRow([...restCalls]),
+    other: rest.length === 0 ? null : statsAggregate([...restCalls]),
     distinct: rows.length,
     totals: totals(calls),
     ...EXACT,
