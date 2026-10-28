@@ -56,6 +56,15 @@ describe('matchCondition', () => {
     expect(matchCondition(c, cond('duration', 'between', '251ms..2s'))).toBe(false);
   });
 
+  it('reads only own params, so a name like constructor is absent unless recorded', () => {
+    for (const name of ['constructor', 'toString', '__proto__']) {
+      expect(matchCondition(call(), cond(name, '=', 'acme'))).toBe(false);
+      expect(matchCondition(call(), cond(name, '=', 'None'))).toBe(true);
+      const recorded = call({}, Object.fromEntries([[name, ['acme']]]));
+      expect(matchCondition(recorded, cond(name, '=', 'acme'))).toBe(true);
+    }
+  });
+
   it('matches = and in on the whole value, and negates them', () => {
     const c = call();
     expect(matchCondition(c, cond('service', '=', 'billing'))).toBe(true);
