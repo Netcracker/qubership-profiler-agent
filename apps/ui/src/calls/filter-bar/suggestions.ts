@@ -160,7 +160,11 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
     const n = draft.values.length;
     items.push({ label: `Apply ${n} ${n === 1 ? 'value' : 'values'}`, hint: 'Enter', action: { kind: 'apply' } });
   }
-  if (typed !== '') items.push({ label: `Use "${typed}"`, hint: 'as typed', action: { kind: 'value', value: typed } });
+  // The values are checked as a condition too: a typed `None` on a build without it would only make a disabled token.
+  const valueReason = (value: string): string | undefined => reasonOf({ field: draft.field!, op: draft.op!, values: [value] });
+  if (typed !== '') {
+    items.push({ label: `Use "${typed}"`, hint: 'as typed', disabledReason: valueReason(typed), action: { kind: 'value', value: typed } });
+  }
 
   let foot: string;
   if (def?.kind === 'duration') {
@@ -173,8 +177,7 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
         [NONE, `no ${draft.field}`],
         [ANY, `any ${draft.field}`],
       ] as const) {
-        const disabledReason = reasonOf({ field: draft.field, op: draft.op, values: [value] });
-        items.push({ label: value, hint, disabledReason, action: { kind: 'value', value } });
+        items.push({ label: value, hint, disabledReason: valueReason(value), action: { kind: 'value', value } });
       }
     }
     const known: readonly ValueSuggestion[] = def?.values?.map((value) => ({ value })) ?? values(draft.field);

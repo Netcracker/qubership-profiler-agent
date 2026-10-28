@@ -59,6 +59,11 @@ describe('stageView', () => {
       ['Any', undefined],
     ]);
 
+    const typedValue = stageView({ ...checked, draft: { field: 'trace_id', op: '=', values: [] }, text: 'None' }).items[0]!;
+    expect(typedValue).toMatchObject({ label: 'Use "None"', disabledReason: 'This backend cannot match None yet.' });
+    const plain = stageView({ ...checked, draft: { field: 'trace_id', op: '=', values: [] }, text: 'abc' }).items[0]!;
+    expect(plain.disabledReason).toBeUndefined();
+
     const typed = stageView({ ...checked, text: 'trace_id=None' }).items[0]!;
     expect(typed).toMatchObject({ label: 'trace_id=None', disabledReason: 'This backend cannot match None yet.' });
     const search = stageView({ ...checked, text: 'checkout' }).items.at(-1)!;
