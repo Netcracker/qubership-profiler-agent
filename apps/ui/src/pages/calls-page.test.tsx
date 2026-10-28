@@ -545,6 +545,14 @@ describe('CallsPage', () => {
       await userEvent.click(within(alert as HTMLElement).getByRole('button', { name: 'Clear selection' }));
       await waitFor(() => expect(screen.queryByText('Selection too wide')).not.toBeInTheDocument());
       expect(screen.queryByRole('button', { name: 'Remove the filter service = billing' })).not.toBeInTheDocument();
+
+      // An old link's selection that expands to too many pods is cleared the same way.
+      cleanup();
+      renderCallsPage(`${window15m()}&service=payments/billing&service=orders/checkout&duration_min_ms=0`);
+      const again = await screen.findByText('Selection too wide', undefined, { timeout: 5000 });
+      await userEvent.click(within(again.closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Clear selection' }));
+      await waitFor(() => expect(screen.queryByText('Selection too wide')).not.toBeInTheDocument());
+      expect(screen.getByTestId('location')).not.toHaveTextContent('service=');
     } finally {
       calls.stop();
     }

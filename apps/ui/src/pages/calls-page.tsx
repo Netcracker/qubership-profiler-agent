@@ -217,6 +217,8 @@ export function CallsPage() {
     ) : undefined;
 
   const applyConditions = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions });
+  // Clearing a selection that expands to too many pods drops an old link's selection too.
+  const clearSelection = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions, selection: null });
   const noMatch = translation.contradiction
     ? 'The filters exclude each other, so no call can match.'
     : translation.noPods
@@ -263,7 +265,7 @@ export function CallsPage() {
           </div>
         </ConfigProvider>
         <Space orientation="vertical" className={styles.fullWidth} size={8}>
-          {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={applyConditions} /> : null}
+          {selectionTooWide ? <SelectionTooWideBanner conditions={search.conditions} onApply={clearSelection} /> : null}
           {state.kind === 'too-wide' ? (
             <TooWideBanner problem={state.problem} conditions={search.conditions} onApply={applyConditions} />
           ) : null}
