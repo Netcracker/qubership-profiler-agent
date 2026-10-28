@@ -104,8 +104,9 @@ applies at once (Grafana-style refetch on a range change).
 
 **Draft and applied.** The filter bar, the duration chips, the two switches, and "Sort by" edit a draft. "Run
 query", or Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when
-nothing changed. A relative time range such as `now-1h` resolves again on each run, so the rerun reads up to the
-present; `/calls` and `/pods` share the resolved window, and "Load more" keeps it. While the draft differs from the
+nothing changed. A relative time range such as `now-1h` resolves again on each run and when the range changes, so
+the rerun reads up to the present; `/calls` and `/pods` share the resolved window, and "Load more" and a URL change
+that filters only the loaded rows keep it. While the draft differs from the
 applied query, a hint says "Filters changed. Run the query to update the results." Only the applied state reaches the
 URL and `/calls`. A time range change and a row shortcut apply at once.
 
@@ -133,7 +134,8 @@ page through `onPickFilter(field, value)`; a page that passes no handler gets pl
 page replaces that field's token with `field=value` and runs the query. `/calls` cannot filter by `trace_id` yet,
 and a disabled token would make the click do nothing, so `trace_id=<id>` is not sent and filters the loaded rows in
 the browser instead: by the ID the row's cell shows, with a dashed outline and a tooltip that says so, and a footer
-count of the rows it hides. The pages loaded before the click are the rows it can find; a call of the trace outside
+count of the rows it hides. The pages loaded before the click are the rows it can find, so the click keeps them
+rather than fetching page one again, unless the draft holds other unapplied changes; a call of the trace outside
 them shows only after "Load more".
 
 **`trace_id`.** A `/calls` row has no `trace_id` member (02 §2.3). The cell reads the ID from the call's own

@@ -424,10 +424,9 @@ describe('CallsPage', () => {
       const id = pick.getAttribute('title')!.replace('Filter by trace_id ', '');
       const before = calls.urls.length;
       await userEvent.click(pick);
-      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
-      // The trace ID is not sent: /calls cannot filter by it.
-      expect([...calls.urls.at(-1)!.searchParams.keys()].sort()).toEqual(['from', 'limit', 'to']);
-      expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${id}`);
+      // The trace ID is not sent, since /calls cannot filter by it, so nothing is fetched again.
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${id}`));
+      expect(calls.urls).toHaveLength(before);
 
       const token = screen.getByRole('button', { name: `Remove the filter trace_id = ${id}` }).parentElement!;
       expect(token).toHaveAttribute('data-applied', 'browser');
@@ -437,6 +436,37 @@ describe('CallsPage', () => {
       expect(traceCells.every((c) => c.getAttribute('title') === `Filter by trace_id ${id}`)).toBe(true);
       expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeLessThan(total);
       expect(screen.getByText(/hidden by the trace_id filter/)).toBeInTheDocument();
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('keeps the loaded pages when a trace ID from a later page is picked', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`from=now-1h&to=now&order=start_desc`);
+      await rowsLoaded();
+      const traceOf = (row: HTMLElement): string | null =>
+        within(row).queryByTitle(/^Filter by trace_id /)?.getAttribute('title')!.replace('Filter by trace_id ', '') ?? null;
+      const firstPage = new Set(screen.getAllByRole('row').slice(1).map(traceOf));
+      const loaded = screen.getAllByRole('row').length;
+      await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(loaded));
+      const later = screen
+        .getAllByRole('row')
+        .slice(loaded)
+        .map(traceOf)
+        .find((id) => id !== null && !firstPage.has(id))!;
+      expect(later).toBeDefined();
+      const before = calls.urls.length;
+
+      await userEvent.click(screen.getAllByTitle(`Filter by trace_id ${later}`)[0]!);
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${later}`));
+      expect(calls.urls).toHaveLength(before);
+      expect(screen.getAllByTitle(`Filter by trace_id ${later}`).length).toBeGreaterThan(0);
+      expect(screen.getAllByTitle(/^Filter by trace_id /).every((c) => c.getAttribute('title') === `Filter by trace_id ${later}`)).toBe(
+        true,
+      );
     } finally {
       calls.stop();
     }
