@@ -257,7 +257,7 @@ needs a choice.
 
 | Screen | Path | Query / path params |
 |--------|------|---------------------|
-| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`<field>_<asc\|desc>`, the fields of §2.3 "Sort by"; default `start_desc`, and an unknown value reads as the default); `hide_system=1` when the switch is on |
+| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`<field>_<asc\|desc>`, the fields of §2.3 "Sort by"; default `start_desc`, and an unknown value reads as the default); `hide_system=1` when the switch is on; `service` and `pod` for the selection of an old link (below) |
 | Pods Info | `/ui/pods` | The same parameters as Calls; it reads and writes only the `namespace`, `service`, and `pod` conditions |
 | Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints |
 
@@ -274,11 +274,22 @@ full from then on. With any query string there are no defaults: an absent `filte
 `hide_system` means the switch is off. A `filter` value that does not parse is dropped.
 
 **Old links.** A link without `filter` that carries the parameters of the old calls page (`service`, `pod`,
-`duration_min_ms`, `duration_max_ms`, `error_only`, `retention_class`, `q`) is converted to conditions, with that
-page's defaults: a lower duration bound of 500 ms unless `duration_min_ms` is given, and hiding system calls unless
-`hide_system=false`. The old parameters are never written back. The old page took the union of its services and
-pods, and the conditions take the intersection: a pod pinned inside a selected service narrows to that pod, as
-before, but a pod of another service drops that service.
+`duration_min_ms`, `duration_max_ms`, `error_only`, `retention_class`, `q`) and no `order`, which the new page always
+writes, is converted to conditions, with that page's defaults: a lower duration bound of 500 ms unless
+`duration_min_ms` is given, and hiding system calls unless `hide_system=false`.
+
+The old page selected the union of its `service` and `pod` values, and conditions must all match, so they match every
+combination of their values. The link keeps selecting the same calls:
+
+- A pod of a selected service adds nothing to the union and is dropped.
+- When the rest is every combination of its namespaces and services, or of its namespaces, services, and pods, it
+  becomes conditions: `service=payments/billing&service=payments/ledger` becomes `namespace=payments` and
+  `service in billing,ledger`.
+- Otherwise, such as services from two namespaces or a service and a pod of another service, the selection stays as
+  it was. It shows as one token, `service or pod in prod/orders, stage/billing`, that the query applies like the old
+  page did: the pods of the services in the window, and the pods as listed, intersected with any namespace, service,
+  or pod condition. The URL keeps it as `service` and `pod` parameters until its token is removed; they are the only
+  old parameters written back.
 
 ## 7. Non-goals for v1
 

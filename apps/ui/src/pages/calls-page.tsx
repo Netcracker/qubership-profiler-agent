@@ -19,6 +19,7 @@ import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
 import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
 import type { PresetToken } from '../calls/filter-bar/filter-bar';
+import { selectionTokens } from '../calls/filter-bar/selection-token';
 import { HIDE_SYSTEM_TOKEN, isIdleMethod } from '../calls/idle-tags';
 import { QueryControls, SortBy } from '../calls/query-controls';
 import { DEFAULT_ORDER, orderLabel, serverCanOrder, sortCalls } from '../calls/sort-order';
@@ -30,6 +31,7 @@ import { usePods } from '../discovery/use-pods';
 import { browserNote, browserSupports, filterInBrowser, isBrowserCondition } from '../filter/browser';
 import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
+import type { PodSelection } from '../filter/legacy';
 import { translateConditions, unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
@@ -49,17 +51,25 @@ const VIRTUAL = import.meta.env.MODE !== 'test';
 /** The part of the query the controls edit before it runs. */
 interface QueryDraft {
   conditions: Condition[];
+  /** The selection of an old link, until its token is removed. */
+  selection: PodSelection | null;
   hideSystem: boolean;
   order: CallsOrder;
 }
 
-const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem, d.order]);
+const draftKey = (d: QueryDraft): string =>
+  JSON.stringify([d.conditions.map(formatCondition), d.selection, d.hideSystem, d.order]);
 
 /** The fields and operators the bar offers: those /calls takes, and those the browser applies to the loaded rows. */
 const supportedHere = (field: string, op?: Operator): string | null =>
   browserSupports(field, op) ? null : unsupportedReason(field, op);
 
-const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
+const draftOf = (s: CallsSearchState): QueryDraft => ({
+  conditions: s.conditions,
+  selection: s.selection,
+  hideSystem: s.hideSystem,
+  order: s.order,
+});
 
 export function CallsPage() {
   // The App's toast renders in the app's own React tree and unmounts with it.
@@ -99,8 +109,13 @@ export function CallsPage() {
   const values = useMemo(() => podValueSource(namespaces), [namespaces]);
 
   // /calls takes no `filter` parameter yet: the applied conditions travel as today's parameters (plan §4.2.1).
-  const translation = useMemo(() => translateConditions(search.conditions, namespaces), [search.conditions, namespaces]);
-  const needsPods = search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field));
+  const translation = useMemo(
+    () => translateConditions(search.conditions, namespaces, search.selection),
+    [search.conditions, namespaces, search.selection],
+  );
+  const needsPods =
+    search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field)) ||
+    (search.selection?.services.length ?? 0) > 0;
   const waitingForPods = translation.params === null && podsState.kind !== 'error';
 
   // A draft token the translation skips renders disabled with the reason, and is not sent. A trace_id token is not
@@ -115,10 +130,13 @@ export function CallsPage() {
   );
 
   // "Hide system/proxy" shows in the bar as a token of the draft: the switch adds and removes it, and so do its ×
-  // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2).
-  const presets: PresetToken[] = draft.hideSystem
-    ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
-    : [];
+  // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2). An old link's selection is a token too.
+  const presets: PresetToken[] = [
+    ...selectionTokens(draft.selection, () => setDraft((d) => ({ ...d, selection: null }))),
+    ...(draft.hideSystem
+      ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
+      : []),
+  ];
 
   const serverOrdered = serverCanOrder(search.order);
   const rawFilter: CallsFilter | null = useMemo(() => {

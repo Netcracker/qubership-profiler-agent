@@ -124,6 +124,32 @@ describe('translateConditions', () => {
   );
 });
 
+describe('translateConditions with the selection of an old link', () => {
+  // The old page took the union: every pod of orders/checkout, and payments/billing/billing-a.
+  const selection = { services: ['orders/checkout'], pods: ['payments/billing/billing-a'] };
+
+  it('sends the pods of the selected services and the selected pods', () => {
+    const t = translateConditions([], NAMESPACES, selection);
+    expect([...t.params!.pods!].sort()).toEqual(['orders/checkout/checkout-a', 'orders/checkout/checkout-b', 'payments/billing/billing-a']);
+  });
+
+  it('selects across namespaces without the pairs the old link left out', () => {
+    const t = translateConditions([], NAMESPACES, { services: ['orders/cart', 'payments/billing'], pods: [] });
+    expect([...t.params!.pods!].sort()).toEqual(['orders/cart/cart-a', 'payments/billing/billing-a']);
+  });
+
+  it('intersects the selection with the namespace, service, and pod conditions', () => {
+    const t = translateConditions(conds('namespace=orders'), NAMESPACES, selection);
+    expect([...t.params!.pods!].sort()).toEqual(['orders/checkout/checkout-a', 'orders/checkout/checkout-b']);
+    expect(translateConditions(conds('pod=cart-a'), NAMESPACES, selection).noPods).toBe(true);
+  });
+
+  it('waits for /pods only when the selection names a service', () => {
+    expect(translateConditions([], null, selection).params).toBeNull();
+    expect(translateConditions([], null, { services: [], pods: ['a/b/c'] }).params).toEqual({ pods: ['a/b/c'] });
+  });
+});
+
 describe('unsupportedReason', () => {
   it('enables the fields and operators of the translation table only', () => {
     expect(unsupportedReason('pod')).toBeNull();

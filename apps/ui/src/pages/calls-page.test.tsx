@@ -138,6 +138,34 @@ describe('CallsPage', () => {
     }
   });
 
+  it('keeps the union of an old link that names a service and a pod of another service', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}`);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      const pods = calls.urls[0]!.searchParams.getAll('pod');
+      expect(pods).toContain(pinned);
+      expect(pods.filter((p) => p !== pinned).length).toBeGreaterThan(0);
+      expect(pods.filter((p) => p !== pinned).every((p) => p.startsWith('payments/billing/'))).toBe(true);
+      const name = `Remove the filter service or pod in payments/billing, ${pinned}`;
+      const token = screen.getByRole('button', { name }).parentElement!;
+      expect(token).toHaveAttribute('data-applied', 'true');
+
+      // Run query keeps the selection in the URL; removing its token and running drops it.
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(`service=payments/billing&pod=${pinned}`));
+      await userEvent.click(screen.getByRole('button', { name }));
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('service='));
+    } finally {
+      calls.stop();
+    }
+  });
+
   it('keeps an untranslatable condition as a disabled token and does not send it', async () => {
     const calls = recordCalls();
     try {
