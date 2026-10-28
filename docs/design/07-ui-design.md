@@ -361,6 +361,9 @@ classified by effort in [`08-ui-backend-requirements.md`](08-ui-backend-requirem
 - [x] **A header and a navigation rail replace the top bar and its tab switch** — the header holds the screen's
   controls, starting with the time range, and the rail links the screens (§1 of `09`). The filter bar above the
   calls table replaces the discovery rail (§2.1 of `09`) — accepted (2026-10-14).
+- [x] **A calls histogram drawn as plain SVG, without a charting library** — 60 bars, two axis labels, hover, and a
+  drag selection need no library, and the UI ships inside the query binary (D4). D3 stands: the histogram counts
+  the query the table shows; it is not a dashboard (§2.4 of `09`) — accepted (2026-10-27).
 - [x] **A dark theme, reversing "light only"** — the default follows `prefers-color-scheme`, and the header switch
   stores an override in `localStorage` — accepted (2026-10-13).
 - [x] **An Auto option in the theme switch** — Light, Dark, and Auto; Auto is the default, stores nothing,

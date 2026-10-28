@@ -760,6 +760,116 @@ describe('CallsPage with the filter model', () => {
     expect(screen.getByText('!= on service is not implemented')).toBeInTheDocument();
   });
 
+  /** Records the /stats requests while a test runs. */
+  function recordStats(): { urls: URL[]; stop: () => void } {
+    const urls: URL[] = [];
+    const onRequestStart = ({ request }: { request: Request }): void => {
+      if (request.url.includes('/api/v1/stats')) urls.push(new URL(request.url));
+    };
+    server.events.on('request:start', onRequestStart);
+    return { urls, stop: () => server.events.removeListener('request:start', onRequestStart) };
+  }
+
+  it('counts the same query by time above the table', async () => {
+    const stats = recordStats();
+    try {
+      renderCallsPage(`${window15m()}&${filterParam(['duration>=1s'])}`);
+      await rowsLoaded();
+      expect(await screen.findByText(/^[\d,]+ calls? · [\d,]+ errors?$/, undefined, { timeout: 5000 })).toBeInTheDocument();
+      const sp = stats.urls[0]!.searchParams;
+      expect(sp.get('group_by')).toBe('time');
+      expect(sp.get('buckets')).toBe('60');
+      expect(sp.getAll('filter')).toEqual(['duration>=1s']);
+    } finally {
+      stats.stop();
+    }
+  });
+
+  it('counts the selection of an old link with the same pod tuples as /calls', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}`);
+      await rowsLoaded();
+      await waitFor(() => expect(stats.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      const pods = stats.urls[0]!.searchParams.getAll('pod');
+      expect(pods).toContain(pinned);
+      expect(pods).toEqual(calls.urls[0]!.searchParams.getAll('pod'));
+    } finally {
+      calls.stop();
+      stats.stop();
+    }
+  });
+
+  it('resolves a relative window again for /calls and /stats on Run query', async () => {
+    const realNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offsetMs);
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage('from=now-1h&to=now&order=start_desc');
+      await rowsLoaded();
+      await waitFor(() => expect(stats.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      const firstTo = Number(stats.urls[0]!.searchParams.get('to'));
+      const [callsBefore, statsBefore] = [calls.urls.length, stats.urls.length];
+
+      offsetMs = 60_000;
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(stats.urls.length).toBeGreaterThan(statsBefore));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(callsBefore));
+      const statsTo = Number(stats.urls[stats.urls.length - 1]!.searchParams.get('to'));
+      expect(statsTo - firstTo).toBeGreaterThanOrEqual(60_000);
+      expect(Number(calls.urls[calls.urls.length - 1]!.searchParams.get('to'))).toBe(statsTo);
+    } finally {
+      calls.stop();
+      stats.stop();
+      clock.mockRestore();
+    }
+  });
+
+  it('zooms the time range to a selection of the histogram', async () => {
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    const plot = await screen.findByTestId('histogram-plot', undefined, { timeout: 5000 });
+    await waitFor(() => expect(screen.getAllByTestId('histogram-bar')).toHaveLength(60));
+    plot.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 96, right: 600, bottom: 96, x: 0, y: 0, toJSON: () => ({}) });
+    fireEvent.mouseDown(plot, { clientX: 5, button: 0 });
+    fireEvent.mouseMove(plot, { clientX: 15 });
+    fireEvent.mouseUp(plot, { clientX: 15 });
+    await userEvent.click(screen.getByRole('button', { name: /Zoom in/ }));
+    const params = new URLSearchParams(screen.getByTestId('location').textContent!);
+    const from = Number(params.get('from'));
+    const to = Number(params.get('to'));
+    // Two of sixty buckets of a 15-minute window: 30 seconds.
+    expect(to - from).toBe(30_000);
+  });
+
+  it('shows no histogram on a build that cannot group by time', async () => {
+    serveConfig({ ...STAGE_A, group_by: [] });
+    const stats = recordStats();
+    try {
+      renderCallsPage(window15m());
+      await rowsLoaded();
+      expect(screen.queryByRole('region', { name: 'Calls over time' })).toBeNull();
+      expect(stats.urls).toHaveLength(0);
+    } finally {
+      stats.stop();
+    }
+  });
+
+  it('keeps the table when /stats fails', async () => {
+    server.use(http.get('/api/v1/stats', () => HttpResponse.json({ title: 'boom', status: 500 }, { status: 500 })));
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    expect(await screen.findByText('Counting the calls failed', undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeGreaterThan(0);
+  });
+
   it('holds the query while /config fails and sends the conditions once it loads', async () => {
     let fail = true;
     server.use(

@@ -1,0 +1,89 @@
+.histogram {
+  border: 1px solid var(--pf-color-border);
+  border-radius: 6px;
+  background: var(--pf-color-surface);
+  padding: 6px 10px 8px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.readout {
+  color: var(--pf-color-dim);
+}
+
+.hover {
+  margin-left: auto;
+  color: var(--pf-color-dim);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 96px auto;
+  column-gap: 6px;
+  margin-top: 6px;
+}
+
+.yAxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  color: var(--pf-color-faint);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.plot {
+  position: relative;
+  border-bottom: 1px solid var(--pf-color-border-soft);
+  cursor: crosshair;
+  user-select: none;
+}
+
+.plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ok {
+  fill: var(--pf-color-bar);
+}
+
+.err {
+  fill: var(--pf-color-bar-err);
+}
+
+.selection {
+  fill: var(--pf-color-accent-soft);
+}
+
+.hovered {
+  fill: var(--pf-color-veil);
+}
+
+.xAxis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  color: var(--pf-color-faint);
+  font-size: 11px;
+  padding-top: 2px;
+}
+
+.note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}

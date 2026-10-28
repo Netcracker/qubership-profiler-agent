@@ -117,6 +117,36 @@ export interface FilterCapabilities {
   group_by_params?: boolean;
 }
 
+/** One /stats row (02 §2.9). `key` is absent on the `other` row. */
+export interface StatsRow {
+  key?: string;
+  count: number;
+  errors: number;
+  duration_ms_sum: number;
+  /** Null for a row with no calls. */
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  cpu_time_ms_sum: number;
+  wait_time_ms_sum: number;
+  queue_wait_ms_sum: number;
+  suspend_ms_sum: number;
+}
+
+/** GET /stats body (02 §2.9). */
+export interface StatsResponse {
+  group_by: string;
+  /** `group_by=time` only: the width of each bucket; the last one may be shorter. */
+  bucket_ms?: number;
+  rows: StatsRow[];
+  other: StatsRow | null;
+  distinct: number;
+  totals: { count: number; errors: number };
+  approximate: boolean;
+  partial: boolean;
+  partial_reasons: string[];
+}
+
 /** RFC 7807 body with the §2.3.2 wide-query guard extensions (02 §8). */
 export interface ProblemDetails {
   type: string;

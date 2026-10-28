@@ -57,8 +57,8 @@ pagination `cursor` is scroll state, not URL state. Full scheme in §6.
 ## 2. Calls
 
 The entry screen. Filter the calls of a time range, then read them. Filter-first — no summary dashboard (07 §1).
-The layout follows the `CallsAlt.dc.html` board of the redesign mockups: the filter bar, a row of controls, and
-the table. The histogram between the controls and the table comes later (redesign plan, task 3.8).
+The layout follows the `CallsAlt.dc.html` board of the redesign mockups: the filter bar, a row of controls, the
+histogram (§2.4), and the table.
 
 ### 2.1 Filter bar
 
@@ -173,6 +173,27 @@ An empty page with a non-null `next_cursor` keeps paging; an expired cursor rest
 did); the URL window stays in Unix ms. The Start cell shows the time alone for a call of today in that zone, and
 the date and time otherwise (`Jul 12 23:59:59.999`, with the year for another year). Its tooltip holds the full
 timestamp.
+
+### 2.4 Histogram
+
+"Calls over time" sits between the controls and the table. It counts the applied query with
+`/stats?group_by=time&buckets=60` (02 §2.9), sent beside `/calls` with the same window and conditions, and with the
+`pod` tuples of an old link's selection (§6). Run query resolves a relative window once for both.
+
+- **Bars.** One bar per bucket, clean calls at the bottom and failed calls stacked on top, in the theme's bar
+  colors. The y axis starts at 0 and ends at the smallest 1, 2, or 5 times a power of ten that holds the tallest
+  bar. The x axis labels the start, the middle, and the end of the window. The bars are a hand-drawn SVG.
+- **Readout.** "N calls · M errors" from the response's `totals`. Hovering a bar shows its start, its counts, and
+  its p95.
+- **Zoom.** A drag across the bars selects buckets and offers "Zoom in" and "Clear". "Zoom in" sets the time range
+  to the selected buckets at once, like any range change; the last bucket ends at the window's end. A selection does
+  not narrow the table.
+- **Collapse.** The title collapses the chart; the choice is stored in `localStorage`.
+- **When it is absent.** The chart needs `time` in `filter_capabilities.group_by`, so a backend without the filter
+  model shows none. A `404` from `/stats` hides it, and so does a too-wide query, which the table's banner explains.
+  Any other failure shows an error with "Retry" in the chart and leaves the table alone.
+- **Notes.** A `partial` answer says the counts may be low. "Hide system/proxy" filters the loaded rows only, so with
+  it on the chart says that it still counts those calls.
 
 ## 3. Call Tree
 

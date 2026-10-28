@@ -1,6 +1,6 @@
 import { buildUrl, getBinary, getJson } from './client';
 import { pkToPath } from './pk';
-import type { CallPK, CallsResponse, ConfigResponse, PodsResponse, RetentionClass } from './types';
+import type { CallPK, CallsResponse, ConfigResponse, PodsResponse, RetentionClass, StatsResponse } from './types';
 import { TREE_WIRE_VERSION, decodeTree } from '../msgpack/decode';
 import type { TreeWire } from '../msgpack/tree-wire';
 
@@ -72,6 +72,39 @@ export const CALLS_URL_LENGTH_LIMIT = 6000;
  */
 export function fetchCallsNextPage(cursor: string, signal?: AbortSignal): Promise<CallsResponse> {
   return getJson<CallsResponse>('/api/v1/calls', { cursor }, signal);
+}
+
+/** A /stats request (02 §2.9): the conditions of a /calls query and one grouping. */
+export interface StatsQuery {
+  fromMs: number;
+  toMs: number;
+  filters?: readonly string[];
+  /** `namespace/service/pod` tuples, the legacy shorthand /stats takes as /calls does (02 §2.9). */
+  pods?: readonly string[];
+  /** `time`, a field of 02 §2.3.3, a call param name, or `param_name`. */
+  groupBy: string;
+  /** `group_by=time` only. */
+  buckets?: number;
+  /** Field groupings only. */
+  limit?: number;
+  order?: 'count_desc' | 'duration_sum_desc';
+}
+
+export function fetchStats(q: StatsQuery, signal?: AbortSignal): Promise<StatsResponse> {
+  return getJson<StatsResponse>(
+    '/api/v1/stats',
+    {
+      from: q.fromMs,
+      to: q.toMs,
+      filter: q.filters,
+      pod: q.pods,
+      group_by: q.groupBy,
+      buckets: q.buckets,
+      limit: q.limit,
+      order: q.order,
+    },
+    signal,
+  );
 }
 
 export function fetchPods(fromMs: number, toMs: number, signal?: AbortSignal): Promise<PodsResponse> {
