@@ -2,8 +2,8 @@ import { bytesToBase64, RESTORE_GLOBAL } from './restore';
 import type { RestorePayload } from './restore';
 
 // Builds the self-contained HTML file (design 10b, option 2): fetch the app's
-// own built JS + CSS, inline them, and embed the restore payload. The result
-// opens and renders offline with no backend.
+// own built JS + CSS, inline them along with the fonts the CSS loads, and embed
+// the restore payload. The result opens and renders offline with no backend.
 //
 // The bundle is inlined, so a working file only comes out of a *built* app (a
 // deployment or `vite preview`). Under `vite dev` the index points at source
@@ -14,6 +14,51 @@ async function fetchText(url: string): Promise<string> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`cannot read ${url}: ${res.status} ${res.statusText}`);
   return res.text();
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`cannot read ${url}: ${res.status} ${res.statusText}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+const ASSET_TYPES: Record<string, string> = {
+  woff2: 'font/woff2',
+  woff: 'font/woff',
+  ttf: 'font/ttf',
+  svg: 'image/svg+xml',
+  png: 'image/png',
+};
+
+function assetType(url: string): string {
+  const ext = new URL(url).pathname.split('.').pop()!.toLowerCase();
+  return ASSET_TYPES[ext] ?? 'application/octet-stream';
+}
+
+/**
+ * Replaces every `url(...)` in a stylesheet with a data: URL of the file it
+ * names, resolved against the stylesheet's own URL. In the built CSS these are
+ * the bundled woff2 fonts, which a downloaded copy could not otherwise reach.
+ * A reference that already is a data: URL, or a `#fragment`, stays as it is.
+ */
+async function inlineCssAssets(css: string, cssUrl: string): Promise<string> {
+  const pattern = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
+  const refs = new Set<string>();
+  for (const match of css.matchAll(pattern)) {
+    const ref = match[2]!.trim();
+    if (!ref.startsWith('data:') && !ref.startsWith('#')) refs.add(ref);
+  }
+  const dataUrls = new Map<string, string>();
+  await Promise.all(
+    [...refs].map(async (ref) => {
+      const url = new URL(ref, cssUrl).href;
+      dataUrls.set(ref, `data:${assetType(url)};base64,${bytesToBase64(await fetchBytes(url))}`);
+    }),
+  );
+  return css.replace(pattern, (whole: string, _quote: string, ref: string) => {
+    const dataUrl = dataUrls.get(ref.trim());
+    return dataUrl === undefined ? whole : `url("${dataUrl}")`;
+  });
 }
 
 function escapeHtml(s: string): string {
@@ -110,7 +155,8 @@ async function inlineModuleGraph(doc: Document, indexUrl: string): Promise<strin
 }
 
 /**
- * Assembles the export HTML. Styles inline as <style>; the module bundle inlines
+ * Assembles the export HTML. Styles inline as <style>, with their fonts as
+ * data: URLs; the module bundle inlines
  * as base64 data: URLs rather than inline text, because the minified bundle
  * contains `<script` and `<!--` substrings that would derail the HTML parser's
  * script-data states — a data: URL sidesteps all of them.
@@ -122,8 +168,8 @@ export async function buildExportHtml(payload: RestorePayload): Promise<string> 
 
   const styles: string[] = [];
   for (const link of doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]')) {
-    const css = await fetchText(new URL(link.getAttribute('href')!, indexUrl).href);
-    styles.push(`<style>${css}</style>`);
+    const cssUrl = new URL(link.getAttribute('href')!, indexUrl).href;
+    styles.push(`<style>${await inlineCssAssets(await fetchText(cssUrl), cssUrl)}</style>`);
   }
 
   const scripts = await inlineModuleGraph(doc, indexUrl);

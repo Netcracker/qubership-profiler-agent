@@ -6,6 +6,8 @@
 // contract between the builder (build-export.ts) and the boot path (main.tsx,
 // restored-app.tsx).
 
+import type { ThemeMode } from '../ui/theme-mode';
+
 export const RESTORE_VERSION = 1;
 
 /** The global the exported HTML sets and the boot path reads. */
@@ -37,6 +39,12 @@ export interface RestorePayload {
   categoryText: string;
   tabs: SerializedTab[];
   activeTab: string;
+  /**
+   * The theme in effect when the copy was saved, Auto already resolved. The
+   * copy opens in it. Exports made before this field existed lack it and open
+   * in the reader's own theme.
+   */
+  theme?: ThemeMode;
 }
 
 /** base64-encode raw bytes (btoa needs a binary string, so chunk to stay under the arg limit). */
