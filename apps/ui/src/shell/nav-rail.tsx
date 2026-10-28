@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router';
 
+import { isAgentConfigEnabled } from '../agents/api';
+import { useConfig } from '../api/use-config';
 import styles from './nav-rail.module.css';
+
+export const AGENTS_PATH = '/agents';
 
 export interface Screen {
   path: string;
@@ -13,7 +17,7 @@ export interface Screen {
    * Screens with the same value read the same query-string scheme, so a switch
    * between them keeps the search string.
    */
-  urlScheme: 'calls';
+  urlScheme: 'calls' | 'agents';
   icon: ReactNode;
 }
 
@@ -31,7 +35,30 @@ export const SCREENS: readonly Screen[] = [
       </>
     ),
   },
+  {
+    path: AGENTS_PATH,
+    label: 'Agents',
+    title: 'Agent configuration',
+    urlScheme: 'agents',
+    icon: (
+      <>
+        <path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7" />
+        <circle cx="10.5" cy="4.5" r="1.5" />
+        <circle cx="5.5" cy="11.5" r="1.5" />
+      </>
+    ),
+  },
 ];
+
+/**
+ * The screens this deployment has. Agents is listed only when /config reports
+ * the feature, so the entry is absent while /config loads and when it fails.
+ */
+export function useScreens(): readonly Screen[] {
+  const config = useConfig();
+  const agents = config.kind === 'ready' && isAgentConfigEnabled(config.config);
+  return agents ? SCREENS : SCREENS.filter((screen) => screen.path !== AGENTS_PATH);
+}
 
 const STORAGE_KEY = 'profiler.navRail.collapsed';
 
@@ -57,12 +84,13 @@ function saveCollapsed(collapsed: boolean): void {
  */
 export function NavRail() {
   const location = useLocation();
+  const screens = useScreens();
   const [collapsed, setCollapsed] = useState(loadCollapsed);
 
   // The search string each URL scheme last had. A link to a screen of another
-  // scheme restores that scheme's own string, so a visit to a screen of
-  // another scheme does not cost Calls its window and filters.
-  const current = SCREENS.find((screen) => location.pathname.startsWith(screen.path))?.urlScheme;
+  // scheme restores that scheme's own string, so a visit to Agents does not
+  // cost Calls its window and filters.
+  const current = screens.find((screen) => location.pathname.startsWith(screen.path))?.urlScheme;
   const lastSearch = useRef(new Map<Screen['urlScheme'], string>());
   useEffect(() => {
     if (current !== undefined) lastSearch.current.set(current, location.search);
@@ -95,7 +123,7 @@ export function NavRail() {
           </svg>
         </button>
       </div>
-      {SCREENS.map((screen) => (
+      {screens.map((screen) => (
         <NavLink
           key={screen.path}
           // The search string carries the window and selection (09 §6); keep
