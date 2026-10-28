@@ -11,7 +11,8 @@ export const TRACE_ID_PARAMS = ['trace.id', 'brave.trace_id', 'X-B3-TraceId'];
 
 /** The non-empty values of a param; a param recorded with no value counts as absent. */
 function paramValues(call: CallJSON, name: string): string[] {
-  return (call.params[name] ?? []).filter((v) => v !== '');
+  // Own keys only: a name such as `constructor` must not read Object.prototype.
+  return (Object.hasOwn(call.params, name) ? call.params[name]! : []).filter((v) => v !== '');
 }
 
 /** The declaring class of the root method, or null for a name without a `.` (02 §2.3.3). */
