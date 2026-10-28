@@ -32,4 +32,13 @@ describe('browser-side conditions', () => {
     expect(filterInBrowser(rows, [])).toBe(rows);
     expect(filterInBrowser(rows, [trace('aaa'), trace('bbb')])).toEqual([]);
   });
+
+  it('keeps the untraced rows for None and the traced ones for Any', () => {
+    const rows = [call(1, 'aaa'), call(2, null), call(3, 'bbb')];
+    const ids = (values: string[]) => filterInBrowser(rows, values.map(trace)).map((c) => c.pk.record_index);
+    expect(ids(['None'])).toEqual([2]);
+    expect(ids(['Any'])).toEqual([1, 3]);
+    expect(ids(['Any', 'bbb'])).toEqual([3]);
+    expect(ids(['None', 'Any'])).toEqual([]);
+  });
 });

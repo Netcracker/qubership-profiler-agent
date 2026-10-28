@@ -14,7 +14,7 @@ export type ThemePreference = ThemeMode | 'auto';
 const STORAGE_KEY = 'profiler.theme';
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
-function isThemeMode(value: unknown): value is ThemeMode {
+export function isThemeMode(value: unknown): value is ThemeMode {
   return value === 'light' || value === 'dark';
 }
 

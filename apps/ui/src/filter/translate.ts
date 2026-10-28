@@ -5,6 +5,7 @@ import { parseDurationMs, parseDurationRange } from '../calls/duration-filter';
 import type { NamespaceNode } from '../discovery/group-pods';
 import { ANY, NONE, regexLiteral } from './condition';
 import type { Condition, Operator } from './condition';
+import type { PodSelection } from './legacy';
 
 // A backend without the filter model reports no `filter_capabilities` (02 §2.3.4) and takes only the legacy /calls
 // parameters, so the applied conditions are translated to them (UI redesign plan §4.2.1). See calls/query-plan.ts.
@@ -19,23 +20,26 @@ function isIdentityField(field: string): field is IdentityField {
   return (IDENTITY_FIELDS as readonly string[]).includes(field);
 }
 
-/** The field and operator pairs of the §4.2.1 table. */
-const SUPPORTED: Readonly<Record<string, readonly Operator[]>> = {
-  namespace: ['=', 'in'],
-  service: ['=', 'in'],
-  pod: ['=', 'in'],
-  duration: ['>', '>=', '<', '<=', 'between'],
-  error: ['='],
-  retention_class: ['=', 'in'],
-  method: ['=~'],
-};
+/**
+ * The field and operator pairs of the §4.2.1 table. A Map, because the field comes from the user: a plain object
+ * would answer `constructor` or `toString` with an inherited member.
+ */
+const SUPPORTED: ReadonlyMap<string, readonly Operator[]> = new Map<string, readonly Operator[]>([
+  ['namespace', ['=', 'in']],
+  ['service', ['=', 'in']],
+  ['pod', ['=', 'in']],
+  ['duration', ['>', '>=', '<', '<=', 'between']],
+  ['error', ['=']],
+  ['retention_class', ['=', 'in']],
+  ['method', ['=~']],
+]);
 
 /**
  * Why the filter bar disables a field or an operator, or null when it is enabled. Without `op`, a field is enabled
  * when at least one of its operators is.
  */
 export function unsupportedReason(field: string, op?: Operator): string | null {
-  const ops = SUPPORTED[field];
+  const ops = SUPPORTED.get(field);
   if (ops === undefined) return UNSUPPORTED_REASON;
   return op === undefined || ops.includes(op) ? null : UNSUPPORTED_REASON;
 }
@@ -59,10 +63,35 @@ export interface Translation {
   contradiction: boolean;
 }
 
-function allPodTuples(namespaces: readonly NamespaceNode[]): { tuple: string; namespace: string; service: string; pod: string }[] {
+interface PodTuple {
+  tuple: string;
+  namespace: string;
+  service: string;
+  pod: string;
+}
+
+function allPodTuples(namespaces: readonly NamespaceNode[]): PodTuple[] {
   return namespaces.flatMap((ns) =>
     ns.services.flatMap((svc) => svc.pods.map((p) => ({ tuple: p.tuple, namespace: ns.namespace, service: svc.service, pod: p.pod }))),
   );
+}
+
+/**
+ * The pods of an old link's selection, as the old page sent them: its pods as they are, and every pod of its services
+ * in the window. Null while services wait for the /pods data.
+ */
+function selectionTuples(selection: PodSelection, namespaces: readonly NamespaceNode[] | null): PodTuple[] | null {
+  const pods = selection.pods.map((tuple) => {
+    const [namespace, service, pod] = tuple.split('/') as [string, string, string];
+    return { tuple, namespace, service, pod };
+  });
+  if (selection.services.length === 0) return pods;
+  if (namespaces === null) return null;
+  const seen = new Set(selection.pods);
+  const fromServices = allPodTuples(namespaces).filter(
+    (p) => selection.services.includes(`${p.namespace}/${p.service}`) && !seen.has(p.tuple),
+  );
+  return [...pods, ...fromServices];
 }
 
 /** Why one condition cannot be sent, or null when it can. */
@@ -79,11 +108,23 @@ function valueReason(c: Condition): string | null {
 }
 
 /**
- * Turns the applied conditions into today's /calls parameters. Namespace, service, and pod conditions expand to pod
- * tuples from the /pods data, intersected across conditions; duration bounds intersect, and a strict bound moves by
- * 1 ms; retention classes intersect. One method search can be sent.
+ * The pod tuples of an old link's selection, for a request that sends its conditions as they are. Null while services
+ * wait for the /pods data.
  */
-export function translateConditions(conditions: readonly Condition[], namespaces: readonly NamespaceNode[] | null): Translation {
+export function selectionPods(selection: PodSelection, namespaces: readonly NamespaceNode[] | null): string[] | null {
+  return selectionTuples(selection, namespaces)?.map((p) => p.tuple) ?? null;
+}
+
+/**
+ * Turns the applied conditions into today's /calls parameters. Namespace, service, and pod conditions expand to pod
+ * tuples from the /pods data, intersected across conditions and with the selection of an old link; duration bounds
+ * intersect, and a strict bound moves by 1 ms; retention classes intersect. One method search can be sent.
+ */
+export function translateConditions(
+  conditions: readonly Condition[],
+  namespaces: readonly NamespaceNode[] | null,
+  selection: PodSelection | null = null,
+): Translation {
   const skipped: SkippedCondition[] = [];
   const params: TranslatedParams = {};
   const identity: Condition[] = [];
@@ -144,10 +185,9 @@ export function translateConditions(conditions: readonly Condition[], namespaces
   if (classes !== null) params.retentionClasses = classes;
 
   const contradiction = (minMs !== null && maxMs !== null && minMs > maxMs) || (classes !== null && classes.length === 0);
-  if (identity.length === 0) return { params, skipped, noPods: false, contradiction };
-  if (namespaces === null) return { params: null, skipped, noPods: false, contradiction };
-  const pods = allPodTuples(namespaces)
-    .filter((p) => identity.every((c) => c.values.includes(p[c.field as IdentityField])))
-    .map((p) => p.tuple);
+  if (identity.length === 0 && selection === null) return { params, skipped, noPods: false, contradiction };
+  const candidates = selection !== null ? selectionTuples(selection, namespaces) : namespaces && allPodTuples(namespaces);
+  if (candidates === null) return { params: null, skipped, noPods: false, contradiction };
+  const pods = candidates.filter((p) => identity.every((c) => c.values.includes(p[c.field as IdentityField]))).map((p) => p.tuple);
   return { params: { ...params, pods }, skipped, noPods: pods.length === 0, contradiction };
 }

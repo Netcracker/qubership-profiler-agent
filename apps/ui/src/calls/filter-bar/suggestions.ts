@@ -83,19 +83,26 @@ export interface StageInput {
   text: string;
   /** The fields the bar lists, in order. */
   fields: readonly string[];
+  /** True when the bar also takes a call parameter typed by hand, such as `user.tenant`, which `fields` cannot list. */
+  params?: boolean;
   supported: SupportedPredicate;
   /** Checks the values too, such as `None` on a backend that cannot match it; `supported` alone when absent. */
   conditionReason?: ConditionPredicate;
   values: ValueSource;
 }
 
+const FIELD_FOOT = 'Pick a field, or type a word to search in the method name. All filters must match.';
+const FIELD_FOOT_PARAMS =
+  'Pick a field, type a call parameter name, or type a word to search in the method name. All filters must match.';
+
 /** The fields of the catalog, in catalog order. */
 export const ALL_FIELDS: readonly string[] = FIELDS.map((f) => f.name);
 
-export function stageView({ draft, text, fields, supported, conditionReason, values }: StageInput): StageView {
+export function stageView({ draft, text, fields, params = false, supported, conditionReason, values }: StageInput): StageView {
   const reasonOf = (c: Condition): string | undefined => orNull(conditionReason ? conditionReason(c) : supported(c.field, c.op));
   const typed = text.trim();
   const needle = typed.toLowerCase();
+  const offered = (field: string): boolean => fields.includes(field) || (params && fieldDef(field)?.kind === 'param');
 
   if (draft.field === null) {
     const items: Item[] = fields
@@ -109,7 +116,7 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
     if (typed !== '') {
       // A whole condition typed at once, such as `duration>1s`.
       const parsed = parseCondition(typed);
-      if (parsed.ok && fields.includes(parsed.condition.field)) {
+      if (parsed.ok && offered(parsed.condition.field)) {
         const c = parsed.condition;
         items.unshift({
           label: formatCondition(c),
@@ -128,11 +135,20 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
           action: { kind: 'condition', condition: c },
         });
       }
+      // A name outside the catalog, such as `user.tenant`, is a call parameter.
+      if (!parsed.ok && !fields.includes(typed) && offered(typed)) {
+        items.push({
+          label: typed,
+          hint: 'Call parameter',
+          disabledReason: orNull(supported(typed)),
+          action: { kind: 'field', field: typed },
+        });
+      }
     }
     return {
       stage: 'field',
       title: 'Filter by',
-      foot: 'Pick a field, or type a word to search in the method name. All filters must match.',
+      foot: params ? FIELD_FOOT_PARAMS : FIELD_FOOT,
       items,
     };
   }
@@ -160,7 +176,11 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
     const n = draft.values.length;
     items.push({ label: `Apply ${n} ${n === 1 ? 'value' : 'values'}`, hint: 'Enter', action: { kind: 'apply' } });
   }
-  if (typed !== '') items.push({ label: `Use "${typed}"`, hint: 'as typed', action: { kind: 'value', value: typed } });
+  // The values are checked as a condition too: a typed `None` on a build without it would only make a disabled token.
+  const valueReason = (value: string): string | undefined => reasonOf({ field: draft.field!, op: draft.op!, values: [value] });
+  if (typed !== '') {
+    items.push({ label: `Use "${typed}"`, hint: 'as typed', disabledReason: valueReason(typed), action: { kind: 'value', value: typed } });
+  }
 
   let foot: string;
   if (def?.kind === 'duration') {
@@ -173,8 +193,7 @@ export function stageView({ draft, text, fields, supported, conditionReason, val
         [NONE, `no ${draft.field}`],
         [ANY, `any ${draft.field}`],
       ] as const) {
-        const disabledReason = reasonOf({ field: draft.field, op: draft.op, values: [value] });
-        items.push({ label: value, hint, disabledReason, action: { kind: 'value', value } });
+        items.push({ label: value, hint, disabledReason: valueReason(value), action: { kind: 'value', value } });
       }
     }
     const known: readonly ValueSuggestion[] = def?.values?.map((value) => ({ value })) ?? values(draft.field);

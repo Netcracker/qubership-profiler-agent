@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { conditionsFromLegacyParams, hasLegacyParams } from './legacy';
+import { convertLegacyParams, hasLegacyParams, readPodSelection, writePodSelection } from './legacy';
 
-const convert = (query: string) => conditionsFromLegacyParams(new URLSearchParams(query));
+const convert = (query: string) => {
+  const { conditions, selection } = convertLegacyParams(new URLSearchParams(query));
+  expect(selection).toBeNull();
+  return conditions;
+};
+const keep = (query: string) => convertLegacyParams(new URLSearchParams(query));
 const NO_MIN = 'duration_min_ms=0';
 
 describe('conditionsFromLegacyParams', () => {
@@ -25,6 +30,51 @@ describe('conditionsFromLegacyParams', () => {
       { field: 'namespace', op: '=', values: ['payments'] },
       { field: 'service', op: '=', values: ['billing'] },
       { field: 'pod', op: '=', values: ['billing-7f9c'] },
+    ]);
+  });
+
+  it('turns one service in two namespaces into namespace and service conditions', () => {
+    expect(convert(`service=prod/orders&service=stage/orders&${NO_MIN}`)).toEqual([
+      { field: 'namespace', op: 'in', values: ['prod', 'stage'] },
+      { field: 'service', op: '=', values: ['orders'] },
+    ]);
+  });
+
+  it('drops a pod of a selected service, which the service already holds', () => {
+    expect(convert(`service=payments/billing&pod=payments/billing/billing-7f9c&${NO_MIN}`)).toEqual([
+      { field: 'namespace', op: '=', values: ['payments'] },
+      { field: 'service', op: '=', values: ['billing'] },
+    ]);
+  });
+
+  it('keeps services from two namespaces as a selection', () => {
+    const { conditions, selection } = keep(`service=prod/orders&service=stage/billing&${NO_MIN}`);
+    expect(conditions).toEqual([]);
+    expect(selection).toEqual({ services: ['prod/orders', 'stage/billing'], pods: [] });
+  });
+
+  it('keeps a service and a pod of another service as a selection', () => {
+    const { conditions, selection } = keep(`service=prod/orders&pod=prod/billing/billing-0&error_only=true&${NO_MIN}`);
+    expect(conditions).toEqual([{ field: 'error', op: '=', values: ['true'] }]);
+    expect(selection).toEqual({ services: ['prod/orders'], pods: ['prod/billing/billing-0'] });
+  });
+
+  it('keeps pods of two services as a selection, and drops the pods of selected services from it', () => {
+    expect(keep(`pod=prod/orders/orders-0&pod=prod/billing/billing-0&${NO_MIN}`).selection).toEqual({
+      services: [],
+      pods: ['prod/orders/orders-0', 'prod/billing/billing-0'],
+    });
+    expect(keep(`service=prod/orders&service=stage/billing&pod=prod/orders/orders-0&${NO_MIN}`).selection).toEqual({
+      services: ['prod/orders', 'stage/billing'],
+      pods: [],
+    });
+  });
+
+  it('turns the same pod name in two namespaces into conditions', () => {
+    expect(convert(`pod=prod/orders/orders-0&pod=stage/orders/orders-0&${NO_MIN}`)).toEqual([
+      { field: 'namespace', op: 'in', values: ['prod', 'stage'] },
+      { field: 'service', op: '=', values: ['orders'] },
+      { field: 'pod', op: '=', values: ['orders-0'] },
     ]);
   });
 
@@ -63,6 +113,18 @@ describe('conditionsFromLegacyParams', () => {
 
   it('turns q into a quoted method match', () => {
     expect(convert(`q=Order.place&${NO_MIN}`)).toEqual([{ field: 'method', op: '=~', values: ['Order\\.place'] }]);
+  });
+
+  it('reads and writes a selection, ignoring malformed and repeated entries', () => {
+    const sp = new URLSearchParams('service=a/x&service=a/x&service=bad&pod=a/y/1&pod=a/y');
+    const selection = readPodSelection(sp);
+    expect(selection).toEqual({ services: ['a/x'], pods: ['a/y/1'] });
+    expect(readPodSelection(new URLSearchParams('service=bad'))).toBeNull();
+    const out = new URLSearchParams();
+    writePodSelection(out, selection);
+    expect(out.toString()).toBe('service=a%2Fx&pod=a%2Fy%2F1');
+    writePodSelection(out, null);
+    expect(out.toString()).toBe('service=a%2Fx&pod=a%2Fy%2F1');
   });
 
   it('tells an old link from a new one', () => {
