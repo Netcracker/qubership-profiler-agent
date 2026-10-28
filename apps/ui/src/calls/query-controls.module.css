@@ -1,0 +1,38 @@
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+/* A switch is shorter than a button; its label takes the control height, so the row keeps one line box. */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  height: var(--pf-control-height, 32px);
+  gap: 8px;
+  cursor: pointer;
+  color: var(--pf-color-text);
+}
+
+.run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.sort {
+  min-width: 170px;
+}
+
+.sortIcon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+/* The icon draws descending; ascending flips it. */
+.sortIconAsc {
+  transform: scaleY(-1);
+}
