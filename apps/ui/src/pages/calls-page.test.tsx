@@ -12,7 +12,7 @@ import { CallsPage } from './calls-page';
 // and the wide-query rejection turns into one-click narrowing that re-runs
 // the query (09 §5).
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
@@ -54,11 +54,8 @@ describe('CallsPage', () => {
   it('renders calls rows for an applied window', async () => {
     const to = Date.now();
     renderCallsPage(`from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
-    // Table rows populate from /calls (the header row plus data rows).
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), {
-      timeout: 5000,
-    });
-    expect(screen.getByText(/loaded/)).toBeInTheDocument();
+    expect(await screen.findByText(/loaded/, undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getAllByRole('row').length).toBeGreaterThan(1);
   });
 
   it('turns the wide-query 400 into narrowing chips that re-run the query', async () => {

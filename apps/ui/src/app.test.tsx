@@ -9,7 +9,7 @@ import { server } from './mocks/node';
 
 // The route table under the app's own providers.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
