@@ -216,6 +216,48 @@ describe('CallsPage', () => {
     }
   });
 
+  it('resolves a relative window again on Run query', async () => {
+    const realNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offsetMs);
+    const calls = recordCalls();
+    try {
+      renderCallsPage('from=now-1h&to=now&order=start_desc');
+      await rowsLoaded();
+      const first = calls.urls[0]!.searchParams;
+      const before = calls.urls.length;
+
+      offsetMs = 60_000;
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      const rerun = calls.urls[before]!.searchParams;
+      expect(Number(rerun.get('to')) - Number(first.get('to'))).toBeGreaterThanOrEqual(60_000);
+      expect(Number(rerun.get('to')) - Number(rerun.get('from'))).toBe(60 * 60 * 1000);
+    } finally {
+      calls.stop();
+      clock.mockRestore();
+    }
+  });
+
+  it('keeps an absolute window on Run query', async () => {
+    const calls = recordCalls();
+    const query = window15m();
+    try {
+      renderCallsPage(query);
+      await rowsLoaded();
+      const before = calls.urls.length;
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      const rerun = calls.urls[before]!.searchParams;
+      const sent = new URLSearchParams(query);
+      expect(rerun.get('from')).toBe(sent.get('from'));
+      expect(rerun.get('to')).toBe(sent.get('to'));
+      expect(calls.urls.length).toBe(before + 1);
+    } finally {
+      calls.stop();
+    }
+  });
+
   it('replaces the pod token and runs on a row pick', async () => {
     const calls = recordCalls();
     try {

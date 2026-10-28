@@ -66,9 +66,15 @@ export function CallsPage() {
   // The static `message` mounts a separate root that nothing unmounts.
   const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
-  // Resolve relative window tokens against one `now` per URL change; the memo
-  // freezes it, so `now-3h` does not drift (and refetch) on every render.
-  const search = useMemo(() => parseCallsSearch(searchParams, Date.now(), { defaults: true }), [searchParams]);
+  // Relative window tokens resolve against one `now` per URL change and per run, and /calls and /pods share the
+  // result. The memo freezes it, so `now-3h` does not drift (and refetch) on every render, and the run count takes a
+  // fresh `now`, so Run query on an unchanged `now-1h` reads up to the present rather than repeating the old window.
+  const [runs, setRuns] = useState(0);
+  const search = useMemo(
+    () => parseCallsSearch(searchParams, Date.now(), { defaults: true }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `runs` only asks for a fresh `now`
+    [searchParams, runs],
+  );
 
   // A visit with no query string gets the defaults; write them, so the URL is complete from then on.
   const bare = searchParams.size === 0;
@@ -134,10 +140,12 @@ export function CallsPage() {
 
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
 
-  // Runs a query state: the URL takes it, and the fetch restarts from page one even when nothing changed.
+  // Runs a query state: the URL takes it, a relative window resolves again, and the fetch restarts from page one even
+  // when nothing changed.
   const runQuery = (next: QueryDraft): void => {
     setDraft(next);
     commitSearch({ ...search, ...next });
+    setRuns((n) => n + 1);
     refetch();
   };
   const run = (): void => runQuery(draft);

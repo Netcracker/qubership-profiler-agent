@@ -104,9 +104,10 @@ applies at once (Grafana-style refetch on a range change).
 
 **Draft and applied.** The filter bar, the duration chips, the two switches, and "Sort by" edit a draft. "Run
 query", or Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when
-nothing changed. While the draft differs from the applied query, a hint says "Filters changed. Run the query to
-update the results." Only the applied state reaches the URL and `/calls`. A time range change and a row shortcut
-apply at once.
+nothing changed. A relative time range such as `now-1h` resolves again on each run, so the rerun reads up to the
+present; `/calls` and `/pods` share the resolved window, and "Load more" keeps it. While the draft differs from the
+applied query, a hint says "Filters changed. Run the query to update the results." Only the applied state reaches the
+URL and `/calls`. A time range change and a row shortcut apply at once.
 
 The filter bar, "Sort by", the duration chips, the switch labels, and "Run query" share one control height, 32 px
 (`apps/ui/src/calls/control-height.ts`), so the two rows line up in both themes. A bar with more tokens than fit on
