@@ -120,6 +120,8 @@ jobs:
       - name: "Create metadata"
         uses: netcracker/qubership-workflow-hub/actions/metadata-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
         id: metadata
+        with:
+          ref: ${{ github.head_ref && format('refs/heads/{0}', github.head_ref) || github.ref }}
 
       - name: "Prepare tags"
         id: prepare_tags

@@ -106,7 +106,7 @@ jobs:
           permission-contents: write
 
       - name: Update version in gradle.properties to ${{ steps.release_version.outputs.version }}
-        uses: ./.github/actions/update_version
+        uses: $/.github/actions/update_version
         with:
           token: ${{ steps.app_token.outputs.token }}
           version: ${{ steps.release_version.outputs.version }}
@@ -199,7 +199,7 @@ jobs:
           echo "version=$next_version" >> "$GITHUB_OUTPUT"
 
       - name: Update version in gradle.properties to ${{ steps.next_version.outputs.version }}
-        uses: ./.github/actions/update_version
+        uses: $/.github/actions/update_version
         with:
           token: ${{ steps.app_token.outputs.token }}
           version: ${{ steps.next_version.outputs.version }}

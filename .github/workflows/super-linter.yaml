@@ -64,9 +64,9 @@ jobs:
         shell: bash
         # language=bash
         run: |
-          # The grep is need here because GitHub Actions will not accept comments.
-          # We need to skip blank lines as GitHub Actions might fail to process them as well
-          cat .github/linters/super-linter.env .github/super-linter.env | grep -v '^#' | grep -vE '^\s*$' >> "$GITHUB_ENV" || true
+          # Skip comments, blank lines, and removed linters from the shared configuration.
+          cat .github/linters/super-linter.env .github/super-linter.env |
+            grep -vE '^(#|[[:space:]]*$|VALIDATE_(TERRAFORM_TERRASCAN|JUPYTER_NBQA_(BLACK|FLAKE8|ISORT|MYPY|PYLINT|RUFF))=)' >> "$GITHUB_ENV"
 
       - name: Install node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
