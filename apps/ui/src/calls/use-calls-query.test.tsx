@@ -65,6 +65,12 @@ describe('useCallsQuery', () => {
     expect(state.detail).toContain('"duration=1s"');
   });
 
+  it('reports any other failure as a load error', async () => {
+    server.use(http.get('/api/v1/calls', () => HttpResponse.json({ title: 'boom', status: 500 }, { status: 500 })));
+    const { result } = renderHook(() => useCallsQuery(FILTER));
+    await waitFor(() => expect(result.current.state.kind).toBe('error'), { timeout: 5000 });
+  });
+
   it('refetches when the filter conditions change', async () => {
     let filters = ['service=billing'];
     const { result, rerender } = renderHook(() => useCallsQuery({ ...FILTER, filters }));
