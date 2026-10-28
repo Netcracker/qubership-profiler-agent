@@ -56,8 +56,11 @@ function recordCalls(): { urls: URL[]; stop: () => void } {
   return { urls, stop: () => server.events.removeListener('request:start', onRequestStart) };
 }
 
+// Waits for a call row. AntD's empty-table placeholder is a row too, so counting rows is not enough.
 const rowsLoaded = () =>
-  waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+  waitFor(() => expect(screen.getAllByTitle('Open the call tree in a new tab').length).toBeGreaterThan(0), {
+    timeout: 5000,
+  });
 
 const window15m = (): string => {
   const to = Date.now();

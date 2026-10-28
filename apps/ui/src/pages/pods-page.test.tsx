@@ -232,8 +232,16 @@ describe('PodsPage', () => {
       within(row).getByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c)).textContent ?? '';
     const to = Date.now();
     renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&service=payments/billing&service=orders/checkout`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
-    const services = new Set(screen.getAllByRole('row').slice(1).map((r) => tupleOf(r).split('/').slice(0, 2).join('/')));
+    // AntD's empty placeholder is a row too, so wait until every body row holds a pod tuple.
+    const rows = await waitFor(
+      () => {
+        const body = screen.getAllByRole('row').slice(1);
+        expect(body.length).toBeGreaterThan(0);
+        return body.map(tupleOf);
+      },
+      { timeout: 5000 },
+    );
+    const services = new Set(rows.map((t) => t.split('/').slice(0, 2).join('/')));
     expect(services).toEqual(new Set(['payments/billing', 'orders/checkout']));
 
     // Removing the selection token and applying shows every pod and drops it from the URL.
