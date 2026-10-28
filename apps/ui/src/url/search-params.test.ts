@@ -58,7 +58,7 @@ describe('calls search state', () => {
 
   it('keeps a relative window relative and resolves it against the given now', () => {
     const now = 1714064400000;
-    const parsed = parseCallsSearch(new URLSearchParams('from=now-3h&to=now'), now);
+    const parsed = parseCallsSearch(new URLSearchParams('from=now-3h&to=now&order=start_desc'), now);
     expect(parsed.from).toBe('now-3h');
     expect(parsed.to).toBe('now');
     expect(parsed.toMs).toBe(now);
@@ -122,6 +122,23 @@ describe('calls search state', () => {
     // Converted parameters are not written back.
     expect(parsed.selection).toBeNull();
     expect(callsSearchToParams(parsed).has('service')).toBe(false);
+  });
+
+  it('converts an old link that left out every parameter at its default value', () => {
+    // The old serializer wrote this for the old page's defaults: no service or pod, `duration_min_ms` at 500, no upper
+    // bound, errors and retention classes unfiltered, no search, and system calls hidden.
+    const parsed = parseCallsSearch(new URLSearchParams('from=1000&to=2000'));
+    expect(parsed.conditions.map(formatCondition)).toEqual(['duration>=500ms']);
+    expect(parsed.hideSystem).toBe(true);
+    expect(parseCallsSearch(new URLSearchParams('from=now-1h&to=now&hide_system=false')).hideSystem).toBe(false);
+  });
+
+  it('keeps an unfiltered link the page wrote unfiltered', () => {
+    const written = callsSearchToParams({ ...EMPTY_CALLS_SEARCH, from: '1000', to: '2000' });
+    expect(written.toString()).toBe('from=1000&to=2000&order=start_desc');
+    const parsed = parseCallsSearch(written);
+    expect(parsed.conditions).toEqual([]);
+    expect(parsed.hideSystem).toBe(false);
   });
 
   it('keeps the services of an old link that conditions cannot express, and writes them back', () => {
