@@ -1,0 +1,91 @@
+# gateway Helm chart
+
+Runs the `qubership-otec` OpenTelemetry Collector as a diagnostic gateway: a drop-in replacement for the nginx-based
+diag-proxy that can forward or discard each trace protocol without touching the services that send it. The design is in
+`docs/plans/2026-10-09-otel-gateway.md`.
+
+This chart covers stage G1 of the plan: traces only. The dump upload (8080) and profiler TCP (1715) surfaces arrive with
+the `profiler_dumps` and `profiler_tcp` extensions in later stages.
+
+## Install
+
+```bash
+helm install gateway deploy/charts/gateway \
+  --set serviceName=nc-diagnostic-agent \
+  --set traces.upstream.endpoint=jaeger-collector.tracing.svc:4317
+```
+
+The image must include the `nop` exporter and the `memory_limiter` processor. qubership-otec 1.4.0 has neither; use a
+build of `qubership-open-telemetry-collector` that adds them, and pin its tag in `image.tag`.
+
+## Traffic
+
+| Port | Service port name | Protocol | Values switch |
+|---|---|---|---|
+| 4317 | `otel-grpc` | OTLP gRPC | `traces.otlp` |
+| 4318 | `otel-http` | OTLP HTTP | `traces.otlp` |
+| 14250 | `jaeger-grpc` | Jaeger gRPC | `traces.jaeger` |
+| 14268 | `jaeger-thrift` | Jaeger Thrift over HTTP | `traces.jaeger` |
+| 9411 | `zipkin` | Zipkin HTTP | `traces.zipkin` |
+| 8888 | `agent-probes` | health check, `/probes/ready` | `ports.probes` |
+| 8889 | `metrics` | Collector metrics, Prometheus format | `ports.metrics` |
+
+The port names and numbers are diag-proxy's. Port 14267 (Jaeger TChannel) is gone: the Collector has no receiver for it.
+
+Every protocol is decoded and sent on as OTLP gRPC to `traces.upstream.endpoint`. diag-proxy forwarded raw bytes
+instead, so a client now gets its answer from the gateway, not from Jaeger, and a payload the receiver rejects fails at
+the gateway.
+
+## Switching a protocol off
+
+Each protocol has its own pipeline and its own switch:
+
+```yaml
+traces:
+  zipkin:
+    mode: discard
+```
+
+| Setting | Effect |
+|---|---|
+| `mode: passthrough` | Spans go to `traces.upstream`. The default. |
+| `mode: discard` | Spans are accepted, answered with success, and dropped. Clients stop retrying and logging failures. |
+| `enabled: false` | The receiver, the pipeline, and the Service ports are removed. Clients get connection refused. |
+
+A mode change is a config change, and the Collector restarts on it. The pod template carries a checksum of the config,
+so `helm upgrade` rolls the pods.
+
+`discard` hides an outage: clients report success and the upstream receives nothing. Watch the receivers' accepted-span
+metrics against the exporter's sent-span metrics on port 8889.
+
+## Custom config
+
+`config` is merged over the rendered Collector config, last. Maps merge key by key; lists are replaced whole. For
+example, to drop the spans of one service:
+
+```yaml
+config:
+  processors:
+    filter/drop_sources:
+      error_mode: ignore
+      traces:
+        span:
+          - 'resource.attributes["service.name"] == "chatty-service"'
+  service:
+    pipelines:
+      traces/otlp:
+        processors: [memory_limiter, filter/drop_sources, batch]
+```
+
+## Resources
+
+The defaults (100Mi request, 500Mi limit) are placeholders until the idle and loaded footprint is measured. diag-proxy
+requested 20Mi. `memory_limiter` works in percentages of the container memory limit, so keep
+`resources.limits.memory` set.
+
+## Tests
+
+```bash
+helm unittest deploy/charts/gateway
+make helm-lint
+```

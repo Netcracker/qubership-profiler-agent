@@ -1,0 +1,16 @@
+apiVersion: v2
+name: gateway
+description: >-
+  Diagnostic gateway on the qubership-otec OpenTelemetry Collector: a drop-in
+  replacement for the nginx-based diag-proxy that can forward or discard each
+  trace protocol. See docs/plans/2026-10-09-otel-gateway.md.
+type: application
+version: 0.1.0
+# The qubership-otec release the chart is tested against. image.tag selects
+# the image actually deployed.
+appVersion: "1.4.1"
+
+home: https://github.com/Netcracker/qubership-profiler-agent/
+maintainers:
+  - name: NetCracker
+    email: opensourcegroup@netcracker.com

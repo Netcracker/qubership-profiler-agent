@@ -1,0 +1,103 @@
+# Default values for the gateway chart.
+#
+# The chart renders one Collector config from these values into a ConfigMap.
+# Each trace protocol has its own pipeline, so each one can be switched
+# between forwarding and discarding on its own.
+
+image:
+  repository: ghcr.io/netcracker/qubership-open-telemetry-collector
+  # `main` is mutable. Pin a qubership-otec release, or a @sha256 digest, for
+  # any shared deployment. The image must include the `nop` exporter and the
+  # `memory_limiter` processor, which qubership-otec 1.4.0 does not.
+  tag: main
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Name of the Service that applications send traces to. Empty uses the
+# release's full name. To replace diag-proxy in place, set the name its
+# Service had. The name must not contain `esc-collector-service` or
+# `esc-static-service`: the Java agent and the diagtools bootstrap script
+# rewrite those strings in the host they are given.
+serviceName: ""
+
+replicas: 1
+
+traces:
+  # Where forwarded spans go, over OTLP gRPC. diag-proxy forwarded raw
+  # protocol bytes to each Jaeger port; the gateway decodes every protocol
+  # and sends OTLP to one endpoint instead.
+  upstream:
+    endpoint: jaeger-collector.jaeger.svc:4317
+    tls:
+      insecure: true
+  # One switch per protocol:
+  #   enabled: false     removes the receiver, the pipeline, and the Service
+  #                      ports. Clients get connection refused.
+  #   mode: passthrough  forwards spans to traces.upstream.
+  #   mode: discard      accepts spans, answers success, and drops them. Use
+  #                      it to stop a protocol without touching its clients.
+  otlp:
+    # gRPC on 4317, HTTP on 4318.
+    enabled: true
+    mode: passthrough
+  jaeger:
+    # gRPC on 14250, Thrift over HTTP on 14268. diag-proxy also forwarded
+    # 14267 (TChannel), which the Collector has no receiver for.
+    enabled: true
+    mode: passthrough
+  zipkin:
+    # HTTP on 9411.
+    enabled: true
+    mode: passthrough
+
+# The memory_limiter processor in every pipeline. The percentages are of the
+# container memory limit, so keep resources.limits.memory set.
+memoryLimiter:
+  checkInterval: 1s
+  limitPercentage: 80
+  spikeLimitPercentage: 20
+
+ports:
+  # health_check serves both probes here. It is the port diag-proxy used for
+  # its probes, so the Service stays compatible.
+  probes: 8888
+  # The Collector's own metrics, in Prometheus format. The Collector default
+  # is 8888, which the probes take.
+  metrics: 8889
+
+# Placeholders until the idle and loaded footprint is measured (plan stage
+# G1). diag-proxy requested 20Mi; the qubership-otec chart requests 100Mi.
+resources:
+  requests:
+    cpu: 100m
+    memory: 100Mi
+  limits:
+    cpu: 500m
+    memory: 500Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+priorityClassName: ""
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Merged over the rendered Collector config, last. Use it for what the values
+# above do not model, such as a filter processor. Maps merge key by key;
+# lists, such as a pipeline's processors, are replaced whole.
+config: {}

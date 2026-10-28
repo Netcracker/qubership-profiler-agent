@@ -341,6 +341,9 @@ helm-lint:
 		--set metrics.serviceMonitor.enabled=true \
 		--set metrics.prometheusRule.enabled=true \
 		--output-dir .helm-render
+	@echo "==> helm lint deploy/charts/gateway..."
+	helm lint deploy/charts/gateway
+	helm template gateway deploy/charts/gateway --output-dir .helm-render
 	@if command -v kubeconform >/dev/null 2>&1; then \
 		kubeconform -strict -summary \
 			-schema-location default \
