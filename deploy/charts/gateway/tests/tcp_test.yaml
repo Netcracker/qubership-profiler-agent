@@ -48,12 +48,3 @@ tests:
       - matchRegex:
           path: data["otel.yaml"]
           pattern: "extensions:\\n\\s+- health_check\\n\\s+- profiler_dumps\\n\\s+- profiler_tcp"
-
-  - it: rejects an unknown tcp mode
-    set:
-      tcp.enabled: true
-      tcp.mode: reject
-    template: templates/configmap.yaml
-    asserts:
-      - failedTemplate:
-          errorPattern: 'tcp.mode is "reject"; use passthrough or discard'

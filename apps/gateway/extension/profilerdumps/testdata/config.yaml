@@ -1,4 +1,4 @@
-profiler_dumps:
+profiler_dumps: {}
 profiler_dumps/custom:
   endpoint: 127.0.0.1:18080
   upstream: http://cloud-profiler-dumps-collector.profiler.svc:8080

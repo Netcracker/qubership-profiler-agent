@@ -20,15 +20,15 @@ build of `qubership-open-telemetry-collector` that adds them, and pin its tag in
 
 ## Traffic
 
-| Port | Service port name | Protocol | Values switch |
-|---|---|---|---|
-| 4317 | `otel-grpc` | OTLP gRPC | `traces.otlp` |
-| 4318 | `otel-http` | OTLP HTTP | `traces.otlp` |
-| 14250 | `jaeger-grpc` | Jaeger gRPC | `traces.jaeger` |
-| 14268 | `jaeger-thrift` | Jaeger Thrift over HTTP | `traces.jaeger` |
-| 9411 | `zipkin` | Zipkin HTTP | `traces.zipkin` |
-| 8888 | `agent-probes` | health check, `/probes/ready` | `ports.probes` |
-| 8889 | `metrics` | Collector metrics, Prometheus format | `ports.metrics` |
+| Port  | Service port name | Protocol                             | Values switch   |
+| ----- | ----------------- | ------------------------------------ | --------------- |
+| 4317  | `otel-grpc`       | OTLP gRPC                            | `traces.otlp`   |
+| 4318  | `otel-http`       | OTLP HTTP                            | `traces.otlp`   |
+| 14250 | `jaeger-grpc`     | Jaeger gRPC                          | `traces.jaeger` |
+| 14268 | `jaeger-thrift`   | Jaeger Thrift over HTTP              | `traces.jaeger` |
+| 9411  | `zipkin`          | Zipkin HTTP                          | `traces.zipkin` |
+| 8888  | `agent-probes`    | health check, `/probes/ready`        | `ports.probes`  |
+| 8889  | `metrics`         | Collector metrics, Prometheus format | `ports.metrics` |
 
 The port names and numbers are diag-proxy's. Port 14267 (Jaeger TChannel) is gone: the Collector has no receiver for it.
 
@@ -46,11 +46,11 @@ traces:
     mode: discard
 ```
 
-| Setting | Effect |
-|---|---|
-| `mode: passthrough` | Spans go to `traces.upstream`. The default. |
-| `mode: discard` | Spans are accepted, answered with success, and dropped. Clients stop retrying and logging failures. |
-| `enabled: false` | The receiver, the pipeline, and the Service ports are removed. Clients get connection refused. |
+| Setting             | Effect                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| `mode: passthrough` | Spans go to `traces.upstream`. The default.                                                         |
+| `mode: discard`     | Spans are accepted, answered with success, and dropped. Clients stop retrying and logging failures. |
+| `enabled: false`    | The receiver, the pipeline, and the Service ports are removed. Clients get connection refused.      |
 
 A mode change is a config change, and the Collector restarts on it. The pod template carries a checksum of the config,
 so `helm upgrade` rolls the pods.

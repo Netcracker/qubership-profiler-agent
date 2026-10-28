@@ -4,10 +4,10 @@ OpenTelemetry Collector extensions that let the diagnostic gateway carry profile
 They ship in the `qubership-otec` distribution, built in `Netcracker/qubership-open-telemetry-collector`, and run
 under the `deploy/charts/gateway` chart. The design is in `docs/plans/2026-10-09-otel-gateway.md`.
 
-| Extension | Traffic | Status |
-|---|---|---|
-| `profiler_dumps` | diagtools dump uploads, HTTP | development |
-| `profiler_tcp` | profiler agent connections, TCP | development |
+| Extension        | Traffic                         | Status      |
+| ---------------- | ------------------------------- | ----------- |
+| `profiler_dumps` | diagtools dump uploads, HTTP    | development |
+| `profiler_tcp`   | profiler agent connections, TCP | development |
 
 Both extensions use their own listeners, not Collector pipelines: proxying the profiler protocols through `pdata` would
 mean decoding and re-encoding them byte for byte. So `memory_limiter` and the filter processors do not apply here; each
@@ -44,21 +44,21 @@ service:
   extensions: [profiler_dumps]
 ```
 
-| Key | Default | Meaning |
-|---|---|---|
-| `endpoint` | `0.0.0.0:8080` | Listen address. |
-| `upstream` | none | Dumps collector base URL. Required unless `mode` is `discard`. |
-| `mode` | `passthrough` | `passthrough` or `discard`, when no rule matches. |
-| `path_prefix` | `/diagnostic` | Other paths get 404. |
-| `allowed_methods` | `[PUT, POST, DELETE]` | Other methods get 405. |
-| `connect_timeout` | `1s` | Upstream dial deadline. |
-| `response_header_timeout` | `10m` | Wait for the upstream's answer after the body is sent. |
-| `read_header_timeout` | `10s` | Wait for the client's request header. The body has no deadline. |
-| `max_body_size` | `10GiB` | Size cap. Over it: abort upstream, drain, answer 204. |
-| `max_body_size_per_type` | none | Cap per dump type: `hprof`, `td`, `gc`, `other`. |
-| `max_concurrent_uploads` | `16` | Over it, an upload is discarded with 204, never queued. |
-| `rules`, `rules_file` | none | Per-source overrides; see below. |
-| `drain_timeout` | `30s` | Shutdown grace for uploads in flight. |
+| Key                       | Default               | Meaning                                                         |
+| ------------------------- | --------------------- | --------------------------------------------------------------- |
+| `endpoint`                | `0.0.0.0:8080`        | Listen address.                                                 |
+| `upstream`                | none                  | Dumps collector base URL. Required unless `mode` is `discard`.  |
+| `mode`                    | `passthrough`         | `passthrough` or `discard`, when no rule matches.               |
+| `path_prefix`             | `/diagnostic`         | Other paths get 404.                                            |
+| `allowed_methods`         | `[PUT, POST, DELETE]` | Other methods get 405.                                          |
+| `connect_timeout`         | `1s`                  | Upstream dial deadline.                                         |
+| `response_header_timeout` | `10m`                 | Wait for the upstream's answer after the body is sent.          |
+| `read_header_timeout`     | `10s`                 | Wait for the client's request header. The body has no deadline. |
+| `max_body_size`           | `10GiB`               | Size cap. Over it: abort upstream, drain, answer 204.           |
+| `max_body_size_per_type`  | none                  | Cap per dump type: `hprof`, `td`, `gc`, `other`.                |
+| `max_concurrent_uploads`  | `16`                  | Over it, an upload is discarded with 204, never queued.         |
+| `rules`, `rules_file`     | none                  | Per-source overrides; see below.                                |
+| `drain_timeout`           | `30s`                 | Shutdown grace for uploads in flight.                           |
 
 Behavior that follows from the diagtools client, which resends a file from byte zero on any answer other than 200,
 201, or 204:
@@ -89,18 +89,18 @@ service:
   extensions: [profiler_tcp]
 ```
 
-| Key | Default | Meaning |
-|---|---|---|
-| `endpoint` | `0.0.0.0:1715` | Listen address. |
-| `upstream` | none | Collector `host:port`. Required unless `mode` is `discard`. |
-| `mode` | `passthrough` | `passthrough` or `discard`, when no rule matches. |
-| `connect_timeout` | `1s` | Upstream dial deadline. |
-| `max_connections` | `256` | Over it, a connection is closed on arrival. |
-| `copy_buffer_size` | `32KiB` | Splice buffer per direction in `passthrough`. |
-| `handshake_timeout` | `10s` | Wait for the agent's handshake. |
-| `discard.rotation_period` | `0` | Stream rotation period a discarding connection asks the agent for. |
-| `discard.required_rotation_size` | `4MiB` | Stream rotation size a discarding connection asks the agent for. |
-| `rules`, `rules_file` | none | Per-source overrides; see below. |
+| Key                              | Default        | Meaning                                                            |
+| -------------------------------- | -------------- | ------------------------------------------------------------------ |
+| `endpoint`                       | `0.0.0.0:1715` | Listen address.                                                    |
+| `upstream`                       | none           | Collector `host:port`. Required unless `mode` is `discard`.        |
+| `mode`                           | `passthrough`  | `passthrough` or `discard`, when no rule matches.                  |
+| `connect_timeout`                | `1s`           | Upstream dial deadline.                                            |
+| `max_connections`                | `256`          | Over it, a connection is closed on arrival.                        |
+| `copy_buffer_size`               | `32KiB`        | Splice buffer per direction in `passthrough`.                      |
+| `handshake_timeout`              | `10s`          | Wait for the agent's handshake.                                    |
+| `discard.rotation_period`        | `0`            | Stream rotation period a discarding connection asks the agent for. |
+| `discard.required_rotation_size` | `4MiB`         | Stream rotation size a discarding connection asks the agent for.   |
+| `rules`, `rules_file`            | none           | Per-source overrides; see below.                                   |
 
 Every connection opens with the agent's `GET_PROTOCOL_VERSION_V2` handshake, which names its namespace, service,
 and pod. The extension reads it with the collector's own reader, picks the mode, and then:
@@ -146,18 +146,18 @@ rules:
 
 On the Collector's own Prometheus endpoint:
 
-| Metric | Labels |
-|---|---|
-| `profiler_gateway_uploads_in_flight` | |
-| `profiler_gateway_upload_bytes_total` | `dump_type`, `outcome`: `forwarded`, `discarded`, `over_cap`, `over_concurrency`, `upstream_error`, `client_aborted` |
-| `profiler_gateway_bytes_forwarded_total` | `surface` |
-| `profiler_gateway_bytes_discarded_total` | `surface` |
-| `profiler_gateway_upstream_errors_total` | `surface` |
-| `profiler_gateway_rules_reload_total` | `surface`, `result` |
-| `profiler_gateway_connections_active` | `mode` |
-| `profiler_gateway_connections_total` | `mode` |
-| `profiler_gateway_connections_refused_total` | |
-| `profiler_gateway_connections_closed_by_reload_total` | `mode`, the mode before the change |
+| Metric                                                | Labels                                                                                                               |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `profiler_gateway_uploads_in_flight`                  |                                                                                                                      |
+| `profiler_gateway_upload_bytes_total`                 | `dump_type`, `outcome`: `forwarded`, `discarded`, `over_cap`, `over_concurrency`, `upstream_error`, `client_aborted` |
+| `profiler_gateway_bytes_forwarded_total`              | `surface`                                                                                                            |
+| `profiler_gateway_bytes_discarded_total`              | `surface`                                                                                                            |
+| `profiler_gateway_upstream_errors_total`              | `surface`                                                                                                            |
+| `profiler_gateway_rules_reload_total`                 | `surface`, `result`                                                                                                  |
+| `profiler_gateway_connections_active`                 | `mode`                                                                                                               |
+| `profiler_gateway_connections_total`                  | `mode`                                                                                                               |
+| `profiler_gateway_connections_refused_total`          |                                                                                                                      |
+| `profiler_gateway_connections_closed_by_reload_total` | `mode`, the mode before the change                                                                                   |
 
 Alert on a non-zero rate of `profiler_gateway_bytes_discarded_total`: discard answers success, so a forgotten switch is
 otherwise silent data loss.

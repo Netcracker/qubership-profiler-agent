@@ -74,12 +74,3 @@ tests:
       - notMatchRegex:
           path: data["otel.yaml"]
           pattern: "upstream: http"
-
-  - it: rejects an unknown dumps mode
-    set:
-      dumps.enabled: true
-      dumps.mode: reject
-    template: templates/configmap.yaml
-    asserts:
-      - failedTemplate:
-          errorPattern: 'dumps.mode is "reject"; use passthrough or discard'

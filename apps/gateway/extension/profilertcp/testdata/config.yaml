@@ -1,4 +1,4 @@
-profiler_tcp:
+profiler_tcp: {}
 profiler_tcp/custom:
   endpoint: 127.0.0.1:11715
   upstream: profiler-collector-agent.profiler.svc:1715

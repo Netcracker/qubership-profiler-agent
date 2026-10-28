@@ -91,3 +91,19 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "every trace protocol is disabled"
+
+  - it: rejects an unknown dumps mode
+    set:
+      dumps.enabled: true
+      dumps.mode: reject
+    asserts:
+      - failedTemplate:
+          errorPattern: 'dumps.mode is "reject"; use passthrough or discard'
+
+  - it: rejects an unknown tcp mode
+    set:
+      tcp.enabled: true
+      tcp.mode: reject
+    asserts:
+      - failedTemplate:
+          errorPattern: 'tcp.mode is "reject"; use passthrough or discard'
