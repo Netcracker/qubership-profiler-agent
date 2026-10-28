@@ -7,6 +7,7 @@ import { useZone } from '../ui/timezone';
 import styles from './calls-histogram.module.css';
 import { formatCount, formatDurationMs, formatTsShort } from './format';
 import { axisLabel, bucketAt, bucketStart, niceMax, selectionRange } from './histogram';
+import type { StatsResponse } from '../api/types';
 import type { StatsState } from './use-stats';
 
 // Calls over time (redesign plan §4.3): stacked bars of clean and failed calls per bucket from
@@ -48,16 +49,18 @@ export interface CallsHistogramProps {
   hideSystem: boolean;
 }
 
+/** Buckets `a` to `b` of the response `of`. A selection of an older response no longer applies. */
 interface Selection {
   a: number;
   b: number;
+  of: StatsResponse;
 }
 
 export function CallsHistogram({ state, fromMs, toMs, onZoom, onRetry, hideSystem }: CallsHistogramProps) {
   const zone = useZone();
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const [hover, setHover] = useState<number | null>(null);
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [picked, setPicked] = useState<Selection | null>(null);
   const dragFrom = useRef<number | null>(null);
   const plotRef = useRef<HTMLDivElement>(null);
 
@@ -66,6 +69,9 @@ export function CallsHistogram({ state, fromMs, toMs, onZoom, onRetry, hideSyste
   const n = rows.length;
   const bucketMs = data?.bucket_ms ?? 0;
   const top = niceMax(Math.max(0, ...rows.map((r) => r.count)));
+  // A reload or a new query replaces the response, which drops the selection made on the old one.
+  const selection = picked !== null && picked.of === data ? picked : null;
+  const hoverAt = hover !== null && hover < n ? hover : null;
 
   const toggle = (): void => {
     saveCollapsed(!collapsed);
@@ -77,41 +83,37 @@ export function CallsHistogram({ state, fromMs, toMs, onZoom, onRetry, hideSyste
     return bucketAt(e.clientX - rect.left, rect.width, n);
   };
   const onMouseDown = (e: MouseEvent): void => {
-    if (n === 0 || e.button !== 0) return;
+    if (data === null || n === 0 || e.button !== 0) return;
     const i = bucketOf(e);
     dragFrom.current = i;
-    setSelection({ a: i, b: i });
+    setPicked({ a: i, b: i, of: data });
   };
   const onMouseMove = (e: MouseEvent): void => {
-    if (n === 0) return;
+    if (data === null || n === 0) return;
     const i = bucketOf(e);
     setHover(i);
-    if (dragFrom.current !== null) setSelection({ a: dragFrom.current, b: i });
+    if (dragFrom.current !== null) setPicked({ a: dragFrom.current, b: i, of: data });
   };
   const endDrag = (): void => {
     dragFrom.current = null;
   };
 
-  const zoom = (): void => {
-    if (selection === null) return;
-    const range = selectionRange(rows, selection.a, selection.b, bucketMs, toMs);
-    setSelection(null);
+  const zoom = (sel: Selection): void => {
+    const range = selectionRange(rows, sel.a, sel.b, bucketMs, toMs);
+    setPicked(null);
     onZoom(range.fromMs, range.toMs);
   };
 
-  const hovered = hover !== null ? rows[hover] : undefined;
+  const hovered = hoverAt !== null ? rows[hoverAt] : undefined;
   const hoverText =
     hovered !== undefined
       ? `${formatTsShort(bucketStart(hovered), zone)} · ${counted(hovered.count, 'call')} · ${counted(hovered.errors, 'error')}` +
         (hovered.p95_ms !== null ? ` · p95 ${formatDurationMs(hovered.p95_ms)}` : '')
       : null;
 
-  const readout =
-    data !== null
-      ? `${counted(data.totals.count, 'call')} · ${counted(data.totals.errors, 'error')}`
-      : state.kind === 'loading'
-        ? 'Counting calls…'
-        : null;
+  // The plot renders only while the chart counts or has counted, so it always has a label.
+  const label = data !== null ? `${counted(data.totals.count, 'call')} · ${counted(data.totals.errors, 'error')}` : 'Counting calls…';
+  const readout = state.kind === 'error' ? null : label;
 
   const [lo, hi] = selection === null ? [0, -1] : [Math.min(selection.a, selection.b), Math.max(selection.a, selection.b)];
 
@@ -130,10 +132,10 @@ export function CallsHistogram({ state, fromMs, toMs, onZoom, onRetry, hideSyste
         {readout !== null ? <span className={`${styles.readout} pf-mono`}>{readout}</span> : null}
         {selection !== null && !collapsed ? (
           <>
-            <Button size="small" icon={<ZoomInOutlined />} onClick={zoom}>
+            <Button size="small" icon={<ZoomInOutlined />} onClick={() => zoom(selection)}>
               Zoom in
             </Button>
-            <Button size="small" type="text" onClick={() => setSelection(null)}>
+            <Button size="small" type="text" onClick={() => setPicked(null)}>
               Clear
             </Button>
           </>
@@ -175,12 +177,12 @@ export function CallsHistogram({ state, fromMs, toMs, onZoom, onRetry, hideSyste
                 viewBox={`0 0 ${Math.max(n, 1)} 100`}
                 preserveAspectRatio="none"
                 role="img"
-                aria-label={readout ?? 'Calls over time'}
+                aria-label={label}
               >
                 {selection !== null ? (
                   <rect className={styles.selection} x={lo} y={0} width={hi - lo + 1} height={100} data-testid="histogram-selection" />
                 ) : null}
-                {hover !== null ? <rect className={styles.hovered} x={hover} y={0} width={1} height={100} /> : null}
+                {hoverAt !== null ? <rect className={styles.hovered} x={hoverAt} y={0} width={1} height={100} /> : null}
                 {rows.map((r, i) => {
                   const okH = ((r.count - r.errors) / top) * 100;
                   const errH = (r.errors / top) * 100;

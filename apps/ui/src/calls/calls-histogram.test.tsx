@@ -89,6 +89,34 @@ describe('CallsHistogram', () => {
     expect(screen.getByTestId('histogram-selection')).toHaveAttribute('width', '1');
   });
 
+  it('drops the selection and the hover when the chart reloads', () => {
+    const props: CallsHistogramProps = {
+      state: { kind: 'ready', data: stats([1000, 59_000]) },
+      fromMs: FROM,
+      toMs: TO,
+      onZoom: vi.fn(),
+      onRetry: vi.fn(),
+      hideSystem: false,
+    };
+    const { rerender } = render(<CallsHistogram {...props} />);
+    const plot = sizePlot();
+    fireEvent.mouseDown(plot, { clientX: 590, button: 0 });
+    fireEvent.mouseUp(plot, { clientX: 590 });
+    expect(screen.getByRole('button', { name: /Zoom in/ })).toBeInTheDocument();
+
+    rerender(<CallsHistogram {...props} state={{ kind: 'loading' }} />);
+    expect(screen.queryByRole('button', { name: /Zoom in/ })).toBeNull();
+    expect(screen.queryByTestId('histogram-selection')).toBeNull();
+
+    // A shorter window has fewer buckets than the old selection and hover reached.
+    const shorter = timeStats([], FROM, FROM + 30_000, 3);
+    rerender(<CallsHistogram {...props} state={{ kind: 'ready', data: shorter }} toMs={FROM + 30_000} />);
+    expect(screen.queryByRole('button', { name: /Zoom in/ })).toBeNull();
+    expect(screen.queryByTestId('histogram-selection')).toBeNull();
+    expect(screen.queryByText(/p95/)).toBeNull();
+    expect(document.querySelectorAll('rect').length).toBe(6);
+  });
+
   it('describes the bucket under the pointer', () => {
     renderHistogram();
     const plot = sizePlot();
@@ -108,6 +136,36 @@ describe('CallsHistogram', () => {
     expect(screen.queryByTestId('histogram-plot')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: /Calls over time/ }));
     expect(localStorage.getItem('profiler.histogram.collapsed')).toBeNull();
+  });
+
+  it('still collapses when storage is unavailable', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    try {
+      renderHistogram();
+      expect(screen.getByTestId('histogram-plot')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /Calls over time/ }));
+      expect(screen.queryByTestId('histogram-plot')).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('ignores the pointer while it counts or has no buckets', () => {
+    const states: CallsHistogramProps['state'][] = [{ kind: 'loading' }, { kind: 'ready', data: { ...stats([]), rows: [] } }];
+    for (const state of states) {
+      renderHistogram({ state });
+      const plot = sizePlot();
+      fireEvent.mouseDown(plot, { clientX: 10, button: 0 });
+      fireEvent.mouseMove(plot, { clientX: 300 });
+      expect(screen.queryByTestId('histogram-selection')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Zoom in/ })).toBeNull();
+      cleanup();
+    }
   });
 
   it('shows an error with a retry', async () => {
