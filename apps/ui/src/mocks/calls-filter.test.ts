@@ -7,7 +7,7 @@ import { server } from './node';
 
 // The mock's /calls takes the `filter` parameter of 02 §2.3.3 and freezes it in the cursor like every other filter.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
