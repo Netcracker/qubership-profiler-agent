@@ -47,6 +47,7 @@ describe('useValueSuggestions', () => {
     await waitFor(() => expect(result.current?.kind).toBe('ready'));
     const state = result.current!;
     if (state.kind !== 'ready') throw new Error('unreachable');
+    expect(state).toMatchObject({ approximate: false, partial: false });
     expect(state.values.length).toBeGreaterThan(0);
     expect(state.values.every((v) => typeof v.count === 'number')).toBe(true);
     const sp = urls[0]!.searchParams;
@@ -113,9 +114,19 @@ describe('suggestionNote', () => {
     expect(suggestionNote({ kind: 'loading', field: 'pod' }, 'pod')).toBe('Loading values…');
     expect(suggestionNote({ kind: 'failed', field: 'pod' }, 'pod')).toBe('Could not load values; enter your own.');
     const values = [{ value: 'a', count: 2 }];
-    expect(suggestionNote({ kind: 'ready', field: 'pod', values, distinct: 1 }, 'pod')).toBeNull();
-    expect(suggestionNote({ kind: 'ready', field: 'pod', values, distinct: 1200 }, 'pod')).toBe(
-      'The 1 most frequent of 1,200 values.',
+    const exact = { kind: 'ready', field: 'pod', values, approximate: false, partial: false } as const;
+    expect(suggestionNote({ ...exact, distinct: 1 }, 'pod')).toBeNull();
+    expect(suggestionNote({ ...exact, distinct: 1200 }, 'pod')).toBe('The 1 most frequent of 1,200 values.');
+  });
+
+  it('qualifies estimated and incomplete counts, even with every value listed', () => {
+    const values = [{ value: 'a', count: 2 }];
+    const ready = { kind: 'ready', field: 'pod', values, distinct: 1, approximate: false, partial: false } as const;
+    expect(suggestionNote({ ...ready, approximate: true }, 'pod')).toBe('The counts are estimates.');
+    expect(suggestionNote({ ...ready, partial: true }, 'pod')).toBe('Some sources did not answer, so the counts may be low.');
+    expect(suggestionNote({ ...ready, distinct: 10_000, approximate: true, partial: true }, 'pod')).toBe(
+      'The 1 most frequent of at least 10,000 values. The counts are estimates. ' +
+        'Some sources did not answer, so the counts may be low.',
     );
   });
 });

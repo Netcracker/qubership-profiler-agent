@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { capabilitiesOf } from '../../filter/capabilities';
+
 import { ALL_FIELDS, EMPTY_DRAFT, MAX_VALUES, stageView } from './suggestions';
 import type { StageInput } from './suggestions';
 
@@ -39,6 +41,28 @@ describe('stageView', () => {
     expect(labels({ field: 'trace_id', op: '=~', values: [] })).toEqual([]);
     expect(labels({ field: 'trace_id', op: '=', values: [] }, 'ab')).toEqual(['Use "ab"']);
     expect(labels({ field: 'pod', op: '=', values: [] })).toEqual([]);
+  });
+
+  it('disables None, Any, and whole conditions the backend cannot apply', () => {
+    const caps = capabilitiesOf({
+      fields: { trace_id: ['=', '!='], service: ['='] },
+      param_operators: [],
+      special_values: ['Any'],
+      orders: [],
+      group_by: [],
+    });
+    const checked: StageInput = { ...base, supported: caps.supported, conditionReason: caps.conditionReason };
+
+    const specials = stageView({ ...checked, draft: { field: 'trace_id', op: '=', values: [] } }).items;
+    expect(specials.map((i) => [i.label, i.disabledReason])).toEqual([
+      ['None', 'This backend cannot match None yet.'],
+      ['Any', undefined],
+    ]);
+
+    const typed = stageView({ ...checked, text: 'trace_id=None' }).items[0]!;
+    expect(typed).toMatchObject({ label: 'trace_id=None', disabledReason: 'This backend cannot match None yet.' });
+    const search = stageView({ ...checked, text: 'checkout' }).items.at(-1)!;
+    expect(search).toMatchObject({ label: 'method =~ checkout', disabledReason: 'This backend cannot filter by method.' });
   });
 
   it('leaves out the values already picked for in', () => {
