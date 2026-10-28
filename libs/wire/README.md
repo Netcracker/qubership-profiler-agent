@@ -11,6 +11,8 @@ terminates an agent connection. The contract is in
 | `io` | Readers and writers for the protocol's fixed-width and length-prefixed fields. |
 | `common` | Small helpers the other packages share: time, UUID, hex, and index types. |
 | `log` | Context-scoped logging. |
+| `emulator` | The agent side of the protocol, for tests and load generation. `emulator/emutest` is a recording collector. |
+| `emulator/wire` | Encoders for stream payloads: trace events, calls, dictionary phrases. |
 
 ## Why a separate module
 
@@ -21,7 +23,8 @@ that imports a package under it fetches that repository's code, not this one's. 
 avoids that. It also keeps the backend's storage dependencies out of the consumer's build.
 
 Keep the module small. A package belongs here only if an outside consumer needs it, and it must not import anything
-from the root module.
+from the root module, tests included. The virtual dumper stays in the root module at `libs/emulator/vdumper` for that
+reason: its tests check its output with the parser in `libs/parser`.
 
 ## Use inside this repository
 

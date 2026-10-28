@@ -26,11 +26,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/calltree"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
 	querymodel "github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/minio/minio-go/v7"

@@ -15,9 +15,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/pkg/errors"
 )

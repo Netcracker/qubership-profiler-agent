@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/emutest"
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/emutest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

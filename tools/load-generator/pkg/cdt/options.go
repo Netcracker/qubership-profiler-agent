@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/vdumper"
 	"github.com/pkg/errors"
 )

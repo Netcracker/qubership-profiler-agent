@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/wire"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/wire"
 )
 
 // chunk is one producer buffer handoff: the trace operations of one thread

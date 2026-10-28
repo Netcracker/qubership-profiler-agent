@@ -23,9 +23,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
 	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/vdumper"
 )
 

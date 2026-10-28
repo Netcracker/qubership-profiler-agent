@@ -3,7 +3,7 @@ package wire
 import (
 	"bytes"
 
-	emwire "github.com/Netcracker/qubership-profiler-backend/libs/emulator/wire"
+	emwire "github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/wire"
 )
 
 // TraceEvent and its constructors live in libs/emulator/wire so the virtual

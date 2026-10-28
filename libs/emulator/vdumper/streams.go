@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/wire"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/wire"
 )
 
 // Local size-rotation thresholds, mirroring the Dumper.initStreams defaults;

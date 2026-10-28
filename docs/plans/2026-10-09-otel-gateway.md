@@ -128,8 +128,8 @@ error. The root also carries `v4.x` tags without a `/v4` module suffix, which Go
 Move those five packages into a nested module, `github.com/Netcracker/qubership-profiler-agent/libs/wire`, tagged
 `libs/wire/vX.Y.Z`. The backend's imports change mechanically, the gateway depends on a small module with a
 correct path, and the distribution build never sees the backend's parquet, PostgreSQL, and S3 requirements.
-`libs/emulator` is needed only by tests; it stays in the root module, and the gateway's protocol tests live there
-too, or the emulator moves into `libs/wire` if its imports allow.
+The agent emulator moves into `libs/wire` too (`libs/wire/emulator`), so the gateway's protocol tests can drive a
+synthetic agent. The virtual dumper stays in the root module at `libs/emulator/vdumper`: its tests import the parser.
 
 The fallback, if moving packages is unwelcome: a `replaces` entry in `builder-config.yaml` that maps the backend
 module name to a pseudo-version of `qubership-profiler-agent`. It needs no refactoring, it is untested, and it
@@ -345,7 +345,7 @@ restart to undo defeats the purpose of the gateway. Revisit only with a named co
 
 - **Byte-rate throttling.** Backpressure stalls the agent's synchronous ack drain; past 30 s the agent reconnects
   and resends its dictionary, so throttling costs more traffic than it saves.
-- **Per-stream drop** (`trace` off, `calls` on). It needs protocol termination on both sides, with `libs/emulator`
+- **Per-stream drop** (`trace` off, `calls` on). It needs protocol termination on both sides, with `libs/wire/emulator`
   as the client half, and it must relay ack-byte commands in both directions. Deferred until a consumer appears.
 
 ### 5.4 Parameters
@@ -606,7 +606,7 @@ No code. Each answer closes an assumption in this plan.
 - `Endpoint` added to `ConnectionOpts` in `libs/wire/server`, defaulting to today's behavior.
 - `internal/tcp` with the bidirectional splice; the `profilertcp` extension; `max_connections` with refusal;
   `connect_timeout`; `componentstatus`.
-- **Acceptance:** `libs/emulator` drives a synthetic agent through the gateway into a real `libs/server`, and the
+- **Acceptance:** `libs/wire/emulator` drives a synthetic agent through the gateway into a real `libs/server`, and the
   data arrives intact. With the upstream down, the agent side sees a close and retries. A benchmark records added
   latency and per-connection memory; `load-testing-report.md` §9 measured a ~40× ingest collapse at 2 s of added
   path latency, so the gateway's budget is milliseconds.
