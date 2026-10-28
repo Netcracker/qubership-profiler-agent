@@ -50,8 +50,9 @@
   --pf-color-syntax-keyword: #005dcf;
   --pf-color-syntax-number: #00874a;
 
-  /* Category badges, in the order Setup categories hands them out. Translucent,
-     so a badge reads on a plain, a hovered, and a selected row. */
+  /* Setup categories: the row background of a categorized subtree, and its
+     badge, in the order categories.ts hands them out. Translucent, so a badge
+     reads on a plain, a hovered, and a selected row. */
   --pf-color-cat-1: rgba(0, 104, 255, 0.16);
   --pf-color-cat-2: rgba(124, 92, 255, 0.22);
   --pf-color-cat-3: rgba(14, 157, 148, 0.22);
@@ -149,11 +150,13 @@ body {
 }
 
 /* highlight.js ships one stylesheet per theme, and param-value-viewer.tsx
-   imports the light one (github.css). Its colors are too dark for the dark
-   surfaces, so the dark theme recolors the token classes that the SQL, XML,
-   and JSON grammars emit. */
+   imports the light one (github.css). Its white block and dark text do not fit
+   the dark surfaces, so the dark theme drops the block background, letting the
+   full-value modal show through, and recolors the token classes that the SQL,
+   XML, and JSON grammars emit. */
 :root[data-theme='dark'] .hljs {
   color: var(--pf-color-text);
+  background: transparent;
 }
 
 :root[data-theme='dark'] .hljs-keyword,

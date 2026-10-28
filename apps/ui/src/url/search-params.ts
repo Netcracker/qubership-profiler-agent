@@ -7,7 +7,8 @@ import type { CallsOrder } from '../calls/sort-order';
 import type { RetentionClass } from '../api/types';
 import type { Condition } from '../filter/condition';
 import { formatCondition, parseCondition } from '../filter/grammar';
-import { conditionsFromLegacyParams, hasLegacyParams } from '../filter/legacy';
+import { convertLegacyParams, hasLegacyParams, readPodSelection, writePodSelection } from '../filter/legacy';
+import type { PodSelection } from '../filter/legacy';
 
 // The URL is the source of truth (09 §1, §6): the window and the applied filters live in the query string, so a
 // shared link reopens the same view. The pagination cursor never enters the URL — it is transient scroll state.
@@ -36,6 +37,11 @@ export interface CallsSearchState {
   toMs: number | null;
   /** The applied conditions, one repeatable `filter` parameter each. */
   conditions: Condition[];
+  /**
+   * The services and pods of an old link that conditions cannot express, as its `service` and `pod` parameters; a
+   * call of any of them matches. Null for every other link.
+   */
+  selection: PodSelection | null;
   /** Hide system/proxy noise. A UI flag: the loaded rows are filtered in the browser (redesign plan §4.6). */
   hideSystem: boolean;
   /** "Sort by", `order=<field>_<asc|desc>`. Kept in the URL even while the browser does the sorting. */
@@ -48,6 +54,7 @@ export const EMPTY_CALLS_SEARCH: CallsSearchState = {
   fromMs: null,
   toMs: null,
   conditions: [],
+  selection: null,
   hideSystem: false,
   order: DEFAULT_ORDER,
 };
@@ -88,9 +95,9 @@ function parseOrder(raw: string | null): CallsOrder {
 }
 
 /**
- * Reads the calls query state. A `filter` parameter that does not parse is dropped. A link without `filter` and with
- * the parameters of the old calls page is converted, with that page's own defaults. `nowMs` anchors relative tokens;
- * pass a per-load value so resolution is stable.
+ * Reads the calls query state. A `filter` parameter that does not parse is dropped. A link with neither `filter` nor
+ * `order`, which this page always writes, and with the parameters of the old calls page is converted, with that page's
+ * own defaults. `nowMs` anchors relative tokens; pass a per-load value so resolution is stable.
  */
 export function parseCallsSearch(
   sp: URLSearchParams,
@@ -98,18 +105,20 @@ export function parseCallsSearch(
   opts: ParseCallsOptions = {},
 ): CallsSearchState {
   const bare = sp.size === 0;
-  const legacy = !sp.has('filter') && hasLegacyParams(sp);
+  const legacy = !sp.has('filter') && !sp.has('order') && hasLegacyParams(sp);
   const from = parseWindowToken(sp.get('from'), nowMs) ?? (opts.defaults ? DEFAULT_FROM : null);
   const to = parseWindowToken(sp.get('to'), nowMs) ?? (opts.defaults ? DEFAULT_TO : null);
 
   let conditions: Condition[];
-  if (legacy) conditions = conditionsFromLegacyParams(sp);
+  let selection: PodSelection | null = null;
+  if (legacy) ({ conditions, selection } = convertLegacyParams(sp));
   else if (bare && opts.defaults) conditions = [...DEFAULT_CONDITIONS];
   else {
     conditions = sp.getAll('filter').flatMap((text) => {
       const r = parseCondition(text);
       return r.ok ? [r.condition] : [];
     });
+    selection = readPodSelection(sp);
   }
 
   // The old page hid system calls unless told not to; the new URL writes the flag whenever it is on.
@@ -120,6 +129,7 @@ export function parseCallsSearch(
     fromMs: resolveUrlTime(from, nowMs),
     toMs: resolveUrlTime(to, nowMs),
     conditions,
+    selection,
     hideSystem: parseFlag(sp.get('hide_system')) ?? hideDefault,
     order: parseOrder(sp.get('order')),
   };
@@ -144,13 +154,14 @@ export function freezeWindow(state: CallsSearchState): CallsSearchState {
 
 /**
  * Inverse of parseCallsSearch. The state is written in full, with the API's own parameter names (redesign plan
- * §4.2); the old parameters are never written.
+ * §4.2). Of the old parameters, only `service` and `pod` are written, for the selection of an old link.
  */
 export function callsSearchToParams(state: CallsSearchState): URLSearchParams {
   const sp = new URLSearchParams();
   if (state.from !== null) sp.set('from', state.from);
   if (state.to !== null) sp.set('to', state.to);
   for (const c of state.conditions) sp.append('filter', formatCondition(c));
+  writePodSelection(sp, state.selection);
   sp.set('order', state.order);
   if (state.hideSystem) sp.set('hide_system', '1');
   return sp;

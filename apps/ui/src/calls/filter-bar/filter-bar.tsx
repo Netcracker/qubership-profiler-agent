@@ -13,8 +13,9 @@ import styles from './filter-bar.module.css';
 // draft runs.
 
 /**
- * A token the page owns rather than a condition of the bar, such as "Hide system/proxy". It reads like a condition,
- * comes before the conditions, and is removed with its × or with Backspace once no condition is left before the input.
+ * A token the page owns rather than a condition of the bar, such as "Hide system/proxy" or the selection of an old
+ * link. It reads like a condition, comes before the conditions, and is removed with its × or with Backspace once no
+ * condition is left before the input.
  */
 export interface PresetToken {
   key: string;
@@ -23,6 +24,8 @@ export interface PresetToken {
   value: string;
   /** The tooltip: what the token does and where it applies. */
   title: string;
+  /** True when the query applies the token; otherwise it filters the loaded rows in the browser. */
+  inQuery?: boolean;
   onRemove: () => void;
 }
 
@@ -53,6 +56,11 @@ export interface FilterBarProps {
   onValueField?: (field: string | null) => void;
   /** The fields the bar lists; every field of the catalog when absent. */
   fields?: readonly string[];
+  /**
+   * True when the bar takes a call parameter typed by hand, such as `user.tenant=acme`. Defaults to true without
+   * `fields` and to false with it, so a bar narrowed to some fields stays narrowed.
+   */
+  params?: boolean;
   /** Ctrl+Enter or Cmd+Enter in the input. */
   onRun?: () => void;
   placeholder?: string;
@@ -75,12 +83,14 @@ export function FilterBar({
   tokenNote,
   presets = NO_PRESETS,
   values = NO_VALUES,
-  fields = ALL_FIELDS,
+  fields,
+  params = fields === undefined,
   onRun,
   placeholder,
   valueNote,
   onValueField,
 }: FilterBarProps) {
+  const listed = fields ?? ALL_FIELDS;
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [text, setText] = useState('');
   const [highlight, setHighlight] = useState(0);
@@ -89,8 +99,8 @@ export function FilterBar({
   const listId = useId();
 
   const view = useMemo(
-    () => stageView({ draft, text, fields, supported, conditionReason, values, valueNote }),
-    [draft, text, fields, supported, conditionReason, values, valueNote],
+    () => stageView({ draft, text, fields: listed, params, supported, conditionReason, values, valueNote }),
+    [draft, text, listed, params, supported, conditionReason, values, valueNote],
   );
 
   const valueField = draft.op !== null ? draft.field : null;
@@ -185,7 +195,12 @@ export function FilterBar({
         <path d="M2 3.5h12L9.5 9v4l-3-1.5V9z" />
       </svg>
       {presets.map((p) => (
-        <span key={p.key} className={`${styles.token} ${styles.tokenLocal}`} title={p.title} data-applied="browser">
+        <span
+          key={p.key}
+          className={p.inQuery ? styles.token : `${styles.token} ${styles.tokenLocal}`}
+          title={p.title}
+          data-applied={p.inQuery ? 'true' : 'browser'}
+        >
           <span>{p.field}</span>
           <span>{p.op}</span>
           <span className={styles.tokenValue}>{p.value}</span>

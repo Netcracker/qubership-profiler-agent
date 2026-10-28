@@ -55,6 +55,12 @@ afterEach(() => {
 });
 
 describe('RestoredApp', () => {
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+    syncThemeMode(); // the store is a module singleton; return it to the default
+  });
+
   it('renders the embedded tree offline, with no download button', () => {
     render(<RestoredApp payload={payload()} />);
     // The header marks it as an exported copy and drops the export action.

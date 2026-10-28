@@ -91,11 +91,13 @@ export function fieldStats(
   const rows = [...groups.entries()].map(([key, g]) => statsRow(g, key));
   rows.sort((a, b) => metric(b) - metric(a) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const rest = rows.slice(limit);
-  const restCalls = new Set(rest.flatMap((r) => groups.get(r.key)!));
+  // The omitted groups add up as the backend merges them (libs/query/stats/merge.go), so a call in two of them counts
+  // twice, as it does in the rows.
+  const restCalls = rest.flatMap((r) => groups.get(r.key)!);
   return {
     group_by: groupBy,
     rows: rows.slice(0, limit),
-    other: rest.length === 0 ? null : statsAggregate([...restCalls]),
+    other: rest.length === 0 ? null : statsAggregate(restCalls),
     distinct: rows.length,
     totals: totals(calls),
     ...EXACT,

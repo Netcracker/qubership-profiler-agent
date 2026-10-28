@@ -36,6 +36,10 @@ describe('podValueSource', () => {
     expect(source('trace_id')).toEqual([]);
   });
 
+  it.each(['constructor', 'toString', '__proto__'])('suggests nothing for a call parameter named %s', (field) => {
+    expect(source(field)).toEqual([]);
+  });
+
   it('suggests nothing before the /pods data arrives', () => {
     const empty = podValueSource(null);
     expect(empty('namespace')).toEqual([]);

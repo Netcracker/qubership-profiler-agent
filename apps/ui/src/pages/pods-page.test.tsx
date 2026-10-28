@@ -220,6 +220,23 @@ describe('PodsPage', () => {
     expect(new Set(filtered)).toEqual(new Set([selected]));
   });
 
+  it('shows the services of an old link from two namespaces, without the other pairs', async () => {
+    const tupleOf = (row: HTMLElement): string =>
+      within(row).getByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c)).textContent ?? '';
+    const to = Date.now();
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&service=payments/billing&service=orders/checkout`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    const services = new Set(screen.getAllByRole('row').slice(1).map((r) => tupleOf(r).split('/').slice(0, 2).join('/')));
+    expect(services).toEqual(new Set(['payments/billing', 'orders/checkout']));
+
+    // Removing the selection token and applying shows every pod and drops it from the URL.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove the filter service or pod in payments/billing, orders/checkout' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Apply$/ }));
+    await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('service='));
+  });
+
   // The pod table renders "Session start"/"Data range" in the app-wide display
   // zone, like the calls table and the call tree — not always the browser's.
   it('renders the pod table timestamps in the selected display zone', async () => {

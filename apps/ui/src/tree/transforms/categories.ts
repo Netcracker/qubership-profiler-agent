@@ -31,7 +31,7 @@ export const CATEGORY_COLORS = 6;
  * The fill of a category's badge. A theme variable, so the same category reads
  * in the light and the dark theme; the old fixed pastel only suited a light page.
  */
-function categoryColor(index: number): string {
+export function categoryColor(index: number): string {
   return `var(--pf-color-cat-${(index % CATEGORY_COLORS) + 1})`;
 }
 
