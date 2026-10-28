@@ -77,6 +77,34 @@ func (ss *Service) Start(ctx context.Context) (err error) {
 	}
 }
 
+// ServeConn handles one agent connection that was accepted elsewhere, and
+// returns when it ends. The diagnostic gateway uses it after reading the
+// handshake itself, so c must replay any bytes already consumed. Stop closes
+// c like the connections Start accepts. After Stop, ServeConn closes c and
+// returns at once.
+func (ss *Service) ServeConn(ctx context.Context, c net.Conn) {
+	sc := ss.prepareConnectionHandler(ctx, c)
+	ss.mu.Lock()
+	if ss.stopped {
+		ss.mu.Unlock()
+		_ = c.Close()
+		return
+	}
+	if ss.active == nil {
+		ss.active = map[*ConnectionHandler]struct{}{}
+	}
+	ss.active[sc] = struct{}{}
+	ss.conns.Add(1)
+	ss.mu.Unlock()
+	defer func() {
+		ss.mu.Lock()
+		delete(ss.active, sc)
+		ss.mu.Unlock()
+		ss.conns.Done()
+	}()
+	sc.Handle()
+}
+
 // Stop closes the TCP listener so Start returns, closes every active agent
 // connection, and waits for their teardown (including PodDisconnected), so
 // the caller can safely release the resources the listener writes to. The

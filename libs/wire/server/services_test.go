@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/stretchr/testify/assert"
@@ -70,4 +71,67 @@ func TestStopClosesActiveConnections(t *testing.T) {
 	_, err = conn.Read(buf)
 	assert.Error(t, err, "the agent side observes the close and reconnects elsewhere")
 	require.NoError(t, <-serveDone, "a stopped listener is not a failure")
+}
+
+// recordingPods is a stubListener that keeps the pods it registered.
+type recordingPods struct {
+	stubListener
+	pods chan ConnectedPod
+}
+
+func (r recordingPods) RegisterPod(pod *ConnectedPod) error {
+	r.pods <- *pod
+	return nil
+}
+
+// TestServeConnHandlesAConnectionAcceptedElsewhere: the gateway accepts the
+// socket and reads the handshake itself, then hands the connection over.
+func TestServeConnHandlesAConnectionAcceptedElsewhere(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := recordingPods{pods: make(chan ConnectedPod, 1)}
+	ss := PrepareServer(ctx, ConnectionOpts{Timeout: profio.TcpTimeout{
+		ReadTimeout: 5 * time.Second, WriteTimeout: time.Second,
+	}}, l)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		ss.ServeConn(ctx, c)
+	}()
+
+	ac := emulator.PrepareAgent(ctx, nil, nil, "pod-1")
+	require.NoError(t, ac.Prepare(emulator.ConnectionOpts{
+		ProtocolAddress: ln.Addr().String(),
+		Timeout:         profio.TcpTimeout{ConnectTimeout: time.Second, SessionTimeout: time.Minute, ReadTimeout: 5 * time.Second, WriteTimeout: time.Second},
+	}).Connect())
+	defer ac.Close()
+	require.NoError(t, ac.InitializeConnection(model.PROTOCOL_VERSION_V3, "ns", "svc", "pod-1"))
+	assert.Equal(t, model.PROTOCOL_VERSION_V2, ac.ServerVersion())
+	pod := <-l.pods
+	assert.Equal(t, "svc", pod.Service)
+
+	ss.Stop()
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop must end a connection handed over with ServeConn")
+	}
+}
+
+func TestServeConnAfterStopClosesTheConnection(t *testing.T) {
+	ss := PrepareServer(context.Background(), ConnectionOpts{}, stubListener{})
+	ss.Stop()
+	server, client := net.Pipe()
+	defer client.Close()
+	ss.ServeConn(context.Background(), server)
+	_, err := client.Read(make([]byte, 1))
+	assert.Error(t, err)
 }
