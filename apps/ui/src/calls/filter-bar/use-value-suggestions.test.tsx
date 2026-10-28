@@ -57,6 +57,19 @@ describe('useValueSuggestions', () => {
     expect(sp.getAll('filter')).toEqual(['duration>100ms']);
   });
 
+  it('sends the pod tuples of a selection, and waits while they wait for /pods', async () => {
+    const urls = recordStats();
+    const tuples = ['payments/billing/billing-1', 'orders/checkout/checkout-1'];
+    const { result, rerender } = renderHook((props: ValueSuggestionsInput) => useValueSuggestions(props), {
+      initialProps: { ...BASE, pods: null } as ValueSuggestionsInput,
+    });
+    expect(result.current).toBeNull();
+    rerender({ ...BASE, pods: tuples });
+    await waitFor(() => expect(result.current?.kind).toBe('ready'));
+    expect(urls).toHaveLength(1);
+    expect(urls[0]!.searchParams.getAll('pod')).toEqual(tuples);
+  });
+
   it('sends one request after a burst of changes, for the latest field', async () => {
     const urls = recordStats();
     const { result, rerender } = renderHook((props: ValueSuggestionsInput) => useValueSuggestions(props), {

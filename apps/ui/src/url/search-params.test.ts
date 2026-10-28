@@ -33,6 +33,7 @@ describe('calls search state', () => {
         { field: 'error', op: '=', values: ['true'] },
         { field: 'method', op: '=~', values: ['Service\\.handle'] },
       ],
+      selection: { services: ['prod/orders'], pods: ['stage/billing/billing-0'] },
       hideSystem: true,
       order: 'start_desc',
     };
@@ -118,13 +119,28 @@ describe('calls search state', () => {
     ]);
     expect(parsed.hideSystem).toBe(true);
     expect(parseCallsSearch(new URLSearchParams('duration_min_ms=0&hide_system=false')).hideSystem).toBe(false);
-    // The old parameters are never written back.
+    // Converted parameters are not written back.
+    expect(parsed.selection).toBeNull();
     expect(callsSearchToParams(parsed).has('service')).toBe(false);
   });
 
-  it('ignores the old parameters when the link has filter parameters', () => {
+  it('keeps the services of an old link that conditions cannot express, and writes them back', () => {
+    const parsed = parseCallsSearch(new URLSearchParams('from=1000&to=2000&service=prod/orders&service=stage/billing'));
+    expect(parsed.conditions.map(formatCondition)).toEqual(['duration>=500ms']);
+    expect(parsed.selection).toEqual({ services: ['prod/orders', 'stage/billing'], pods: [] });
+    const written = callsSearchToParams(parsed);
+    expect(written.getAll('service')).toEqual(['prod/orders', 'stage/billing']);
+    expect(parseCallsSearch(written)).toEqual(parsed);
+  });
+
+  it('reads service and pod as a selection, without the old defaults, on a link the page wrote', () => {
     const parsed = parseCallsSearch(new URLSearchParams('filter=pod%3Dbilling-1&service=payments/billing'));
     expect(parsed.conditions).toEqual([{ field: 'pod', op: '=', values: ['billing-1'] }]);
+    expect(parsed.selection).toEqual({ services: ['payments/billing'], pods: [] });
+    const ordered = parseCallsSearch(new URLSearchParams('order=start_desc&pod=a/b/c'));
+    expect(ordered.conditions).toEqual([]);
+    expect(ordered.hideSystem).toBe(false);
+    expect(ordered.selection).toEqual({ services: [], pods: ['a/b/c'] });
   });
 
   it('freezes a live relative window into an absolute permalink', () => {

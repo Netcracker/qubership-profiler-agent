@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FilterCapabilities } from '../api/types';
 import { podsInRange } from '../mocks/synthetic';
@@ -129,6 +129,13 @@ describe('CallsPage on a backend without the filter model', () => {
     }
   });
 
+  it('shows a call parameter named like an object member as a disabled token', async () => {
+    renderCallsPage(`${window15m()}&filter=${encodeURIComponent('constructor=value')}`);
+    await rowsLoaded();
+    const token = screen.getByRole('button', { name: 'Remove the filter constructor = value' }).parentElement!;
+    expect(token).toHaveAttribute('data-applied', 'false');
+  });
+
   it('converts an old link to tokens and sends them', async () => {
     const calls = recordCalls();
     try {
@@ -141,6 +148,34 @@ describe('CallsPage on a backend without the filter model', () => {
       expect(sp.get('error_only')).toBe('true');
       expect(screen.getByRole('button', { name: 'Remove the filter service = billing' })).toBeInTheDocument();
       expect(screen.getByRole('switch', { name: 'Errors only' })).toBeChecked();
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('keeps the union of an old link that names a service and a pod of another service', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}`);
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(0), { timeout: 5000 });
+      const pods = calls.urls[0]!.searchParams.getAll('pod');
+      expect(pods).toContain(pinned);
+      expect(pods.filter((p) => p !== pinned).length).toBeGreaterThan(0);
+      expect(pods.filter((p) => p !== pinned).every((p) => p.startsWith('payments/billing/'))).toBe(true);
+      const name = `Remove the filter service or pod in payments/billing, ${pinned}`;
+      const token = screen.getByRole('button', { name }).parentElement!;
+      expect(token).toHaveAttribute('data-applied', 'true');
+
+      // Run query keeps the selection in the URL; removing its token and running drops it.
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(`service=payments/billing&pod=${pinned}`));
+      await userEvent.click(screen.getByRole('button', { name }));
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('service='));
     } finally {
       calls.stop();
     }
@@ -219,6 +254,48 @@ describe('CallsPage on a backend without the filter model', () => {
       const rerun = calls.urls[before]!.searchParams;
       expect(rerun.has('cursor')).toBe(false);
       expect(rerun.has('from')).toBe(true);
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('resolves a relative window again on Run query', async () => {
+    const realNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offsetMs);
+    const calls = recordCalls();
+    try {
+      renderCallsPage('from=now-1h&to=now&order=start_desc');
+      await rowsLoaded();
+      const first = calls.urls[0]!.searchParams;
+      const before = calls.urls.length;
+
+      offsetMs = 60_000;
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      const rerun = calls.urls[before]!.searchParams;
+      expect(Number(rerun.get('to')) - Number(first.get('to'))).toBeGreaterThanOrEqual(60_000);
+      expect(Number(rerun.get('to')) - Number(rerun.get('from'))).toBe(60 * 60 * 1000);
+    } finally {
+      calls.stop();
+      clock.mockRestore();
+    }
+  });
+
+  it('keeps an absolute window on Run query', async () => {
+    const calls = recordCalls();
+    const query = window15m();
+    try {
+      renderCallsPage(query);
+      await rowsLoaded();
+      const before = calls.urls.length;
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
+      const rerun = calls.urls[before]!.searchParams;
+      const sent = new URLSearchParams(query);
+      expect(rerun.get('from')).toBe(sent.get('from'));
+      expect(rerun.get('to')).toBe(sent.get('to'));
+      expect(calls.urls.length).toBe(before + 1);
     } finally {
       calls.stop();
     }
@@ -469,6 +546,14 @@ describe('CallsPage on a backend without the filter model', () => {
       await userEvent.click(within(alert as HTMLElement).getByRole('button', { name: 'Clear selection' }));
       await waitFor(() => expect(screen.queryByText('Selection too wide')).not.toBeInTheDocument());
       expect(screen.queryByRole('button', { name: 'Remove the filter service = billing' })).not.toBeInTheDocument();
+
+      // An old link's selection that expands to too many pods is cleared the same way.
+      cleanup();
+      renderCallsPage(`${window15m()}&service=payments/billing&service=orders/checkout&duration_min_ms=0`);
+      const again = await screen.findByText('Selection too wide', undefined, { timeout: 5000 });
+      await userEvent.click(within(again.closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Clear selection' }));
+      await waitFor(() => expect(screen.queryByText('Selection too wide')).not.toBeInTheDocument());
+      expect(screen.getByTestId('location')).not.toHaveTextContent('service=');
     } finally {
       calls.stop();
     }
@@ -507,6 +592,31 @@ describe('CallsPage with the filter model', () => {
       expect(sp.getAll('filter')).toEqual(texts);
       expect(sp.has('pod')).toBe(false);
       expect(sp.has('duration_min_ms')).toBe(false);
+    } finally {
+      calls.stop();
+    }
+  });
+
+  it('sends the selection of an old link as pod tuples alongside the filters', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}&error_only=true`);
+      await rowsLoaded();
+      const sp = calls.urls[0]!.searchParams;
+      expect(sp.getAll('filter')).toEqual(['duration>=500ms', 'error=true']);
+      const pods = sp.getAll('pod');
+      expect(pods).toContain(pinned);
+      expect(pods.filter((p) => p !== pinned).every((p) => p.startsWith('payments/billing/'))).toBe(true);
+      expect(pods.length).toBeGreaterThan(1);
+      // The mock applies both: every row comes from a selected pod.
+      const tuples = new Set(pods);
+      const rowPods = screen.getAllByTitle(/^Filter by pod /).map((c) => c.getAttribute('title')!.replace('Filter by pod ', ''));
+      expect(rowPods.length).toBeGreaterThan(0);
+      expect(rowPods.every((name) => [...tuples].some((t) => t.endsWith(`/${name}`)))).toBe(true);
     } finally {
       calls.stop();
     }
@@ -644,6 +754,56 @@ describe('CallsPage with the filter model', () => {
     }
   });
 
+  /** The histogram's /stats requests, without those of the bar's suggestions. */
+  const histogramUrls = (stats: { urls: URL[] }): URL[] => stats.urls.filter((u) => u.searchParams.get('group_by') === 'time');
+
+  it('counts the selection of an old link with the same pod tuples as /calls', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}`);
+      await rowsLoaded();
+      await waitFor(() => expect(histogramUrls(stats).length).toBeGreaterThan(0), { timeout: 5000 });
+      const pods = histogramUrls(stats)[0]!.searchParams.getAll('pod');
+      expect(pods).toContain(pinned);
+      expect(pods).toEqual(calls.urls[0]!.searchParams.getAll('pod'));
+    } finally {
+      calls.stop();
+      stats.stop();
+    }
+  });
+
+  it('resolves a relative window again for /calls and /stats on Run query', async () => {
+    const realNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offsetMs);
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage('from=now-1h&to=now&order=start_desc');
+      await rowsLoaded();
+      await waitFor(() => expect(histogramUrls(stats).length).toBeGreaterThan(0), { timeout: 5000 });
+      const firstTo = Number(histogramUrls(stats)[0]!.searchParams.get('to'));
+      const [callsBefore, statsBefore] = [calls.urls.length, histogramUrls(stats).length];
+
+      offsetMs = 60_000;
+      await userEvent.click(screen.getByRole('button', { name: /Run query$/ }));
+      await waitFor(() => expect(histogramUrls(stats).length).toBeGreaterThan(statsBefore));
+      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(callsBefore));
+      const statsTo = Number(histogramUrls(stats)[histogramUrls(stats).length - 1]!.searchParams.get('to'));
+      expect(statsTo - firstTo).toBeGreaterThanOrEqual(60_000);
+      expect(Number(calls.urls[calls.urls.length - 1]!.searchParams.get('to'))).toBe(statsTo);
+    } finally {
+      calls.stop();
+      stats.stop();
+      clock.mockRestore();
+    }
+  });
+
   it('zooms the time range to a selection of the histogram', async () => {
     renderCallsPage(window15m());
     await rowsLoaded();
@@ -701,6 +861,39 @@ describe('CallsPage with the filter model', () => {
     await userEvent.type(filterBar(), 'web.');
     const list = screen.getByRole('listbox', { name: 'Filter by' });
     await waitFor(() => expect(within(list).getByText('web.url')).toBeInTheDocument(), { timeout: 5000 });
+  });
+
+  it('takes a typed call parameter that the param names of the window leave out', async () => {
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    await userEvent.click(filterBar());
+    await userEvent.type(filterBar(), 'zz.custom=acme{Enter}');
+    expect(screen.getByRole('button', { name: 'Remove the filter zz.custom = acme' })).toBeInTheDocument();
+  });
+
+  it('suggests values under the selection of an old link', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}`);
+      await rowsLoaded();
+      await userEvent.click(filterBar());
+      await userEvent.type(filterBar(), 'service');
+      await userEvent.keyboard('{Enter}{Enter}');
+      await waitFor(() => expect(stats.urls.some((u) => u.searchParams.get('group_by') === 'service')).toBe(true), {
+        timeout: 5000,
+      });
+      const sp = stats.urls.find((u) => u.searchParams.get('group_by') === 'service')!.searchParams;
+      expect(sp.getAll('pod')).toEqual(calls.urls[0]!.searchParams.getAll('pod'));
+      expect(sp.getAll('pod')).toContain(pinned);
+    } finally {
+      calls.stop();
+      stats.stop();
+    }
   });
 
   it('holds the query while /config fails and sends the conditions once it loads', async () => {

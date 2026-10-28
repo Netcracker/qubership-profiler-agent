@@ -20,6 +20,7 @@ import { DEFAULT_COLUMN_ORDER } from '../calls/columns';
 import { CONTROL_HEIGHT_STYLE, CONTROL_THEME } from '../calls/control-height';
 import { FilterBar } from '../calls/filter-bar/filter-bar';
 import type { PresetToken } from '../calls/filter-bar/filter-bar';
+import { selectionTokens } from '../calls/filter-bar/selection-token';
 import { ALL_FIELDS } from '../calls/filter-bar/suggestions';
 import type { ValueSuggestion } from '../calls/filter-bar/suggestions';
 import { suggestionNote, useParamNames, useValueSuggestions } from '../calls/filter-bar/use-value-suggestions';
@@ -39,7 +40,8 @@ import { fieldDef } from '../filter/catalog';
 import type { Capabilities } from '../filter/capabilities';
 import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
-import { unsupportedReason } from '../filter/translate';
+import type { PodSelection } from '../filter/legacy';
+import { selectionPods, unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
 import { useConfig } from '../api/use-config';
@@ -59,11 +61,14 @@ const VIRTUAL = import.meta.env.MODE !== 'test';
 /** The part of the query the controls edit before it runs. */
 interface QueryDraft {
   conditions: Condition[];
+  /** The selection of an old link, until its token is removed. */
+  selection: PodSelection | null;
   hideSystem: boolean;
   order: CallsOrder;
 }
 
-const draftKey = (d: QueryDraft): string => JSON.stringify([d.conditions.map(formatCondition), d.hideSystem, d.order]);
+const draftKey = (d: QueryDraft): string =>
+  JSON.stringify([d.conditions.map(formatCondition), d.selection, d.hideSystem, d.order]);
 
 /**
  * The fields and operators the bar offers on a backend without the filter model: those the translation sends, and
@@ -75,16 +80,27 @@ const legacySupported = (field: string, op?: Operator): string | null =>
 /** The bars of the histogram (redesign plan §4.3). */
 const HISTOGRAM_BUCKETS = 60;
 
-const draftOf = (s: CallsSearchState): QueryDraft => ({ conditions: s.conditions, hideSystem: s.hideSystem, order: s.order });
+const draftOf = (s: CallsSearchState): QueryDraft => ({
+  conditions: s.conditions,
+  selection: s.selection,
+  hideSystem: s.hideSystem,
+  order: s.order,
+});
 
 export function CallsPage() {
   // The App's toast renders in the app's own React tree and unmounts with it.
   // The static `message` mounts a separate root that nothing unmounts.
   const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
-  // Resolve relative window tokens against one `now` per URL change; the memo
-  // freezes it, so `now-3h` does not drift (and refetch) on every render.
-  const search = useMemo(() => parseCallsSearch(searchParams, Date.now(), { defaults: true }), [searchParams]);
+  // Relative window tokens resolve against one `now` per URL change and per run, and /calls and /pods share the
+  // result. The memo freezes it, so `now-3h` does not drift (and refetch) on every render, and the run count takes a
+  // fresh `now`, so Run query on an unchanged `now-1h` reads up to the present rather than repeating the old window.
+  const [runs, setRuns] = useState(0);
+  const search = useMemo(
+    () => parseCallsSearch(searchParams, Date.now(), { defaults: true }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `runs` only asks for a fresh `now`
+    [searchParams, runs],
+  );
 
   // A visit with no query string gets the defaults; write them, so the URL is complete from then on.
   const bare = searchParams.size === 0;
@@ -122,11 +138,17 @@ export function CallsPage() {
   // Value suggestions come from /stats when the backend groups by the field, with the other draft conditions, and
   // from /pods otherwise (redesign plan §4.3). The bar says which field it lists values for.
   const [valueField, setValueField] = useState<string | null>(null);
+  // An old link's selection narrows the values as it narrows the query.
+  const draftPods = useMemo(
+    () => (draft.selection === null ? undefined : selectionPods(draft.selection, namespaces)),
+    [draft.selection, namespaces],
+  );
   const suggestions = useValueSuggestions({
     field: valueField,
     fromMs: search.fromMs,
     toMs: search.toMs,
     conditions: draft.conditions,
+    pods: draftPods,
     caps,
   });
   const values = useCallback(
@@ -140,7 +162,8 @@ export function CallsPage() {
   );
   const valueNote = useCallback((field: string) => suggestionNote(suggestions, field), [suggestions]);
 
-  // The call param names of the window join the field list, so a tag such as `user.tenant` need not be typed.
+  // The call param names of the window join the field list, so a tag such as `user.tenant` need not be typed; the bar
+  // still takes a param name the list leaves out, typed by hand.
   const paramNames = useParamNames(search.fromMs, search.toMs, caps);
   const fields = useMemo(
     () => [...ALL_FIELDS, ...paramNames.filter((name) => fieldDef(name)?.kind === 'param')],
@@ -148,28 +171,34 @@ export function CallsPage() {
   );
 
   const plan = useMemo(
-    () => planQuery(search.conditions, search.order, caps, namespaces),
-    [search.conditions, search.order, caps, namespaces],
+    () => planQuery(search.conditions, search.order, caps, namespaces, search.selection),
+    [search.conditions, search.order, caps, namespaces, search.selection],
   );
-  const needsPods = plan.expandsPods && search.conditions.some((c) => ['namespace', 'service', 'pod'].includes(c.field));
+  const needsPods = plan.needsPods;
   const waitingForPods = plan.waitingForPods && podsState.kind !== 'error';
 
   // A draft token the backend cannot take renders disabled with the reason, and is not sent. Without the filter
   // model, a trace_id token is not sent either, but it filters the loaded rows in the browser, so it renders applied,
   // with that note.
   const draftReasons = useMemo(
-    () => new Map(planQuery(draft.conditions, draft.order, caps, namespaces).skipped.map((s) => [s.condition, s.reason])),
-    [draft.conditions, draft.order, caps, namespaces],
+    () =>
+      new Map(
+        planQuery(draft.conditions, draft.order, caps, namespaces, draft.selection).skipped.map((s) => [s.condition, s.reason]),
+      ),
+    [draft.conditions, draft.order, caps, namespaces, draft.selection],
   );
   const tokenReason = useCallback((c: Condition) => draftReasons.get(c) ?? null, [draftReasons]);
   const supported = caps ? caps.supported : legacySupported;
   const tokenNote = caps ? undefined : browserNote;
 
   // "Hide system/proxy" shows in the bar as a token of the draft: the switch adds and removes it, and so do its ×
-  // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2).
-  const presets: PresetToken[] = draft.hideSystem
-    ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
-    : [];
+  // and Backspace. The URL keeps the hide_system flag (redesign plan §4.2). An old link's selection is a token too.
+  const presets: PresetToken[] = [
+    ...selectionTokens(draft.selection, () => setDraft((d) => ({ ...d, selection: null }))),
+    ...(draft.hideSystem
+      ? [{ key: 'hide_system', ...HIDE_SYSTEM_TOKEN, onRemove: () => setDraft((d) => ({ ...d, hideSystem: false })) }]
+      : []),
+  ];
 
   const rawFilter: CallsFilter | null = useMemo(() => {
     if (search.fromMs === null || search.toMs === null || plan.params === null) return null;
@@ -184,19 +213,23 @@ export function CallsPage() {
 
   const { state, loadMore, refetch } = useCallsQuery(filter);
 
-  // The histogram counts the same query by time (redesign plan §4.3), on a backend that groups by time.
+  // The histogram counts the same query by time (redesign plan §4.3), on a backend that groups by time: the window
+  // that Run query resolves, the conditions, and an old link's selection as pod tuples.
   const statsQuery: StatsQuery | null = useMemo(() => {
     if (filter === null || !caps || !caps.canGroupBy('time')) return null;
-    return { fromMs: filter.fromMs, toMs: filter.toMs, filters: filter.filters, groupBy: 'time', buckets: HISTOGRAM_BUCKETS };
+    const { fromMs, toMs, filters, pods } = filter;
+    return { fromMs, toMs, filters, pods, groupBy: 'time', buckets: HISTOGRAM_BUCKETS };
   }, [filter, caps]);
   const { state: statsState, refetch: refetchStats } = useStats(statsQuery);
 
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
 
-  // Runs a query state: the URL takes it, and the fetch restarts from page one even when nothing changed.
+  // Runs a query state: the URL takes it, a relative window resolves again, and the fetch restarts from page one even
+  // when nothing changed.
   const runQuery = (next: QueryDraft): void => {
     setDraft(next);
     commitSearch({ ...search, ...next });
+    setRuns((n) => n + 1);
     refetch();
     refetchStats();
     if (config.kind === 'error') config.retry();
@@ -252,6 +285,8 @@ export function CallsPage() {
     ) : undefined;
 
   const applyConditions = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions });
+  // Clearing a selection that expands to too many pods drops an old link's selection too.
+  const clearSelection = (conditions: Condition[]): void => runQuery({ ...draftOf(search), conditions, selection: null });
   const noMatch = plan.noMatch;
 
   return (
@@ -280,6 +315,7 @@ export function CallsPage() {
                   valueNote={valueNote}
                   onValueField={setValueField}
                   fields={fields}
+                  params
                   onRun={run}
                 />
               </div>
@@ -322,7 +358,7 @@ export function CallsPage() {
             />
           ) : null}
           {selectionTooWide ? (
-            <SelectionTooWideBanner conditions={search.conditions} expandsPods={plan.expandsPods} onApply={applyConditions} />
+            <SelectionTooWideBanner conditions={search.conditions} expandsPods={plan.expandsPods} onApply={clearSelection} />
           ) : null}
           {state.kind === 'too-wide' ? (
             <TooWideBanner problem={state.problem} conditions={search.conditions} onApply={applyConditions} />

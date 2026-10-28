@@ -12,10 +12,11 @@ function unique(values: string[]): ValueSuggestion[] {
 export function podValueSource(namespaces: readonly NamespaceNode[] | null): (field: string) => readonly ValueSuggestion[] {
   const nss = namespaces ?? [];
   const services = nss.flatMap((ns) => ns.services);
-  const byField: Record<string, ValueSuggestion[]> = {
-    namespace: unique(nss.map((ns) => ns.namespace)),
-    service: unique(services.map((s) => s.service)),
-    pod: unique(services.flatMap((s) => s.pods.map((p) => p.pod))),
-  };
-  return (field) => byField[field] ?? [];
+  // A Map, so that a call parameter named like an object member, such as `constructor`, gets no suggestions.
+  const byField = new Map<string, ValueSuggestion[]>([
+    ['namespace', unique(nss.map((ns) => ns.namespace))],
+    ['service', unique(services.map((s) => s.service))],
+    ['pod', unique(services.flatMap((s) => s.pods.map((p) => p.pod)))],
+  ]);
+  return (field) => byField.get(field) ?? [];
 }
