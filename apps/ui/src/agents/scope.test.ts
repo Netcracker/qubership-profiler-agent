@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { countByStatus, inheritedOwner, parentScope, scopeLabel, scopeShortLabel, worstStatus } from './scope';
+import {
+  countAgentsOwnedBy,
+  countByStatus,
+  inheritedOwner,
+  parentScope,
+  scopeLabel,
+  scopeShortLabel,
+  worstStatus,
+} from './scope';
 import type { AgentConfigAgent, AgentConfigScope, AgentStatus } from './types';
 
 const NONE: Record<AgentStatus, number> = { applied: 0, pending: 0, failed: 0, unsupported: 0 };
@@ -69,5 +77,38 @@ describe('inheritedOwner', () => {
     expect(inheritedOwner([scope('shop', false)], 'shop/cart')).toBe('default');
     expect(inheritedOwner([], 'shop')).toBe('default');
     expect(inheritedOwner([], 'default')).toBeNull();
+  });
+});
+
+describe('countAgentsOwnedBy', () => {
+  const at = (namespace: string, service: string, status: AgentStatus = 'applied'): AgentConfigAgent => ({
+    ...agent(status),
+    namespace,
+    service,
+  });
+  const agents = [
+    at('shop', 'cart'),
+    at('shop', 'cart', 'unsupported'),
+    at('shop', 'search'),
+    at('shop', 'checkout'),
+    at('blog', 'posts'),
+  ];
+  // shop has its own config, and so does shop/checkout below it.
+  const scopes = [scope('default', true), scope('shop', true), scope('shop/checkout', true), scope('blog', false)];
+
+  it('leaves out the agents below a scope with its own config', () => {
+    expect(countAgentsOwnedBy(scopes, agents, 'default')).toBe(1);
+    expect(countAgentsOwnedBy(scopes, agents, 'shop')).toBe(2);
+  });
+
+  it('counts the agents of an inheriting scope, which a save gives its own config', () => {
+    expect(countAgentsOwnedBy(scopes, agents, 'blog')).toBe(1);
+    expect(countAgentsOwnedBy(scopes, agents, 'shop/cart')).toBe(1);
+  });
+
+  it('counts no agent outside the scope', () => {
+    expect(countAgentsOwnedBy(scopes, agents, 'shop/search')).toBe(1);
+    expect(countAgentsOwnedBy(scopes, [at('blog', 'posts')], 'shop')).toBe(0);
+    expect(countAgentsOwnedBy([], [at('blog', 'posts')], 'shop')).toBe(0);
   });
 });

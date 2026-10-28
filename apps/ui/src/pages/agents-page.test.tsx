@@ -1,4 +1,4 @@
-import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App as AntdApp, ConfigProvider } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { RouterProvider, createMemoryRouter } from 'react-router';
@@ -323,6 +323,16 @@ describe('applying changes', () => {
     expect(screen.getByRole('button', { name: 'Apply to 1 agent' })).toBeInTheDocument();
   });
 
+  it('leaves out the agents of a scope below that has its own config', async () => {
+    // Of the 13 agents, one cannot pull config, prod-orders/order-processing
+    // keeps its own config for its three, and staging-orders keeps its own for
+    // its managed one.
+    renderAgentsPage('/agents');
+    await screen.findByRole('tab', { name: 'Agents (13)' });
+    await toggleRecording();
+    expect(await screen.findByRole('button', { name: 'Apply to 8 agents' })).toBeInTheDocument();
+  });
+
   it('sends the revision the page loaded and then shows the agents', async () => {
     const writes = recordWrites();
     const router = renderAgentsPage('/agents?scope=prod-orders%2Forder-processing');
@@ -385,6 +395,38 @@ describe('applying changes', () => {
     ]);
     expect(screen.queryByRole('button', { name: 'Use inherited config' })).not.toBeInTheDocument();
     await waitFor(() => expect(router.state.location.search).toContain('tab=agents'));
+  });
+
+  it('stays on the scope the user opened while a return to the inherited config was on its way', async () => {
+    let release = (): void => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Held, then answered by the mock.
+    server.use(
+      http.delete('/api/v1/agent-config/:scope', async () => {
+        await released;
+      }),
+    );
+    let answered = false;
+    server.events.on('response:mocked', ({ request }) => {
+      if (request.method === 'DELETE') answered = true;
+    });
+    const router = renderAgentsPage('/agents?scope=prod-orders%2Forder-processing');
+    fireEvent.click(await screen.findByRole('button', { name: 'Use inherited config' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete own config' }));
+
+    fireEvent.click(option(await openScopeList(), 'prod-billing'));
+    await waitFor(() => expect(router.state.location.search).toBe('?scope=prod-billing'));
+    expect(await screen.findByText('revision 14')).toBeInTheDocument();
+    release();
+
+    // The answer arrives without taking the page back to the scope it deleted.
+    await waitFor(() => expect(answered).toBe(true));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(router.state.location.search).toBe('?scope=prod-billing');
+    expect(screen.getByText('revision 14')).toBeInTheDocument();
+    expect(screen.getByText(/This scope has no config of its own/)).toBeInTheDocument();
   });
 
   it('reports a failed return to the inherited config and keeps the own config', async () => {

@@ -56,3 +56,25 @@ export function inheritedOwner(
   }
   return null;
 }
+
+/**
+ * Counts the agents that a save of `id` hands its new revision: the ones that
+ * can pull config and get theirs from `id` once it has its own. A namespace or
+ * service below `id` with a config of its own keeps it, and so do its agents.
+ */
+export function countAgentsOwnedBy(
+  scopes: readonly AgentConfigScope[],
+  agents: readonly AgentConfigAgent[],
+  id: AgentConfigScopeId,
+): number {
+  const hasOwnConfig = (scope: AgentConfigScopeId): boolean => scopes.some((s) => s.id === scope && s.has_own_config);
+  const ownedBy = (agent: AgentConfigAgent): boolean => {
+    for (let scope: AgentConfigScopeId | null = `${agent.namespace}/${agent.service}`; scope !== null; ) {
+      if (scope === id) return true;
+      if (hasOwnConfig(scope)) return false;
+      scope = parentScope(scope);
+    }
+    return false;
+  };
+  return agents.filter((agent) => agent.status !== 'unsupported' && ownedBy(agent)).length;
+}

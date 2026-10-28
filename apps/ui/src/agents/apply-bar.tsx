@@ -11,7 +11,7 @@ export function applyLabel(managedAgents: number | null): string {
 interface ApplyBarProps {
   /** Whether applying gives an inheriting scope its own config. */
   createsOwnConfig: boolean;
-  /** Agents that will pull the config; null while the list loads. */
+  /** Agents that get the new revision; null while the agents or the scopes load. */
   managedAgents: number | null;
   saving: boolean;
   onDiscard: () => void;

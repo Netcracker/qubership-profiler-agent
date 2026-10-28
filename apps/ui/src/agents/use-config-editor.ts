@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { deleteAgentConfig, fetchAgentConfig, isRevisionConflict, saveAgentConfig } from './api';
 import type { AgentConfigResponse, AgentConfigScopeId, AgentConfigSettings } from './types';
@@ -34,7 +34,7 @@ export interface ConfigEditor {
   discardRawXml: () => void;
   /** Drops the edits and shows the loaded config again. */
   discard: () => void;
-  /** True while an apply or a return to the inherited config is on its way. */
+  /** True while an apply or a return to the inherited config of this scope is on its way. */
   saving: boolean;
   /** Why the last apply or return to the inherited config failed, as a sentence. */
   error: string | null;
@@ -47,10 +47,15 @@ export interface ConfigEditor {
   dismissConflict: () => void;
   /**
    * Saves the edits as the scope's own config, against the revision the page
-   * loaded. Resolves to whether the save went through.
+   * loaded. Edits made while the save is on its way stay as edits on top of the
+   * saved config. Resolves to whether the save went through with the scope
+   * still open: once another scope is open, the answer changes nothing on the page.
    */
   apply: () => Promise<boolean>;
-  /** Deletes the scope's own config. Resolves to whether the delete went through. */
+  /**
+   * Deletes the scope's own config. Resolves to whether the delete went through
+   * with the scope still open, as for {@link apply}.
+   */
   revertToInherited: () => Promise<boolean>;
 }
 
@@ -67,7 +72,12 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
   // Edits of another scope are dropped for good, so they do not come back when
   // that scope is opened again.
   const edits = useMemo<Edits>(() => (stored.scope === scope ? stored : { scope }), [stored, scope]);
-  const [saving, setSaving] = useState(false);
+  // The scope whose write is on its way, so that another scope does not show it as saving.
+  const [savingScope, setSavingScope] = useState<AgentConfigScopeId | null>(null);
+  // The scope open now, read when a write answers: the answer of a scope the
+  // user has left must not touch the page.
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   useEffect(() => {
@@ -97,38 +107,39 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
     refetch();
   }, [scope, refetch]);
 
-  const apply = async (): Promise<boolean> => {
-    if (loaded === null || settings === null) return false;
-    setSaving(true);
+  /**
+   * Sends one write and takes its answer as the loaded config. Clears the edits
+   * only if they are still the ones the write sent.
+   */
+  const write = async (send: () => Promise<AgentConfigResponse>, failure: string): Promise<boolean> => {
+    const sent = edits;
+    setSavingScope(scope);
     setError(null);
     try {
-      // Null returns the scope to the XML generated from the settings.
-      set(await saveAgentConfig(scope, { expected_revision: loaded.revision, settings, raw_xml: rawXml }));
-      setStored({ scope });
+      const saved = await send();
+      if (currentScope.current !== scope) return false;
+      set(saved);
+      setStored((old) => (old === sent ? { scope } : old));
       return true;
     } catch (e) {
+      if (currentScope.current !== scope) return false;
       if (isRevisionConflict(e)) setConflict(true);
-      else setError(`Could not apply the changes: ${messageOf(e)}`);
+      else setError(`${failure}: ${messageOf(e)}`);
       return false;
     } finally {
-      setSaving(false);
+      setSavingScope((old) => (old === scope ? null : old));
     }
   };
 
-  const revertToInherited = async (): Promise<boolean> => {
-    setSaving(true);
-    setError(null);
-    try {
-      set(await deleteAgentConfig(scope));
-      setStored({ scope });
-      return true;
-    } catch (e) {
-      setError(`Could not return to the inherited config: ${messageOf(e)}`);
-      return false;
-    } finally {
-      setSaving(false);
-    }
+  const apply = async (): Promise<boolean> => {
+    if (loaded === null || settings === null) return false;
+    // Null returns the scope to the XML generated from the settings.
+    const body = { expected_revision: loaded.revision, settings, raw_xml: rawXml };
+    return write(() => saveAgentConfig(scope, body), 'Could not apply the changes');
   };
+
+  const revertToInherited = (): Promise<boolean> =>
+    write(() => deleteAgentConfig(scope), 'Could not return to the inherited config');
 
   return {
     config,
@@ -140,7 +151,7 @@ export function useConfigEditor(scope: AgentConfigScopeId): ConfigEditor {
     editRawXml,
     discardRawXml,
     discard,
-    saving,
+    saving: savingScope === scope,
     error,
     clearError: useCallback(() => setError(null), []),
     conflict,
