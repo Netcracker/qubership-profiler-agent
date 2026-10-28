@@ -7,7 +7,7 @@ import { server } from './node';
 
 // The mock sorts /calls by every `order` of 02 §2.3.5, with the keyset that pages each order.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

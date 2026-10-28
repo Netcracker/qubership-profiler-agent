@@ -14,7 +14,7 @@ import { CallsPage } from './calls-page';
 // `filter` parameters (02 §2.3.3); on an older backend it drives /calls through the translation of redesign plan
 // §4.2.1. The wide-query rejection turns into one-click narrowing that re-runs the query (09 §5).
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
