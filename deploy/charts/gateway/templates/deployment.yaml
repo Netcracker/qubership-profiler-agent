@@ -1,5 +1,6 @@
 {{- $protocols := include "gateway.protocols" . | fromYaml -}}
 {{- $enabled := include "gateway.enabledProtocols" . | fromJsonArray -}}
+{{- $profilerPorts := (include "gateway.profilerPorts" . | fromYaml).ports -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -52,6 +53,11 @@ spec:
               protocol: TCP
             {{- end }}
             {{- end }}
+            {{- range $profilerPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: TCP
+            {{- end }}
             - name: probes
               containerPort: {{ .Values.ports.probes }}
               protocol: TCP
@@ -84,10 +90,22 @@ spec:
             - name: config
               mountPath: /conf
               readOnly: true
+            {{- if include "gateway.profilerEnabled" . }}
+            # A directory mount, not subPath: the kubelet updates only
+            # directory mounts when the ConfigMap changes.
+            - name: rules
+              mountPath: {{ include "gateway.rulesFile" . | dir }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: {{ include "gateway.fullname" . }}
+        {{- if include "gateway.profilerEnabled" . }}
+        - name: rules
+          configMap:
+            name: {{ include "gateway.fullname" . }}-rules
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

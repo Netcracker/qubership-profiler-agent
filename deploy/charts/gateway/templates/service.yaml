@@ -1,5 +1,6 @@
 {{- $protocols := include "gateway.protocols" . | fromYaml -}}
 {{- $enabled := include "gateway.enabledProtocols" . | fromJsonArray -}}
+{{- $profilerPorts := (include "gateway.profilerPorts" . | fromYaml).ports -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -18,6 +19,12 @@ spec:
       targetPort: {{ .name }}
       protocol: TCP
     {{- end }}
+    {{- end }}
+    {{- range $profilerPorts }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .name }}
+      protocol: TCP
     {{- end }}
     # diag-proxy exposed its probe port under this name.
     - name: agent-probes

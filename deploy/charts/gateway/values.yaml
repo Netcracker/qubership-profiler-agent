@@ -53,6 +53,36 @@ traces:
     enabled: true
     mode: passthrough
 
+# Dump uploads from diagtools on port 8080, through the profiler_dumps
+# extension. Off by default: the image needs a qubership-otec build that
+# includes the extension.
+dumps:
+  enabled: false
+  # Base URL of the dumps collector. Required unless mode is discard.
+  upstream: http://cloud-profiler-dumps-collector.profiler.svc:8080
+  # passthrough forwards uploads; discard reads them to the end and answers
+  # 204, so the client deletes its copy. `rules` below can override the
+  # mode per source.
+  mode: passthrough
+  # Over the cap an upload is discarded with 204. The cap saves storage, not
+  # network: most uploads have no Content-Length, so the size is known only
+  # after the bytes have arrived.
+  maxBodySize: 10GiB
+  # Per dump type: hprof, td, gc, other. For example { td: 64MiB }.
+  maxBodySizePerType: {}
+  # Over the cap an upload is discarded with 204, never queued.
+  maxConcurrentUploads: 16
+
+# Per-source rules, rendered into a ConfigMap that the extensions watch.
+# Editing the ConfigMap changes the mode of the next upload with no restart;
+# the kubelet takes up to a minute to update the mounted file. The first
+# matching rule wins; no match falls back to the extension's mode. Match keys
+# for dumps: namespace, pod (globs), dump_type (a list).
+#   rules:
+#     - match: { namespace: "load-test-*", dump_type: [hprof] }
+#       mode: discard
+rules: []
+
 # The memory_limiter processor in every pipeline. The percentages are of the
 # container memory limit, so keep resources.limits.memory set.
 memoryLimiter:

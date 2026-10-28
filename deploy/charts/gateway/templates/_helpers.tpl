@@ -80,6 +80,22 @@ zipkin:
     - { name: zipkin, port: 9411 }
 {{- end -}}
 
+{{/* Whether any profiler extension is on, so the rules ConfigMap is needed */}}
+{{- define "gateway.profilerEnabled" -}}
+{{- if .Values.dumps.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/* Where the extensions read the rules file */}}
+{{- define "gateway.rulesFile" -}}/etc/gateway/rules/rules.yaml{{- end -}}
+
+{{/* Service and container ports of the profiler extensions */}}
+{{- define "gateway.profilerPorts" -}}
+ports:
+{{- if .Values.dumps.enabled }}
+  - { name: cdt-http, port: 8080 }
+{{- end }}
+{{- end -}}
+
 {{/* Names of the enabled protocols, in a fixed order, as a JSON list */}}
 {{- define "gateway.enabledProtocols" -}}
 {{- $enabled := list -}}
@@ -119,12 +135,35 @@ The Collector config. A discarding pipeline exports to `nop` and skips
 {{- $_ := set $pipelines (printf "traces/%s" $name) (dict "receivers" (list $name) "processors" (list "memory_limiter" "batch") "exporters" (list "otlp_grpc/upstream")) -}}
 {{- end -}}
 {{- end -}}
+{{- $extensions := dict
+  "health_check" (dict
+    "endpoint" (printf "0.0.0.0:%d" (int .Values.ports.probes))
+    "path" "/probes/ready") -}}
+{{- $extensionIDs := list "health_check" -}}
+{{- with .Values.dumps -}}
+{{- if .enabled -}}
+{{- if not (has .mode (list "passthrough" "discard")) -}}
+{{- fail (printf "dumps.mode is %q; use passthrough or discard" (toString .mode)) -}}
+{{- end -}}
+{{- $d := dict
+  "endpoint" "0.0.0.0:8080"
+  "mode" .mode
+  "max_body_size" .maxBodySize
+  "max_concurrent_uploads" (int .maxConcurrentUploads)
+  "rules_file" (include "gateway.rulesFile" $) -}}
+{{- if .upstream -}}
+{{- $_ := set $d "upstream" .upstream -}}
+{{- end -}}
+{{- with .maxBodySizePerType -}}
+{{- $_ := set $d "max_body_size_per_type" . -}}
+{{- end -}}
+{{- $_ := set $extensions "profiler_dumps" $d -}}
+{{- $extensionIDs = append $extensionIDs "profiler_dumps" -}}
+{{- end -}}
+{{- end -}}
 {{- $ml := .Values.memoryLimiter -}}
 {{- $config := dict
-  "extensions" (dict
-    "health_check" (dict
-      "endpoint" (printf "0.0.0.0:%d" (int .Values.ports.probes))
-      "path" "/probes/ready"))
+  "extensions" $extensions
   "receivers" $receivers
   "processors" (dict
     "memory_limiter" (dict
@@ -142,7 +181,7 @@ The Collector config. A discarding pipeline exports to `nop` and skips
               "prometheus" (dict
                 "host" "0.0.0.0"
                 "port" (int .Values.ports.metrics))))))))
-    "extensions" (list "health_check")
+    "extensions" $extensionIDs
     "pipelines" $pipelines)
 -}}
 {{- $config = mergeOverwrite $config (deepCopy .Values.config) -}}

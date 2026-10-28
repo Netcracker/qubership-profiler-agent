@@ -4,8 +4,8 @@ Runs the `qubership-otec` OpenTelemetry Collector as a diagnostic gateway: a dro
 diag-proxy that can forward or discard each trace protocol without touching the services that send it. The design is in
 `docs/plans/2026-10-09-otel-gateway.md`.
 
-This chart covers stage G1 of the plan: traces only. The dump upload (8080) and profiler TCP (1715) surfaces arrive with
-the `profiler_dumps` and `profiler_tcp` extensions in later stages.
+Traces are on by default. Dump uploads (8080) are behind `dumps.enabled`, because they need a `qubership-otec` image
+that includes the `profiler_dumps` extension from `apps/gateway`. Profiler TCP (1715) arrives with `profiler_tcp`.
 
 ## Install
 
@@ -57,6 +57,26 @@ so `helm upgrade` rolls the pods.
 
 `discard` hides an outage: clients report success and the upstream receives nothing. Watch the receivers' accepted-span
 metrics against the exporter's sent-span metrics on port 8889.
+
+## Dump uploads
+
+```yaml
+dumps:
+  enabled: true
+  upstream: http://cloud-profiler-dumps-collector.profiler.svc:8080
+  mode: passthrough
+rules:
+  - match: { namespace: "load-test-*", dump_type: [hprof] }
+    mode: discard
+```
+
+This adds the `cdt-http` port (8080) and the `profiler_dumps` extension. In `discard`, and for an upload over a cap, the
+gateway reads the upload to the end and answers 204, so diagtools deletes its local copy. The extension's behavior,
+keys, and metrics are in `apps/gateway/README.md`.
+
+`rules` renders into a separate ConfigMap that the extension watches. Editing that ConfigMap changes the mode of the
+next upload without a restart, once the kubelet updates the mounted file (up to a minute). `dumps.mode` is part of the
+Collector config, so changing it restarts the pods.
 
 ## Custom config
 
