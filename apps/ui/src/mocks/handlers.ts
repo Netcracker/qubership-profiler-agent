@@ -198,7 +198,23 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
 export const handlers = [
   http.get('/api/v1/config', async () => {
     await pace();
-    return HttpResponse.json({ dumps_collector_url: 'https://dumps-collector-petclinic.example.com' });
+    // 02 §2.8: one trace link and one logs link, the shapes of the contract's example.
+    return HttpResponse.json({
+      dumps_collector_url: 'https://dumps-collector-petclinic.example.com',
+      links: [
+        {
+          label: 'Open trace · Tempo',
+          kind: 'trace',
+          url_template: 'https://grafana.example.com/explore?trace={trace_id}',
+        },
+        {
+          label: 'Logs · Grafana',
+          kind: 'logs',
+          url_template:
+            'https://grafana.example.com/logs?namespace={namespace}&pod={pod}&from={from_ms}&to={to_ms}',
+        },
+      ],
+    });
   }),
 
   http.get('/api/v1/pods', async ({ request }) => {

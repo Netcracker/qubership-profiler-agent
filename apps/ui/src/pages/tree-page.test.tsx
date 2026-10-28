@@ -1,27 +1,19 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { http, HttpResponse } from 'msw';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
-import { buildExportHtml, downloadHtml } from '../export/build-export';
 import { server } from '../mocks/node';
 import { callsPage, treeForCall } from '../mocks/synthetic';
 import { buildTreeModel } from '../tree/model';
 import { summariseParams } from '../tree/params-summary';
-import { setThemePreference, syncThemeMode } from '../ui/theme-mode';
 import { TreePage } from './tree-page';
 
 // The tree route against the MSW mock: a hot/hinted call decodes and renders
 // merged rows; a cold bare PK and a truncated blob surface their 09 §5 states.
-
-// The real builder fetches the built bundle, which a test run does not have;
-// build-export.test.ts covers it. Here it only records the payload.
-vi.mock('../export/build-export', () => ({
-  buildExportHtml: vi.fn(async () => '<!doctype html>'),
-  downloadHtml: vi.fn(),
-}));
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
@@ -86,12 +78,22 @@ function renderTreePage(path: string) {
   return render(
     <AntdApp>
       <MemoryRouter initialEntries={[path]}>
+        <SearchProbe />
         <Routes>
           <Route path="/tree/:pk" element={<TreePage />} />
         </Routes>
       </MemoryRouter>
     </AntdApp>,
   );
+}
+
+/** Publishes the router's query string, so a test can read what the page wrote to the URL. */
+function SearchProbe() {
+  return <span data-testid="search">{useLocation().search}</span>;
+}
+
+function treePath(call: CallJSON, extra = ''): string {
+  return `/tree/${encodeURIComponent(pkToPath(call.pk))}?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}${extra}`;
 }
 
 describe('TreePage', () => {
@@ -103,28 +105,19 @@ describe('TreePage', () => {
     // The synthetic tree always roots at CoyoteAdapter.service.
     expect(await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 })).toBeInTheDocument();
     // The degenerate entry chain is skipped: reveal badges are present.
-    expect((await screen.findAllByText(/⤵/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/^\+\d+$/)).length).toBeGreaterThan(0);
     // A loaded tree makes the header actions usable again, including the
     // self-contained HTML export.
-    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Adjust duration/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Setup categories/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Download HTML/ })).toBeEnabled();
-  });
-
-  it('saves the theme in effect with the HTML export', async () => {
-    setThemePreference('dark');
-    try {
-      const call = firstCall((c) => c.truncated_reason === null, Date.now());
-      renderTreePage(
-        `/tree/${encodeURIComponent(pkToPath(call.pk))}?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}`,
-      );
-      await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
-      fireEvent.click(screen.getByRole('button', { name: /Download HTML/ }));
-      await waitFor(() => expect(downloadHtml).toHaveBeenCalled());
-      expect(vi.mocked(buildExportHtml).mock.calls[0]![0]).toMatchObject({ pkPath: pkToPath(call.pk), theme: 'dark' });
-    } finally {
-      localStorage.clear();
-      syncThemeMode();
+    // Each toolbar button carries an icon, the way Download HTML always did.
+    for (const [name, icon] of [
+      [/Adjust duration/, 'field-time'],
+      [/Setup categories/, 'tags'],
+      [/Download HTML/, 'download'],
+    ] as const) {
+      expect(within(screen.getByRole('button', { name })).getByRole('img', { name: icon })).toBeInTheDocument();
     }
   });
 
@@ -149,9 +142,298 @@ describe('TreePage', () => {
     expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
 
     // Closing the incoming tab keeps the outgoing one open.
-    fireEvent.click(incomingTab.closest('.ant-tabs-tab')!.querySelector('.ant-tabs-tab-remove')!);
+    fireEvent.click(incomingTab.querySelector('button[aria-label="Close tab"]')!);
     expect(screen.queryByRole('tab', { name: /Incoming · CoyoteAdapter\.service/ })).toBeNull();
     expect(screen.getByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeInTheDocument();
+  });
+
+  it('shows the call identity and its chips in the header', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['web.url'] !== undefined, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByRole('link', { name: 'Back to Calls' })).toHaveAttribute('href', '/calls');
+    const identity = `${call.pk.pod_namespace} / ${call.pk.pod_service} / ${call.pk.pod_name}`;
+    expect(screen.getByTitle(identity).textContent).toBe(identity);
+    expect(screen.getByTitle("From the root call's web.method and web.url parameters").textContent).toMatch(
+      /^(GET|POST) \//,
+    );
+    // The retention class moved from a tag of its own to the time chip's tooltip.
+    expect(screen.getByTitle(`Start time. Retention class: ${call.retention_class}`)).toBeInTheDocument();
+    expect(screen.getByTitle('Duration')).toBeInTheDocument();
+    expect(screen.queryByText(call.retention_class)).toBeNull();
+  });
+
+  it('opens the fixed tab the URL names', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call, '&tab=params'));
+    // The Call Tree pane is not mounted until its tab opens, so wait for the tab bar.
+    const paramsTab = await screen.findByRole('tab', { name: 'Parameters' }, { timeout: 5000 });
+    expect(paramsTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('falls back to Call Tree on an unknown tab', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call, '&tab=gantt'));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('writes a fixed tab to the URL and keeps a derived tab out of it', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    const hints = `?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}`;
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Hotspots' }));
+    expect(screen.getByTestId('search').textContent).toBe(`${hints}&tab=hotspots`);
+    expect(screen.getByRole('tab', { name: 'Hotspots' })).toHaveAttribute('aria-selected', 'true');
+
+    // A derived tab is browser state: it becomes active, and the URL still names Hotspots.
+    fireEvent.click(screen.getByRole('tab', { name: 'Call Tree' }));
+    expect(screen.getByTestId('search').textContent).toBe(hints);
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    fireEvent.click(await screen.findByText('Outgoing calls'));
+    const outgoingTab = await screen.findByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ });
+    expect(outgoingTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('search').textContent).toBe(hints);
+
+    // Closing it returns to the fixed tab of the URL.
+    fireEvent.click(outgoingTab.querySelector('button[aria-label="Close tab"]')!);
+    expect(screen.getByRole('tab', { name: 'Call Tree' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('shares the selection between the Call Tree and the Flame graph tabs', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    const rootLabel = await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    // Select the root row in the tree; its block is selected in the flame graph.
+    fireEvent.click(rootLabel.closest('[role="button"]')!);
+    fireEvent.click(screen.getByRole('tab', { name: 'Flame graph' }));
+    expect(screen.getByTestId('search').textContent).toContain('tab=flame');
+    const rootBlock = await screen.findByRole('button', { name: /^CoyoteAdapter\.service · / });
+    expect(rootBlock).toHaveAttribute('aria-pressed', 'true');
+
+    // Select another block; back in the tree its row is selected and the root's is not.
+    const blocks = screen.getAllByRole('button', { name: / of the call · self / });
+    const other = blocks.find((b) => b !== rootBlock && !/^(CoyoteAdapter|.*Filter)/.test(b.getAttribute('aria-label')!))!;
+    const otherName = other.getAttribute('aria-label')!.split(' · ')[0]!;
+    fireEvent.click(other);
+    expect(other).toHaveAttribute('aria-pressed', 'true');
+    expect(rootBlock).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Call Tree' }));
+    const selectedRows = document.querySelectorAll('[role="button"][aria-pressed="true"]');
+    const selectedInTree = [...selectedRows].filter((el) => el.tagName === 'SPAN');
+    expect(selectedInTree).toHaveLength(1);
+    expect(selectedInTree[0]!.textContent).toContain(otherName);
+    // No strip of operations appears beside the search field on either tab.
+    expect(screen.queryByRole('button', { name: 'Incoming calls' })).toBeNull();
+  });
+
+  it('returns to an open derived tab, and closing a background one keeps the active tab', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    const hints = `?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}`;
+
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    fireEvent.click(await screen.findByText('Outgoing calls'));
+    const outgoingTab = await screen.findByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ });
+
+    // Away to a fixed tab and back: the derived tab opens again and the URL keeps the fixed one.
+    fireEvent.click(screen.getByRole('tab', { name: 'Hotspots' }));
+    expect(outgoingTab).toHaveAttribute('aria-selected', 'false');
+    fireEvent.click(outgoingTab);
+    expect(outgoingTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('search').textContent).toBe(`${hints}&tab=hotspots`);
+
+    // Open a second derived tab, then close the first one behind it.
+    fireEvent.click(screen.getByRole('tab', { name: 'Call Tree' }));
+    fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+    fireEvent.click((await screen.findAllByText('Incoming calls'))[0]!);
+    const incomingTab = await screen.findByRole('tab', { name: /Incoming · CoyoteAdapter\.service/ });
+    expect(incomingTab).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(outgoingTab.querySelector('button[aria-label="Close tab"]')!);
+    expect(screen.queryByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ })).toBeNull();
+    expect(incomingTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('applies a category from Setup categories and reopens the dialog with the applied rules', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    expect(screen.queryByText('entrypoint')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Setup categories/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Setup categories' });
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'entrypoint *CoyoteAdapter.service*' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    expect((await screen.findAllByText('entrypoint')).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /Setup categories/ }));
+    const reopened = await screen.findByRole('dialog', { name: 'Setup categories' });
+    expect(within(reopened).getByRole('textbox')).toHaveValue('entrypoint *CoyoteAdapter.service*');
+  });
+
+  it('applies a factor from Adjust duration and reopens the dialog with the applied rules', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    const before = screen.getByTitle('Duration').textContent;
+
+    fireEvent.click(screen.getByRole('button', { name: /Adjust duration/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Adjust duration' });
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: '1/10 *CoyoteAdapter.service*' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    // The factor cascades from the root, so the whole call gets shorter.
+    expect(screen.getByTitle('Duration').textContent).not.toBe(before);
+
+    fireEvent.click(screen.getByRole('button', { name: /Adjust duration/ }));
+    const reopened = await screen.findByRole('dialog', { name: 'Adjust duration' });
+    expect(within(reopened).getByRole('textbox')).toHaveValue('1/10 *CoyoteAdapter.service*');
+  });
+
+  it('downloads an HTML copy that reopens on the active tab, fixed or derived', async () => {
+    server.use(
+      http.get('*/index.html', () =>
+        HttpResponse.html(
+          '<!doctype html><html><head><script type="module" src="/assets/app.js"></script>' +
+            '<link rel="stylesheet" href="/assets/app.css"></head><body></body></html>',
+        ),
+      ),
+      http.get('*/assets/app.js', () => HttpResponse.text('console.log(1)')),
+      http.get('*/assets/app.css', () => HttpResponse.text('body{}')),
+    );
+    const blobs: Blob[] = [];
+    const createObjectURL = vi.fn((blob: Blob) => {
+      blobs.push(blob);
+      return 'blob:export';
+    });
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
+    const downloads: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+    try {
+      const call = firstCall((c) => c.truncated_reason === null, Date.now());
+      renderTreePage(treePath(call));
+      await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+      fireEvent.click(screen.getByRole('button', { name: /Download HTML/ }));
+      await waitFor(() => expect(downloads).toHaveLength(1));
+      expect(downloads[0]).toMatch(/^profiler-tree-[\w.-]+\.html$/);
+      expect(await blobs[0]!.text()).toContain('"activeTab":"tree"');
+
+      fireEvent.click(screen.getAllByTitle('Operations')[0]!);
+      fireEvent.click(await screen.findByText('Outgoing calls'));
+      await screen.findByRole('tab', { name: /Outgoing · CoyoteAdapter\.service/ });
+      fireEvent.click(screen.getByRole('button', { name: /Download HTML/ }));
+      await waitFor(() => expect(downloads).toHaveLength(2));
+      const html = await blobs[1]!.text();
+      // A derived tab gets a new key on restore, so the active one is saved by its position.
+      expect(html).toContain('"activeTab":"r0"');
+      expect(html).toContain('"op":"outgoing"');
+    } finally {
+      click.mockRestore();
+    }
+  });
+
+  it('disables a link that needs the start time when the URL carries no ts_ms', async () => {
+    // A hot call opens from a bare PK, so the page has no start time to put in a link.
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(`/tree/${encodeURIComponent(pkToPath(call.pk))}`);
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    expect(screen.queryByTitle(/^Start time/)).toBeNull();
+
+    const logs = await screen.findByRole('button', { name: /Logs · Grafana/ });
+    expect(logs).toBeDisabled();
+    fireEvent.mouseEnter(logs.parentElement!);
+    expect(await screen.findByText('Unavailable: the start time of this call is unknown')).toBeInTheDocument();
+  });
+
+  it('titles the time chip without a retention class when the URL carries none', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(`/tree/${encodeURIComponent(pkToPath(call.pk))}?ts_ms=${call.ts_ms}`);
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    expect(screen.getByTitle('Start time')).toBeInTheDocument();
+  });
+
+  it('shows the trace chip and expands the configured links for a traced call', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['trace.id'] !== undefined, Date.now());
+    const traceId = call.params['trace.id']![0]!;
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByTitle(`trace_id ${traceId}`).textContent).toBe(`trace ${traceId.slice(0, 12)}…`);
+    expect(screen.queryByText('not traced')).toBeNull();
+
+    const trace = await screen.findByRole('link', { name: /Open trace · Tempo/ });
+    expect(trace).toHaveAttribute('href', `https://grafana.example.com/explore?trace=${traceId}`);
+    expect(trace).toHaveAttribute('target', '_blank');
+    expect(trace).toHaveAttribute('rel', 'noopener noreferrer');
+
+    const logs = screen.getByRole('link', { name: /Logs · Grafana/ });
+    const url = new URL(logs.getAttribute('href')!);
+    expect(url.searchParams.get('namespace')).toBe(call.pk.pod_namespace);
+    expect(url.searchParams.get('pod')).toBe(call.pk.pod_name);
+    expect(url.searchParams.get('from')).toBe(String(call.ts_ms));
+    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms));
+
+    // The links come after the page's own actions.
+    const download = screen.getByRole('button', { name: /Download HTML/ });
+    expect(download.compareDocumentPosition(trace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the recorded duration in the link window after Adjust duration', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    const before = screen.getByTitle('Duration').textContent;
+
+    fireEvent.click(screen.getByRole('button', { name: /Adjust duration/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Adjust duration' });
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: '1/10 *CoyoteAdapter.service*' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    expect(screen.getByTitle('Duration').textContent).not.toBe(before);
+
+    // Adjust duration is a what-if view: the logs still cover the whole recorded call.
+    const logs = await screen.findByRole('link', { name: /Logs · Grafana/ });
+    const url = new URL(logs.getAttribute('href')!);
+    expect(url.searchParams.get('from')).toBe(String(call.ts_ms));
+    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms));
+  });
+
+  it('disables a link that needs a trace ID on an untraced call and says why', async () => {
+    const call = firstCall((c) => c.truncated_reason === null && c.params['trace.id'] === undefined, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+
+    expect(screen.getByText('not traced')).toBeInTheDocument();
+    // The logs template uses no trace ID, so that link still works.
+    expect(await screen.findByRole('link', { name: /Logs · Grafana/ })).toBeInTheDocument();
+    // The trace button stays in place, as a disabled button with no href to follow.
+    const trace = screen.getByRole('button', { name: /Open trace · Tempo/ });
+    expect(trace).toBeDisabled();
+    expect(screen.queryByRole('link', { name: /Open trace · Tempo/ })).toBeNull();
+
+    // A disabled button fires no pointer events; its wrapper takes them for the tooltip.
+    fireEvent.mouseEnter(trace.parentElement!);
+    expect(await screen.findByText('Unavailable: this call carries no trace ID')).toBeInTheDocument();
+  });
+
+  it('shows no link buttons when the deployment configures none', async () => {
+    server.use(http.get('/api/v1/config', () => HttpResponse.json({ dumps_collector_url: '' })));
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    // Give the config request time to settle before asserting an absence.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.queryByText(/Open trace/)).toBeNull();
+    expect(screen.queryByText(/Logs · Grafana/)).toBeNull();
+    expect(screen.getByRole('button', { name: /Download HTML/ })).toBeEnabled();
   });
 
   it('shows the cold-call state for a bare PK outside the hot window', async () => {
@@ -164,8 +446,8 @@ describe('TreePage', () => {
     expect(screen.getByText(/Reopen the call from its row/)).toBeInTheDocument();
     // No tree model exists to adjust/categorize or to export — the header
     // actions must not look usable (PR 708 review #20).
-    expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Setup categories' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Adjust duration/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Setup categories/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Download HTML/ })).toBeDisabled();
   });
 

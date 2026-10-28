@@ -85,7 +85,7 @@ describe('HotspotsView', () => {
 
     // Expanding grafts the incoming callers in place.
     const toggle = hotspot.closest('div')!.querySelector('button')!;
-    expect(toggle.textContent).toBe('+');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(toggle);
     expect(screen.getAllByTitle(METHODS[2]!)).toHaveLength(2);
     expect(screen.getAllByTitle(METHODS[0]!).length).toBeGreaterThan(1);

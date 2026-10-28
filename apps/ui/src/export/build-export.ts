@@ -9,56 +9,18 @@ import type { RestorePayload } from './restore';
 // deployment or `vite preview`). Under `vite dev` the index points at source
 // modules, so an export made there is not self-contained — the button targets
 // a deployed build.
+//
+// Fonts: the stylesheet names the bundled woff2 files by URL, and a URL does
+// not load from a file on disk. The Latin subsets of Inter and JetBrains Mono
+// are inlined as data: URLs (about 120 KB of base64). The other subsets are
+// dropped, so text in another script falls back to the system fonts that the
+// font stacks end in. Inlining all 13 subsets would add about 410 KB to every
+// export for glyphs that a Java stack trace rarely contains.
 
 async function fetchText(url: string): Promise<string> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`cannot read ${url}: ${res.status} ${res.statusText}`);
   return res.text();
-}
-
-async function fetchBytes(url: string): Promise<Uint8Array> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`cannot read ${url}: ${res.status} ${res.statusText}`);
-  return new Uint8Array(await res.arrayBuffer());
-}
-
-const ASSET_TYPES: Record<string, string> = {
-  woff2: 'font/woff2',
-  woff: 'font/woff',
-  ttf: 'font/ttf',
-  svg: 'image/svg+xml',
-  png: 'image/png',
-};
-
-function assetType(url: string): string {
-  const ext = new URL(url).pathname.split('.').pop()!.toLowerCase();
-  return ASSET_TYPES[ext] ?? 'application/octet-stream';
-}
-
-/**
- * Replaces every `url(...)` in a stylesheet with a data: URL of the file it
- * names, resolved against the stylesheet's own URL. In the built CSS these are
- * the bundled woff2 fonts, which a downloaded copy could not otherwise reach.
- * A reference that already is a data: URL, or a `#fragment`, stays as it is.
- */
-async function inlineCssAssets(css: string, cssUrl: string): Promise<string> {
-  const pattern = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
-  const refs = new Set<string>();
-  for (const match of css.matchAll(pattern)) {
-    const ref = match[2]!.trim();
-    if (!ref.startsWith('data:') && !ref.startsWith('#')) refs.add(ref);
-  }
-  const dataUrls = new Map<string, string>();
-  await Promise.all(
-    [...refs].map(async (ref) => {
-      const url = new URL(ref, cssUrl).href;
-      dataUrls.set(ref, `data:${assetType(url)};base64,${bytesToBase64(await fetchBytes(url))}`);
-    }),
-  );
-  return css.replace(pattern, (whole: string, _quote: string, ref: string) => {
-    const dataUrl = dataUrls.get(ref.trim());
-    return dataUrl === undefined ? whole : `url("${dataUrl}")`;
-  });
 }
 
 function escapeHtml(s: string): string {
@@ -77,6 +39,62 @@ function escapeForInlineScript(json: string): string {
     .join('\\u2028')
     .split(String.fromCharCode(0x2029))
     .join('\\u2029');
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`cannot read ${url}: ${res.status} ${res.statusText}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+const FONT_FACE = /@font-face\s*\{[^}]*\}/g;
+const FONT_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
+
+/**
+ * Whether an @font-face rule covers Basic Latin: its `unicode-range` holds
+ * U+0041, or it has no range and so covers everything.
+ */
+function coversBasicLatin(fontFace: string): boolean {
+  const declared = /unicode-range\s*:\s*([^;}]+)/i.exec(fontFace);
+  if (declared === null) return true;
+  return declared[1]!.split(',').some((part) => {
+    const range = /U\+([0-9a-f?]+)(?:-([0-9a-f]+))?/i.exec(part.trim());
+    if (range === null) return false;
+    const from = parseInt(range[1]!.replace(/\?/g, '0'), 16);
+    const to = range[2] !== undefined ? parseInt(range[2], 16) : parseInt(range[1]!.replace(/\?/g, 'F'), 16);
+    return from <= 0x41 && 0x41 <= to;
+  });
+}
+
+/**
+ * Makes the fonts of a stylesheet work in a single offline file: an @font-face
+ * rule that covers Basic Latin gets its font inlined as a data: URL, and every
+ * other @font-face rule is removed. A font that cannot be fetched is removed
+ * too. Either way the file never points at a font it cannot load, and the
+ * font stack's system fallback takes over for what is missing.
+ */
+async function inlineFonts(css: string, cssUrl: string): Promise<string> {
+  const rules = [...new Set(css.match(FONT_FACE) ?? [])];
+  const replacements = await Promise.all(
+    rules.map(async (rule): Promise<[string, string]> => {
+      if (!coversBasicLatin(rule)) return [rule, ''];
+      try {
+        const urls = [...rule.matchAll(FONT_URL)].map((m) => m[2]!).filter((u) => !u.startsWith('data:'));
+        let inlined = rule;
+        for (const url of new Set(urls)) {
+          const bytes = await fetchBytes(new URL(url, cssUrl).href);
+          const type = url.endsWith('.woff') ? 'font/woff' : 'font/woff2';
+          inlined = inlined.split(url).join(`data:${type};base64,${bytesToBase64(bytes)}`);
+        }
+        return [rule, inlined];
+      } catch {
+        return [rule, ''];
+      }
+    }),
+  );
+  let out = css;
+  for (const [rule, replacement] of replacements) out = out.split(rule).join(replacement);
+  return out;
 }
 
 function toDataUrl(js: string): string {
@@ -155,8 +173,8 @@ async function inlineModuleGraph(doc: Document, indexUrl: string): Promise<strin
 }
 
 /**
- * Assembles the export HTML. Styles inline as <style>, with their fonts as
- * data: URLs; the module bundle inlines
+ * Assembles the export HTML. Styles inline as <style>, with their fonts made
+ * to work offline (see inlineFonts); the module bundle inlines
  * as base64 data: URLs rather than inline text, because the minified bundle
  * contains `<script` and `<!--` substrings that would derail the HTML parser's
  * script-data states — a data: URL sidesteps all of them.
@@ -169,7 +187,7 @@ export async function buildExportHtml(payload: RestorePayload): Promise<string> 
   const styles: string[] = [];
   for (const link of doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]')) {
     const cssUrl = new URL(link.getAttribute('href')!, indexUrl).href;
-    styles.push(`<style>${await inlineCssAssets(await fetchText(cssUrl), cssUrl)}</style>`);
+    styles.push(`<style>${await inlineFonts(await fetchText(cssUrl), cssUrl)}</style>`);
   }
 
   const scripts = await inlineModuleGraph(doc, indexUrl);

@@ -6,7 +6,6 @@
 // contract between the builder (build-export.ts) and the boot path (main.tsx,
 // restored-app.tsx).
 
-import type { ThemeMode } from '../ui/theme-mode';
 
 export const RESTORE_VERSION = 1;
 
@@ -38,13 +37,13 @@ export interface RestorePayload {
   adjustText: string;
   categoryText: string;
   tabs: SerializedTab[];
+  /** A fixed tab's key (`tree`, `flame`, `hotspots`, `params`), or `r<index>` for a derived tab. */
   activeTab: string;
   /**
-   * The theme in effect when the copy was saved, Auto already resolved. The
-   * copy opens in it. Exports made before this field existed lack it and open
-   * in the reader's own theme.
+   * The color theme active at export time; the copy opens in it. Absent from a
+   * file exported before the dark theme existed, which then follows the browser.
    */
-  theme?: ThemeMode;
+  theme?: 'light' | 'dark';
 }
 
 /** base64-encode raw bytes (btoa needs a binary string, so chunk to stay under the arg limit). */
