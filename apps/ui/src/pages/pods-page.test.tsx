@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { BROWSER_ZONE } from '../controls/time-range';
 import { server } from '../mocks/node';
@@ -12,9 +12,10 @@ import { PodsPage } from './pods-page';
 // rail (09 §2.1-2.2, §4) instead of sending the user to Calls first
 // (PR 708 review #16).
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
+  vi.restoreAllMocks();
   cleanup();
   setZone(BROWSER_ZONE); // the display zone is a module singleton; keep tests isolated
 });
@@ -122,24 +123,29 @@ describe('PodsPage', () => {
 
   // PR 708 review #6: an individual pod= selection must filter the table, not
   // just service selections.
-  it('filters the table to an individually selected pod', async () => {
+  it.each([
+    { now: '2026-10-23T09:58:00Z', restartRows: 2 },
+    { now: '2026-10-23T10:01:00Z', restartRows: 1 },
+  ])('filters an individually selected pod with $restartRows restart rows', async ({ now, restartRows }) => {
     const tupleOf = (row: HTMLElement): string =>
       within(row).getByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c)).textContent ?? '';
 
-    const to = Date.now();
+    const to = Date.parse(now);
+    vi.spyOn(Date, 'now').mockReturnValue(to);
     const from = to - 15 * 60 * 1000;
 
     // First load with no pod filter to read a real pod tuple from the data.
     const { unmount } = renderPodsPage(`/pods?from=${from}&to=${to}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    await screen.findAllByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c), undefined, { timeout: 5000 });
     const unfiltered = screen.getAllByRole('row').slice(1).map(tupleOf);
     const selected = unfiltered[0]!;
     expect(new Set(unfiltered).size).toBeGreaterThan(1); // the view really holds other pods
     unmount();
 
     renderPodsPage(`/pods?from=${from}&to=${to}&pod=${encodeURIComponent(selected)}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    await screen.findAllByText(selected, undefined, { timeout: 5000 });
     const filtered = screen.getAllByRole('row').slice(1).map(tupleOf);
+    expect(filtered).toHaveLength(restartRows);
     expect(new Set(filtered)).toEqual(new Set([selected]));
   });
 
@@ -171,8 +177,7 @@ describe('PodsPage', () => {
 
     const to = Date.now();
     renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
-
+    await screen.findByText('2026-01-02 03:04:05.000', undefined, { timeout: 5000 });
     const dataRow = screen.getAllByRole('row')[1]!;
     expect(within(dataRow).getByText('2026-01-02 03:04:05.000')).toBeInTheDocument();
     expect(within(dataRow).getByText('2026-01-02 03:04:05.000 — 2026-01-02 03:05:05.000')).toBeInTheDocument();
