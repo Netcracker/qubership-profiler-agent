@@ -117,6 +117,17 @@ describe('fieldStats', () => {
     expect(s.totals.count).toBe(4);
   });
 
+  it('adds up the omitted groups, so a call in two of them counts twice in other', () => {
+    const multi = [
+      call(1, 100, { params: { tag: ['a'] } }),
+      call(2, 100, { params: { tag: ['a'] } }),
+      call(3, 10, { params: { tag: ['b', 'c'] } }),
+    ];
+    const s = fieldStats(multi, 'tag', 1, 'count_desc');
+    expect(s.rows.map((r) => r.key)).toEqual(['a']);
+    expect(s.other).toMatchObject({ count: 2, duration_ms_sum: 20 });
+  });
+
   it('ranks by the duration sum', () => {
     const s = fieldStats(calls, 'tier', 1, 'duration_sum_desc');
     expect(s.rows.map((r) => [r.key, r.duration_ms_sum])).toEqual([['bronze', 900]]);
