@@ -41,7 +41,7 @@ import type { Capabilities } from '../filter/capabilities';
 import type { Condition, Operator } from '../filter/condition';
 import { formatCondition } from '../filter/grammar';
 import type { PodSelection } from '../filter/legacy';
-import { unsupportedReason } from '../filter/translate';
+import { selectionPods, unsupportedReason } from '../filter/translate';
 import { HeaderSlot } from '../shell/header-slot';
 import { CALLS_URL_LENGTH_LIMIT, callsQueryUrlLength } from '../api/endpoints';
 import { useConfig } from '../api/use-config';
@@ -138,11 +138,17 @@ export function CallsPage() {
   // Value suggestions come from /stats when the backend groups by the field, with the other draft conditions, and
   // from /pods otherwise (redesign plan §4.3). The bar says which field it lists values for.
   const [valueField, setValueField] = useState<string | null>(null);
+  // An old link's selection narrows the values as it narrows the query.
+  const draftPods = useMemo(
+    () => (draft.selection === null ? undefined : selectionPods(draft.selection, namespaces)),
+    [draft.selection, namespaces],
+  );
   const suggestions = useValueSuggestions({
     field: valueField,
     fromMs: search.fromMs,
     toMs: search.toMs,
     conditions: draft.conditions,
+    pods: draftPods,
     caps,
   });
   const values = useCallback(
@@ -156,7 +162,8 @@ export function CallsPage() {
   );
   const valueNote = useCallback((field: string) => suggestionNote(suggestions, field), [suggestions]);
 
-  // The call param names of the window join the field list, so a tag such as `user.tenant` need not be typed.
+  // The call param names of the window join the field list, so a tag such as `user.tenant` need not be typed; the bar
+  // still takes a param name the list leaves out, typed by hand.
   const paramNames = useParamNames(search.fromMs, search.toMs, caps);
   const fields = useMemo(
     () => [...ALL_FIELDS, ...paramNames.filter((name) => fieldDef(name)?.kind === 'param')],
@@ -308,6 +315,7 @@ export function CallsPage() {
                   valueNote={valueNote}
                   onValueField={setValueField}
                   fields={fields}
+                  params
                   onRun={run}
                 />
               </div>

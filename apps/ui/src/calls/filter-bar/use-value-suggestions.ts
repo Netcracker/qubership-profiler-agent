@@ -36,6 +36,11 @@ export interface ValueSuggestionsInput {
   toMs: number | null;
   /** The draft conditions; those on `field` itself are left out, so they do not hide its other values. */
   conditions: readonly Condition[];
+  /**
+   * The pod tuples of an old link's selection, sent as /calls sends them; undefined without a selection, and null
+   * while they wait for /pods, which holds the request back.
+   */
+  pods?: readonly string[] | null;
   caps: Capabilities | null | undefined;
 }
 
@@ -43,12 +48,19 @@ export interface ValueSuggestionsInput {
  * Loads the values of the field from `/stats?group_by=<field>`, or returns null when /stats cannot group by it, so
  * the caller falls back on its own source. A newer input aborts the older request.
  */
-export function useValueSuggestions({ field, fromMs, toMs, conditions, caps }: ValueSuggestionsInput): ValueSuggestionsState | null {
-  const groupable = field !== null && fromMs !== null && toMs !== null && !!caps && caps.canGroupBy(field);
+export function useValueSuggestions({
+  field,
+  fromMs,
+  toMs,
+  conditions,
+  pods,
+  caps,
+}: ValueSuggestionsInput): ValueSuggestionsState | null {
+  const groupable = field !== null && fromMs !== null && toMs !== null && pods !== null && !!caps && caps.canGroupBy(field);
   const filters = groupable
     ? conditions.filter((c) => c.field !== field && caps.conditionReason(c) === null).map(formatCondition)
     : [];
-  const key = groupable ? JSON.stringify([field, fromMs, toMs, filters]) : null;
+  const key = groupable ? JSON.stringify([field, fromMs, toMs, filters, pods ?? []]) : null;
   const [state, setState] = useState<ValueSuggestionsState | null>(null);
 
   useEffect(() => {
@@ -60,7 +72,7 @@ export function useValueSuggestions({ field, fromMs, toMs, conditions, caps }: V
     setState({ kind: 'loading', field: f });
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      fetchStats({ fromMs: fromMs!, toMs: toMs!, filters, groupBy: f, limit: SUGGESTION_LIMIT }, controller.signal)
+      fetchStats({ fromMs: fromMs!, toMs: toMs!, filters, pods: pods ?? undefined, groupBy: f, limit: SUGGESTION_LIMIT }, controller.signal)
         .then((data) => {
           const values = data.rows.map((r) => ({ value: r.key, count: r.count }));
           setState({ kind: 'ready', field: f, values, distinct: data.distinct, approximate: data.approximate, partial: data.partial });

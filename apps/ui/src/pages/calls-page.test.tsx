@@ -863,6 +863,39 @@ describe('CallsPage with the filter model', () => {
     await waitFor(() => expect(within(list).getByText('web.url')).toBeInTheDocument(), { timeout: 5000 });
   });
 
+  it('takes a typed call parameter that the param names of the window leave out', async () => {
+    renderCallsPage(window15m());
+    await rowsLoaded();
+    await userEvent.click(filterBar());
+    await userEvent.type(filterBar(), 'zz.custom=acme{Enter}');
+    expect(screen.getByRole('button', { name: 'Remove the filter zz.custom = acme' })).toBeInTheDocument();
+  });
+
+  it('suggests values under the selection of an old link', async () => {
+    const to = Date.now();
+    const from = to - 15 * 60 * 1000;
+    const checkout = podsInRange(from, to, to).find((p) => p.namespace === 'orders' && p.service === 'checkout')!;
+    const pinned = `orders/checkout/${checkout.pod}`;
+    const calls = recordCalls();
+    const stats = recordStats();
+    try {
+      renderCallsPage(`from=${from}&to=${to}&service=payments/billing&pod=${pinned}`);
+      await rowsLoaded();
+      await userEvent.click(filterBar());
+      await userEvent.type(filterBar(), 'service');
+      await userEvent.keyboard('{Enter}{Enter}');
+      await waitFor(() => expect(stats.urls.some((u) => u.searchParams.get('group_by') === 'service')).toBe(true), {
+        timeout: 5000,
+      });
+      const sp = stats.urls.find((u) => u.searchParams.get('group_by') === 'service')!.searchParams;
+      expect(sp.getAll('pod')).toEqual(calls.urls[0]!.searchParams.getAll('pod'));
+      expect(sp.getAll('pod')).toContain(pinned);
+    } finally {
+      calls.stop();
+      stats.stop();
+    }
+  });
+
   it('holds the query while /config fails and sends the conditions once it loads', async () => {
     let fail = true;
     server.use(
