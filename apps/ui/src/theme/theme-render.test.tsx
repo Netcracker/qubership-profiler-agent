@@ -20,7 +20,7 @@ import { ThemeProvider } from './theme-provider';
 // receives the palette of the mode, and <html> carries the mode for theme.css.
 // How the result looks is a check for a browser.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();

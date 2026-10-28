@@ -15,7 +15,7 @@
   "rebaseWhen": "behind-base-branch",
   "ignorePaths": [
     "**/node_modules/**",
-    "plugins/*/build.gradle.kts"
+    "apps/agent/plugins/*/build.gradle.kts"
   ],
   "packageRules": [
     {

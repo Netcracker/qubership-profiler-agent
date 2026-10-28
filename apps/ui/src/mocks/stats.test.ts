@@ -8,7 +8,7 @@ import { fieldStats, percentile, statsRow, timeStats } from './stats';
 
 // The mock's /stats (02 §2.9): time buckets, field groupings, totals, and the parameter checks.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
