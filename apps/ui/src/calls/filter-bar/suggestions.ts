@@ -212,7 +212,10 @@ export function stageView({
         items.push({ label: value, hint, disabledReason: valueReason(value), action: { kind: 'value', value } });
       }
     }
-    const known: readonly ValueSuggestion[] = def?.values?.map((value) => ({ value })) ?? values(draft.field);
+    // A closed field lists its catalog values in catalog order, with the counts the source has for them.
+    const source = values(draft.field);
+    const counts = new Map(source.map((s) => [s.value, s.count]));
+    const known: readonly ValueSuggestion[] = def?.values?.map((value) => ({ value, count: counts.get(value) })) ?? source;
     const matching = known.filter((s) => s.value.toLowerCase().includes(needle) && !draft.values.includes(s.value));
     for (const s of matching.slice(0, MAX_VALUES)) {
       items.push({ label: s.value, hint: '', count: s.count, action: { kind: 'value', value: s.value } });
