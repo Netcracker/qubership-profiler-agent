@@ -69,6 +69,11 @@ export function useValueSuggestions({
       return;
     }
     const f = field!;
+    // An old link's selection with no pod in the window selects no call; an empty `pod` list would select them all.
+    if (pods?.length === 0) {
+      setState({ kind: 'ready', field: f, values: [], distinct: 0, approximate: false, partial: false });
+      return;
+    }
     setState({ kind: 'loading', field: f });
     const controller = new AbortController();
     const timer = setTimeout(() => {
