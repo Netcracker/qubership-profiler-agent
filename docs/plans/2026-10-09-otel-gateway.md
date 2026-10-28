@@ -185,7 +185,7 @@ processors:
   batch:
 
 exporters:
-  otlp/upstream:
+  otlp_grpc/upstream:
     endpoint: jaeger-collector.tracing.svc:4317
     tls: { insecure: true }
   nop:
@@ -200,16 +200,18 @@ service:
     traces/otlp:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/upstream]
+      exporters: [otlp_grpc/upstream]
     traces/jaeger:
       receivers: [jaeger]
       processors: [memory_limiter, batch]
-      exporters: [otlp/upstream]
+      exporters: [otlp_grpc/upstream]
     traces/zipkin:
       receivers: [zipkin]
       processors: [memory_limiter, batch]
-      exporters: [otlp/upstream]
+      exporters: [otlp_grpc/upstream]
 ```
+
+The OTLP exporter's type is `otlp_grpc` in Collector v0.158; `otlp` is a deprecated alias for it.
 
 Upstream names follow the OSS charts in `deploy/charts/`. `esc-collector-service` and `esc-static-service` are the
 legacy Java collector's names, and both the Java agent (`DefaultCollectorClient.java:209`) and the diagtools
