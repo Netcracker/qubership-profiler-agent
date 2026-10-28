@@ -13,7 +13,7 @@ import { CallsPage } from './calls-page';
 // through the translation of redesign plan §4.2.1, and the wide-query
 // rejection turns into one-click narrowing that re-runs the query (09 §5).
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();

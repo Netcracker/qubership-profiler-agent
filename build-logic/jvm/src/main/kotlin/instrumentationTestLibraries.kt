@@ -32,7 +32,7 @@ fun versions(vararg pinned: String, trackLatest: Boolean = true) =
  *
  * Each entry is a Maven coordinate without a version and the versions to check it at, as in
  * `instrumentationTestLibraries("com.rabbitmq:amqp-client" to versions("5.30.0", "5.31.0"))`.
- * Renovate ignores `plugins/<name>/build.gradle.kts`, so a version written here stays where it is
+ * Renovate ignores `apps/agent/plugins/<name>/build.gradle.kts`, so a version written here stays where it is
  * put, and the version that moves is the one `bom-testing` carries.
  *
  * The test itself names no class: `PluginInstrumentation` reads this plugin's own configuration and

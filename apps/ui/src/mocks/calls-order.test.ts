@@ -8,7 +8,7 @@ import { server } from './node';
 // The mock sorts /calls by `order` (agent-access plan §5.2), so `npm run dev:mock` shows server-side ordering. The
 // real backend sorts by start time, newest first, only.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

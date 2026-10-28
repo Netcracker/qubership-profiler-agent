@@ -35,5 +35,9 @@ jobs:
         # versions, so we intentionally exclude :plugins:* projects from the submitted dependencies.
         # :sample-apps:* are pinned to specific framework majors (e.g. Spring Boot 3.x) on purpose and should not
         # generate security alerts for the profiler agent project.
+        # Gradle project paths stay flat even though their directories live under apps/agent/.
+        # Exclude test applications, support libraries, and benchmarks as well.
         dependency-graph-exclude-projects: |
-          :plugins:.*|:sample-apps:.*
+          :(plugins(:.*)?|sample-apps(:.*)?|benchmarks|bom-testing|installer-zip-test|it-.*|jcstress-jupiter-engine|mock-collector|plugin-testkit|test.*)
+        # Tests in production modules also resolve dependencies from test support projects.
+        dependency-graph-exclude-configurations: '(?i).*test.*'
