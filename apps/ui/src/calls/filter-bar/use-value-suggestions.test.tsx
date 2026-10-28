@@ -6,7 +6,7 @@ import { capabilitiesOf } from '../../filter/capabilities';
 import type { Condition } from '../../filter/condition';
 import { MOCK_FILTER_CAPABILITIES } from '../../mocks/handlers';
 import { server } from '../../mocks/node';
-import { SUGGESTION_LIMIT, suggestionNote, useParamNames, useValueSuggestions } from './use-value-suggestions';
+import { SUGGESTION_DEBOUNCE_MS, SUGGESTION_LIMIT, suggestionNote, useParamNames, useValueSuggestions } from './use-value-suggestions';
 import type { ValueSuggestionsInput } from './use-value-suggestions';
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
@@ -68,6 +68,14 @@ describe('useValueSuggestions', () => {
     await waitFor(() => expect(result.current?.kind).toBe('ready'));
     expect(urls).toHaveLength(1);
     expect(urls[0]!.searchParams.getAll('pod')).toEqual(tuples);
+  });
+
+  it('lists nothing and asks nothing for a selection with no pod in the window', async () => {
+    const urls = recordStats();
+    const { result } = renderHook(() => useValueSuggestions({ ...BASE, pods: [] }));
+    await waitFor(() => expect(result.current).toMatchObject({ kind: 'ready', values: [], distinct: 0 }));
+    await delay(SUGGESTION_DEBOUNCE_MS + 50);
+    expect(urls).toEqual([]);
   });
 
   it('sends one request after a burst of changes, for the latest field', async () => {

@@ -45,6 +45,21 @@ describe('stageView', () => {
     expect(view.items.map((i) => i.label)).toEqual(['true', 'false']);
   });
 
+  it('keeps the catalog order of a closed field and takes the counts the source has', () => {
+    const counted = (field: string) =>
+      stageView({
+        ...base,
+        draft: { field, op: '=', values: [] },
+        values: () => [{ value: 'false', count: 90 }, { value: 'true', count: 4 }, { value: 'long_clean', count: 7 }],
+      }).items.map((i) => [i.label, i.count]);
+    expect(counted('error')).toEqual([
+      ['true', 4],
+      ['false', 90],
+    ]);
+    expect(counted('retention_class')).toContainEqual(['long_clean', 7]);
+    expect(counted('retention_class').filter(([, n]) => n === undefined).length).toBeGreaterThan(0);
+  });
+
   it('caps the value list and says how many matched', () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ value: `pod-${i}` }));
     const view = stageView({ ...base, draft: { field: 'pod', op: '=', values: [] }, values: () => many });
