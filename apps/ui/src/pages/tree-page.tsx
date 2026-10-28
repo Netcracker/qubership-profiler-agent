@@ -246,14 +246,16 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
     if (model === null || pk === null || configured.length === 0) return [];
     return callLinks(configured, {
       trace_id: traceId,
-      // The call's window: its start, which travels as the ts_ms hint, plus its duration.
+      // The call's window: its start, which travels as the ts_ms hint, plus its
+      // recorded duration. Adjust duration is a what-if view, so the window
+      // ignores it: a shortened model must not cut the call's logs short.
       from_ms: tsMs === null ? null : String(tsMs),
-      to_ms: tsMs === null ? null : String(tsMs + model.root.durationMs),
+      to_ms: tsMs === null || wire === null ? null : String(tsMs + wire.root.durationMs),
       namespace: pk.pod_namespace,
       service: pk.pod_service,
       pod: pk.pod_name,
     });
-  }, [configState, model, pk, traceId, tsMs]);
+  }, [configState, model, pk, traceId, tsMs, wire]);
 
   const openOpTab = (op: OpTabSpec['op'], methodIdx: number, category?: string, nodeId?: number): void => {
     const key = `z${nextTabId.current++}`;

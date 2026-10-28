@@ -387,6 +387,25 @@ describe('TreePage', () => {
     expect(download.compareDocumentPosition(trace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('keeps the recorded duration in the link window after Adjust duration', async () => {
+    const call = firstCall((c) => c.truncated_reason === null, Date.now());
+    renderTreePage(treePath(call));
+    await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+    const before = screen.getByTitle('Duration').textContent;
+
+    fireEvent.click(screen.getByRole('button', { name: /Adjust duration/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Adjust duration' });
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: '1/10 *CoyoteAdapter.service*' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    expect(screen.getByTitle('Duration').textContent).not.toBe(before);
+
+    // Adjust duration is a what-if view: the logs still cover the whole recorded call.
+    const logs = await screen.findByRole('link', { name: /Logs · Grafana/ });
+    const url = new URL(logs.getAttribute('href')!);
+    expect(url.searchParams.get('from')).toBe(String(call.ts_ms));
+    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms));
+  });
+
   it('disables a link that needs a trace ID on an untraced call and says why', async () => {
     const call = firstCall((c) => c.truncated_reason === null && c.params['trace.id'] === undefined, Date.now());
     renderTreePage(treePath(call));

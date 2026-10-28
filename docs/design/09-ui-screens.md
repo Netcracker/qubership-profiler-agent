@@ -159,8 +159,9 @@ buttons disabled. The tree search belongs to the Call Tree tab, not to the toolb
 
 **Link buttons** follow `Download HTML`, after a divider: one per entry of `links` in `/api/v1/config`, in the
 operator's order, with the entry's label (02 §2.8). The UI fills the template with the call's trace ID, its pod
-identity, and its window: `from_ms` is the call's start and `to_ms` is the start plus the duration. Each value is
-encoded as `encodeURIComponent` does. A button opens its link in a new tab.
+identity, and its window: `from_ms` is the call's start and `to_ms` is the start plus the recorded duration. Adjust
+duration is a what-if view and leaves the window as recorded. Each value is encoded as `encodeURIComponent` does. A
+button opens its link in a new tab.
 
 | Case | Button |
 |------|--------|
