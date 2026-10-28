@@ -15,7 +15,7 @@ import { TreePage } from './tree-page';
 // The tree route against the MSW mock: a hot/hinted call decodes and renders
 // merged rows; a cold bare PK and a truncated blob surface their 09 §5 states.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
