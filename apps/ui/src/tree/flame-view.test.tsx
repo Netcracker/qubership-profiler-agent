@@ -10,6 +10,7 @@ import { setThemePreference, syncThemeMode } from '../ui/theme-mode';
 import { FlameView } from './flame-view';
 import { buildTreeModel } from './model';
 import type { TreeModel, TreeNode } from './model';
+import { applyAdjustments } from './transforms/adjust';
 import { applyCategories, parseCategoryConfig } from './transforms/categories';
 import { toFlameData } from './transforms/flame-data';
 import type { FlameDatum } from './transforms/flame-data';
@@ -240,6 +241,30 @@ describe('FlameView', () => {
     view.rerender(<FlameView model={fixture()} selectedId={null} onSelect={() => undefined} />);
     expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH);
     expect(screen.getByRole('button', { name: /Reset zoom/ })).toBeInTheDocument();
+  });
+
+  it('moves the zoom up to a timed frame when a rebuild leaves the zoomed one with no time', () => {
+    // Adjust duration with a zero factor on the zoomed method.
+    const zeroed = (methodIdx: number): TreeModel => {
+      const m = fixture();
+      applyAdjustments(m, new Map([[methodIdx, 0]]));
+      return m;
+    };
+    const view = render(<FlameView model={fixture()} selectedId={null} onSelect={() => undefined} />);
+    fireEvent.click(frame(/^Query\.run · /));
+    view.rerender(<FlameView model={zeroed(2)} selectedId={null} onSelect={() => undefined} />);
+    // The nearest ancestor that still takes time spans the graph instead.
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH);
+    expect(screen.getByText(/^Zoomed in on/)).toHaveTextContent('Zoomed in on ServiceA.doWork.');
+
+    view.unmount();
+
+    const next = render(<FlameView model={fixture()} selectedId={null} onSelect={() => undefined} />);
+    fireEvent.click(frame(/^ServiceB\.other · /));
+    // Up to the whole call, which needs no zoom: the other branches are back.
+    next.rerender(<FlameView model={zeroed(3)} selectedId={null} onSelect={() => undefined} />);
+    expect(screen.queryByRole('button', { name: /Reset zoom/ })).toBeNull();
+    expect(widthOf(/^ServiceA\.doWork · /)).toBe(WIDTH * (500 / 600));
   });
 
   it('colors frames by category and lists the categories in the legend', () => {
