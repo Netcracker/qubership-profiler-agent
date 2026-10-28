@@ -239,7 +239,7 @@ The rest of the old operation set to preserve (`profiler.mjs`, `user-guide.md` �
 - **Ctrl+hover panels** — per-node stats (self/total duration and suspension, invocations, avg) and the
   method's full name, `source file:line`, and `jar` (parsed from the `methods[]` string).
 - **Export** — `Download HTML`: a self-contained copy of the tree page that reopens offline with no backend
-  (design 10b, option 2 — a client-side generator). The running SPA inlines its own built JS/CSS and embeds
+  (design 10b, option 2 — a client-side generator). The running SPA inlines its own built JS, CSS, and fonts and embeds
   the tree's MessagePack bytes (base64) plus the view state: the call PK and cold hints, the Adjust and
   Setup-categories config text, the open derived-view tabs as `(op, methodIdx, category, nodeId)`, and the
   theme in effect (09 §1). On open, `main.tsx` reads `window.__PROFILER_RESTORE__`, re-decodes the embedded
