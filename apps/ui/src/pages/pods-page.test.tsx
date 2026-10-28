@@ -102,7 +102,8 @@ describe('PodsPage', () => {
   it('links each row to its td/top dump download once dumps-collector is configured', async () => {
     const to = Date.now();
     renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    // The rows can render before /config answers; the links come with it.
+    await screen.findAllByRole('link', { name: 'Thread dumps' }, { timeout: 5000 });
 
     const dataRow = screen.getAllByRole('row')[1]!;
     const threadLink = within(dataRow).getByRole('link', { name: 'Thread dumps' });
