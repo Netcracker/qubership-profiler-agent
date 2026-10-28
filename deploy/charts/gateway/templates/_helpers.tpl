@@ -82,7 +82,7 @@ zipkin:
 
 {{/* Whether any profiler extension is on, so the rules ConfigMap is needed */}}
 {{- define "gateway.profilerEnabled" -}}
-{{- if .Values.dumps.enabled -}}true{{- end -}}
+{{- if or .Values.dumps.enabled .Values.tcp.enabled -}}true{{- end -}}
 {{- end -}}
 
 {{/* Where the extensions read the rules file */}}
@@ -91,6 +91,9 @@ zipkin:
 {{/* Service and container ports of the profiler extensions */}}
 {{- define "gateway.profilerPorts" -}}
 ports:
+{{- if .Values.tcp.enabled }}
+  - { name: cdt-tcp, port: 1715 }
+{{- end }}
 {{- if .Values.dumps.enabled }}
   - { name: cdt-http, port: 8080 }
 {{- end }}
@@ -159,6 +162,23 @@ The Collector config. A discarding pipeline exports to `nop` and skips
 {{- end -}}
 {{- $_ := set $extensions "profiler_dumps" $d -}}
 {{- $extensionIDs = append $extensionIDs "profiler_dumps" -}}
+{{- end -}}
+{{- end -}}
+{{- with .Values.tcp -}}
+{{- if .enabled -}}
+{{- if not (has .mode (list "passthrough" "discard")) -}}
+{{- fail (printf "tcp.mode is %q; use passthrough or discard" (toString .mode)) -}}
+{{- end -}}
+{{- $c := dict
+  "endpoint" "0.0.0.0:1715"
+  "mode" .mode
+  "max_connections" (int .maxConnections)
+  "rules_file" (include "gateway.rulesFile" $) -}}
+{{- if .upstream -}}
+{{- $_ := set $c "upstream" .upstream -}}
+{{- end -}}
+{{- $_ := set $extensions "profiler_tcp" $c -}}
+{{- $extensionIDs = append $extensionIDs "profiler_tcp" -}}
 {{- end -}}
 {{- end -}}
 {{- $ml := .Values.memoryLimiter -}}

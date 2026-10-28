@@ -344,7 +344,7 @@ helm-lint:
 	@echo "==> helm lint deploy/charts/gateway..."
 	helm lint deploy/charts/gateway
 	helm template gateway deploy/charts/gateway --output-dir .helm-render
-	helm template gateway-profiler deploy/charts/gateway --set dumps.enabled=true --output-dir .helm-render/profiler
+	helm template gateway-profiler deploy/charts/gateway --set dumps.enabled=true --set tcp.enabled=true --output-dir .helm-render/profiler
 	@if command -v kubeconform >/dev/null 2>&1; then \
 		kubeconform -strict -summary \
 			-schema-location default \

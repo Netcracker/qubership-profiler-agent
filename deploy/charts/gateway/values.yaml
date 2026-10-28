@@ -73,13 +73,33 @@ dumps:
   # Over the cap an upload is discarded with 204, never queued.
   maxConcurrentUploads: 16
 
+# Profiler agent connections on port 1715, through the profiler_tcp
+# extension. Off by default, for the same image reason as dumps.
+tcp:
+  enabled: false
+  # host:port of the collector's agent Service. Required unless mode is
+  # discard.
+  upstream: profiler-collector-agent.profiler.svc:1715
+  # passthrough splices agent connections to the upstream; discard runs the
+  # collector protocol and drops the data, so agents stay quiet and alive.
+  # A discarded agent cannot receive heap or thread dump requests from the UI.
+  mode: passthrough
+  # Over the cap a connection is closed on arrival; the agent retries in
+  # 10 s. Each passthrough connection takes two file descriptors.
+  maxConnections: 256
+
 # Per-source rules, rendered into a ConfigMap that the extensions watch.
 # Editing the ConfigMap changes the mode of the next upload with no restart;
 # the kubelet takes up to a minute to update the mounted file. The first
 # matching rule wins; no match falls back to the extension's mode. Match keys
-# for dumps: namespace, pod (globs), dump_type (a list).
+# for dumps: namespace, pod (globs), dump_type (a list). For agent
+# connections: namespace, service, pod (globs). Each extension skips the
+# rules that use a key only the other one knows. A rule change closes the
+# agent connections whose mode it changes; the agents reconnect within 10 s.
 #   rules:
 #     - match: { namespace: "load-test-*", dump_type: [hprof] }
+#       mode: discard
+#     - match: { service: "chatty-*" }
 #       mode: discard
 rules: []
 

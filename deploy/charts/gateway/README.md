@@ -4,8 +4,8 @@ Runs the `qubership-otec` OpenTelemetry Collector as a diagnostic gateway: a dro
 diag-proxy that can forward or discard each trace protocol without touching the services that send it. The design is in
 `docs/plans/2026-10-09-otel-gateway.md`.
 
-Traces are on by default. Dump uploads (8080) are behind `dumps.enabled`, because they need a `qubership-otec` image
-that includes the `profiler_dumps` extension from `apps/gateway`. Profiler TCP (1715) arrives with `profiler_tcp`.
+Traces are on by default. Dump uploads (8080) and profiler agent connections (1715) are behind `dumps.enabled` and
+`tcp.enabled`, because they need a `qubership-otec` image that includes the extensions from `apps/gateway`.
 
 ## Install
 
@@ -77,6 +77,26 @@ keys, and metrics are in `apps/gateway/README.md`.
 `rules` renders into a separate ConfigMap that the extension watches. Editing that ConfigMap changes the mode of the
 next upload without a restart, once the kubelet updates the mounted file (up to a minute). `dumps.mode` is part of the
 Collector config, so changing it restarts the pods.
+
+## Profiler agent connections
+
+```yaml
+tcp:
+  enabled: true
+  upstream: profiler-collector-agent.profiler.svc:1715
+  mode: passthrough
+rules:
+  - match: { service: "chatty-*" }
+    mode: discard
+```
+
+This adds the `cdt-tcp` port (1715) and the `profiler_tcp` extension. In `discard` the gateway answers the agent
+protocol itself and drops the data, so agents stay quiet and alive; they cannot receive heap or thread dump requests
+from the UI meanwhile. A `rules` change closes the connections whose mode it changes, and those agents reconnect
+within 10 seconds into the new mode. Each passthrough connection takes two file descriptors; keep
+`tcp.maxConnections` below half the pod's open-file limit.
+
+Both extensions read the one `rules` list. Each skips the rules that use a key only the other one knows.
 
 ## Custom config
 
