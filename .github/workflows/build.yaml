@@ -49,7 +49,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
           cache-dependency-path: apps/ui/package-lock.json
       # One `go test ./...` from the repository root covers apps/**, libs/** and
@@ -126,7 +126,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
           cache-dependency-path: apps/ui/package-lock.json
       - name: Validate UI lock file
@@ -212,7 +212,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
           cache-dependency-path: apps/ui/package-lock.json
       - name: Setup Zig
