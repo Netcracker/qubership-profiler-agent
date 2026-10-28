@@ -19,23 +19,26 @@ function isIdentityField(field: string): field is IdentityField {
   return (IDENTITY_FIELDS as readonly string[]).includes(field);
 }
 
-/** The field and operator pairs of the §4.2.1 table. */
-const SUPPORTED: Readonly<Record<string, readonly Operator[]>> = {
-  namespace: ['=', 'in'],
-  service: ['=', 'in'],
-  pod: ['=', 'in'],
-  duration: ['>', '>=', '<', '<=', 'between'],
-  error: ['='],
-  retention_class: ['=', 'in'],
-  method: ['=~'],
-};
+/**
+ * The field and operator pairs of the §4.2.1 table. A Map, because the field comes from the user: a plain object
+ * would answer `constructor` or `toString` with an inherited member.
+ */
+const SUPPORTED: ReadonlyMap<string, readonly Operator[]> = new Map<string, readonly Operator[]>([
+  ['namespace', ['=', 'in']],
+  ['service', ['=', 'in']],
+  ['pod', ['=', 'in']],
+  ['duration', ['>', '>=', '<', '<=', 'between']],
+  ['error', ['=']],
+  ['retention_class', ['=', 'in']],
+  ['method', ['=~']],
+]);
 
 /**
  * Why the filter bar disables a field or an operator, or null when it is enabled. Without `op`, a field is enabled
  * when at least one of its operators is.
  */
 export function unsupportedReason(field: string, op?: Operator): string | null {
-  const ops = SUPPORTED[field];
+  const ops = SUPPORTED.get(field);
   if (ops === undefined) return UNSUPPORTED_REASON;
   return op === undefined || ops.includes(op) ? null : UNSUPPORTED_REASON;
 }

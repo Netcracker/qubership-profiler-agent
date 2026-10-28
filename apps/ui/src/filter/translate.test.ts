@@ -133,4 +133,12 @@ describe('unsupportedReason', () => {
     expect(unsupportedReason('method', '=')).toBe(UNSUPPORTED_REASON);
     expect(unsupportedReason('trace_id')).toBe(UNSUPPORTED_REASON);
   });
+
+  it.each(['constructor', 'toString', '__proto__'])('disables a call parameter named %s', (field) => {
+    expect(unsupportedReason(field)).toBe(UNSUPPORTED_REASON);
+    expect(unsupportedReason(field, '=')).toBe(UNSUPPORTED_REASON);
+    const t = translate(`${field}=value`);
+    expect(t.params).toEqual({});
+    expect(t.skipped.map((s) => s.reason)).toEqual([UNSUPPORTED_REASON]);
+  });
 });

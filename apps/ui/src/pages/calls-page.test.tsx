@@ -114,6 +114,13 @@ describe('CallsPage', () => {
     }
   });
 
+  it('shows a call parameter named like an object member as a disabled token', async () => {
+    renderCallsPage(`${window15m()}&filter=${encodeURIComponent('constructor=value')}`);
+    await rowsLoaded();
+    const token = screen.getByRole('button', { name: 'Remove the filter constructor = value' }).parentElement!;
+    expect(token).toHaveAttribute('data-applied', 'false');
+  });
+
   it('converts an old link to tokens and sends them', async () => {
     const calls = recordCalls();
     try {
