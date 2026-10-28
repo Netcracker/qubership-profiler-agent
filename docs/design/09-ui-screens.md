@@ -40,7 +40,7 @@ export saves the mode in effect, so a copy exported under Auto opens in the mode
 
 **Fonts.** Inter for text at a 13 px base size, and JetBrains Mono as the fixed-width font for code and, through
 the `.pf-mono` class, for numbers. Both are bundled as local `woff2` files: the UI is embedded in the query binary
-and loads nothing from another host.
+and loads nothing from another host. An HTML export embeds the font files too, so the copy keeps its fonts offline.
 
 **Routing.** One SPA served at `/ui` (`go:embed`, 07 §6).
 
@@ -69,10 +69,10 @@ text form of the read contract's filter model (02 §2.3.3): `duration>100ms`, `n
 | Element | Behavior |
 |---------|-----------|
 | Input | Builds the next condition in three stages: field, operator, value. Each stage lists its options in a dropdown that narrows as the user types. |
-| Fields | `duration`, `namespace`, `service`, `pod`, `endpoint`, `class`, `method`, `error`, `trace_id`, `request_id`, `retention_class`, and any other name as a call parameter. The call param names of the window follow the catalog fields, from `/stats?group_by=param_name` (02 §2.9) when the backend groups by param name. |
+| Fields | `duration`, `namespace`, `service`, `pod`, `endpoint`, `class`, `method`, `error`, `trace_id`, `request_id`, `retention_class`, and any other name as a call parameter, typed by hand. The call param names of the window follow the catalog fields, from `/stats?group_by=param_name` (02 §2.9) when the backend groups by param name. |
 | Values | `in` and `not in` collect several values, applied with Enter. `None` and `Any` are offered for a field a call can lack, and disabled on a build without them. When the backend groups by the field, the values are its 50 most frequent in the window under the draft's other conditions, with their call counts, from `/stats?group_by=<field>&limit=50`. The request waits 250 ms after the last change, and a newer one cancels the older. The footer says when values load, when they fail, when more exist than are listed, when the counts are estimates (`approximate`, with `distinct` as a lower bound), and when some sources did not answer (`partial`). The dropdown opens with that note even before there is a value to pick. Without such a grouping, namespace, service, and pod values come from `/pods` for the time range, and other fields take the value as typed. A failed request leaves the value as typed too. A value that does not parse, such as a bad duration, shows an error line and adds nothing. |
-| A word | A typed word that names no field offers `method =~ <word>`, quoted so that it matches as written. |
-| A whole condition | Typing `duration>1s` offers it as one item. |
+| A word | A typed word that names no field offers `method =~ <word>`, quoted so that it matches as written, and then the word as a call parameter name. |
+| A whole condition | Typing `duration>1s` offers it as one item, and so does a call parameter condition such as `user.tenant=acme`, whether or not value suggestions list that parameter. A bar narrowed to some fields, such as the one of Pods Info (§4), takes no call parameter. |
 | Keyboard | Up and Down move the highlight, Enter picks, Escape closes the list, Ctrl+Enter runs the query. Backspace in an empty input steps back: a value, then the operator, then the field, then into the last token, which comes back with its value in the input for editing. |
 | Disabled options | A field or an operator the backend does not implement is listed but disabled, with the reason as a tooltip. |
 | Disabled tokens | A condition from a link that the backend does not implement, including `None` or `Any` on a build without them, shows as a crossed-out token with the reason. It is kept in the URL and not sent. |
@@ -98,7 +98,7 @@ the applied conditions travel as those (redesign plan §4.2.1):
 | `error=true` | `error_only=true` |
 | `retention_class` with `=` or `in` | `retention_class`; several conditions intersect |
 | `method =~ <word>`, the word without regular-expression syntax | `method`, the substring match; one per query |
-| `trace_id = <id>` | Nothing: it filters the loaded rows in the browser (§2.3), from `apps/ui/src/filter/browser.ts` |
+| `trace_id = <id>`, `trace_id = None`, or `trace_id = Any` | Nothing: it filters the loaded rows in the browser (§2.3), from `apps/ui/src/filter/browser.ts`. `None` keeps the calls without a trace ID, and `Any` keeps the calls with one |
 
 Everything else is disabled. Conditions that exclude each other, or identity filters that match no pod in the
 window, send nothing and say so.
@@ -112,9 +112,10 @@ applies at once (Grafana-style refetch on a range change).
 
 **Draft and applied.** The filter bar, the duration chips, the two switches, and "Sort by" edit a draft. "Run
 query", or Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when
-nothing changed. While the draft differs from the applied query, a hint says "Filters changed. Run the query to
-update the results." Only the applied state reaches the URL and `/calls`. A time range change and a row shortcut
-apply at once.
+nothing changed. A relative time range such as `now-1h` resolves again on each run, so the rerun reads up to the
+present; `/calls` and `/pods` share the resolved window, and "Load more" keeps it. While the draft differs from the
+applied query, a hint says "Filters changed. Run the query to update the results." Only the applied state reaches the
+URL and `/calls`. A time range change and a row shortcut apply at once.
 
 The filter bar, "Sort by", the duration chips, the switch labels, and "Run query" share one control height, 32 px
 (`apps/ui/src/calls/control-height.ts`), so the two rows line up in both themes. A bar with more tokens than fit on
@@ -173,7 +174,8 @@ timestamp.
 ### 2.4 Histogram
 
 "Calls over time" sits between the controls and the table. It counts the applied query with
-`/stats?group_by=time&buckets=60` (02 §2.9), sent beside `/calls` with the same window and conditions.
+`/stats?group_by=time&buckets=60` (02 §2.9), sent beside `/calls` with the same window and conditions, and with the
+`pod` tuples of an old link's selection (§6). Run query resolves a relative window once for both.
 
 - **Bars.** One bar per bucket, clean calls at the bottom and failed calls stacked on top, in the theme's bar
   colors. The y axis starts at 0 and ends at the smallest 1, 2, or 5 times a power of ten that holds the tallest
@@ -272,7 +274,7 @@ With a fan-out backend these are frequent, so each names what happened and the o
 | Too wide | `400` wide-query guard | Turns `suggested_filters` into one-click narrowing chips, sized by the dominant `retention_class` (`by_class`). |
 | Rejected | `400` with `code: invalid_request` | "The backend rejected the query" with the problem's `detail`, such as a filter the build does not implement. Retrying would get the same answer, so it offers none. |
 | No configuration | `/config` fails | "Cannot run the query: loading /config failed" with Retry; "Run query" retries it too. No `/calls` request goes out until it loads. |
-| Query too long | the request line exceeds the guard | "Query too long": fewer values in an `in` list, or a regex. Without the filter model, "Selection too wide" instead, with "Clear selection". |
+| Query too long | the request line exceeds the guard | "Query too long": fewer values in an `in` list, or a regex. Without the filter model, or with an old link's selection (§6), "Selection too wide" instead, with "Clear selection", which also removes that selection. |
 | Error codes | any problem | The client branches on the problem `code` (02 §8), and on the `title` and `detail` of a build that sends no code. |
 | Cold call | `404` on `/tree` | Hot lookup failed and the cold lookup needs `ts_ms`; `retention_class` sharpens pruning but is optional. "Reopen the call from its row so the hints travel with it." |
 | Blob truncated | `404`, `truncated_reason` set | "The trace for this call was dropped under load — no tree to show." |
@@ -288,7 +290,7 @@ needs a choice.
 
 | Screen | Path | Query / path params |
 |--------|------|---------------------|
-| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`<field>_<asc\|desc>`, the fields of §2.3 "Sort by"; default `start_desc`, and an unknown value reads as the default); `hide_system=1` when the switch is on |
+| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`<field>_<asc\|desc>`, the fields of §2.3 "Sort by"; default `start_desc`, and an unknown value reads as the default); `hide_system=1` when the switch is on; `service` and `pod` for the selection of an old link (below) |
 | Pods Info | `/ui/pods` | The same parameters as Calls; it reads and writes only the `namespace`, `service`, and `pod` conditions |
 | Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints |
 
@@ -305,11 +307,24 @@ full from then on. With any query string there are no defaults: an absent `filte
 `hide_system` means the switch is off. A `filter` value that does not parse is dropped.
 
 **Old links.** A link without `filter` that carries the parameters of the old calls page (`service`, `pod`,
-`duration_min_ms`, `duration_max_ms`, `error_only`, `retention_class`, `q`) is converted to conditions, with that
-page's defaults: a lower duration bound of 500 ms unless `duration_min_ms` is given, and hiding system calls unless
-`hide_system=false`. The old parameters are never written back. The old page took the union of its services and
-pods, and the conditions take the intersection: a pod pinned inside a selected service narrows to that pod, as
-before, but a pod of another service drops that service.
+`duration_min_ms`, `duration_max_ms`, `error_only`, `retention_class`, `q`) and no `order`, which the new page always
+writes, is converted to conditions, with that page's defaults: a lower duration bound of 500 ms unless
+`duration_min_ms` is given, and hiding system calls unless `hide_system=false`.
+
+The old page selected the union of its `service` and `pod` values, and conditions must all match, so they match every
+combination of their values. The link keeps selecting the same calls:
+
+- A pod of a selected service adds nothing to the union and is dropped.
+- When the rest is every combination of its namespaces and services, or of its namespaces, services, and pods, it
+  becomes conditions: `service=payments/billing&service=payments/ledger` becomes `namespace=payments` and
+  `service in billing,ledger`.
+- Otherwise, such as services from two namespaces or a service and a pod of another service, the selection stays as
+  it was. It shows as one token, `service or pod in prod/orders, stage/billing`, that the query applies like the old
+  page did: the pods of the services in the window, and the pods as listed. Without the filter model, the
+  translation intersects them with any namespace, service, or pod condition. With it, they travel as the `pod` tuples
+  that `/calls` takes alongside `filter` (02 §2.3.3), and the backend intersects them with the conditions; either way
+  the services wait for `/pods`, and a selection with no pod in the window sends nothing. The URL keeps it as
+  `service` and `pod` parameters until its token is removed; they are the only old parameters written back.
 
 ## 7. Non-goals for v1
 

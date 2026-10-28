@@ -90,6 +90,29 @@ describe('FilterBar', () => {
     expect(screen.queryByRole('listbox')).toBeNull();
   });
 
+  it('adds a typed call parameter condition that no field list names', async () => {
+    const { input, last } = setup();
+    await userEvent.click(input);
+    await userEvent.type(input, 'user.tenant=acme{Enter}');
+    expect(last()).toEqual([{ field: 'user.tenant', op: '=', values: ['acme'] }]);
+  });
+
+  it('picks a typed call parameter name as the field', async () => {
+    const { input } = setup();
+    await userEvent.click(input);
+    await userEvent.type(input, 'user.tenant');
+    await userEvent.click(options().find((o) => o.textContent === 'user.tenantCall parameter')!);
+    expect(screen.getByRole('listbox', { name: 'Operator for user.tenant' })).toBeInTheDocument();
+  });
+
+  it('takes no call parameter in a bar narrowed to some fields', async () => {
+    const { input, onConditions } = setup({ fields: ['namespace', 'service', 'pod'] });
+    await userEvent.click(input);
+    await userEvent.type(input, 'user.tenant=acme{Enter}');
+    expect(onConditions).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
   it('moves the highlight with the arrows', async () => {
     const { input } = setup();
     await userEvent.click(input);

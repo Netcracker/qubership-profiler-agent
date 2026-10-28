@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -128,6 +131,33 @@ describe('ParamValueModal', () => {
     );
     // Non-sql keys render the raw text node, so 'SELECT' is not its own element.
     expect(screen.queryByText('SELECT')?.tagName).not.toBe('SPAN');
+  });
+
+  it('drops the white github.css block background under the dark theme', () => {
+    // vitest does not load plain CSS, so add the two sheets by hand: github.css
+    // first, as param-value-viewer.tsx imports it, then theme.css.
+    const sheets = ['node_modules/highlight.js/styles/github.css', 'src/theme/theme.css'].map((path) => {
+      const style = document.createElement('style');
+      style.textContent = readFileSync(join(process.cwd(), path), 'utf8');
+      return document.head.appendChild(style);
+    });
+    document.documentElement.dataset['theme'] = 'dark';
+    try {
+      render(
+        <AntdApp>
+          <ParamValueModal target={{ key: 'sql', value: 'SELECT 1' }} onClose={() => undefined} />
+        </AntdApp>,
+      );
+      const block = screen.getByText('SELECT').closest('code')!;
+      expect(block).toHaveClass('hljs');
+      expect(getComputedStyle(block).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+      // The same block keeps the github.css background in the light theme.
+      document.documentElement.dataset['theme'] = 'light';
+      expect(getComputedStyle(block).backgroundColor).toBe('rgb(255, 255, 255)');
+    } finally {
+      sheets.forEach((style) => style.remove());
+      delete document.documentElement.dataset['theme'];
+    }
   });
 
   it('calls onClose when the modal is dismissed', () => {

@@ -105,4 +105,54 @@ describe('buildExportHtml', () => {
     expect(entryJs).toContain('from"data:text/javascript;base64,');
     expect(entryJs).not.toContain('./vendor.js');
   });
+
+  it('inlines the fonts the stylesheet loads as data: URLs', async () => {
+    // Shaped like the built CSS: Vite rewrites the fontsource url() to the
+    // hashed asset, relative to the stylesheet, and leaves data: URLs alone.
+    const CSS = [
+      "@font-face{font-family:'Inter Variable';src:url(./inter-latin-wght-normal-abc.woff2) format('woff2-variations')}",
+      '@font-face{font-family:Mono;src:url("/ui/assets/mono-def.woff2")}',
+      ".x{background:url('./blob.bin')}",
+      '.icon{background:url(data:image/png;base64,AAAA)}',
+      '.mask{mask:url(#clip)}',
+    ].join('\n');
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        fetched.push(new URL(u).pathname);
+        const body = u.endsWith('index.html') ? INDEX : u.endsWith('.css') ? CSS : APP_JS;
+        const bytes = new Uint8Array([1, 2, 3]);
+        return { ok: true, status: 200, statusText: 'OK', text: async () => body, arrayBuffer: async () => bytes.buffer } as Response;
+      }),
+    );
+
+    const html = await buildExportHtml(payload());
+
+    expect(html).toContain(`src:url("data:font/woff2;base64,AQID") format('woff2-variations')`);
+    expect(html).toContain('src:url("data:font/woff2;base64,AQID")}');
+    expect(html).toContain('background:url("data:application/octet-stream;base64,AQID")');
+    expect(html).not.toContain('.woff2');
+    // Already inline, or not a file: left as written and never fetched.
+    expect(html).toContain('url(data:image/png;base64,AAAA)');
+    expect(html).toContain('url(#clip)');
+    expect(fetched).toEqual(
+      expect.arrayContaining(['/ui/assets/inter-latin-wght-normal-abc.woff2', '/ui/assets/mono-def.woff2', '/ui/assets/blob.bin']),
+    );
+    expect(fetched.filter((path) => path.endsWith('.woff2'))).toHaveLength(2);
+  });
+
+  it('fails loudly when a font cannot be read', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith('.woff2')) return { ok: false, status: 404, statusText: 'Not Found' } as Response;
+        const body = u.endsWith('index.html') ? INDEX : u.endsWith('.css') ? '@font-face{src:url(./gone.woff2)}' : APP_JS;
+        return { ok: true, status: 200, statusText: 'OK', text: async () => body } as Response;
+      }),
+    );
+    await expect(buildExportHtml(payload())).rejects.toThrow(/cannot read .*gone\.woff2: 404 Not Found/);
+  });
 });

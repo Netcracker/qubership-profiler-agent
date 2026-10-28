@@ -12,6 +12,7 @@ import type { SerializedTab } from '../export/restore';
 import type { TreeWire } from '../msgpack/tree-wire';
 import type { TreeState } from '../tree/use-tree';
 import { formatCount, formatDurationMs, formatTs } from '../calls/format';
+import { getThemeMode } from '../ui/theme-mode';
 import { useZone } from '../ui/timezone';
 import { HotspotsView } from '../tree/hotspots-view';
 import { parseMethod } from '../tree/method-info';
@@ -304,6 +305,7 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
         categoryText,
         tabs: opTabs.map((t): SerializedTab => ({ op: t.op, methodIdx: t.methodIdx, category: t.category, nodeId: t.nodeId })),
         activeTab,
+        theme: getThemeMode(),
       });
       downloadHtml(html, `profiler-tree-${pkToPath(pk).replace(/[^\w.-]+/g, '_')}.html`);
     } catch (e) {
