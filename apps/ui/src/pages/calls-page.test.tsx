@@ -318,7 +318,7 @@ describe('CallsPage', () => {
     it('shows the switch as a token, and the switch adds it to the draft', async () => {
       const calls = recordCalls();
       try {
-        renderCallsPage(window15m());
+        renderCallsPage(`${window15m()}&order=start_desc`);
         await rowsLoaded();
         expect(tokenRemove()).toBeNull();
         const before = calls.urls.length;
@@ -342,7 +342,7 @@ describe('CallsPage', () => {
     });
 
     it('turns the switch off when the token is removed with its × or Backspace', async () => {
-      renderCallsPage(`${window15m()}&hide_system=1`);
+      renderCallsPage(`${window15m()}&order=start_desc&hide_system=1`);
       await rowsLoaded();
       expect(hideSwitch()).toBeChecked();
       await userEvent.click(tokenRemove()!);
@@ -361,7 +361,7 @@ describe('CallsPage', () => {
     });
 
     it('hides the system rows of the loaded pages in the browser', async () => {
-      renderCallsPage(`${window15m()}&hide_system=1`);
+      renderCallsPage(`${window15m()}&order=start_desc&hide_system=1`);
       await rowsLoaded();
       await screen.findByText(/hidden as system\/proxy/);
       expect(screen.queryByText(/QuartzSchedulerThread|JobStoreSupport/)).toBeNull();
@@ -474,7 +474,7 @@ describe('CallsPage', () => {
 
   it('turns the wide-query 400 into narrowing chips that re-run the query', async () => {
     const to = Date.now();
-    renderCallsPage(`from=${to - 7 * 60 * 60 * 1000}&to=${to}`);
+    renderCallsPage(`from=${to - 7 * 60 * 60 * 1000}&to=${to}&order=start_desc`);
 
     const banner = await screen.findByText('Query too wide', undefined, { timeout: 5000 });
     const alert = banner.closest('[role="alert"]');

@@ -275,10 +275,12 @@ A visit with no query string gets the last hour, `duration>500ms`, and `hide_sys
 full from then on. With any query string there are no defaults: an absent `filter` means no filters, and an absent
 `hide_system` means the switch is off. A `filter` value that does not parse is dropped.
 
-**Old links.** A link without `filter` that carries the parameters of the old calls page (`service`, `pod`,
-`duration_min_ms`, `duration_max_ms`, `error_only`, `retention_class`, `q`) and no `order`, which the new page always
-writes, is converted to conditions, with that page's defaults: a lower duration bound of 500 ms unless
-`duration_min_ms` is given, and hiding system calls unless `hide_system=false`.
+**Old links.** A link with a query string but neither `filter` nor `order`, which the new page always writes, comes
+from the old calls page. Its parameters (`service`, `pod`, `duration_min_ms`, `duration_max_ms`, `error_only`,
+`retention_class`, `q`, `hide_system`) are converted to conditions, with that page's defaults: a lower duration bound
+of 500 ms unless `duration_min_ms` is given, and hiding system calls unless `hide_system=false`. The old page left out
+every parameter at its default value, so `?from=1000&to=2000` is an old link with both defaults, while the new page
+writes the same unfiltered window as `?from=1000&to=2000&order=start_desc`.
 
 The old page selected the union of its `service` and `pod` values, and conditions must all match, so they match every
 combination of their values. The link keeps selecting the same calls:
