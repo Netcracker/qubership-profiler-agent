@@ -82,8 +82,11 @@ text form of the read contract's filter model (02 §2.3.3): `duration>100ms`, `n
 **Sending the conditions.** `/api/v1/config` reports what the backend implements in `filter_capabilities`
 (02 §2.3.4): fields with their operators, param operators, `None` and `Any`, orders, and `/stats` groupings. The
 page reads it once and sends every applied condition it allows, unchanged, as a repeatable `filter` parameter.
-The rest become disabled tokens. The page sends nothing until `/config` answers, so the first request already has
-the right form. `apps/ui/src/calls/query-plan.ts` makes this choice for both kinds of backend.
+The rest become disabled tokens, and the dropdown disables a choice the build cannot apply, such as `None` without
+`special_values`. The page sends nothing until `/config` answers, so the first request already has the right form;
+when `/config` fails, the page holds the query and offers Retry rather than guess the backend's kind. A request
+longer than the 6000-character request-line guard is not sent either. `apps/ui/src/calls/query-plan.ts` makes this
+choice for both kinds of backend.
 
 **Without the filter model.** A backend that reports no `filter_capabilities` takes only the legacy parameters, so
 the applied conditions travel as those (redesign plan §4.2.1):
@@ -248,6 +251,8 @@ With a fan-out backend these are frequent, so each names what happened and the o
 | All sources failed | `504` | "No source answered in time. Narrow the range or retry." |
 | Too wide | `400` wide-query guard | Turns `suggested_filters` into one-click narrowing chips, sized by the dominant `retention_class` (`by_class`). |
 | Rejected | `400` with `code: invalid_request` | "The backend rejected the query" with the problem's `detail`, such as a filter the build does not implement. Retrying would get the same answer, so it offers none. |
+| No configuration | `/config` fails | "Cannot run the query: loading /config failed" with Retry; "Run query" retries it too. No `/calls` request goes out until it loads. |
+| Query too long | the request line exceeds the guard | "Query too long": fewer values in an `in` list, or a regex. Without the filter model, "Selection too wide" instead, with "Clear selection". |
 | Error codes | any problem | The client branches on the problem `code` (02 §8), and on the `title` and `detail` of a build that sends no code. |
 | Cold call | `404` on `/tree` | Hot lookup failed and the cold lookup needs `ts_ms`; `retention_class` sharpens pruning but is optional. "Reopen the call from its row so the hints travel with it." |
 | Blob truncated | `404`, `truncated_reason` set | "The trace for this call was dropped under load — no tree to show." |
