@@ -50,8 +50,9 @@
   --pf-color-syntax-keyword: #005dcf;
   --pf-color-syntax-number: #00874a;
 
-  /* Category badges, in the order Setup categories hands them out. Translucent,
-     so a badge reads on a plain, a hovered, and a selected row. */
+  /* Setup categories: the row background of a categorized subtree, and its
+     badge, in the order categories.ts hands them out. Translucent, so a badge
+     reads on a plain, a hovered, and a selected row. */
   --pf-color-cat-1: rgba(0, 104, 255, 0.16);
   --pf-color-cat-2: rgba(124, 92, 255, 0.22);
   --pf-color-cat-3: rgba(14, 157, 148, 0.22);
