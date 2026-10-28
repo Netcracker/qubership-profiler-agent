@@ -28,7 +28,7 @@ const NO_POLL_MS = 60 * 60 * 1000;
 // the whole suite runs at once.
 configure({ asyncUtilTimeout: 5000 });
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   resetAgentConfigMock();

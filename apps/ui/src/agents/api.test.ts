@@ -7,7 +7,7 @@ import { server } from '../mocks/node';
 import { isAgentConfigEnabled, isRevisionConflict, saveAgentConfig } from './api';
 import type { AgentConfigSettings } from './types';
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

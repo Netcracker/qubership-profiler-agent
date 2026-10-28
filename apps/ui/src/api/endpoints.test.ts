@@ -12,7 +12,7 @@ import { fetchCallsFirstPage, fetchTree } from './endpoints';
 // window is a 404 that names the missing hint; with the hints the same call
 // decodes into a merged tree.
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

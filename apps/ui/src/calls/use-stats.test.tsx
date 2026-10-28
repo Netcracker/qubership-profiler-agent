@@ -7,7 +7,7 @@ import * as endpoints from '../api/endpoints';
 import { server } from '../mocks/node';
 import { useStats } from './use-stats';
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

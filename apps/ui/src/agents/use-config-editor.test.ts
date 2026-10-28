@@ -4,9 +4,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { resetAgentConfigMock } from '../mocks/agent-config';
 import { server } from '../mocks/node';
+import { fetchAgentConfig, saveAgentConfig } from './api';
 import { useConfigEditor } from './use-config-editor';
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   server.events.removeAllListeners();
@@ -140,6 +141,63 @@ describe('useConfigEditor', () => {
       await applying;
     });
     expect(result.current.saving).toBe(false);
+  });
+
+  it('ignores the answer to a write sent before the user left the scope and came back', async () => {
+    // The user's save reaches the server, and its answer is held: it says
+    // revision 15 with a minimum duration of 20.
+    const before = await fetchAgentConfig('prod-billing');
+    const stale = {
+      ...before,
+      owner: 'prod-billing',
+      revision: 15,
+      settings: { ...before.settings, min_duration_ms: 20 },
+    };
+    let release = (): void => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.put(
+        '/api/v1/agent-config/:scope',
+        async () => {
+          await released;
+          return HttpResponse.json(stale);
+        },
+        { once: true },
+      ),
+    );
+    const { result, rerender } = await loadedEditor('prod-billing');
+    const loaded = result.current.settings;
+    if (loaded === null) throw new Error('the settings did not load');
+    act(() => result.current.editSettings({ ...loaded, min_duration_ms: 20 }));
+    let applying: Promise<boolean> = Promise.resolve(true);
+    act(() => {
+      applying = result.current.apply();
+    });
+
+    // The user leaves, someone else saves the scope, and the user comes back
+    // to the newer config.
+    rerender({ id: 'staging-orders' });
+    await waitFor(() => expect(result.current.config).toMatchObject({ data: { scope: 'staging-orders' } }));
+    await saveAgentConfig('prod-billing', {
+      expected_revision: before.revision,
+      settings: { ...before.settings, min_duration_ms: 77 },
+    });
+    rerender({ id: 'prod-billing' });
+    await waitFor(() => expect(result.current.settings).toMatchObject({ min_duration_ms: 77 }));
+    expect(result.current.saving).toBe(false);
+
+    release();
+    let applied: boolean | undefined;
+    await act(async () => {
+      applied = await applying;
+    });
+
+    expect(applied).toBe(false);
+    expect(result.current.settings).toMatchObject({ min_duration_ms: 77 });
+    expect(result.current.saving).toBe(false);
+    expect(result.current.error).toBeNull();
   });
 
   it('shows no failure of a scope left behind', async () => {
