@@ -31,7 +31,7 @@ import { useStats } from '../calls/use-stats';
 import { PeriodControls } from '../controls/period-controls';
 import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
-import { browserNote, browserSupports, filterInBrowser } from '../filter/browser';
+import { browserNote, browserSupports, filterInBrowser, isBrowserCondition } from '../filter/browser';
 import { capabilitiesOf } from '../filter/capabilities';
 import type { Capabilities } from '../filter/capabilities';
 import type { Condition, Operator } from '../filter/condition';
@@ -88,15 +88,16 @@ export function CallsPage() {
   // The static `message` mounts a separate root that nothing unmounts.
   const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
-  // Relative window tokens resolve against one `now` per URL change and per run, and /calls and /pods share the
-  // result. The memo freezes it, so `now-3h` does not drift (and refetch) on every render, and the run count takes a
-  // fresh `now`, so Run query on an unchanged `now-1h` reads up to the present rather than repeating the old window.
+  // Relative window tokens resolve against one `now`, and /calls and /pods share the result. A new `now` is taken
+  // when the window tokens change and on each run, so Run query on an unchanged `now-1h` reads up to the present.
+  // Nothing else moves it: a re-render, or a URL change that only filters the loaded rows, keeps the window, so the
+  // query and its loaded pages stay.
   const [runs, setRuns] = useState(0);
-  const search = useMemo(
-    () => parseCallsSearch(searchParams, Date.now(), { defaults: true }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `runs` only asks for a fresh `now`
-    [searchParams, runs],
-  );
+  const fromToken = searchParams.get('from');
+  const toToken = searchParams.get('to');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the tokens and `runs` only ask for a fresh `now`
+  const nowMs = useMemo(() => Date.now(), [fromToken, toToken, runs]);
+  const search = useMemo(() => parseCallsSearch(searchParams, nowMs, { defaults: true }), [searchParams, nowMs]);
 
   // A visit with no query string gets the defaults; write them, so the URL is complete from then on.
   const bare = searchParams.size === 0;
@@ -197,9 +198,23 @@ export function CallsPage() {
   };
   const run = (): void => runQuery(draft);
 
-  // A row shortcut replaces that field's token and runs the query (plan §4.2).
-  const pickFilter = (field: 'pod' | 'trace_id', value: string): void =>
-    runQuery({ ...draft, conditions: [...draft.conditions.filter((c) => c.field !== field), { field, op: '=', values: [value] }] });
+  // A row shortcut replaces that field's token and runs the query (plan §4.2). When the query changes only by
+  // conditions the browser applies, such as a trace ID without the filter model, the URL takes it and the loaded
+  // pages stay: a fetch from page one would drop a row picked on a later page.
+  const pickFilter = (field: 'pod' | 'trace_id', value: string): void => {
+    const next: QueryDraft = {
+      ...draft,
+      conditions: [...draft.conditions.filter((c) => c.field !== field), { field, op: '=', values: [value] }],
+    };
+    const inBrowser = (c: Condition): boolean => caps === null && isBrowserCondition(c);
+    const sent = (d: QueryDraft): string => draftKey({ ...d, conditions: d.conditions.filter((c) => !inBrowser(c)) });
+    if (sent(next) !== sent(draftOf(search))) {
+      runQuery(next);
+      return;
+    }
+    setDraft(next);
+    commitSearch({ ...search, ...next });
+  };
 
   // A range change stores its raw tokens (a relative range stays live) and applies at once; the draft stays a draft.
   const commitRange = (tokens: { from: string; to: string }): void =>

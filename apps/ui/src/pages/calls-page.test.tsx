@@ -333,7 +333,7 @@ describe('CallsPage on a backend without the filter model', () => {
     it('shows the switch as a token, and the switch adds it to the draft', async () => {
       const calls = recordCalls();
       try {
-        renderCallsPage(window15m());
+        renderCallsPage(`${window15m()}&order=start_desc`);
         await rowsLoaded();
         expect(tokenRemove()).toBeNull();
         const before = calls.urls.length;
@@ -357,7 +357,7 @@ describe('CallsPage on a backend without the filter model', () => {
     });
 
     it('turns the switch off when the token is removed with its × or Backspace', async () => {
-      renderCallsPage(`${window15m()}&hide_system=1`);
+      renderCallsPage(`${window15m()}&order=start_desc&hide_system=1`);
       await rowsLoaded();
       expect(hideSwitch()).toBeChecked();
       await userEvent.click(tokenRemove()!);
@@ -376,7 +376,7 @@ describe('CallsPage on a backend without the filter model', () => {
     });
 
     it('hides the system rows of the loaded pages in the browser', async () => {
-      renderCallsPage(`${window15m()}&hide_system=1`);
+      renderCallsPage(`${window15m()}&order=start_desc&hide_system=1`);
       await rowsLoaded();
       await screen.findByText(/hidden as system\/proxy/);
       expect(screen.queryByText(/QuartzSchedulerThread|JobStoreSupport/)).toBeNull();
@@ -425,10 +425,9 @@ describe('CallsPage on a backend without the filter model', () => {
       const id = pick.getAttribute('title')!.replace('Filter by trace_id ', '');
       const before = calls.urls.length;
       await userEvent.click(pick);
-      await waitFor(() => expect(calls.urls.length).toBeGreaterThan(before));
-      // The trace ID is not sent: /calls cannot filter by it.
-      expect([...calls.urls.at(-1)!.searchParams.keys()].sort()).toEqual(['from', 'limit', 'to']);
-      expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${id}`);
+      // The trace ID is not sent, since /calls cannot filter by it, so nothing is fetched again.
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${id}`));
+      expect(calls.urls).toHaveLength(before);
 
       const token = screen.getByRole('button', { name: `Remove the filter trace_id = ${id}` }).parentElement!;
       expect(token).toHaveAttribute('data-applied', 'browser');
@@ -443,9 +442,40 @@ describe('CallsPage on a backend without the filter model', () => {
     }
   });
 
+  it('keeps the loaded pages when a trace ID from a later page is picked', async () => {
+    const calls = recordCalls();
+    try {
+      renderCallsPage(`from=now-1h&to=now&order=start_desc`);
+      await rowsLoaded();
+      const traceOf = (row: HTMLElement): string | null =>
+        within(row).queryByTitle(/^Filter by trace_id /)?.getAttribute('title')!.replace('Filter by trace_id ', '') ?? null;
+      const firstPage = new Set(screen.getAllByRole('row').slice(1).map(traceOf));
+      const loaded = screen.getAllByRole('row').length;
+      await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(loaded));
+      const later = screen
+        .getAllByRole('row')
+        .slice(loaded)
+        .map(traceOf)
+        .find((id) => id !== null && !firstPage.has(id))!;
+      expect(later).toBeDefined();
+      const before = calls.urls.length;
+
+      await userEvent.click(screen.getAllByTitle(`Filter by trace_id ${later}`)[0]!);
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(`filter=trace_id=${later}`));
+      expect(calls.urls).toHaveLength(before);
+      expect(screen.getAllByTitle(`Filter by trace_id ${later}`).length).toBeGreaterThan(0);
+      expect(screen.getAllByTitle(/^Filter by trace_id /).every((c) => c.getAttribute('title') === `Filter by trace_id ${later}`)).toBe(
+        true,
+      );
+    } finally {
+      calls.stop();
+    }
+  });
+
   it('turns the wide-query 400 into narrowing chips that re-run the query', async () => {
     const to = Date.now();
-    renderCallsPage(`from=${to - 7 * 60 * 60 * 1000}&to=${to}`);
+    renderCallsPage(`from=${to - 7 * 60 * 60 * 1000}&to=${to}&order=start_desc`);
 
     const banner = await screen.findByText('Query too wide', undefined, { timeout: 5000 });
     const alert = banner.closest('[role="alert"]');
