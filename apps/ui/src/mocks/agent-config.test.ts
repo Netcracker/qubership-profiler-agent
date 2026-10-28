@@ -19,7 +19,7 @@ import { server } from './node';
 // The draft API has no backend, so these tests pin the behavior of the mock
 // that stands in for one (plan 2026-10-13-ui-redesign §4.7).
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 beforeEach(() => resetAgentConfigMock());
 afterEach(() => {
   server.resetHandlers();

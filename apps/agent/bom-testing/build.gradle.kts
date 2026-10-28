@@ -14,7 +14,7 @@ dependencies {
     constraints {
         api("com.beust:jcommander:1.82")
         // The moving version each plugin instrumentation test checks its injectors against. The
-        // versions held still beside it live in plugins/*/build.gradle.kts, which Renovate ignores.
+        // versions held still beside it live in apps/agent/plugins/*/build.gradle.kts, which Renovate ignores.
         api("com.rabbitmq:amqp-client:5.37.0")
         api("com.zaxxer:HikariCP:7.1.0")
         api("io.mockk:mockk:1.14.11")
