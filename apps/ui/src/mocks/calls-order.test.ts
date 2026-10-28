@@ -5,8 +5,7 @@ import { fetchCallsFirstPage, fetchCallsNextPage } from '../api/endpoints';
 import type { CallJSON } from '../api/types';
 import { server } from './node';
 
-// The mock sorts /calls by `order` (agent-access plan §5.2), so `npm run dev:mock` shows server-side ordering. The
-// real backend sorts by start time, newest first, only.
+// The mock sorts /calls by every `order` of 02 §2.3.5, with the keyset that pages each order.
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());

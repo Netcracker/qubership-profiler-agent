@@ -97,6 +97,24 @@ export interface PodsResponse {
  */
 export interface ConfigResponse {
   dumps_collector_url: string;
+  /** What the build implements of the filter model (02 §2.3.4). Absent on a build that predates it. */
+  filter_capabilities?: FilterCapabilities;
+}
+
+/** The `filter_capabilities` member of /config (02 §2.3.4). */
+export interface FilterCapabilities {
+  /** Each implemented field and its implemented operators. A missing field is not implemented. */
+  fields: Record<string, string[]>;
+  /** The operators that work on call params. */
+  param_operators: string[];
+  /** `None` and `Any`, once they work. */
+  special_values: string[];
+  /** The implemented `/calls` orders (02 §2.3.5). */
+  orders: string[];
+  /** The implemented named `/stats` groupings (02 §2.9). */
+  group_by: string[];
+  /** True when `group_by` also takes the name of any call param. */
+  group_by_params?: boolean;
 }
 
 /** RFC 7807 body with the §2.3.2 wide-query guard extensions (02 §8). */

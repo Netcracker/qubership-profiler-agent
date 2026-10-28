@@ -8,6 +8,8 @@ import type { TreeWire } from '../msgpack/tree-wire';
 export interface CallsFilter {
   fromMs: number;
   toMs: number;
+  /** Conditions in their text form, one repeatable `filter` parameter each (02 §2.3.3). */
+  filters?: readonly string[];
   /** `namespace/service/pod` tuples. */
   pods?: readonly string[];
   /** Substring match on the method column. */
@@ -17,8 +19,8 @@ export interface CallsFilter {
   errorOnly?: boolean;
   retentionClasses?: readonly RetentionClass[];
   /**
-   * `order=<field>_<asc|desc>` (agent-access plan §5.2). Set only for an order the server sorts by
-   * (`serverCanOrder`); absent means start time, newest first.
+   * `order=<field>_<asc|desc>` (02 §2.3.5). Set only for an order the server sorts by (`serverCanOrder`); absent
+   * means start time, newest first.
    */
   order?: string;
   limit?: number;
@@ -28,6 +30,7 @@ function callsQueryParams(filter: CallsFilter) {
   return {
     from: filter.fromMs,
     to: filter.toMs,
+    filter: filter.filters,
     pod: filter.pods,
     method: filter.method || undefined,
     duration_min_ms: filter.durationMinMs || undefined,

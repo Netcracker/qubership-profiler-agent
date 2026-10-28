@@ -2,7 +2,10 @@ import { HttpResponse, delay, http } from 'msw';
 
 import { parsePkPath } from '../api/pk';
 import { isRetentionClass } from '../api/types';
-import type { ProblemDetails } from '../api/types';
+import type { FilterCapabilities, ProblemDetails } from '../api/types';
+import { parseDurationMs, parseDurationRange } from '../calls/duration-filter';
+import type { Condition } from '../filter/condition';
+import { parseCondition } from '../filter/grammar';
 import { encodeTree } from '../msgpack/encode';
 import { HOT_WINDOW_MS, callsPage, findCall, parseMockOrder, podsInRange, treeForCall } from './synthetic';
 import type { CallsQueryShape, Position } from './synthetic';
@@ -25,7 +28,35 @@ function problem(p: ProblemDetails): Response {
 }
 
 const badRequest = (detail: string): Response =>
-  problem({ type: 'about:blank', title: 'invalid request', status: 400, detail });
+  problem({ type: 'about:blank', title: 'invalid request', status: 400, detail, code: 'invalid_request' });
+
+const cursorRejected = (detail: string): Response =>
+  problem({ type: 'about:blank', title: 'invalid request', status: 400, detail, code: 'cursor_rejected' });
+
+const ENUM_OPS = ['=', '!=', '=~', '!~', 'in', 'not in'];
+const ID_OPS = ['=', '!=', '=~'];
+
+/** The whole filter model, stages A and B (02 §2.3.4). A test overrides /config to model an older build. */
+export const MOCK_FILTER_CAPABILITIES: FilterCapabilities = {
+  fields: {
+    duration: ['>', '>=', '<', '<=', 'between'],
+    namespace: ENUM_OPS,
+    service: ENUM_OPS,
+    pod: ENUM_OPS,
+    method: ['=', '!=', '=~', '!~'],
+    class: ENUM_OPS,
+    endpoint: ENUM_OPS,
+    error: ['='],
+    retention_class: ['=', '!=', 'in', 'not in'],
+    trace_id: ID_OPS,
+    request_id: ID_OPS,
+  },
+  param_operators: ENUM_OPS,
+  special_values: ['None', 'Any'],
+  orders: ['start', 'duration', 'cpu', 'queue', 'calls', 'net'].flatMap((f) => [`${f}_desc`, `${f}_asc`]),
+  group_by: ['time', 'method', 'namespace', 'service', 'pod', 'trace_id', 'request_id', 'class', 'endpoint', 'error', 'retention_class', 'param_name'],
+  group_by_params: true,
+};
 
 // Human pacing in the browser; instant under vitest.
 async function pace(): Promise<void> {
@@ -60,8 +91,9 @@ function parseCallsQuery(sp: URLSearchParams): CallsQueryShape | string {
     errorOnly: false,
     retentionClasses: sp.getAll('retention_class'),
   };
-  // `order` follows the agent-access plan §5.2, so `npm run dev:mock` shows server-side ordering before the backend
-  // has it. The real backend sorts by start time, newest first, only; the UI sorts in the browser there.
+  const conditions = parseFilters(sp);
+  if (typeof conditions === 'string') return conditions;
+  if (conditions.length > 0) q.conditions = conditions;
   const order = sp.get('order');
   if (order !== null && order !== '') {
     if (parseMockOrder(order) === null) return `unknown order: ${order}`;
@@ -90,6 +122,25 @@ function parseCallsQuery(sp: URLSearchParams): CallsQueryShape | string {
   return q;
 }
 
+/** Parses and checks the `filter` parameters (02 §2.3.3); a message quoting the condition for a bad one. */
+export function parseFilters(sp: URLSearchParams): Condition[] | string {
+  const out: Condition[] = [];
+  for (const text of sp.getAll('filter')) {
+    const r = parseCondition(text);
+    if (!r.ok) return `invalid filter "${text}": ${r.error}`;
+    const c = r.condition;
+    if (c.op === '=~' || c.op === '!~') {
+      try {
+        new RegExp(c.values[0]!);
+      } catch {
+        return `invalid filter "${text}": the regular expression does not compile`;
+      }
+    }
+    out.push(c);
+  }
+  return out;
+}
+
 function parseLimit(sp: URLSearchParams): number | string {
   const raw = sp.get('limit');
   if (raw === null || raw === '') return DEFAULT_LIMIT;
@@ -101,16 +152,38 @@ function parseLimit(sp: URLSearchParams): number | string {
 
 // --- Wide-query guard, span layer (guard.go) ---
 
+/** The duration a lower bound of `duration` sets, or 0 for a condition that sets none. */
+function lowerBoundMs(c: Condition): number {
+  if (c.op === 'between') return parseDurationRange(c.values[0]!)?.minMs ?? 0;
+  if (c.op === '>' || c.op === '>=') return parseDurationMs(c.values[0]!) ?? 0;
+  return 0;
+}
+
+/**
+ * A condition that prunes the files discovered (02 §2.3.2): namespace, service, pod, or retention_class with = or
+ * in, a lower bound on duration, and error=true. The mock skips the tier-table check of the duration bound.
+ */
+function isNarrowing(c: Condition): boolean {
+  if (['namespace', 'service', 'pod', 'retention_class'].includes(c.field)) return c.op === '=' || c.op === 'in';
+  if (c.field === 'duration') return lowerBoundMs(c) > 0;
+  return c.field === 'error' && c.values[0] === 'true';
+}
+
 function hasNarrowingFilter(q: CallsQueryShape): boolean {
+  if ((q.conditions ?? []).some(isNarrowing)) return true;
   return q.pods.length > 0 || q.retentionClasses.length > 0 || q.durationMinMs > 0 || q.errorOnly;
 }
 
+/** The narrowing filters the query does not use yet, in the order of guard.go. */
 function suggestedFilters(q: CallsQueryShape): string[] {
   const out: string[] = [];
-  if (q.pods.length === 0) out.push('pod');
-  if (q.retentionClasses.length === 0) out.push('retention_class');
-  if (q.durationMinMs <= 0) out.push('duration_min_ms');
-  if (!q.errorOnly) out.push('error_only');
+  const conditions = q.conditions ?? [];
+  const has = (field: string): boolean => conditions.some((c) => c.field === field && isNarrowing(c));
+  // A build with the filter model also suggests namespace and service (02 §8).
+  if (q.pods.length === 0 && !has('namespace') && !has('service') && !has('pod')) out.push('pod', 'namespace', 'service');
+  if (q.retentionClasses.length === 0 && !has('retention_class')) out.push('retention_class');
+  if (q.durationMinMs <= 0 && !has('duration')) out.push('duration_min_ms');
+  if (!q.errorOnly && !has('error')) out.push('error_only');
   return out;
 }
 
@@ -121,6 +194,7 @@ function guardSpan(q: CallsQueryShape): Response | null {
     type: 'about:blank',
     title: 'query too wide',
     status: 400,
+    code: 'query_too_wide',
     detail: `time span ${formatGoDuration(spanMs)} exceeds PROFILER_WIDE_RANGE_LIMIT 6h0m0s and no file-pruning filter is present`,
     suggested_filters: suggestedFilters(q),
   });
@@ -195,6 +269,11 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
   if (sp.get('duration_max_ms') !== null) resent.durationMaxMs = Number(sp.get('duration_max_ms'));
   if (sp.get('error_only') !== null) resent.errorOnly = sp.get('error_only') === 'true';
   if (sp.get('order') !== null) resent.order = sp.get('order') ?? '';
+  if (sp.getAll('filter').length > 0) {
+    const conditions = parseFilters(sp);
+    if (typeof conditions === 'string') return conditions;
+    resent.conditions = conditions;
+  }
   if (JSON.stringify(resent) !== JSON.stringify(frozen)) {
     return 're-sent filters do not match the query frozen in the cursor; restart from page 1';
   }
@@ -206,7 +285,10 @@ function frozenQueryMismatch(frozen: CallsQueryShape, sp: URLSearchParams): stri
 export const handlers = [
   http.get('/api/v1/config', async () => {
     await pace();
-    return HttpResponse.json({ dumps_collector_url: 'https://dumps-collector-petclinic.example.com' });
+    return HttpResponse.json({
+      dumps_collector_url: 'https://dumps-collector-petclinic.example.com',
+      filter_capabilities: MOCK_FILTER_CAPABILITIES,
+    });
   }),
 
   http.get('/api/v1/pods', async ({ request }) => {
@@ -237,9 +319,9 @@ export const handlers = [
       if (rejection !== null) return rejection;
     } else {
       const token = decodeMockCursor(cursorRaw, nowMs);
-      if (typeof token === 'string') return badRequest(token);
+      if (typeof token === 'string') return cursorRejected(token);
       const mismatch = frozenQueryMismatch(token.q, sp);
-      if (mismatch !== '') return badRequest(mismatch);
+      if (mismatch !== '') return cursorRejected(mismatch);
       q = token.q;
       after = token.pos;
     }
@@ -286,13 +368,14 @@ export const handlers = [
       if (!hasTs) {
         detail += '; a call outside the hot window needs the ts_ms (and retention_class) hints from its /calls row (02 §2.2)';
       }
-      return problem({ type: 'about:blank', title: 'call not found', status: 404, detail });
+      return problem({ type: 'about:blank', title: 'call not found', status: 404, detail, code: 'call_not_found' });
     }
     if (call.truncated_reason !== null) {
       return problem({
         type: 'about:blank',
         title: 'trace blob unavailable',
         status: 404,
+        code: 'trace_unavailable',
         detail: `the blob of ${decodeURIComponent(pkPath)} was dropped at seal: truncated_reason = ${call.truncated_reason}`,
       });
     }

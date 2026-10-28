@@ -9,6 +9,9 @@ import { formatCondition, parseCondition } from '../../filter/grammar';
 /** Why a field, or an operator of a field, cannot be picked; null when it can. */
 export type SupportedPredicate = (field: string, op?: Operator) => string | null;
 
+/** Why a whole condition, values included, cannot be picked; null when it can. */
+export type ConditionPredicate = (c: Condition) => string | null;
+
 export interface ValueSuggestion {
   value: string;
   /** The number of calls with the value, when the source knows it. */
@@ -83,6 +86,8 @@ export interface StageInput {
   /** True when the bar also takes a call parameter typed by hand, such as `user.tenant`, which `fields` cannot list. */
   params?: boolean;
   supported: SupportedPredicate;
+  /** Checks the values too, such as `None` on a backend that cannot match it; `supported` alone when absent. */
+  conditionReason?: ConditionPredicate;
   values: ValueSource;
 }
 
@@ -93,7 +98,8 @@ const FIELD_FOOT_PARAMS =
 /** The fields of the catalog, in catalog order. */
 export const ALL_FIELDS: readonly string[] = FIELDS.map((f) => f.name);
 
-export function stageView({ draft, text, fields, params = false, supported, values }: StageInput): StageView {
+export function stageView({ draft, text, fields, params = false, supported, conditionReason, values }: StageInput): StageView {
+  const reasonOf = (c: Condition): string | undefined => orNull(conditionReason ? conditionReason(c) : supported(c.field, c.op));
   const typed = text.trim();
   const needle = typed.toLowerCase();
   const offered = (field: string): boolean => fields.includes(field) || (params && fieldDef(field)?.kind === 'param');
@@ -115,7 +121,7 @@ export function stageView({ draft, text, fields, params = false, supported, valu
         items.unshift({
           label: formatCondition(c),
           hint: 'Add this filter',
-          disabledReason: orNull(supported(c.field, c.op)),
+          disabledReason: reasonOf(c),
           action: { kind: 'condition', condition: c },
         });
       }
@@ -125,7 +131,7 @@ export function stageView({ draft, text, fields, params = false, supported, valu
         items.push({
           label: `method =~ ${typed}`,
           hint: 'Search in the method name',
-          disabledReason: orNull(supported('method', '=~')),
+          disabledReason: reasonOf(c),
           action: { kind: 'condition', condition: c },
         });
       }
@@ -170,7 +176,11 @@ export function stageView({ draft, text, fields, params = false, supported, valu
     const n = draft.values.length;
     items.push({ label: `Apply ${n} ${n === 1 ? 'value' : 'values'}`, hint: 'Enter', action: { kind: 'apply' } });
   }
-  if (typed !== '') items.push({ label: `Use "${typed}"`, hint: 'as typed', action: { kind: 'value', value: typed } });
+  // The values are checked as a condition too: a typed `None` on a build without it would only make a disabled token.
+  const valueReason = (value: string): string | undefined => reasonOf({ field: draft.field!, op: draft.op!, values: [value] });
+  if (typed !== '') {
+    items.push({ label: `Use "${typed}"`, hint: 'as typed', disabledReason: valueReason(typed), action: { kind: 'value', value: typed } });
+  }
 
   let foot: string;
   if (def?.kind === 'duration') {
@@ -179,8 +189,12 @@ export function stageView({ draft, text, fields, params = false, supported, valu
     foot = draft.op === 'between' ? 'Type a range such as 100ms..2s.' : 'Type any duration such as 250ms or 1.5s.';
   } else {
     if (def?.optional && (draft.op === '=' || draft.op === '!=') && typed === '') {
-      items.push({ label: NONE, hint: `no ${draft.field}`, action: { kind: 'value', value: NONE } });
-      items.push({ label: ANY, hint: `any ${draft.field}`, action: { kind: 'value', value: ANY } });
+      for (const [value, hint] of [
+        [NONE, `no ${draft.field}`],
+        [ANY, `any ${draft.field}`],
+      ] as const) {
+        items.push({ label: value, hint, disabledReason: valueReason(value), action: { kind: 'value', value } });
+      }
     }
     const known: readonly ValueSuggestion[] = def?.values?.map((value) => ({ value })) ?? values(draft.field);
     const matching = known.filter((s) => s.value.toLowerCase().includes(needle) && !draft.values.includes(s.value));

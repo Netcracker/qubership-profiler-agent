@@ -7,8 +7,8 @@ import { ANY, NONE, regexLiteral } from './condition';
 import type { Condition, Operator } from './condition';
 import type { PodSelection } from './legacy';
 
-// Until /calls takes the `filter` parameter, the applied conditions are sent as the parameters /calls has today
-// (UI redesign plan §4.2.1). Task 3.6 deletes this module.
+// A backend without the filter model reports no `filter_capabilities` (02 §2.3.4) and takes only the legacy /calls
+// parameters, so the applied conditions are translated to them (UI redesign plan §4.2.1). See calls/query-plan.ts.
 
 /** The reason shown on a field, an operator, or a token that the backend cannot apply yet. */
 export const UNSUPPORTED_REASON = 'The backend does not support this filter yet.';
@@ -105,6 +105,14 @@ function valueReason(c: Condition): string | null {
     return 'The backend matches a plain word in the method only; regular expressions come later.';
   }
   return null;
+}
+
+/**
+ * The pod tuples of an old link's selection, for a request that sends its conditions as they are. Null while services
+ * wait for the /pods data.
+ */
+export function selectionPods(selection: PodSelection, namespaces: readonly NamespaceNode[] | null): string[] | null {
+  return selectionTuples(selection, namespaces)?.map((p) => p.tuple) ?? null;
 }
 
 /**
