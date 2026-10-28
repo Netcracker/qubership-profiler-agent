@@ -1,27 +1,34 @@
-import { createContext, createElement, useContext, useEffect, useState } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { fetchConfig } from './endpoints';
 import type { ConfigResponse } from './types';
 
-export type ConfigState = { kind: 'loading' } | { kind: 'ready'; config: ConfigResponse } | { kind: 'error' };
+export type ConfigState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; config: ConfigResponse }
+  /** `retry` fetches /config again, for every reader of this state. */
+  | { kind: 'error'; message: string; retry: () => void };
 
 const ConfigContext = createContext<ConfigState | undefined>(undefined);
 
 function useFetchedConfig(enabled: boolean): ConfigState {
   const [state, setState] = useState<ConfigState>({ kind: 'loading' });
+  const [epoch, setEpoch] = useState(0);
+  const retry = useCallback(() => setEpoch((n) => n + 1), []);
 
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
+    setState({ kind: 'loading' });
     fetchConfig(controller.signal)
       .then((config) => setState({ kind: 'ready', config }))
-      .catch(() => {
+      .catch((e: unknown) => {
         if (controller.signal.aborted) return;
-        setState({ kind: 'error' });
+        setState({ kind: 'error', message: e instanceof Error ? e.message : String(e), retry });
       });
     return () => controller.abort();
-  }, [enabled]);
+  }, [enabled, epoch, retry]);
 
   return state;
 }

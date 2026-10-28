@@ -24,6 +24,10 @@ describe('capabilitiesOf', () => {
     expect(caps.supported('class')).toBe('This backend cannot filter by class.');
   });
 
+  it('disables a field outside the catalog', () => {
+    expect(caps.supported('1bad')).toBe('This backend cannot filter by 1bad.');
+  });
+
   it('gives call params the param operators', () => {
     expect(caps.supported('user.tenant', '=')).toBeNull();
     expect(caps.supported('user.tenant', 'in')).toBe('This backend does not support in on user.tenant.');
