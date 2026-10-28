@@ -113,8 +113,9 @@ applies at once (Grafana-style refetch on a range change).
 
 **Draft and applied.** The filter bar, the duration chips, the two switches, and "Sort by" edit a draft. "Run
 query", or Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when
-nothing changed. A relative time range such as `now-1h` resolves again on each run, so the rerun reads up to the
-present; `/calls` and `/pods` share the resolved window, and "Load more" keeps it. While the draft differs from the
+nothing changed. A relative time range such as `now-1h` resolves again on each run and when the range changes, so
+the rerun reads up to the present; `/calls` and `/pods` share the resolved window, and "Load more" and a URL change
+that filters only the loaded rows keep it. While the draft differs from the
 applied query, a hint says "Filters changed. Run the query to update the results." Only the applied state reaches the
 URL and `/calls`. A time range change and a row shortcut apply at once.
 
@@ -142,8 +143,10 @@ page through `onPickFilter(field, value)`; a page that passes no handler gets pl
 page replaces that field's token with `field=value` and runs the query. A backend without the filter model cannot
 filter by `trace_id`, and a disabled token would make the click do nothing, so there `trace_id=<id>` is not sent and
 filters the loaded rows in the browser instead: by the ID the row's cell shows, with a dashed outline and a tooltip
-that says so, and a footer count of the rows it hides. The pages loaded before the click are the rows it can find; a
-call of the trace outside them shows only after "Load more".
+that says so, and a footer count of the rows it hides. The pages loaded before the click are the rows it can find, so
+the click keeps them rather than fetching page one again, unless the draft holds other unapplied changes; a call of
+the trace outside them shows only after "Load more". With the filter model the click sends `trace_id=<id>` and runs
+the query.
 
 **`trace_id`.** A `/calls` row has no `trace_id` member (02 §2.3). The cell reads the ID from the call's own
 params, under the names the tracing plugins record it with (`trace.id`, `brave.trace_id`, `X-B3-TraceId`), the
@@ -405,10 +408,12 @@ A visit with no query string gets the last hour, `duration>500ms`, and `hide_sys
 full from then on. With any query string there are no defaults: an absent `filter` means no filters, and an absent
 `hide_system` means the switch is off. A `filter` value that does not parse is dropped.
 
-**Old links.** A link without `filter` that carries the parameters of the old calls page (`service`, `pod`,
-`duration_min_ms`, `duration_max_ms`, `error_only`, `retention_class`, `q`) and no `order`, which the new page always
-writes, is converted to conditions, with that page's defaults: a lower duration bound of 500 ms unless
-`duration_min_ms` is given, and hiding system calls unless `hide_system=false`.
+**Old links.** A link with a query string but neither `filter` nor `order`, which the new page always writes, comes
+from the old calls page. Its parameters (`service`, `pod`, `duration_min_ms`, `duration_max_ms`, `error_only`,
+`retention_class`, `q`, `hide_system`) are converted to conditions, with that page's defaults: a lower duration bound
+of 500 ms unless `duration_min_ms` is given, and hiding system calls unless `hide_system=false`. The old page left out
+every parameter at its default value, so `?from=1000&to=2000` is an old link with both defaults, while the new page
+writes the same unfiltered window as `?from=1000&to=2000&order=start_desc`.
 
 The old page selected the union of its `service` and `pod` values, and conditions must all match, so they match every
 combination of their values. The link keeps selecting the same calls:

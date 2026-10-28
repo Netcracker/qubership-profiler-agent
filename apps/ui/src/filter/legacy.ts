@@ -8,15 +8,8 @@ import type { Condition } from './condition';
 // union of its services and pods, which conditions, all of which must match, cannot always express; such a selection
 // is kept, and only `service` and `pod` are written again, for it.
 
-/** The URL parameters of the old calls page. */
-export const LEGACY_PARAMS = ['service', 'pod', 'duration_min_ms', 'duration_max_ms', 'error_only', 'retention_class', 'q'];
-
 /** The lower duration bound the old page applied when `duration_min_ms` was absent. */
 const LEGACY_DEFAULT_MIN_MS = 500;
-
-export function hasLegacyParams(sp: URLSearchParams): boolean {
-  return LEGACY_PARAMS.some((name) => sp.has(name));
-}
 
 function eqOrIn(field: string, values: readonly string[]): Condition[] {
   const unique = [...new Set(values)];

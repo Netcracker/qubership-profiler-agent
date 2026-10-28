@@ -7,7 +7,7 @@ import type { CallsOrder } from '../calls/sort-order';
 import type { RetentionClass } from '../api/types';
 import type { Condition } from '../filter/condition';
 import { formatCondition, parseCondition } from '../filter/grammar';
-import { convertLegacyParams, hasLegacyParams, readPodSelection, writePodSelection } from '../filter/legacy';
+import { convertLegacyParams, readPodSelection, writePodSelection } from '../filter/legacy';
 import type { PodSelection } from '../filter/legacy';
 
 // The URL is the source of truth (09 §1, §6): the window and the applied filters live in the query string, so a
@@ -95,9 +95,10 @@ function parseOrder(raw: string | null): CallsOrder {
 }
 
 /**
- * Reads the calls query state. A `filter` parameter that does not parse is dropped. A link with neither `filter` nor
- * `order`, which this page always writes, and with the parameters of the old calls page is converted, with that page's
- * own defaults. `nowMs` anchors relative tokens; pass a per-load value so resolution is stable.
+ * Reads the calls query state. A `filter` parameter that does not parse is dropped. A link with a query string but
+ * neither `filter` nor `order`, which this page always writes, comes from the old calls page and is converted, with
+ * that page's own defaults. The old page left out a parameter at its default value, so `?from=1000&to=2000` is such a
+ * link too. `nowMs` anchors relative tokens; pass a per-load value so resolution is stable.
  */
 export function parseCallsSearch(
   sp: URLSearchParams,
@@ -105,7 +106,7 @@ export function parseCallsSearch(
   opts: ParseCallsOptions = {},
 ): CallsSearchState {
   const bare = sp.size === 0;
-  const legacy = !sp.has('filter') && !sp.has('order') && hasLegacyParams(sp);
+  const legacy = !bare && !sp.has('filter') && !sp.has('order');
   const from = parseWindowToken(sp.get('from'), nowMs) ?? (opts.defaults ? DEFAULT_FROM : null);
   const to = parseWindowToken(sp.get('to'), nowMs) ?? (opts.defaults ? DEFAULT_TO : null);
 
