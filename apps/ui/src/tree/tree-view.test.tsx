@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TreeNodeWire, TreeWire } from '../msgpack/tree-wire';
 import { buildTreeModel } from './model';
+import { applyCategories, parseCategoryConfig } from './transforms/categories';
 import { TreeView } from './tree-view';
 import styles from './tree-view.module.css';
 
@@ -78,6 +79,17 @@ describe('TreeView row layout', () => {
     const label = screen.getByTitle(METHODS[1]!);
     const buttons = label.closest('div')!.querySelectorAll('button');
     expect(buttons[1]!.getAttribute('aria-label')).toBe('Open node operations (bottom-up view)');
+  });
+
+  it('paints a categorized row with the theme variable, not a fixed light color', () => {
+    const model = buildTreeModel(wire());
+    applyCategories(model, parseCategoryConfig('checkout com.acme.orders.CheckoutFlow.*'));
+    render(<TreeView model={model} />);
+    const categorized = screen.getByTitle(METHODS[1]!).closest('div')!;
+    const plain = screen.getByTitle(METHODS[0]!).closest('div')!;
+    // The variable has a light and a dark value in theme.css.
+    expect(categorized.style.background).toBe('var(--pf-color-cat-1)');
+    expect(plain.style.background).toBe('');
   });
 
   it('shows the Ctrl stats in an overlay without remounting the hovered row', () => {

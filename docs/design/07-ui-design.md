@@ -239,12 +239,13 @@ The rest of the old operation set to preserve (`profiler.mjs`, `user-guide.md` �
 - **Ctrl+hover panels** — per-node stats (self/total duration and suspension, invocations, avg) and the
   method's full name, `source file:line`, and `jar` (parsed from the `methods[]` string).
 - **Export** — `Download HTML`: a self-contained copy of the tree page that reopens offline with no backend
-  (design 10b, option 2 — a client-side generator). The running SPA inlines its own built JS/CSS and embeds
+  (design 10b, option 2 — a client-side generator). The running SPA inlines its own built JS, CSS, and fonts and embeds
   the tree's MessagePack bytes (base64) plus the view state: the call PK and cold hints, the Adjust and
-  Setup-categories config text, and the open derived-view tabs as `(op, methodIdx, category, nodeId)`. On
-  open, `main.tsx` reads `window.__PROFILER_RESTORE__`, re-decodes the embedded bytes, and boots into the
-  tree. Method *indexes* (not words) are stable because the export carries the exact wire the server sent.
-  This replaces the old server-baked download; xlsx and stackcollapse/flamegraph export stay deferred.
+  Setup-categories config text, the open derived-view tabs as `(op, methodIdx, category, nodeId)`, and the
+  theme in effect (09 §1). On open, `main.tsx` reads `window.__PROFILER_RESTORE__`, re-decodes the embedded
+  bytes, and boots into the tree in the saved theme; an export without one opens in the reader's theme.
+  Method *indexes* (not words) are stable because the export carries the exact wire the server sent. This
+  replaces the old server-baked download; xlsx and stackcollapse/flamegraph export stay deferred.
 
 Open-in-IDE is dropped for the in-cluster UI (it needs a local IDE bridge).
 
