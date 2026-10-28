@@ -6,7 +6,14 @@ import { AgentsTable } from '../agents/agents-table';
 import { ApplyBar } from '../agents/apply-bar';
 import { RawConfig } from '../agents/raw-config';
 import { fetchAgentConfigAgents, fetchAgentConfigScopes } from '../agents/api';
-import { STATUS_LABELS, countByStatus, inheritedOwner, scopeLabel, worstStatus } from '../agents/scope';
+import {
+  STATUS_LABELS,
+  countAgentsOwnedBy,
+  countByStatus,
+  inheritedOwner,
+  scopeLabel,
+  worstStatus,
+} from '../agents/scope';
 import { ScopePicker } from '../agents/scope-picker';
 import { SettingsCards } from '../agents/settings-cards';
 import { StatusDot } from '../agents/status-dot';
@@ -78,9 +85,12 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
 
   const loaded = config.kind === 'ready' ? config.data : null;
   const hasOwnConfig = loaded !== null && loaded.owner === loaded.scope;
-  const fallback = inheritedOwner(scopes.state.kind === 'ready' ? scopes.state.data.scopes : [], scope);
-  // An agent that cannot pull config does not get the revision, so it is not counted.
-  const managedAgents = agentRows === null ? null : agentRows.filter((agent) => agent.status !== 'unsupported').length;
+  const scopeRows = scopes.state.kind === 'ready' ? scopes.state.data.scopes : null;
+  const fallback = inheritedOwner(scopeRows ?? [], scope);
+  // Only the agents that get the new revision are counted: not the ones that
+  // cannot pull config, and not the ones below a scope with its own config.
+  const managedAgents =
+    agentRows === null || scopeRows === null ? null : countAgentsOwnedBy(scopeRows, agentRows, scope);
 
   const guard = useUnsavedGuard(editor.dirty);
 
@@ -102,7 +112,7 @@ export function AgentsPage({ pollIntervalMs = AGENT_POLL_INTERVAL_MS }: { pollIn
       <div className={styles.column}>
         <div className={styles.top}>
           <ScopePicker
-            scopes={scopes.state.kind === 'ready' ? scopes.state.data.scopes : []}
+            scopes={scopeRows ?? []}
             value={scope}
             status={worstStatus(counts)}
             onChange={openScope}

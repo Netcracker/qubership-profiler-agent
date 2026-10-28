@@ -323,6 +323,16 @@ describe('applying changes', () => {
     expect(screen.getByRole('button', { name: 'Apply to 1 agent' })).toBeInTheDocument();
   });
 
+  it('leaves out the agents of a scope below that has its own config', async () => {
+    // Of the 13 agents, one cannot pull config, prod-orders/order-processing
+    // keeps its own config for its three, and staging-orders keeps its own for
+    // its managed one.
+    renderAgentsPage('/agents');
+    await screen.findByRole('tab', { name: 'Agents (13)' });
+    await toggleRecording();
+    expect(await screen.findByRole('button', { name: 'Apply to 8 agents' })).toBeInTheDocument();
+  });
+
   it('sends the revision the page loaded and then shows the agents', async () => {
     const writes = recordWrites();
     const router = renderAgentsPage('/agents?scope=prod-orders%2Forder-processing');
