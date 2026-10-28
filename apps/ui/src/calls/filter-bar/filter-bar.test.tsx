@@ -57,6 +57,39 @@ describe('FilterBar', () => {
     expect(last()).toEqual([{ field: 'pod', op: '=', values: ['checkout-b'] }]);
   });
 
+  it('reports the field whose values it lists, and adds the footer note', async () => {
+    const onValueField = vi.fn<(field: string | null) => void>();
+    const { input } = setup({ onValueField, valueNote: (field) => (field === 'pod' ? 'Loading values…' : null) });
+    await userEvent.click(input);
+    await userEvent.type(input, 'pod');
+    await userEvent.keyboard('{Enter}');
+    expect(onValueField).toHaveBeenLastCalledWith(null);
+    await userEvent.keyboard('{Enter}');
+    expect(onValueField).toHaveBeenLastCalledWith('pod');
+    expect(screen.getByText(/^Loading values… /)).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}{Backspace}');
+    expect(onValueField).toHaveBeenLastCalledWith(null);
+  });
+
+  it('shows the value note while there is nothing to pick yet', async () => {
+    let note: string | null = 'Loading values…';
+    const { input } = setup({ valueNote: () => note });
+    await userEvent.click(input);
+    await userEvent.type(input, 'service');
+    await userEvent.keyboard('{Enter}{Enter}');
+    const list = screen.getByRole('listbox', { name: 'Values for service' });
+    expect(within(list).queryAllByRole('option')).toEqual([]);
+    expect(screen.getByText(/^Loading values… /)).toBeInTheDocument();
+
+    cleanup();
+    note = null;
+    const again = setup({ valueNote: () => note });
+    await userEvent.click(again.input);
+    await userEvent.type(again.input, 'service');
+    await userEvent.keyboard('{Enter}{Enter}');
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
   it('adds a typed call parameter condition that no field list names', async () => {
     const { input, last } = setup();
     await userEvent.click(input);

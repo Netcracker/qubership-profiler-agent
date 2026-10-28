@@ -1,11 +1,11 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
 import { isListOperator } from '../../filter/condition';
 import type { Condition } from '../../filter/condition';
 import { validateCondition } from '../../filter/grammar';
 import { ALL_FIELDS, EMPTY_DRAFT, stageView } from './suggestions';
-import type { ConditionPredicate, Draft, Item, SupportedPredicate, ValueSource } from './suggestions';
+import type { ConditionPredicate, Draft, Item, SupportedPredicate, ValueNote, ValueSource } from './suggestions';
 import styles from './filter-bar.module.css';
 
 // The filter bar of the calls page (CallsAlt mockup): one token per condition, and an input that builds the next
@@ -50,6 +50,10 @@ export interface FilterBarProps {
   presets?: readonly PresetToken[];
   /** Value suggestions per field. */
   values?: ValueSource;
+  /** A footer note on the values of a field, such as that they are loading. */
+  valueNote?: ValueNote;
+  /** Called with the field whose values the bar lists, or null when it lists none, so the page can load them. */
+  onValueField?: (field: string | null) => void;
   /** The fields the bar lists; every field of the catalog when absent. */
   fields?: readonly string[];
   /**
@@ -83,6 +87,8 @@ export function FilterBar({
   params = fields === undefined,
   onRun,
   placeholder,
+  valueNote,
+  onValueField,
 }: FilterBarProps) {
   const listed = fields ?? ALL_FIELDS;
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -93,9 +99,12 @@ export function FilterBar({
   const listId = useId();
 
   const view = useMemo(
-    () => stageView({ draft, text, fields: listed, params, supported, conditionReason, values }),
-    [draft, text, listed, params, supported, conditionReason, values],
+    () => stageView({ draft, text, fields: listed, params, supported, conditionReason, values, valueNote }),
+    [draft, text, listed, params, supported, conditionReason, values, valueNote],
   );
+
+  const valueField = draft.op !== null ? draft.field : null;
+  useEffect(() => onValueField?.(valueField), [valueField, onValueField]);
   const items = view.items;
   const active = Math.max(0, Math.min(highlight, items.length - 1));
 
@@ -176,7 +185,8 @@ export function FilterBar({
       : view.stage === 'op'
         ? 'Operator'
         : 'Value';
-  const showList = open && (items.length > 0 || error !== null);
+  // A value note, such as "Loading values…", keeps the list open while there is nothing to pick yet.
+  const showList = open && (items.length > 0 || error !== null || view.note !== undefined);
   const optionId = (i: number): string => `${listId}-option-${i}`;
 
   return (

@@ -21,6 +21,9 @@ export interface ValueSuggestion {
 /** The values offered for a field; the bar narrows them by the typed text. */
 export type ValueSource = (field: string) => readonly ValueSuggestion[];
 
+/** A note on the values of a field for the dropdown footer, such as "Loading values…", or null. */
+export type ValueNote = (field: string) => string | null;
+
 /** The part of a condition picked so far. */
 export interface Draft {
   field: string | null;
@@ -52,6 +55,8 @@ export interface StageView {
   title: string;
   foot: string;
   items: Item[];
+  /** The value note of the field, such as "Loading values…"; the dropdown shows it even with no items. */
+  note?: string;
 }
 
 /** The most values listed at once; the footer says how many matched. */
@@ -89,6 +94,7 @@ export interface StageInput {
   /** Checks the values too, such as `None` on a backend that cannot match it; `supported` alone when absent. */
   conditionReason?: ConditionPredicate;
   values: ValueSource;
+  valueNote?: ValueNote;
 }
 
 const FIELD_FOOT = 'Pick a field, or type a word to search in the method name. All filters must match.';
@@ -98,7 +104,16 @@ const FIELD_FOOT_PARAMS =
 /** The fields of the catalog, in catalog order. */
 export const ALL_FIELDS: readonly string[] = FIELDS.map((f) => f.name);
 
-export function stageView({ draft, text, fields, params = false, supported, conditionReason, values }: StageInput): StageView {
+export function stageView({
+  draft,
+  text,
+  fields,
+  params = false,
+  supported,
+  conditionReason,
+  values,
+  valueNote,
+}: StageInput): StageView {
   const reasonOf = (c: Condition): string | undefined => orNull(conditionReason ? conditionReason(c) : supported(c.field, c.op));
   const typed = text.trim();
   const needle = typed.toLowerCase();
@@ -183,6 +198,7 @@ export function stageView({ draft, text, fields, params = false, supported, cond
   }
 
   let foot: string;
+  let note: string | undefined;
   if (def?.kind === 'duration') {
     const presets = draft.op === 'between' ? RANGE_PRESETS : DURATION_PRESETS;
     for (const p of presets.filter((v) => v.includes(needle))) items.push({ label: p, hint: '', action: { kind: 'value', value: p } });
@@ -196,13 +212,17 @@ export function stageView({ draft, text, fields, params = false, supported, cond
         items.push({ label: value, hint, disabledReason: valueReason(value), action: { kind: 'value', value } });
       }
     }
-    const known: readonly ValueSuggestion[] = def?.values?.map((value) => ({ value })) ?? values(draft.field);
+    // A closed field lists its catalog values in catalog order, with the counts the source has for them.
+    const source = values(draft.field);
+    const counts = new Map(source.map((s) => [s.value, s.count]));
+    const known: readonly ValueSuggestion[] = def?.values?.map((value) => ({ value, count: counts.get(value) })) ?? source;
     const matching = known.filter((s) => s.value.toLowerCase().includes(needle) && !draft.values.includes(s.value));
     for (const s of matching.slice(0, MAX_VALUES)) {
       items.push({ label: s.value, hint: '', count: s.count, action: { kind: 'value', value: s.value } });
     }
     const shown = matching.length > MAX_VALUES ? `Showing ${MAX_VALUES} of ${matching.length.toLocaleString('en-US')} values. ` : '';
-    foot = shown + (multi ? 'Pick several values, then press Enter.' : 'Type to search, or enter your own value.');
+    note = valueNote?.(draft.field) ?? undefined;
+    foot = (note !== undefined ? `${note} ` : '') + shown + (multi ? 'Pick several values, then press Enter.' : 'Type to search, or enter your own value.');
   }
-  return { stage: 'value', title: `Values for ${draft.field}`, foot, items };
+  return { stage: 'value', title: `Values for ${draft.field}`, foot, items, note };
 }
