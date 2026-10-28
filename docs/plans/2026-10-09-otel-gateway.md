@@ -483,9 +483,10 @@ rules:
     mode: passthrough                # first match wins; no match falls back to the top-level mode
 ```
 
-Match keys are `namespace`, `service`, and `pod` on both surfaces, plus `dump_type` on dumps. `service` is the key
-to write rules on; pod names are ephemeral, and `pod` exists for debugging. On the dump path the URL carries
-namespace and pod but no service, so `service` is not a valid key in `profiler_dumps` rules. Each extension
+Match keys are `namespace`, `service`, and `pod` on both surfaces, plus `dump_type` on dumps. `dump_type` takes
+`hprof`, `td`, `gc`, and `other`, the last for the core files and `hs_err` logs `diagtools scan` also uploads.
+`service` is the key to write rules on; pod names are ephemeral, and `pod` exists for debugging. On the dump path the
+URL carries namespace and pod but no service, so `service` is not a valid key in `profiler_dumps` rules. Each extension
 validates its own key set and rejects unknown keys.
 
 `rules_file` entries are evaluated before inline `rules`. Both extensions may point at the same file; each reads

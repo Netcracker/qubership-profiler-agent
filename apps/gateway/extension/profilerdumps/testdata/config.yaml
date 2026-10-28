@@ -1,0 +1,20 @@
+profiler_dumps:
+profiler_dumps/custom:
+  endpoint: 127.0.0.1:18080
+  upstream: http://cloud-profiler-dumps-collector.profiler.svc:8080
+  mode: discard
+  path_prefix: /diag
+  allowed_methods: [PUT]
+  connect_timeout: 2s
+  response_header_timeout: 15m
+  read_header_timeout: 5s
+  max_body_size: 2GiB
+  max_body_size_per_type: { hprof: 10GiB, td: 64MiB, gc: 1048576 }
+  max_concurrent_uploads: 4
+  rules_file: /etc/gateway/rules.yaml
+  rules:
+    - match: { namespace: "prod-*", dump_type: [hprof] }
+      mode: passthrough
+  drain_timeout: 1m
+profiler_dumps/unknown_key:
+  upstreams: http://x
