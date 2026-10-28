@@ -1,8 +1,9 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { act } from 'react';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import * as endpoints from '../api/endpoints';
 import { server } from '../mocks/node';
 import { useStats } from './use-stats';
 
@@ -47,5 +48,15 @@ describe('useStats', () => {
     server.resetHandlers();
     act(() => result.current.refetch());
     await waitFor(() => expect(result.current.state.kind).toBe('ready'));
+  });
+
+  it('reports a failure that is not an Error by its text', async () => {
+    vi.spyOn(endpoints, 'fetchStats').mockRejectedValueOnce('offline');
+    try {
+      const { result } = renderHook(() => useStats(QUERY));
+      await waitFor(() => expect(result.current.state).toEqual({ kind: 'error', message: 'offline' }));
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
