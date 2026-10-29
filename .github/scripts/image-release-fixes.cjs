@@ -106,6 +106,8 @@ function freshnessProblem(pair, state, boundary, now, scanRuns) {
       || Date.parse(r.run_started_at) <= boundary || Date.parse(r.run_started_at) < now.getTime() - 2 * DAY)) {
       return 'scan workflow failed, is incomplete, or started before the freshness boundary';
     }
+    // Scheduled scans use fixed options for both tags; manual inputs are absent from analysis metadata.
+    if (runs.some(r => r.event !== 'schedule')) return 'scan options are unknown for a non-scheduled run';
     if (analysis.error !== '' || analysis.warning !== '' || !Number.isInteger(analysis.results_count)
       || !analysis.analysis_key.startsWith('.github/workflows/security-scan.yml:')) {
       return 'analysis failed, has warnings, or came from another workflow';

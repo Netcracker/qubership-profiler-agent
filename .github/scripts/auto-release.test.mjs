@@ -36,7 +36,7 @@ function fakeGitHub({
   imageAnalyses = [], sarif = {},
   publishers = [],
   scanRuns = [{
-    head_sha: 'current-head', status: 'completed', conclusion: 'success',
+    event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'success',
     run_started_at: '2026-10-19T04:50:00Z', updated_at: '2026-10-19T05:30:00Z',
   }],
 } = {}) {
@@ -294,7 +294,7 @@ describe('autoRelease image findings', () => {
     scans.imageAnalyses[0].created_at = '2026-10-17T06:00:00Z';
     scans.imageAnalyses[1].created_at = '2026-10-18T06:00:00Z';
     const decision = await decide(fakeGitHub({ ...scans, scanRuns: [{
-      head_sha: 'current-head', status: 'completed', conclusion: 'success',
+      event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'success',
       run_started_at: '2026-10-17T06:00:00Z', updated_at: '2026-10-19T05:30:00Z',
     }] }));
     assert.strictEqual(decision.release, true);
@@ -363,11 +363,46 @@ describe('autoRelease image findings', () => {
 });
 
 describe('autoRelease scan provenance', () => {
+  for (const tool of ['Grype', 'Trivy']) {
+    for (const tag of ['latest', 'main']) {
+      it(`rejects a manual ${tool} ${tag} scan whose only-fixed filter is unknown`, async () => {
+        // An unfixed vulnerability can disappear from main's report solely because only-fixed filters it out.
+        const scans = imageScans({ tool });
+        const scanRuns = scans.imageAnalyses.map((a, index) => {
+          a.created_at = `2026-10-19T0${index + 4}:00:00Z`;
+          return {
+            event: a.category.includes(`:${tag}@`) ? 'workflow_dispatch' : 'schedule',
+            head_sha: 'current-head', status: 'completed', conclusion: 'success',
+            run_started_at: a.created_at, updated_at: a.created_at,
+          };
+        });
+        const github = fakeGitHub({ ...scans, scanRuns });
+        const decision = await decide(github);
+        assert.deepStrictEqual({ release: decision.release, fixes: decision.fixes, dispatches: github.dispatches },
+          { release: false, fixes: [], dispatches: [] });
+      });
+    }
+  }
+
+  for (const event of [undefined, 'push', 'workflow_dispatch']) {
+    it(`rejects ambiguous scan provenance containing an overlapping ${event} run`, async () => {
+      const scans = imageScans();
+      const scheduled = {
+        event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'success',
+        run_started_at: '2026-10-19T04:50:00Z', updated_at: '2026-10-19T05:30:00Z',
+      };
+      const github = fakeGitHub({ ...scans, scanRuns: [scheduled, { ...scheduled, event }] });
+      const decision = await decide(github);
+      assert.deepStrictEqual({ release: decision.release, fixes: decision.fixes, dispatches: github.dispatches },
+        { release: false, fixes: [], dispatches: [] });
+    });
+  }
+
   it('rejects an expired scan workflow even when both analyses match its commit and time interval', async () => {
     const scans = imageScans();
     scans.imageAnalyses.forEach(a => { a.created_at = '2026-10-17T05:50:00Z'; });
     const github = fakeGitHub({ ...scans, scanRuns: [{
-      head_sha: 'current-head', status: 'completed', conclusion: 'success',
+      event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'success',
       run_started_at: '2026-10-17T05:45:00Z', updated_at: '2026-10-17T05:55:00Z',
     }] });
     const decision = await decide(github);
@@ -378,7 +413,7 @@ describe('autoRelease scan provenance', () => {
     const scans = imageScans();
     scans.imageAnalyses[1].created_at = '2026-10-18T04:59:59Z';
     const github = fakeGitHub({ ...scans, scanRuns: scans.imageAnalyses.map(a => ({
-      head_sha: 'current-head', status: 'completed', conclusion: 'success',
+      event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'success',
       run_started_at: a.created_at, updated_at: a.created_at,
     })) });
     const decision = await decide(github);
@@ -430,7 +465,7 @@ describe('autoRelease scan provenance', () => {
   ]) {
     it(`rejects image fixes with a ${name}`, async () => {
       const github = fakeGitHub({ ...imageScans(), scanRuns: scanRuns.map(r => ({
-        head_sha: 'current-head', status: 'completed', conclusion: 'success',
+        event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'success',
         run_started_at: '2026-10-19T04:50:00Z', updated_at: '2026-10-19T05:30:00Z', ...r,
       })) });
       const decision = await decide(github);
