@@ -1,18 +1,27 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { pkToPath } from '../api/pk';
 import type { CallJSON } from '../api/types';
+import { buildExportHtml, downloadHtml } from '../export/build-export';
 import { server } from '../mocks/node';
 import { callsPage, treeForCall } from '../mocks/synthetic';
 import { buildTreeModel } from '../tree/model';
 import { summariseParams } from '../tree/params-summary';
+import { setThemePreference, syncThemeMode } from '../ui/theme-mode';
 import { TreePage } from './tree-page';
 
 // The tree route against the MSW mock: a hot/hinted call decodes and renders
 // merged rows; a cold bare PK and a truncated blob surface their 09 §5 states.
+
+// The real builder fetches the built bundle, which a test run does not have;
+// build-export.test.ts covers it. Here it only records the payload.
+vi.mock('../export/build-export', () => ({
+  buildExportHtml: vi.fn(async () => '<!doctype html>'),
+  downloadHtml: vi.fn(),
+}));
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
@@ -100,6 +109,23 @@ describe('TreePage', () => {
     expect(screen.getByRole('button', { name: 'Adjust duration' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Setup categories' })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Download HTML/ })).toBeEnabled();
+  });
+
+  it('saves the theme in effect with the HTML export', async () => {
+    setThemePreference('dark');
+    try {
+      const call = firstCall((c) => c.truncated_reason === null, Date.now());
+      renderTreePage(
+        `/tree/${encodeURIComponent(pkToPath(call.pk))}?ts_ms=${call.ts_ms}&retention_class=${call.retention_class}`,
+      );
+      await screen.findByText(/CoyoteAdapter\.service/, undefined, { timeout: 5000 });
+      fireEvent.click(screen.getByRole('button', { name: /Download HTML/ }));
+      await waitFor(() => expect(downloadHtml).toHaveBeenCalled());
+      expect(vi.mocked(buildExportHtml).mock.calls[0]![0]).toMatchObject({ pkPath: pkToPath(call.pk), theme: 'dark' });
+    } finally {
+      localStorage.clear();
+      syncThemeMode();
+    }
   });
 
   it('keeps derived views as closeable tabs', async () => {

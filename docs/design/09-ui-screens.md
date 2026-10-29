@@ -11,26 +11,38 @@ they share are specified once in §5.
 
 ## 1. App shell
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│ Profiler              [ Calls · Pods Info ]                (AS) │  top bar
-├───────────────┬────────────────────────────────────────────────┤
-│ Namespaces    │ Period — quick ranges — Apply                   │  controls
-│  ⌕ search     ├────────────────────────────────────────────────┤
-│  ▾ ns-1       │ Calls                       ⤓ ▤ ⚙              │
-│    ☑ svc-a    │  All >10 >100 [>500] >3s >5s   ◱ errors  ⌕ query│  filters
-│    ☐ svc-b    │ ┌────────────────────────────────────────────┐ │
-│  ▸ ns-2       │ │ calls table — keyset-paginated             │ │
-│  ▸ ns-3       │ └────────────────────────────────────────────┘ │
-└───────────────┴────────────────────────────────────────────────┘
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ▮ Profiler   Calls           Time range: [ « │ Last 1 hour ▾ │ » │ ⊖ ]  ☾ │  header
+├───────────┬───────────────┬─────────────────────────────────────────────┤
+│ WORKSPACE◧│ Namespaces    │ [Apply]                                     │
+│ ≡ Calls   │  ⌕ search     │ Calls                       ⤓ ▤ ⚙          │
+│ ⬡ Pods    │  ▾ ns-1       │  All >10 >100 [>500] >3s >5s  ◱ errors ⌕    │  filters
+│   Info    │    ☑ svc-a    │ ┌─────────────────────────────────────────┐ │
+│           │    ☐ svc-b    │ │ calls table — keyset-paginated          │ │
+│           │  ▸ ns-2       │ └─────────────────────────────────────────┘ │
+└───────────┴───────────────┴─────────────────────────────────────────────┘
+  navigation  discovery rail  content
+  rail
 ```
 
 | Region | Contents |
 |--------|----------|
-| Top bar | Product name; tab switch (`Calls`, `Pods Info`); user menu. The call-tree route replaces the bar with a context header (§3). |
-| Left rail | The `namespace → service → pod` tree (§2.1). Collapsible; hidden on the tree route. |
-| Controls | Period picker, quick ranges, `Apply`. Global to the data screens; data loads only on `Apply`. |
+| Header | One blue bar on the data screens: the product name, the screen name, the screen's controls, and the theme switch at the far right. The call-tree route replaces it with a context header (§3). |
+| Header controls | A slot that the active screen fills. Calls and Pods Info put the time range there: shift back, the period picker, shift forward, and zoom out (§2.2). |
+| Navigation rail | Links to `Calls` and `Pods Info`. 196 px open, 52 px collapsed to icons; the state is kept in `localStorage`. Switching screens keeps the query string, so the time range and the selection carry over. Hidden on the tree route. |
+| Discovery rail | The `namespace → service → pod` tree (§2.1), inside the screen. Collapsible. |
 | Content | The active screen. |
+
+**Theme.** The UI has a light and a dark theme. The switch in the header is a three-way choice with icons: Light,
+Dark, and Auto. Auto is the default and follows the browser's `prefers-color-scheme`, live: an OS change applies
+while the page is open. Light and Dark are stored in `localStorage` (`profiler.theme`) and win on every screen;
+Auto removes the stored value. The tree route has no shell header, so its own header carries the switch. An HTML
+export saves the mode in effect, so a copy exported under Auto opens in the mode Auto had resolved to.
+
+**Fonts.** Inter for text at a 13 px base size, and JetBrains Mono as the fixed-width font for code and, through
+the `.pf-mono` class, for numbers. Both are bundled as local `woff2` files: the UI is embedded in the query binary
+and loads nothing from another host. An HTML export embeds the font files too, so the copy keeps its fonts offline.
 
 **Routing.** One SPA served at `/ui` (`go:embed`, 07 §6).
 
@@ -66,12 +78,15 @@ must stay reachable.
 
 ### 2.2 Controls
 
-Period picker (absolute range) plus quick ranges (`15 min`, `1 h`, `2 h`, `4 h`) and `Apply`. Only the rail
-service/pod selection is `Apply`-gated — expanding a service into `pod` tuples is the expensive fan-out (02
-§2.3). Choosing a time range applies at once (Grafana-style refetch on a range change), and the toolbar's
-narrowing filters (duration chips and expression, errors only, method query) write the URL and refetch
-immediately; hide-system writes the URL but filters the loaded rows client-side (§2.3). The `Apply` button
-therefore carries only rail-selection edits.
+The time range lives in the header (§1): the period picker with an absolute range, quick ranges, and the display
+time zone, between the shift-back and shift-forward buttons, followed by zoom out. A shift moves the window by
+half its width, and zoom out doubles it around its center. Both commit an absolute window. Choosing a time range
+applies at once (Grafana-style refetch on a range change).
+
+`Apply` sits above the calls toolbar and carries only rail-selection edits. Only the rail service/pod selection is
+`Apply`-gated — expanding a service into `pod` tuples is the expensive fan-out (02 §2.3). The toolbar's narrowing
+filters (duration chips and expression, errors only, method query) write the URL and refetch immediately;
+hide-system writes the URL but filters the loaded rows client-side (§2.3).
 
 ### 2.3 Calls table
 

@@ -1,4 +1,4 @@
-import { Alert, Badge, Empty, Layout, Space, Table, Typography, message } from 'antd';
+import { Alert, Badge, Button, Empty, Layout, Space, Table, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -10,6 +10,7 @@ import { resolveUrlTime } from '../controls/time-range';
 import { DiscoveryRail, selectionEquals } from '../discovery/discovery-rail';
 import type { RailSelection } from '../discovery/discovery-rail';
 import { usePods } from '../discovery/use-pods';
+import { HeaderSlot } from '../shell/header-slot';
 import { useZone } from '../ui/timezone';
 import { callsSearchToParams, freezeWindow, hasRelativeWindow, parseCallsSearch } from '../url/search-params';
 import type { CallsSearchState } from '../url/search-params';
@@ -114,7 +115,7 @@ export function PodsPage() {
     });
   };
 
-  // The sibling Apply commits rail-selection edits against the committed window.
+  // Apply commits rail-selection edits against the committed window.
   const apply = (): void =>
     commitSearch({ ...search, services: draftSelection.services, pods: draftSelection.pods });
   // Apply has work only when the draft selection diverges from the committed one.
@@ -172,13 +173,24 @@ export function PodsPage() {
         <DiscoveryRail pods={railPodsState} selection={draftSelection} onSelectionChange={setDraftSelection} />
       </Layout.Sider>
       <Layout.Content className={`${styles.content}${railCollapsed ? ` ${styles.railGutter}` : ''}`}>
-        <PeriodControls
-          value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
-          onCommitRange={commitRange}
-          onApply={apply}
-          canApply={selectionDirty}
-          applying={state.kind === 'loading'}
-        />
+        <HeaderSlot>
+          <PeriodControls
+            value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
+            onCommitRange={commitRange}
+          />
+        </HeaderSlot>
+        {/* Enabled only when there is unwritten selection work — a dirty state, so
+            the button documents itself: grey means "everything is applied". */}
+        <Space>
+          <Button
+            type="primary"
+            onClick={apply}
+            loading={state.kind === 'loading'}
+            disabled={search.fromMs === null || search.toMs === null || !selectionDirty}
+          >
+            Apply
+          </Button>
+        </Space>
         {search.fromMs === null || search.toMs === null ? (
           <Empty className={styles.emptyTop} description="Pick a period and Apply to see pods." />
         ) : (

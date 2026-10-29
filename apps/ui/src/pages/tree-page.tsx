@@ -12,6 +12,7 @@ import type { SerializedTab } from '../export/restore';
 import type { TreeWire } from '../msgpack/tree-wire';
 import type { TreeState } from '../tree/use-tree';
 import { formatCount, formatDurationMs, formatTs } from '../calls/format';
+import { getThemeMode } from '../ui/theme-mode';
 import { useZone } from '../ui/timezone';
 import { HotspotsView } from '../tree/hotspots-view';
 import { parseMethod } from '../tree/method-info';
@@ -30,6 +31,7 @@ import { TreeView } from '../tree/tree-view';
 import type { TreeDirection, TreeViewOps } from '../tree/tree-view';
 import { useTree } from '../tree/use-tree';
 import { parseTreeSearch } from '../url/search-params';
+import { ThemeSwitch } from '../shell/theme-switch';
 import styles from './tree-page.module.css';
 
 // Call Tree route (09 §3): tabs Call Tree · Hotspots · Parameters, the
@@ -303,6 +305,7 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
         categoryText,
         tabs: opTabs.map((t): SerializedTab => ({ op: t.op, methodIdx: t.methodIdx, category: t.category, nodeId: t.nodeId })),
         activeTab,
+        theme: getThemeMode(),
       });
       downloadHtml(html, `profiler-tree-${pkToPath(pk).replace(/[^\w.-]+/g, '_')}.html`);
     } catch (e) {
@@ -370,6 +373,7 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
               Download HTML
             </Button>
           ) : null}
+          <ThemeSwitch />
         </Space>
       </Layout.Header>
       <Layout.Content className={styles.content}>

@@ -24,9 +24,15 @@ function wildcardToRegExp(ref: string): RegExp {
   return new RegExp(escaped.join('.*'));
 }
 
-/** hsl(i·150° mod 360) at 95% lightness — the old category palette. */
-function categoryColor(index: number): string {
-  return `hsl(${(index * 150) % 360},100%,95%)`;
+/** How many category colors theme.css defines, as `--pf-color-cat-1` and on. */
+export const CATEGORY_COLOR_COUNT = 6;
+
+/**
+ * The row color of the index-th category: a theme.css variable, so it follows
+ * the light and dark themes. Past the last color the palette starts over.
+ */
+export function categoryColor(index: number): string {
+  return `var(--pf-color-cat-${(index % CATEGORY_COLOR_COUNT) + 1})`;
 }
 
 function parseCategoryLines(text: string): {
