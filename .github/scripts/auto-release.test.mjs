@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { TextEncoder } from 'node:util';
 import autoRelease from './auto-release.cjs';
 
 // The anniversary is 2026-10-28T12:00:00Z, and the monthly window opens 3.5 days before it
@@ -32,17 +33,36 @@ function fakeGitHub({
   dependabotFixed = [], dependabotOpen = [],
   codeScanningFixed = [],
   runStatuses = ['completed'],
+  imageAnalyses = [], sarif = {},
+  publishers = [],
+  scanRuns = [{
+    head_sha: 'current-head', status: 'completed', conclusion: 'success',
+    run_started_at: '2026-10-19T04:50:00Z', updated_at: '2026-10-19T05:30:00Z',
+  }],
 } = {}) {
   const dispatches = [];
   const github = {
     dispatches,
     async paginate(method, params, map) {
+      if (typeof method === 'string') {
+        assert.strictEqual(method, 'GET /repos/{owner}/{repo}/code-scanning/analyses');
+        const data = imageAnalyses.filter(a => a.tool.name === params.tool_name);
+        return map ? map({ data }, () => {}) : data;
+      }
       const response = await method(params);
-      return map ? map(response, () => {}) : response.data;
+      const data = response.data.workflow_runs || response.data;
+      return map ? map({ data }, () => {}) : data;
+    },
+    async request(route, params) {
+      assert.strictEqual(route, 'GET /repos/{owner}/{repo}/code-scanning/analyses/{analysis_id}');
+      assert.strictEqual(params.headers.accept, 'application/sarif+json');
+      assert.ok(Object.hasOwn(sarif, params.analysis_id));
+      return { data: sarif[params.analysis_id] };
     },
     rest: {
       repos: {
         getLatestRelease: async () => ({ data: { tag_name: 'v4.0.7', published_at: RELEASED_AT } }),
+        getBranch: async () => ({ data: { commit: { sha: 'current-head' } } }),
         compareCommitsWithBasehead: async () => ({
           data: {
             ahead_by: commits.length,
@@ -57,7 +77,9 @@ function fakeGitHub({
         listAlertsForRepo: async () => ({ data: codeScanningFixed }),
       },
       actions: {
-        listWorkflowRuns: async () => ({ data: { workflow_runs: runStatuses.map(status => ({ status })) } }),
+        listWorkflowRuns: async ({ workflow_id, per_page }) => ({ data: { workflow_runs: per_page === 20
+          ? runStatuses.map(status => ({ status }))
+          : workflow_id === 'security-scan.yml' ? scanRuns : publishers.filter(r => r.path === workflow_id) } }),
         createWorkflowDispatch: async params => { dispatches.push(params); },
       },
     },
@@ -163,4 +185,256 @@ describe('autoRelease', () => {
     assert.strictEqual(decision.release, true);
     assert.deepStrictEqual(github.dispatches, []);
   });
+});
+
+function imageScans({ tool = 'Grype', latestFindings = [{}], mainFindings = [] } = {}) {
+  const imageAnalyses = ['latest', 'main'].map((tag, id) => ({
+    id,
+    category: `qubership-profiler-backend:${tag}@linux/amd64`,
+    ref: 'refs/heads/main',
+    commit_sha: 'current-head',
+    created_at: '2026-10-19T05:00:00Z',
+    error: '', warning: '',
+    tool: { name: tool, version: '1.0.0' },
+    analysis_key: `.github/workflows/security-scan.yml:${tool.toLowerCase()}-scan`,
+    environment: '{}',
+    results_count: (tag === 'latest' ? latestFindings : mainFindings).length,
+  }));
+  const sarif = Object.fromEntries(imageAnalyses.map((a, index) => {
+    const input = index === 0 ? latestFindings : mainFindings;
+    const results = input.map(({ pkg = 'example-package', version = '1.0', path = '/app', rule = 'CVE-example', number = 20 } = {}) => ({
+      ruleId: tool === 'Grype' ? `${rule}-${pkg}` : rule,
+      message: { text: tool === 'Grype'
+        ? `A high vulnerability in go-module package: ${pkg}, version ${version} was found in image backend at: ${path}`
+        : `Package: ${pkg}\nInstalled Version: ${version}\nVulnerability ${rule}` },
+      properties: { 'github/alertNumber': number },
+      locations: [{ physicalLocation: { artifactLocation: { uri: path } } }],
+    }));
+    return [a.id, { runs: [{
+      automationDetails: { id: `${a.category}/` },
+      tool: { driver: { ...a.tool, rules: input.map((f, i) => ({
+        id: results[i].ruleId, properties: { 'security-severity': f.score || '8.0' },
+      })) } },
+      results,
+    }] }];
+  }));
+  return { imageAnalyses, sarif };
+}
+
+const publisher = (path, overrides = {}) => ({
+  path, event: 'push', status: 'completed', conclusion: 'success', updated_at: '2026-10-18T12:00:00Z', ...overrides,
+});
+
+describe('autoRelease image findings', () => {
+  for (const tool of ['Grype', 'Trivy']) {
+    it(`releases for a fresh ${tool} finding present only in latest, even when no alert is globally fixed`, async () => {
+      const github = fakeGitHub(imageScans({ tool }));
+      const decision = await decide(github);
+      assert.deepStrictEqual(fixNumbers(decision), [20]);
+      assert.strictEqual(github.dispatches.length, 1);
+    });
+
+    it(`keeps a ${tool} advisory open when main has another vulnerable version at another path`, async () => {
+      const decision = await decide(fakeGitHub(imageScans({ tool, mainFindings: [{ version: '2.0', path: '/moved' }] })));
+      assert.deepStrictEqual({ release: decision.release, fixes: decision.fixes }, { release: false, fixes: [] });
+    });
+
+    it(`counts a ${tool} advisory once when latest contains the vulnerable package at multiple paths`, async () => {
+      const decision = await decide(fakeGitHub(imageScans({ tool, latestFindings: [{}, { path: '/other' }] })));
+      assert.deepStrictEqual(fixNumbers(decision), [20]);
+    });
+
+    it(`ignores ${tool} findings introduced only in main`, async () => {
+      const decision = await decide(fakeGitHub(imageScans({ tool, latestFindings: [], mainFindings: [{}] })));
+      assert.strictEqual(decision.release, false);
+    });
+  }
+
+  it('compares Trivy packages separately when they share the same CVE', async () => {
+    const decision = await decide(fakeGitHub(imageScans({ tool: 'Trivy', mainFindings: [{ pkg: 'another-package' }] })));
+    assert.deepStrictEqual(fixNumbers(decision), [20]);
+  });
+
+  for (const [name, change] of [
+    ['missing main analysis', s => s.imageAnalyses.pop()],
+    ['legacy categories', s => { s.imageAnalyses.forEach(a => { a.category = 'qubership-profiler-backend'; }); }],
+    ['another platform', s => { s.imageAnalyses[1].category = 'qubership-profiler-backend:main@linux/arm64'; }],
+    ['another image', s => { s.imageAnalyses[1].category = 'qubership-profiler-transfer:main@linux/amd64'; }],
+    ['another ref', s => { s.imageAnalyses[1].ref = 'refs/heads/other'; }],
+    ['an older commit', s => { s.imageAnalyses[1].commit_sha = 'old-head'; }],
+    ['a scanner error', s => { s.imageAnalyses[1].error = 'scan failed'; }],
+    ['a scanner warning', s => { s.imageAnalyses[1].warning = 'incomplete analysis'; }],
+    ['another workflow', s => { s.imageAnalyses[1].analysis_key = '.github/workflows/other.yml:scan'; }],
+    ['different scanner versions', s => { s.imageAnalyses[1].tool.version = '2.0'; }],
+    ['different configurations', s => { s.imageAnalyses[1].environment = '{"scope":"critical"}'; }],
+    ['a future scan', s => { s.imageAnalyses[1].created_at = '2026-10-19T06:00:00.001Z'; }],
+    ['an invalid timestamp', s => { s.imageAnalyses[1].created_at = 'invalid'; }],
+    ['a scan older than 48 hours', s => { s.imageAnalyses[1].created_at = '2026-10-17T05:59:59.999Z'; }],
+    ['scans more than 24 hours apart', s => { s.imageAnalyses[1].created_at = '2026-10-18T04:59:59.999Z'; }],
+    ['a scan before the release', s => { s.imageAnalyses[1].created_at = '2026-09-28T11:59:59Z'; }],
+    ['missing SARIF results', s => { delete s.sarif[1].runs[0].results; }],
+    ['a truncated SARIF report', s => { s.imageAnalyses[1].results_count = 1; }],
+    ['an unrecognized package', s => { s.sarif[0].runs[0].results[0].message.text = 'unknown format'; }],
+    ['a mismatched SARIF category', s => { s.sarif[1].runs[0].automationDetails.id = 'another-category/'; }],
+    ['a failed SARIF invocation', s => { s.sarif[1].runs[0].invocations = [{ executionSuccessful: false }]; }],
+    ['a finding below HIGH severity', s => { s.sarif[0].runs[0].tool.driver.rules[0].properties['security-severity'] = '6.9'; }],
+  ]) {
+    it(`skips image fixes with ${name}`, async () => {
+      const scans = imageScans();
+      change(scans);
+      const github = fakeGitHub(scans);
+      const decision = await decide(github);
+      assert.deepStrictEqual({ release: decision.release, fixes: decision.fixes, dispatches: github.dispatches },
+        { release: false, fixes: [], dispatches: [] });
+    });
+  }
+
+  it('accepts scans exactly 48 hours old and exactly 24 hours apart', async () => {
+    const scans = imageScans();
+    scans.imageAnalyses[0].created_at = '2026-10-17T06:00:00Z';
+    scans.imageAnalyses[1].created_at = '2026-10-18T06:00:00Z';
+    const decision = await decide(fakeGitHub({ ...scans, scanRuns: [{
+      head_sha: 'current-head', status: 'completed', conclusion: 'success',
+      run_started_at: '2026-10-17T06:00:00Z', updated_at: '2026-10-19T05:30:00Z',
+    }] }));
+    assert.strictEqual(decision.release, true);
+  });
+
+  it('uses the newest analysis even when it failed and an older successful analysis exists', async () => {
+    const scans = imageScans();
+    scans.imageAnalyses.unshift({ ...scans.imageAnalyses[1], id: 3, created_at: '2026-10-19T05:30:00Z', error: 'failed' });
+    const decision = await decide(fakeGitHub(scans));
+    assert.strictEqual(decision.release, false);
+  });
+
+  for (const workflow of ['release.yaml', 'backend-dev-docker-build.yml']) {
+    for (const conclusion of ['success', 'failure']) {
+      it(`rejects scans predating a completed ${workflow} run with conclusion ${conclusion}`, async () => {
+        const github = fakeGitHub({ ...imageScans(), publishers: [publisher(workflow, {
+          conclusion, updated_at: '2026-10-19T05:00:01Z',
+        })] });
+        const decision = await decide(github);
+        assert.strictEqual(decision.release, false);
+      });
+    }
+    it(`rejects image fixes while ${workflow} is running`, async () => {
+      const decision = await decide(fakeGitHub({ ...imageScans(), publishers: [publisher(workflow, { status: 'in_progress' })] }));
+      assert.strictEqual(decision.release, false);
+    });
+  }
+
+  it('ignores pull request builds that do not publish images', async () => {
+    const decision = await decide(fakeGitHub({ ...imageScans(), publishers: [publisher('backend-dev-docker-build.yml', {
+      event: 'pull_request', status: 'in_progress',
+    })] }));
+    assert.strictEqual(decision.release, true);
+  });
+
+  it('rejects image fixes if the branch moves during comparison', async () => {
+    const github = fakeGitHub(imageScans());
+    let reads = 0;
+    github.rest.repos.getBranch = async () => ({ data: { commit: { sha: reads++ ? 'new-head' : 'current-head' } } });
+    const decision = await decide(github);
+    assert.strictEqual(decision.release, false);
+  });
+
+  it('rejects image fixes if a release appears during comparison', async () => {
+    const github = fakeGitHub(imageScans());
+    let reads = 0;
+    github.rest.repos.getLatestRelease = async () => ({ data: {
+      tag_name: reads++ ? 'v4.0.8' : 'v4.0.7', published_at: RELEASED_AT,
+    } });
+    const decision = await decide(github);
+    assert.strictEqual(decision.release, false);
+  });
+
+  it('still permits a monthly release when image scans are stale', async () => {
+    const scans = imageScans();
+    scans.imageAnalyses[1].error = 'failed';
+    const decision = await decide(fakeGitHub(scans), { now: new Date('2026-10-25T00:00:00Z') });
+    assert.deepStrictEqual({ release: decision.release, fixes: decision.fixes }, { release: true, fixes: [] });
+  });
+
+  it('reports fresh image fixes without dispatching in a dry run', async () => {
+    const github = fakeGitHub(imageScans());
+    const decision = await decide(github, { dryRun: true });
+    assert.deepStrictEqual({ release: decision.release, dispatches: github.dispatches }, { release: true, dispatches: [] });
+  });
+});
+
+describe('autoRelease scan provenance', () => {
+  it('rejects an expired scan workflow even when both analyses match its commit and time interval', async () => {
+    const scans = imageScans();
+    scans.imageAnalyses.forEach(a => { a.created_at = '2026-10-17T05:50:00Z'; });
+    const github = fakeGitHub({ ...scans, scanRuns: [{
+      head_sha: 'current-head', status: 'completed', conclusion: 'success',
+      run_started_at: '2026-10-17T05:45:00Z', updated_at: '2026-10-17T05:55:00Z',
+    }] });
+    const decision = await decide(github);
+    assert.strictEqual(decision.release, false);
+  });
+
+  it('rejects fresh completed scans more than 24 hours apart', async () => {
+    const scans = imageScans();
+    scans.imageAnalyses[1].created_at = '2026-10-18T04:59:59Z';
+    const github = fakeGitHub({ ...scans, scanRuns: scans.imageAnalyses.map(a => ({
+      head_sha: 'current-head', status: 'completed', conclusion: 'success',
+      run_started_at: a.created_at, updated_at: a.created_at,
+    })) });
+    const decision = await decide(github);
+    assert.strictEqual(decision.release, false);
+  });
+
+  it('reads the ArrayBuffer SARIF response returned by Octokit for application/json+sarif', async () => {
+    const scans = imageScans();
+    for (const id of [0, 1]) scans.sarif[id] = new TextEncoder().encode(JSON.stringify(scans.sarif[id])).buffer;
+    const decision = await decide(fakeGitHub(scans));
+    assert.deepStrictEqual(fixNumbers(decision), [20]);
+  });
+
+  it('rejects a stale latest scan even when the main scan is fresh', async () => {
+    const scans = imageScans();
+    scans.imageAnalyses[0].created_at = '2026-10-17T05:59:59Z';
+    const decision = await decide(fakeGitHub(scans));
+    assert.strictEqual(decision.release, false);
+  });
+
+  it('rejects image fixes if an image publisher starts during comparison', async () => {
+    const github = fakeGitHub(imageScans());
+    const list = github.rest.actions.listWorkflowRuns;
+    let reads = 0;
+    github.rest.actions.listWorkflowRuns = async params => {
+      if (params.workflow_id === 'backend-dev-docker-build.yml' && ++reads > 1) {
+        return { data: { workflow_runs: [publisher(params.workflow_id, { status: 'in_progress' })] } };
+      }
+      return list(params);
+    };
+    const decision = await decide(github);
+    assert.deepStrictEqual({ release: decision.release, dispatches: github.dispatches }, { release: false, dispatches: [] });
+  });
+
+  it('rejects a scan that read the old image before publication but uploaded its analysis afterward', async () => {
+    const github = fakeGitHub({ ...imageScans(), publishers: [publisher('release.yaml', {
+      updated_at: '2026-10-19T04:55:00Z',
+    })] });
+    const decision = await decide(github);
+    assert.strictEqual(decision.release, false);
+  });
+
+  for (const [name, scanRuns] of [
+    ['missing scan run', []],
+    ['failed scan run', [{ status: 'completed', conclusion: 'failure' }]],
+    ['unfinished scan run', [{ status: 'in_progress', conclusion: null }]],
+    ['scan run for another commit', [{ head_sha: 'other-head' }]],
+    ['scan run outside the analysis interval', [{ updated_at: '2026-10-19T04:59:59Z' }]],
+  ]) {
+    it(`rejects image fixes with a ${name}`, async () => {
+      const github = fakeGitHub({ ...imageScans(), scanRuns: scanRuns.map(r => ({
+        head_sha: 'current-head', status: 'completed', conclusion: 'success',
+        run_started_at: '2026-10-19T04:50:00Z', updated_at: '2026-10-19T05:30:00Z', ...r,
+      })) });
+      const decision = await decide(github);
+      assert.deepStrictEqual({ release: decision.release, dispatches: github.dispatches }, { release: false, dispatches: [] });
+    });
+  }
 });

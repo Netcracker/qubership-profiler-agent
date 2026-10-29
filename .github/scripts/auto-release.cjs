@@ -1,6 +1,7 @@
 'use strict';
 
 const DAY = 24 * 3600 * 1000;
+const imageReleaseFixes = require('./image-release-fixes.cjs');
 
 /**
  * Decides whether to release, and starts the release workflow when it should.
@@ -47,6 +48,9 @@ module.exports = async function autoRelease({ github, context, core, now, branch
 
   const { data: runs } = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: workflowId, per_page: 20 });
   const releaseRunning = runs.workflow_runs.some(r => r.status !== 'completed');
+  const images = await imageReleaseFixes({ github, owner, repo, branch, workflowId, latest, now });
+  core.info(images.status);
+  fixes.push(...images.fixes);
 
   let release = false;
   let reason;
@@ -71,9 +75,10 @@ module.exports = async function autoRelease({ github, context, core, now, branch
     .addRaw(`Latest release: ${latest.tag_name}, published at ${latest.published_at}`, true)
     .addRaw(`Commits since the release, excluding version bumps: ${changes.length}`, true)
     .addRaw(`Decision: ${decision}${dryRun ? ' (dry run)' : ''}`, true)
+    .addRaw(images.status, true)
     .addTable([
       ['Source', 'Alert', 'Severity', 'Subject', 'Fixed at'].map(data => ({ data, header: true })),
-      ...fixes.map(f => [f.source, `#${f.number}`, f.severity, f.subject, f.fixedAt]),
+      ...fixes.map(f => [f.source, f.number ? `#${f.number}` : '', f.severity, f.subject, f.fixedAt]),
     ])
     .write();
 
@@ -107,10 +112,7 @@ async function dependabotFixes({ github, owner, repo, releasedAt }) {
     }));
 }
 
-// security-scan.yml scans the latest and main images of each component, and the reusable workflow uploads both under
-// one category, so whichever upload finishes last decides the state of an alert. A fixed Grype or Trivy alert
-// therefore does not show that main has the fix and the released image lacks it, and is not counted until the
-// categories carry the tag: https://github.com/Netcracker/qubership-workflow-hub/issues/1012
+// Image alerts can stay globally open while latest is vulnerable and main is fixed; compare their analyses separately.
 const IMAGE_SCANNERS = new Set(['Grype', 'Trivy']);
 
 async function codeScanningFixes({ github, owner, repo, branch, releasedAt }) {

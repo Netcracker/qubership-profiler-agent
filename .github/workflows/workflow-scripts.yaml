@@ -41,4 +41,4 @@ jobs:
           node-version: 24
 
       - name: Run the tests
-        run: node --test --test-randomize .github/scripts/
+        run: node --test --test-randomize .github/scripts/auto-release.test.mjs
