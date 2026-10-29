@@ -12,7 +12,7 @@ import (
 // percent-encoded, and echo hands the parameter over still escaped — a
 // JS client's encodeURIComponent turns the ':' separators into %3A, which
 // ParsePKPath must not see. Surfaced by the it-e2e query-ui run.
-func pkParam(c echo.Context) (model.PK, error) {
+func pkParam(c *echo.Context) (model.PK, error) {
 	raw, err := url.PathUnescape(c.Param("pk"))
 	if err != nil {
 		return model.PK{}, errors.Wrap(err, "pk is not percent-encoded correctly")

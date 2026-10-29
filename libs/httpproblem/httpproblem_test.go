@@ -36,8 +36,6 @@ type envelope struct {
 func serve(t *testing.T, method string, handler echo.HandlerFunc) (*http.Response, string) {
 	t.Helper()
 	e := echo.New()
-	e.HideBanner = true
-	e.HidePort = true
 	e.HTTPErrorHandler = httpproblem.ErrorHandler
 	e.Add(method, "/probe", handler)
 
@@ -74,14 +72,14 @@ func TestErrorHandlerEnvelope(t *testing.T) {
 		},
 		{
 			name:   "an unmatched route",
-			err:    echo.NewHTTPError(http.StatusNotFound),
+			err:    echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound)),
 			status: http.StatusNotFound,
 			code:   httpproblem.CodeNotFound,
 			detail: "Not Found",
 		},
 		{
 			name:   "a method no route serves",
-			err:    echo.NewHTTPError(http.StatusMethodNotAllowed),
+			err:    echo.NewHTTPError(http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed)),
 			status: http.StatusMethodNotAllowed,
 			code:   httpproblem.CodeMethodNotAllowed,
 			detail: "Method Not Allowed",
@@ -112,7 +110,7 @@ func TestErrorHandlerEnvelope(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, body := serve(t, http.MethodGet, func(echo.Context) error { return tc.err })
+			resp, body := serve(t, http.MethodGet, func(*echo.Context) error { return tc.err })
 
 			assert.Equal(t, tc.status, resp.StatusCode)
 			assert.Equal(t, httpproblem.ContentType, resp.Header.Get(echo.HeaderContentType))
@@ -139,7 +137,7 @@ func TestErrorHandlerEnvelope(t *testing.T) {
 // through http.ServeContent, and a problem body appended to it would corrupt
 // the bytes the client is reading.
 func TestErrorHandlerLeavesACommittedResponseAlone(t *testing.T) {
-	resp, body := serve(t, http.MethodGet, func(c echo.Context) error {
+	resp, body := serve(t, http.MethodGet, func(c *echo.Context) error {
 		if err := c.String(http.StatusOK, "partial payload"); err != nil {
 			return err
 		}
@@ -153,8 +151,8 @@ func TestErrorHandlerLeavesACommittedResponseAlone(t *testing.T) {
 // A HEAD request answers the status and content type its GET would, with no
 // body — the same split echo.DefaultHTTPErrorHandler makes.
 func TestErrorHandlerHeadHasNoBody(t *testing.T) {
-	resp, body := serve(t, http.MethodHead, func(echo.Context) error {
-		return echo.NewHTTPError(http.StatusNotFound)
+	resp, body := serve(t, http.MethodHead, func(*echo.Context) error {
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	})
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -306,9 +304,9 @@ func TestIsClientSide(t *testing.T) {
 		clientSide bool
 	}{
 		{"404 not found", echo.NewHTTPError(404, "Not Found"), true},
-		{"400 bad request", echo.NewHTTPError(400), true},
+		{"400 bad request", echo.NewHTTPError(400, http.StatusText(400)), true},
 		{"context canceled", fmt.Errorf("wrap: %w", context.Canceled), true},
-		{"context canceled wrapped in an HTTPError.Internal", echo.NewHTTPError(500).WithInternal(context.Canceled), true},
+		{"context canceled wrapped in an HTTPError", echo.NewHTTPError(500, "").Wrap(context.Canceled), true},
 		{"deadline exceeded", context.DeadlineExceeded, true},
 		{"broken pipe", brokenPipe, true},
 		{"connection reset", connReset, true},

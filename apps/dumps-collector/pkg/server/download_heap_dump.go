@@ -2,6 +2,8 @@ package server
 
 import (
 	"archive/zip"
+	"mime"
+	"os"
 	"path/filepath"
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
@@ -10,8 +12,8 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c echo.Context) error {
-	return func(c echo.Context) error {
+func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c *echo.Context) error {
+	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 
 		// Get parameters from query params
@@ -26,7 +28,10 @@ func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c echo.Conte
 		}
 
 		if fileLocation.PathToZip == "" {
-			return c.Attachment(fileLocation.PathToFiles[0], filepath.Base(fileLocation.PathToFiles[0]))
+			path := fileLocation.PathToFiles[0]
+			name := filepath.Base(path)
+			c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+			return c.FileFS(name, os.DirFS(filepath.Dir(path)))
 		} else {
 			zipReader, err := zip.OpenReader(fileLocation.PathToZip)
 			if err != nil {
