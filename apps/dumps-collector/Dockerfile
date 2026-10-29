@@ -8,7 +8,7 @@ ARG TARGETOS=linux
 ARG TARGETARCH
 
 # renovate: datasource=maven depName=qubership-profiler-installer packageName=org.qubership.profiler:qubership-profiler-installer versioning=maven
-ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=4.0.7
+ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=4.0.8
 
 # renovate: datasource=maven depName=qubership-profiler-diagtools packageName=org.qubership.profiler:qubership-profiler-diagtools versioning=maven
 ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=4.0.7
