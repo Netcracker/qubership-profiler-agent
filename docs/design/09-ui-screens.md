@@ -6,91 +6,163 @@ builds on [`07-ui-design.md`](07-ui-design.md) (contract, tree engine, deploymen
 this carries the concrete screens. The visual reference is the wireframe artifact; this document is the
 text-of-record so the wireframe is not the only carrier.
 
-Three screens sit inside one app shell: **Discovery + Calls**, **Call Tree**, and **Pods Info**. The **states**
+Three screens sit inside one app shell: **Calls**, **Call Tree**, and **Pods Info**. The **states**
 they share are specified once in §5.
 
 ## 1. App shell
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│ Profiler              [ Calls · Pods Info ]                (AS) │  top bar
-├───────────────┬────────────────────────────────────────────────┤
-│ Namespaces    │ Period — quick ranges — Apply                   │  controls
-│  ⌕ search     ├────────────────────────────────────────────────┤
-│  ▾ ns-1       │ Calls                       ⤓ ▤ ⚙              │
-│    ☑ svc-a    │  All >10 >100 [>500] >3s >5s   ◱ errors  ⌕ query│  filters
-│    ☐ svc-b    │ ┌────────────────────────────────────────────┐ │
-│  ▸ ns-2       │ │ calls table — keyset-paginated             │ │
-│  ▸ ns-3       │ └────────────────────────────────────────────┘ │
-└───────────────┴────────────────────────────────────────────────┘
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ▮ Profiler   Calls           Time range: [ « │ Last 1 hour ▾ │ » │ ⊖ ]  ☾ │  header
+├───────────┬─────────────────────────────────────────────────────────────┤
+│ WORKSPACE◧│ ⏷ duration > 500ms ✕  namespace = prod ✕  Add…  [Sort by ▾] │  filter bar
+│ ≡ Calls   │ Duration All >10 >100 [>500] >3s >5s ◱ Errors ◱ System [Run]│  controls
+│ ⬡ Pods    │ ┌─────────────────────────────────────────────────────────┐ │
+│   Info    │ │ calls table — keyset-paginated                        ⚙ │ │
+│           │ └─────────────────────────────────────────────────────────┘ │
+└───────────┴─────────────────────────────────────────────────────────────┘
+  navigation  content
+  rail
 ```
 
 | Region | Contents |
 |--------|----------|
-| Top bar | Product name; tab switch (`Calls`, `Pods Info`); user menu. The call-tree route replaces the bar with a context header (§3). |
-| Left rail | The `namespace → service → pod` tree (§2.1). Collapsible; hidden on the tree route. |
-| Controls | Period picker, quick ranges, `Apply`. Global to the data screens; data loads only on `Apply`. |
-| Content | The active screen. |
+| Header | One blue bar on the data screens: the product name, the screen name, the screen's controls, and the theme switch at the far right. The call-tree route replaces it with a context header (§3). |
+| Header controls | A slot that the active screen fills. Calls and Pods Info put the time range there: shift back, the period picker, shift forward, and zoom out (§2.2). |
+| Navigation rail | Links to `Calls` and `Pods Info`. 196 px open, 52 px collapsed to icons; the state is kept in `localStorage`. Switching screens keeps the query string, so the time range and the filters carry over. Hidden on the tree route. |
+| Content | The active screen. No screen has a filter sidebar: filters live in one bar above the content (§2.1). |
+
+**Theme.** The UI has a light and a dark theme. The switch in the header is a three-way choice with icons: Light,
+Dark, and Auto. Auto is the default and follows the browser's `prefers-color-scheme`, live: an OS change applies
+while the page is open. Light and Dark are stored in `localStorage` (`profiler.theme`) and win on every screen;
+Auto removes the stored value. The tree route has no shell header, so its own header carries the switch. An HTML
+export saves the mode in effect, so a copy exported under Auto opens in the mode Auto had resolved to.
+
+**Fonts.** Inter for text at a 13 px base size, and JetBrains Mono as the fixed-width font for code and, through
+the `.pf-mono` class, for numbers. Both are bundled as local `woff2` files: the UI is embedded in the query binary
+and loads nothing from another host. An HTML export embeds their Latin subsets, so the copy keeps its fonts offline
+(07 §5, Export).
 
 **Routing.** One SPA served at `/ui` (`go:embed`, 07 §6).
 
 | Route | Screen |
 |-------|--------|
-| `/ui/calls` | Discovery + Calls |
+| `/ui/calls` | Calls |
 | `/ui/pods` | Pods Info |
 | `/ui/tree/:pk` | Call Tree (new tab from a calls row) |
 
-**URL is the source of truth.** The route encodes the frozen window (`from`, `to`), the selected services and
-pods, and the active filters; the tree route adds the `pk` plus its `ts_ms` and `retention_class` hints. A
-shared URL reopens the same view. The pagination `cursor` is scroll state, not URL state. Full scheme in §6.
+**URL is the source of truth.** The route encodes the window (`from`, `to`) and the applied filters; the tree
+route adds the `pk` plus its `ts_ms` and `retention_class` hints. A shared URL reopens the same view. The
+pagination `cursor` is scroll state, not URL state. Full scheme in §6.
 
-## 2. Discovery + Calls
+## 2. Calls
 
-The entry screen. Pick services for a time range, then read their calls. Filter-first — no summary dashboard
-(07 §1).
+The entry screen. Filter the calls of a time range, then read them. Filter-first — no summary dashboard (07 §1).
+The layout follows the `CallsAlt.dc.html` board of the redesign mockups: the filter bar, a row of controls, the
+histogram (§2.4), and the table.
 
-### 2.1 Left rail — service selection
+### 2.1 Filter bar
+
+One token per condition, and all conditions must match. A condition is a field, an operator, and a value, in the
+text form of the read contract's filter model (02 §2.3.3): `duration>100ms`, `namespace=prod-orders`, `pod in a,b`,
+`duration between 100ms..2s`. The grammar and the field catalog live in `apps/ui/src/filter/`.
 
 | Element | Behavior |
 |---------|-----------|
-| Search | Filters the tree by service name; essential at cluster scale. |
-| Namespace row | Collapsible group; not selectable itself. |
-| Service row | The selection unit. A checkbox with three states: none, all pods, or partial (some pods). |
-| Pod rows | Drill-down under a service. A live/closed dot marks whether the pod-restart is still ingesting. Selecting individual pods sets the parent to the partial state. |
+| Input | Builds the next condition in three stages: field, operator, value. Each stage lists its options in a dropdown that narrows as the user types. |
+| Fields | `duration`, `namespace`, `service`, `pod`, `endpoint`, `class`, `method`, `error`, `trace_id`, `request_id`, `retention_class`, and any other name as a call parameter, typed by hand. The call param names of the window follow the catalog fields, from `/stats?group_by=param_name` (02 §2.9) when the backend groups by param name. |
+| Values | `in` and `not in` collect several values, applied with Enter. `None` and `Any` are offered for a field a call can lack, and disabled on a build without them. When the backend groups by the field, the values are its 50 most frequent in the window under the draft's other conditions and an old link's selection (§6), with their call counts, from `/stats?group_by=<field>&limit=50`. The request waits 250 ms after the last change, and a newer one cancels the older. The footer says when values load, when they fail, when more exist than are listed, when the counts are estimates (`approximate`, with `distinct` as a lower bound), and when some sources did not answer (`partial`). The dropdown opens with that note even before there is a value to pick. Without such a grouping, namespace, service, and pod values come from `/pods` for the time range, and other fields take the value as typed. A failed request leaves the value as typed too. A value that does not parse, such as a bad duration, shows an error line and adds nothing. |
+| A word | A typed word that names no field offers `method =~ <word>`, quoted so that it matches as written, and then the word as a call parameter name. |
+| A whole condition | Typing `duration>1s` offers it as one item, and so does a call parameter condition such as `user.tenant=acme`, whether or not the field list or value suggestions name that parameter. A bar narrowed to some fields, such as the one of Pods Info (§4), takes no call parameter. |
+| Keyboard | Up and Down move the highlight, Enter picks, Escape closes the list, Ctrl+Enter runs the query. Backspace in an empty input steps back: a value, then the operator, then the field, then into the last token, which comes back with its value in the input for editing. |
+| Disabled options | A field or an operator the backend does not implement is listed but disabled, with the reason as a tooltip. |
+| Disabled tokens | A condition from a link that the backend does not implement, including `None` or `Any` on a build without them, shows as a crossed-out token with the reason. It is kept in the URL and not sent. |
+| Browser-side tokens | A token that filters the loaded rows in the browser rather than the query, such as "Hide system/proxy" (§2.3), has a dashed outline and says so in its tooltip. |
+| Preset tokens | A token the page owns, such as "Hide system/proxy", comes before the conditions. Its × removes it, and so does Backspace once no condition is left before the input. "Clear all filters" removes it too. |
 
-Selection defaults to the service, not the pod: pods are ephemeral (restart-hash suffix), people debug a
-service (07 §4). Built from `/pods` (`{namespace, service, pod, restart_time_ms, time_min_ms, time_max_ms}`),
-grouped client-side. A selected service shows its pod-restart count and boundaries, and a specific pod-restart
-can be pinned from a calls row or the tree — the PK and cold lookup are pod-restart-scoped, so that identity
-must stay reachable.
+**Sending the conditions.** `/api/v1/config` reports what the backend implements in `filter_capabilities`
+(02 §2.3.4): fields with their operators, param operators, `None` and `Any`, orders, and `/stats` groupings. The
+page reads it once and sends every applied condition it allows, unchanged, as a repeatable `filter` parameter.
+The rest become disabled tokens, and the dropdown disables a choice the build cannot apply, such as `None` without
+`special_values`. The page sends nothing until `/config` answers, so the first request already has the right form;
+when `/config` fails, the page holds the query and offers Retry rather than guess the backend's kind. A request
+longer than the 6000-character request-line guard is not sent either. `apps/ui/src/calls/query-plan.ts` makes this
+choice for both kinds of backend.
+
+**Without the filter model.** A backend that reports no `filter_capabilities` takes only the legacy parameters, so
+the applied conditions travel as those (redesign plan §4.2.1):
+
+| Condition | Sent as |
+|-----------|---------|
+| `namespace`, `service`, or `pod` with `=` or `in` | `pod` tuples, expanded from `/pods` in the browser and intersected across conditions, under the 6000-character request-line guard |
+| `duration` with `>`, `>=`, `<`, `<=`, or `between` | `duration_min_ms` and `duration_max_ms`; a strict bound moves by 1 ms; several conditions intersect |
+| `error=true` | `error_only=true` |
+| `retention_class` with `=` or `in` | `retention_class`; several conditions intersect |
+| `method =~ <word>`, the word without regular-expression syntax | `method`, the substring match; one per query |
+| `trace_id = <id>`, `trace_id = None`, or `trace_id = Any` | Nothing: it filters the loaded rows in the browser (§2.3), from `apps/ui/src/filter/browser.ts`. `None` keeps the calls without a trace ID, and `Any` keeps the calls with one |
+
+Everything else is disabled. Conditions that exclude each other, or identity filters that match no pod in the
+window, send nothing and say so.
 
 ### 2.2 Controls
 
-Period picker (absolute range) plus quick ranges (`15 min`, `1 h`, `2 h`, `4 h`) and `Apply`. Only the rail
-service/pod selection is `Apply`-gated — expanding a service into `pod` tuples is the expensive fan-out (02
-§2.3). Choosing a time range applies at once (Grafana-style refetch on a range change), and the toolbar's
-narrowing filters (duration chips and expression, errors only, method query) write the URL and refetch
-immediately; hide-system writes the URL but filters the loaded rows client-side (§2.3). The `Apply` button
-therefore carries only rail-selection edits.
+The time range lives in the header (§1): the period picker with an absolute range, quick ranges, and the display
+time zone, between the shift-back and shift-forward buttons, followed by zoom out. A shift moves the window by
+half its width, and zoom out doubles it around its center. Both commit an absolute window. Choosing a time range
+applies at once (Grafana-style refetch on a range change).
+
+**Draft and applied.** The filter bar, the duration chips, the two switches, and "Sort by" edit a draft. "Run
+query", or Ctrl+Enter in the bar, applies it: the URL takes the draft and the query restarts from page one, even when
+nothing changed. A relative time range such as `now-1h` resolves again on each run and when the range changes, so
+the rerun reads up to the present; `/calls` and `/pods` share the resolved window, and "Load more" and a URL change
+that filters only the loaded rows keep it. While the draft differs from the
+applied query, a hint says "Filters changed. Run the query to update the results." Only the applied state reaches the
+URL and `/calls`. A time range change and a row shortcut apply at once.
+
+The filter bar, "Sort by", the duration chips, the switch labels, and "Run query" share one control height, 32 px
+(`apps/ui/src/calls/control-height.ts`), so the two rows line up in both themes. A bar with more tokens than fit on
+one line grows by whole token lines.
 
 ### 2.3 Calls table
 
 | Group | Columns |
 |-------|---------|
-| Always | Start, Duration (heat dot + link to tree), Pod, Title (method + param tags) |
-| Metrics (R1) | CPU, Suspend, Queue, Calls, Transactions, Disk IO, Net IO, Memory |
+| Default | Start, Duration (heat dot + link to tree), Pod, Title (method + tags), `trace_id`, CPU, Queue, Calls, Net IO |
+| Hidden by default (R1) | Suspend, Transactions, Disk IO, Memory |
 
-The metrics columns beyond CPU/Calls are the dropped-and-restored set (08 R1). Title shows the method plus a
-tag for `sql`, `error`, and similar.
+The metrics columns beyond CPU/Calls are the dropped-and-restored set (08 R1). Title shows the method plus a tag
+for `error`, `sql`, and `no tree` (the trace blob was dropped, `truncated_reason`).
+
+Rows are 28 px high. Numbers and IDs use the 12 px fixed-width font. The heat dot before the duration is the
+theme's ok color under 100 ms, warn under 1 s, mid under 3 s, and crit from 3 s on. The duration text is
+right-aligned in a fixed six-character box, so the dot keeps one x position down the column.
+
+**Pod and `trace_id` shortcuts.** A click on a row's pod or trace ID filters the calls by that value: the pod
+name, or the full trace ID, of which the cell shows the first 12 characters. The table reports the click to its
+page through `onPickFilter(field, value)`; a page that passes no handler gets plain text in both cells. The calls
+page replaces that field's token with `field=value` and runs the query. A backend without the filter model cannot
+filter by `trace_id`, and a disabled token would make the click do nothing, so there `trace_id=<id>` is not sent and
+filters the loaded rows in the browser instead: by the ID the row's cell shows, with a dashed outline and a tooltip
+that says so, and a footer count of the rows it hides. The pages loaded before the click are the rows it can find, so
+the click keeps them rather than fetching page one again, unless the draft holds other unapplied changes; a call of
+the trace outside them shows only after "Load more". With the filter model the click sends `trace_id=<id>` and runs
+the query.
+
+**`trace_id`.** A `/calls` row has no `trace_id` member (02 §2.3). The cell reads the ID from the call's own
+params, under the names the tracing plugins record it with (`trace.id`, `brave.trace_id`, `X-B3-TraceId`), the
+same names the tree searches (§3.1). A call without one reads "not traced". A tracer that records the ID on a frame
+below the root leaves the row without it, although the tree still finds it; a `trace_id` in the row projection
+closes that gap.
 
 | Control | Behavior |
 |---------|-----------|
-| Duration chips | `All`, `>10ms`, `>100ms`, `>500ms`, `>3s`, `>5s`. Default `>500ms`, so page one is not sub-millisecond noise. Maps to `duration_min_ms`. This is the v1 "slowest" affordance (true ranking is 08 R2). |
-| Errors only | Toggle → `error_only=true`. |
-| Hide system/proxy | Toggle, default on: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. Client-side filter unless a backend `hide_system` flag is added. |
-| Query | Method substring; `$param=value` is the later param-filter (08 R3). |
-| Columns | Show, hide, reorder, resize; persisted in local storage. |
-| Sort | By column, within loaded pages. Cross-range ranking needs 08 R2 — label the scope so it does not read as global. |
+| Duration chips | `All`, `>10ms`, `>100ms`, `>500ms`, `>3s`, `>5s`. A chip replaces every `duration` token with `duration > <chip>`; `All` removes them. A chip is lit when exactly one `duration >` token has its value. The default `>500ms` keeps page one free of sub-millisecond noise. This is the v1 "slowest" affordance (true ranking is 08 R2). |
+| Errors only | A switch for the `error=true` token: it shows whether the token is present, and adds or removes it. |
+| Hide system/proxy | A switch, on by default: hides proxy/health/idle-async noise (the old UI's `idleTags`, `apps/agent/profiler-ui/src/dataFormat.mjs`). Separate from the duration default; the noise-hide, not the threshold, is what made old first pages readable. It filters the loaded rows in the browser until `/config` serves the patterns for a `method !~` condition (redesign plan §4.6). The switch shows in the filter bar as the first token, `method !~ system/proxy`, with a dashed outline for "applies in the browser" and that limit in its tooltip. The token is part of the draft: the switch adds and removes it, its × or Backspace removes it and turns the switch off, and "Run query" applies it. The URL keeps `hide_system=1`, not the condition. |
+| Sort by | Start time, duration, CPU time, queue wait, child calls, or net IO, and a direction button. It edits the draft and maps to `order=<field>_<asc\|desc>` (02 §2.3.5). An order the backend lists in `filter_capabilities.orders` goes to the server; any other one sorts the loaded rows in the browser, with a footer note that it applies to the loaded rows only. A backend without the filter model sorts by start time, newest first, only. The MSW mock sorts by every order. |
+| Run query | Applies the draft (§2.2). |
+| Columns | The "Columns" button at the right end of the table footer, next to the row count: show, hide, reorder, reset. It has no header column of its own, so the data columns keep the width, and it is there while the table loads. The controls row above holds only what edits the query draft; column settings apply at once to the table. Drag a header border to resize. Persisted in local storage; an entry from before the redesign is migrated to the new column keys, and keys the table no longer has are dropped. |
+| Sort | By column, within loaded pages. Cross-range ranking needs 08 R2. While a column sort is on, the footer says that it applies to the loaded rows only, so it does not read as global. |
 | Row → tree | Clicking the Duration link opens `/ui/tree/:pk` in a new tab, carrying `ts_ms` and `retention_class`. |
 
 **Pagination.** Keyset (`cursor`), infinite scroll or an explicit "load more"; no offset, no page numbers.
@@ -98,7 +170,31 @@ An empty page with a non-null `next_cursor` keeps paging; an expired cursor rest
 
 **Banners.** Wide-query guard and partial results render as first-class banners (§5), not silent failures.
 
-**Timestamps** display in the browser timezone (as the old UI did); the URL window stays in Unix ms.
+**Timestamps** display in the display time zone of the period picker, the browser's by default (as the old UI
+did); the URL window stays in Unix ms. The Start cell shows the time alone for a call of today in that zone, and
+the date and time otherwise (`Jul 12 23:59:59.999`, with the year for another year). Its tooltip holds the full
+timestamp.
+
+### 2.4 Histogram
+
+"Calls over time" sits between the controls and the table. It counts the applied query with
+`/stats?group_by=time&buckets=60` (02 §2.9), sent beside `/calls` with the same window and conditions, and with the
+`pod` tuples of an old link's selection (§6). Run query resolves a relative window once for both.
+
+- **Bars.** One bar per bucket, clean calls at the bottom and failed calls stacked on top, in the theme's bar
+  colors. The y axis starts at 0 and ends at the smallest 1, 2, or 5 times a power of ten that holds the tallest
+  bar. The x axis labels the start, the middle, and the end of the window. The bars are a hand-drawn SVG.
+- **Readout.** "N calls · M errors" from the response's `totals`. Hovering a bar shows its start, its counts, and
+  its p95.
+- **Zoom.** A drag across the bars selects buckets and offers "Zoom in" and "Clear". "Zoom in" sets the time range
+  to the selected buckets at once, like any range change; the last bucket ends at the window's end. A selection does
+  not narrow the table.
+- **Collapse.** The title collapses the chart; the choice is stored in `localStorage`.
+- **When it is absent.** The chart needs `time` in `filter_capabilities.group_by`, so a backend without the filter
+  model shows none. A `404` from `/stats` hides it, and so does a too-wide query, which the table's banner explains.
+  Any other failure shows an error with "Retry" in the chart and leaves the table alone.
+- **Notes.** A `partial` answer says the counts may be low. "Hide system/proxy" filters the loaded rows only, so with
+  it on the chart says that it still counts those calls.
 
 ## 3. Call Tree
 
@@ -107,63 +203,161 @@ not lose the list.
 
 ### 3.1 Context header
 
-Replaces the top bar. Shows the breadcrumb (`service / pod`), the call identity chip (`time · duration`), the
-`trace_id` chip, and the deep-link-out buttons (`Open trace · Tempo`, `Logs · Grafana`). The links are the
-correlation seam — provisioned, wiring deferred (07 §3.4).
+The tree route has no navigation rail, and this header replaces the shell's. From left to right:
+
+| Element | Content |
+|---------|---------|
+| Back arrow | A link to Calls. An exported copy has no Calls screen and leaves the arrow out. |
+| Product name | `Profiler`. |
+| Identity | `namespace / service / pod`, with the pod name at full strength. |
+| Endpoint chip | `METHOD /path`, from the root call's `web.method` and `web.url` params. Absent when the call has none. |
+| Start time chip | The call's start in the display time zone. Its tooltip names the retention class. |
+| Duration chip | The call's total duration. |
+| Trace chip | `trace` and the first 12 characters of the call's trace ID, with the full ID in the tooltip. A call without one shows `not traced`. |
+| Offline chip | `offline copy`, in an exported copy only. |
+| Theme switch | At the far right (§1). |
+
+The trace ID is a param of the call. The agent records it as `trace.id` (the Jaeger and OpenTelemetry plugins),
+`brave.trace_id` (the Brave plugin), or `X-B3-TraceId` (the incoming header). The UI reads the root call's params
+first. A tracer that starts its span a few frames down records the ID there, so the UI then takes the first ID it
+meets in the tree.
 
 ### 3.2 Tabs and toolbar
 
-Tabs: **Call Tree**, **Hotspots**, **Parameters**. The old Database and Gantt tabs are dropped.
+Four fixed tabs, drawn as line tabs: **Call Tree**, **Flame graph** (§3.6), **Hotspots**, **Parameters**. The old
+Database and Gantt tabs are dropped. The open fixed tab is in the URL as `tab` (§6), so a shared link reopens it.
 
-Toolbar: tree search, `Adjust duration`, `Setup categories`, `Download`.
+The `Incoming` / `Outgoing` / `Find usages` / `Local hotspots` results open as derived-view tabs after the fixed
+ones, each with a close button. A derived tab holds the recipe `(op, method, category)` and re-derives from the
+current model, so it follows Adjust and Setup edits. Derived tabs are client-side state only: they persist through
+the 10b HTML export (07 §5.3), not the URL. Closing the active one returns to the fixed tab that the URL names.
 
-The `Incoming` / `Outgoing` / `Find usages` / `Local hotspots` results open as derived-view tabs that hold the
-recipe `(op, method, category)` and re-derive from the current model, so they follow Adjust and Setup edits.
-Tab state is client-side only; it persists through the 10b HTML export (07 §5.3), not the URL.
+The toolbar sits at the right end of the tab bar: `Adjust duration`, `Setup categories`, `Download HTML`, each with an
+`@ant-design/icons` icon (field-time, tags, download), as the link buttons have one. The slot between
+`Setup categories` and `Download HTML` is reserved for `Explain` and stays empty until the assistant ships. Without
+a tree (loading, cold call, error) there are no tabs; the toolbar then has a row of its own, with its
+buttons disabled. The tree search belongs to the Call Tree tab, not to the toolbar.
+
+**Link buttons** follow `Download HTML`, after a divider: one per entry of `links` in `/api/v1/config`, in the
+operator's order, with the entry's label (02 §2.8). The UI fills the template with the call's trace ID, its pod
+identity, and its window: `from_ms` is the call's start and `to_ms` is the start plus the recorded duration. Adjust
+duration is a what-if view and leaves the window as recorded. Each value is encoded as `encodeURIComponent` does. A
+button opens its link in a new tab.
+
+| Case | Button |
+|------|--------|
+| The deployment configures no links | Absent, along with the divider. |
+| The call has a value for every placeholder of the template | Enabled. |
+| The template uses a placeholder the call has no value for, typically `{trace_id}` on an untraced call | Shown disabled, with the reason in a tooltip. |
+
+An exported copy has no backend to ask for the templates and shows no link buttons.
 
 ### 3.3 Tree rows
 
-Each row is a merged node (08 R5–R7):
+Each row is a merged node (08 R5–R7), 28 px high. From left to right:
 
 | Part | Content |
 |------|---------|
-| Caret | Expand / collapse. Expanding **skips degenerate chains** — a pass-through chain opens in one click to the next node that spends time or branches (07 §5.4). |
-| Duration bar | Proportional to the node's share. |
-| Metrics | `total (self)` duration, `inv`, `×N` direct executions, child `calls` — every metric as self and total. |
-| Signature | `Class.method(args)`; `source:line` and `jar` parse from the method string on Ctrl+hover. |
-| Category | A color spanning the tagged subtree, plus a badge (§3.5). |
+| Caret | Expand / collapse. Expanding **skips degenerate chains** — a pass-through chain opens in one click to the next node that spends time or branches (07 §5.4). A leaf has an empty slot instead. |
+| Three dots | The row's operations menu (§3.4). |
+| Numbers | `total (self) ×calls`: the node's total duration, its self duration, and its direct executions. The suspension pair and the total executions are in the Ctrl+hover stats. |
+| Signature | `package.Class.method(args)`, with the package dimmed. Clicking it selects the row; the text stays selectable, so the qualified name can be copied. `source:line` and `jar` parse from the method string on Ctrl+hover. |
+| Chain badge | `+N` on a node that skips `N` pass-through levels; clicking it shows them. A revealed chain shows `−N`, which skips them again. |
+| Category badge | The category name on the node where the category starts (§3.5). The nodes below inherit the category without a badge. |
+| Share bar | 100 px for the whole call. The solid part is the node's self time and the light part is time in its children. Hidden on a narrow viewport. |
+| Share | The node's total as a percentage of the call. |
+
+**Highlighting is always on**; there is no switch for it. The thresholds are shares of this call, never absolute
+times, because 4 s is normal for one call and a disaster for another:
+
+| Number | Orange | Red | Bold |
+|--------|--------|-----|------|
+| Self time | from 10% of the call | from 25% of the call | with either color |
+| Call count | from 10 | from 100 | with either color |
+| Total | — | — | from 50% of the call |
+
+The method name is bold when its self time is colored. A search match gets a yellow mark on the name, and the rows
+that do not match are dimmed in place. `Mark red` tints the whole row.
 
 **Params under a node** are a mini-tree, not flat values (08 R11): metadata rows (`node.name`, `java.thread`,
 `memory.allocated`, …) and aggregated `sql` groups — top shapes by time plus an `::other` bucket, similar SQL
-grouped by a normalized signature, binds nested under their SQL. Rendered inline and summarized in the
-Parameters tab.
+grouped by a normalized signature, binds nested under their SQL. Each one is a row under its method, before the
+method's child calls: `time ×count`, the key as a badge, and the value, with SQL, XML, and JSON values colored. The
+row truncates a long value, and a button opens the full one. The Parameters tab summarizes them.
+
+**Connectors.** A rounded line runs from a method down to each method it calls. A parameter row has no line of its
+own, because a parameter is not a call; only the line to the child calls passes it. `visible-rows.ts` records, per
+row, which ancestor lines run past it, and the row turns that into one 18 px cell per level.
+
+**The tab's controls**, above the rows:
+
+| Control | Behavior |
+|---------|----------|
+| Search | Filters by method, numbers, and parameter text (`tree/search.ts`). Beside it: the match count, or the Ctrl+hover hint. |
+| Legend | The two parts of the share bar: self time, and time in children. |
+| Tree lines | Switch, on by default. Off hides the connectors and keeps the indent. |
+| Row lines | Switch, on by default. Off hides the line between rows. |
+| Expand all | A button with a plus-square icon. Opens every node, level by level from the root, up to the 20,000-row budget (07 §5.4). Pass-through chains stay skipped. A tree past the budget opens only as far as the budget allows, and a message says so. |
+| Collapse all | A button with a minus-square icon. Closes every node under the root, so the root's children stay in view. |
+| Help | A popover that takes one example row apart and explains the colors, the bar, the badges, parameter rows, the three-dot menu, and Ctrl+hover. |
+
+The two switches are stored in `localStorage`. They are a reader's taste and not part of a view, so they are not in
+the URL, and one choice holds for every call and every tab.
 
 ### 3.4 Per-node operations
 
-The three core operations — **Incoming calls**, **Outgoing calls**, **Get stacktrace** — sit directly on the
-selected row or toolbar; a row kebab (`⋮`, on hover) holds the rest: **Find usages**, **Local hotspots**,
-**Adjust duration**, **Add category**, **Mark red**. Ctrl+hover on a node shows the stats popover: self and
-total duration and suspension, invocations, average, `source jar`, and `line`.
+Every operation is in the row's three-dot menu: **Incoming calls**, **Outgoing calls**, and **Get stacktrace**
+first, then **Find usages**, **Local hotspots**, **Adjust duration**, **Add category**, and **Mark red**. Selecting
+a row adds no buttons anywhere: there is no strip of operations beside the search field. Ctrl+hover on a node shows
+the stats popover: self and total duration and suspension, invocations, average, `source jar`, and `line`.
 
 ### 3.5 Hotspots and categories
 
 **Setup categories** tags a method by pattern; the category propagates down its whole subtree (a child tag
-overrides) and colors it. **Hotspots** is a flat self-time profile; when categories are set it groups by
+overrides). The tree shows it as a badge where it starts, in one of six theme colors. **Hotspots** is a flat self-time profile; when categories are set it groups by
 category first, then flat-profiles within — so a business operation's share of time and its SQL read directly
 (07 §5.3).
 
 ### 3.6 Rendering
 
-Virtualised over the flattened visible nodes; lazy expansion; degenerate-chain collapse; a size guard against
-a pathological blob (07 §5.4). One indented tree in v1 — flame/icicle is deferred and, if built, must apply
-the same degenerate-frame skipping.
+**Call Tree.** Virtualised over the flattened visible nodes; lazy expansion; degenerate-chain collapse; a size guard
+against a pathological blob (07 §5.4).
+
+**Flame graph.** The same merged model as frames, drawn by
+[d3-flame-graph](https://github.com/spiermar/d3-flame-graph) as an SVG icicle with the whole call on top
+(07 §11). A client-side transform (`tree/transforms/flame-data.ts`) turns the model into the library's
+`{name, value, children}` tree: the value is the node's total time, and each datum keeps its model node, so a
+frame maps back to a tree row. Children follow the model's order, from the parent's left edge, so the part of a
+frame with nothing under it is the method's self time. A child is clipped to the time its parent has left, so a
+merged or adjusted tree whose totals disagree still nests.
+
+| Element | Behavior |
+|---------|----------|
+| Frame | 28 px rows; a 2 px stroke in the surface color draws the gap between frames. It shows `Class.method · duration` when it is at least 35 px wide (the library's rule); its tooltip and accessible name always carry the method, the duration, the share of the call, the self time, and the call count. |
+| Color | By category, in the stronger variant of the badge color (§3.5). A frame without a category takes the share bar's light color. The colors are theme variables resolved when the graph draws, and the graph redraws on a theme change. The legend lists the categories in the call and `No category`. |
+| Readout | A line above the graph with the numbers of the hovered or focused frame, else of the selected one. |
+| Selection and zoom | A click, or Enter on a focused frame, zooms on the frame and selects its node: the frame spans the graph, the frames above it stay as a faded path back, and a click on one of them zooms out to it. A second click on the selected frame clears the selection and keeps the zoom. A `Reset zoom` link returns to the whole call and keeps the selection. The zoom survives an Adjust or Setup edit; when Adjust leaves the zoomed frame with no time, the zoom moves up to the nearest frame above it that still takes time, or to the whole call. Shares stay shares of the whole call. |
+| Shared selection | The selection is shared with the Call Tree tab. A frame selected here opens the way to its row in the tree, through closed nodes and skipped chains, and scrolls to it. A row selected in the tree zooms the graph on its frame. Selecting adds no buttons. |
+| Width and culling | The graph follows the width of its pane. A frame 1 px wide or narrower is not drawn, and neither is anything under it, which bounds a row at one frame per pixel. |
+
+The flame graph does not skip pass-through chains: a chain is a stack of equally wide frames, which reads at a
+glance and costs one frame per level. The library draws SVG elements, five per frame; the view adds the keyboard
+focus, the accessible names, and the selection ring that the library leaves out. Measured under jsdom on synthetic
+trees at 1200 px: the largest mock tree (2,062 nodes) draws 286 frames, 1,440 elements, in about 0.5 s, and a
+20,000-node tree, the row budget, draws 777 frames, 3,895 elements, in about 1.6 s. jsdom is much slower than a
+browser, so the times bound the order of magnitude only. A canvas renderer is the fallback if a real tree proves
+this too slow.
 
 ## 4. Pods Info
 
-A tab listing the pod-restarts behind the current selection: `namespace / service / pod`, restart time, the
+A tab listing the pod-restarts behind the current filters: `namespace / service / pod`, restart time, the
 data time range (`time_min_ms`–`time_max_ms`), and a live/closed marker. Source: `/pods`. Diagnostic dumps
 (thread, TOP, GC, heap) are not browsed here — each pod row links out to `dumps-collector`, which owns their
 listing and download, so the user does not lose access. Analyzing a dump as a tree is deferred (07 §8, 08 §10).
+
+Pods Info has the filter bar of §2.1, limited to `namespace`, `service`, and `pod` with `=` and `in`, and an
+`Apply` button. It shares the query string with Calls: it shows and edits only these three fields and keeps the
+other conditions as they are.
 
 ## 5. States
 
@@ -171,11 +365,15 @@ With a fan-out backend these are frequent, so each names what happened and the o
 
 | State | Trigger | Message and action |
 |-------|---------|--------------------|
-| Empty | Selection resolves to no pods | "The selected services have no pods in this window." Calls otherwise opens on the default last hour; Pods prompts "Pick a period and Apply to see pods." |
+| Empty | Filters match no pod, or exclude each other | "No pod in this window matches the namespace, service, and pod filters." or "The filters exclude each other, so no call can match." Calls otherwise opens on the default last hour; Pods prompts "Pick a time range to see pods." |
 | Loading | Fan-out in flight | Skeleton rows; "Querying hot replicas + cold tier." |
 | Partial | `partial: true` | Shows the rows that returned, with a banner listing `partial_reasons`; offers retry. It does not invent a source count. |
 | All sources failed | `504` | "No source answered in time. Narrow the range or retry." |
 | Too wide | `400` wide-query guard | Turns `suggested_filters` into one-click narrowing chips, sized by the dominant `retention_class` (`by_class`). |
+| Rejected | `400` with `code: invalid_request` | "The backend rejected the query" with the problem's `detail`, such as a filter the build does not implement. Retrying would get the same answer, so it offers none. |
+| No configuration | `/config` fails | "Cannot run the query: loading /config failed" with Retry; "Run query" retries it too. No `/calls` request goes out until it loads. |
+| Query too long | the request line exceeds the guard | "Query too long": fewer values in an `in` list, or a regex. Without the filter model, or with an old link's selection (§6), "Selection too wide" instead, with "Clear selection", which also removes that selection. |
+| Error codes | any problem | The client branches on the problem `code` (02 §8), and on the `title` and `detail` of a build that sends no code. |
 | Cold call | `404` on `/tree` | Hot lookup failed and the cold lookup needs `ts_ms`; `retention_class` sharpens pruning but is optional. "Reopen the call from its row so the hints travel with it." |
 | Blob truncated | `404`, `truncated_reason` set | "The trace for this call was dropped under load — no tree to show." |
 | Big params unresolved | tree carries `unresolved` params | Renders the tree but flags the affected params (the value segment was evicted before seal); does not present them as complete. |
@@ -190,11 +388,47 @@ needs a choice.
 
 | Screen | Path | Query / path params |
 |--------|------|---------------------|
-| Calls | `/ui/calls` | `from`, `to` (Unix ms); `pod` (repeatable `ns/svc/pod`); `service` (repeatable); `duration_min_ms`; `error_only`; `retention_class` (repeatable); `q` (method / `$param`) |
-| Pods Info | `/ui/pods` | `from`, `to`; `service` (repeatable) |
-| Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints |
+| Calls | `/ui/calls` | `from`, `to` (Unix ms or a relative expression such as `now-1h`); `filter` (repeatable, one condition in its text form, §2.1); `order` (`<field>_<asc\|desc>`, the fields of §2.3 "Sort by"; default `start_desc`, and an unknown value reads as the default); `hide_system=1` when the switch is on; `service` and `pod` for the selection of an old link (below) |
+| Pods Info | `/ui/pods` | The same parameters as Calls; it reads and writes only the `namespace`, `service`, and `pod` conditions |
+| Call Tree | `/ui/tree/:pk` | `pk` in the path (`ns:svc:pod:restart:file:off:rec`); `ts_ms`, `retention_class` as query hints; `tab` (`tree`, `flame`, `hotspots`, `params`) |
 
 The `cursor` is never in the URL — it is transient scroll state and expires (07 §3.2).
+
+On the tree route, `tab` names the open fixed tab. The default, `tree`, is left out of the URL, and a missing or
+unknown value opens Call Tree. A tab switch replaces the history entry, so Back leaves the page instead of stepping
+through tabs. Derived tabs never enter the URL (§3.2).
+
+A calls URL holds the applied state in full, with the API's own parameter names:
+
+```text
+/ui/calls?from=now-1h&to=now&filter=duration>100ms&filter=namespace=prod-orders&order=start_desc&hide_system=1
+```
+
+A visit with no query string gets the last hour, `duration>500ms`, and `hide_system=1`, and the URL is written in
+full from then on. With any query string there are no defaults: an absent `filter` means no filters, and an absent
+`hide_system` means the switch is off. A `filter` value that does not parse is dropped.
+
+**Old links.** A link with a query string but neither `filter` nor `order`, which the new page always writes, comes
+from the old calls page. Its parameters (`service`, `pod`, `duration_min_ms`, `duration_max_ms`, `error_only`,
+`retention_class`, `q`, `hide_system`) are converted to conditions, with that page's defaults: a lower duration bound
+of 500 ms unless `duration_min_ms` is given, and hiding system calls unless `hide_system=false`. The old page left out
+every parameter at its default value, so `?from=1000&to=2000` is an old link with both defaults, while the new page
+writes the same unfiltered window as `?from=1000&to=2000&order=start_desc`.
+
+The old page selected the union of its `service` and `pod` values, and conditions must all match, so they match every
+combination of their values. The link keeps selecting the same calls:
+
+- A pod of a selected service adds nothing to the union and is dropped.
+- When the rest is every combination of its namespaces and services, or of its namespaces, services, and pods, it
+  becomes conditions: `service=payments/billing&service=payments/ledger` becomes `namespace=payments` and
+  `service in billing,ledger`.
+- Otherwise, such as services from two namespaces or a service and a pod of another service, the selection stays as
+  it was. It shows as one token, `service or pod in prod/orders, stage/billing`, that the query applies like the old
+  page did: the pods of the services in the window, and the pods as listed. Without the filter model, the
+  translation intersects them with any namespace, service, or pod condition. With it, they travel as the `pod` tuples
+  that `/calls` takes alongside `filter` (02 §2.3.3), and the backend intersects them with the conditions; either way
+  the services wait for `/pods`, and a selection with no pod in the window sends nothing. The URL keeps it as
+  `service` and `pod` parameters until its token is removed; they are the only old parameters written back.
 
 ## 7. Non-goals for v1
 

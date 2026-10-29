@@ -4,8 +4,8 @@ import dayjs from 'dayjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PeriodControls } from './period-controls';
-import { BROWSER_ZONE, exprFromMs } from './time-range';
-import type { TimeRange } from './time-range';
+import { BROWSER_ZONE, ZOOM_OUT_FACTOR, exprFromMs, shiftWindow, zoomWindow } from './time-range';
+import type { DraftWindow, TimeRange } from './time-range';
 import { getZone, setZone } from '../ui/timezone';
 
 // Render-level coverage for the picker's commit paths: real DOM events through
@@ -24,19 +24,10 @@ function msRange(fromMs: number, toMs: number): TimeRange {
   return { from: String(fromMs), to: String(toMs), fromMs, toMs };
 }
 
-function renderPicker(value: TimeRange = EMPTY, canApply = true) {
+function renderPicker(value: TimeRange = EMPTY) {
   const onCommitRange = vi.fn();
-  const onApply = vi.fn();
-  render(
-    <PeriodControls
-      value={value}
-      onCommitRange={onCommitRange}
-      onApply={onApply}
-      canApply={canApply}
-      applying={false}
-    />,
-  );
-  return { onCommitRange, onApply };
+  render(<PeriodControls value={value} onCommitRange={onCommitRange} />);
+  return { onCommitRange };
 }
 
 describe('PeriodControls', () => {
@@ -170,6 +161,14 @@ describe('PeriodControls', () => {
     expect(onCommitRange).toHaveBeenCalledWith({ from: '0', to: '2000' });
   });
 
+  it('shifts the window forward by half its width, committing absolute ms', async () => {
+    const user = userEvent.setup();
+    const { onCommitRange } = renderPicker(msRange(1000, 3000));
+
+    await user.click(screen.getByRole('button', { name: 'Move time range forwards' }));
+    expect(onCommitRange).toHaveBeenCalledWith({ from: '2000', to: '4000' });
+  });
+
   it('zooms out around the centre, committing absolute ms', async () => {
     const user = userEvent.setup();
     const { onCommitRange } = renderPicker(msRange(1000, 3000));
@@ -178,17 +177,29 @@ describe('PeriodControls', () => {
     expect(onCommitRange).toHaveBeenCalledWith({ from: '0', to: '4000' });
   });
 
-  it('disables Apply until the selection is dirty', () => {
-    const now = Date.now();
-    const window = msRange(now - 3_600_000, now);
-    const { unmount } = render(
-      <PeriodControls value={window} onCommitRange={vi.fn()} onApply={vi.fn()} canApply={false} applying={false} />,
-    );
-    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
-    unmount();
+  // The buttons own no arithmetic: each commits what time-range.ts computes for
+  // the committed window, here an odd-width one that exercises the rounding.
+  it.each([
+    ['Move time range backwards', (w: DraftWindow) => shiftWindow(w, -1)],
+    ['Move time range forwards', (w: DraftWindow) => shiftWindow(w, 1)],
+    ['Zoom out time range', (w: DraftWindow) => zoomWindow(w, ZOOM_OUT_FACTOR)],
+  ])('"%s" commits the window that time-range.ts computes', async (name, expected) => {
+    const user = userEvent.setup();
+    const window: DraftWindow = { fromMs: 1_752_400_000_123, toMs: 1_752_403_600_456 };
+    const { onCommitRange } = renderPicker(msRange(window.fromMs!, window.toMs!));
 
-    renderPicker(window, true);
-    expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name }));
+
+    const next = expected(window);
+    expect(onCommitRange).toHaveBeenCalledTimes(1);
+    expect(onCommitRange).toHaveBeenCalledWith({ from: String(next.fromMs), to: String(next.toMs) });
+  });
+
+  it('offers no zoom in: the header has shift back, shift forward, and zoom out', () => {
+    const now = Date.now();
+    renderPicker(msRange(now - 3_600_000, now));
+    expect(screen.queryByRole('button', { name: 'Zoom in time range' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
   });
 
   it('disables navigation until a window is set', () => {
@@ -196,7 +207,13 @@ describe('PeriodControls', () => {
     expect(screen.getByRole('button', { name: 'Move time range backwards' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Move time range forwards' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Zoom out time range' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Zoom in time range' })).toBeDisabled();
+  });
+
+  it('shows the display zone offset beside the range', () => {
+    setZone('UTC');
+    const fromMs = Date.UTC(2026, 6, 13, 12, 0, 0);
+    renderPicker(msRange(fromMs, fromMs + 3_600_000));
+    expect(screen.getByRole('button', { name: 'Time range' })).toHaveTextContent('UTC+00:00');
   });
 
   it('re-renders the absolute field in the chosen zone', async () => {

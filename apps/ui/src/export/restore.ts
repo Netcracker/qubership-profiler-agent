@@ -6,6 +6,7 @@
 // contract between the builder (build-export.ts) and the boot path (main.tsx,
 // restored-app.tsx).
 
+
 export const RESTORE_VERSION = 1;
 
 /** The global the exported HTML sets and the boot path reads. */
@@ -36,7 +37,13 @@ export interface RestorePayload {
   adjustText: string;
   categoryText: string;
   tabs: SerializedTab[];
+  /** A fixed tab's key (`tree`, `flame`, `hotspots`, `params`), or `r<index>` for a derived tab. */
   activeTab: string;
+  /**
+   * The color theme active at export time; the copy opens in it. Absent from a
+   * file exported before the dark theme existed, which then follows the browser.
+   */
+  theme?: 'light' | 'dark';
 }
 
 /** base64-encode raw bytes (btoa needs a binary string, so chunk to stay under the arg limit). */

@@ -1,15 +1,19 @@
-import { Alert, Badge, Empty, Layout, Space, Table, Typography, message } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { Alert, App, Badge, Button, Empty, Layout, Space, Table, Typography } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { useConfig } from '../api/use-config';
+import { FilterBar } from '../calls/filter-bar/filter-bar';
+import { selectionTokens } from '../calls/filter-bar/selection-token';
 import { formatTs } from '../calls/format';
 import { PeriodControls } from '../controls/period-controls';
-import type { DraftWindow } from '../controls/period-controls';
-import { resolveUrlTime } from '../controls/time-range';
-import { DiscoveryRail, selectionEquals } from '../discovery/discovery-rail';
-import type { RailSelection } from '../discovery/discovery-rail';
+import { podValueSource } from '../discovery/pod-values';
 import { usePods } from '../discovery/use-pods';
+import type { Condition, Operator } from '../filter/condition';
+import { formatCondition } from '../filter/grammar';
+import type { PodSelection } from '../filter/legacy';
+import { UNSUPPORTED_REASON, translateConditions } from '../filter/translate';
+import { HeaderSlot } from '../shell/header-slot';
 import { useZone } from '../ui/timezone';
 import { callsSearchToParams, freezeWindow, hasRelativeWindow, parseCallsSearch } from '../url/search-params';
 import type { CallsSearchState } from '../url/search-params';
@@ -47,11 +51,25 @@ function dumpDownloadUrl(dumpsCollectorUrl: string, type: 'td' | 'top', row: Pod
   return `${dumpsCollectorUrl}/cdt/v2/download?${sp.toString()}`;
 }
 
-// Pods Info (09 §4): the pod-restarts behind the current selection. Opening
+// Pods Info (09 §4): the pod-restarts behind the current filters. Opening
 // this screen directly must not require a detour through Calls first — it
-// carries the same period picker + discovery rail (09 §2.1-2.2), sharing the
-// URL scheme with Calls (09 §6). Dumps stay in dumps-collector; the per-row
-// link-out lands with the link-template seam (07 §3.4).
+// carries the same period picker and a filter bar limited to namespace,
+// service, and pod, sharing the URL scheme with Calls (09 §6). Dumps stay in
+// dumps-collector; the per-row link-out lands with the link-template seam
+// (07 §3.4).
+
+/** The fields Pods Info filters by; the other conditions in the URL belong to Calls and stay untouched. */
+const POD_FIELDS: readonly string[] = ['namespace', 'service', 'pod'];
+const isPodCondition = (c: Condition): boolean => POD_FIELDS.includes(c.field);
+
+/** The table filters by pod tuples, so only `=` and `in` apply. */
+function podFieldReason(field: string, op?: Operator): string | null {
+  if (!POD_FIELDS.includes(field)) return 'Pods Info filters by namespace, service, and pod only.';
+  return op === undefined || op === '=' || op === 'in' ? null : UNSUPPORTED_REASON;
+}
+
+const filtersKey = (cs: readonly Condition[], selection: PodSelection | null): string =>
+  JSON.stringify([cs.map(formatCondition), selection]);
 
 interface PodRow {
   key: string;
@@ -65,6 +83,9 @@ interface PodRow {
 }
 
 export function PodsPage() {
+  // The App's toast renders in the app's own React tree and unmounts with it.
+  // The static `message` mounts a separate root that nothing unmounts.
+  const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   // One `now` per URL change anchors relative tokens; the memo freezes it.
   const search = useMemo(() => parseCallsSearch(searchParams, Date.now()), [searchParams]);
@@ -72,53 +93,48 @@ export function PodsPage() {
   // calls table and the call tree do (the URL stays Unix ms).
   const zone = useZone();
 
-  const [draftWindow, setDraftWindow] = useState<DraftWindow>({ fromMs: search.fromMs, toMs: search.toMs });
-  const [draftSelection, setDraftSelection] = useState<RailSelection>({
-    services: search.services,
-    pods: search.pods,
-  });
-  // Reserve a gutter for the collapsed rail's top-left trigger, as CallsPage
-  // does (PR 708 review #8).
-  const [railCollapsed, setRailCollapsed] = useState(false);
-
-  // Resync drafts when the committed state changes under us (back/forward,
-  // a shared link), mirroring CallsPage.
-  const selectionKey = [...search.services, '|', ...search.pods].join(',');
+  const applied = useMemo(() => search.conditions.filter(isPodCondition), [search.conditions]);
+  const [draft, setDraft] = useState<Condition[]>(applied);
+  // The selection of an old link shows as a token until it is removed.
+  const [draftSelection, setDraftSelection] = useState<PodSelection | null>(search.selection);
+  // Resync the draft when the applied filters change under it (back/forward, a shared link).
+  const appliedKey = filtersKey(applied, search.selection);
   useEffect(() => {
-    setDraftWindow({ fromMs: search.fromMs, toMs: search.toMs });
-    setDraftSelection({ services: search.services, pods: search.pods });
+    setDraft(applied);
+    setDraftSelection(search.selection);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.fromMs, search.toMs, selectionKey]);
+  }, [appliedKey]);
+  // Apply has work only when the draft differs from the applied filters.
+  const dirty = filtersKey(draft, draftSelection) !== appliedKey;
 
-  // The rail follows the draft window, so services are selectable before the
-  // first Apply; the pods table stays keyed on the committed URL.
-  const { state: railPodsState } = usePods(draftWindow.fromMs, draftWindow.toMs);
-  const { state } = usePods(search.fromMs, search.toMs);
+  const { state, refetch } = usePods(search.fromMs, search.toMs);
+  const namespaces = state.kind === 'ready' ? state.namespaces : null;
+  const values = useMemo(() => podValueSource(namespaces), [namespaces]);
   const configState = useConfig();
   const dumpsCollectorUrl = configState.kind === 'ready' ? configState.config.dumps_collector_url : '';
   const dumpsEnabled = isHttpUrl(dumpsCollectorUrl);
 
+  const draftReasons = useMemo(
+    () => new Map(translateConditions(draft, namespaces).skipped.map((s) => [s.condition, s.reason])),
+    [draft, namespaces],
+  );
+  const tokenReason = useCallback((c: Condition) => draftReasons.get(c) ?? null, [draftReasons]);
+
   const commitSearch = (next: CallsSearchState): void => setSearchParams(callsSearchToParams(next));
 
-  // A range change stores its raw tokens and applies at once; the rail follows
-  // via the draft window without waiting for the URL round-trip.
-  const commitRange = (tokens: { from: string; to: string }): void => {
-    const now = Date.now();
-    setDraftWindow({ fromMs: resolveUrlTime(tokens.from, now), toMs: resolveUrlTime(tokens.to, now) });
+  // A range change stores its raw tokens and applies at once.
+  const commitRange = (tokens: { from: string; to: string }): void =>
+    commitSearch({ ...search, from: tokens.from || null, to: tokens.to || null });
+
+  // Apply writes the draft in place of the applied pod filters and keeps the conditions only Calls uses.
+  const apply = (): void => {
     commitSearch({
       ...search,
-      from: tokens.from || null,
-      to: tokens.to || null,
-      services: draftSelection.services,
-      pods: draftSelection.pods,
+      conditions: [...search.conditions.filter((c) => !isPodCondition(c)), ...draft],
+      selection: draftSelection,
     });
+    refetch();
   };
-
-  // The sibling Apply commits rail-selection edits against the committed window.
-  const apply = (): void =>
-    commitSearch({ ...search, services: draftSelection.services, pods: draftSelection.pods });
-  // Apply has work only when the draft selection diverges from the committed one.
-  const selectionDirty = !selectionEquals(draftSelection, search);
 
   // `y` freezes a live relative range into an absolute permalink (GitHub-style).
   usePermalinkHotkey(hasRelativeWindow(search), () => {
@@ -128,18 +144,14 @@ export function PodsPage() {
 
   const rows = useMemo<PodRow[]>(() => {
     if (state.kind !== 'ready') return [];
-    // A selection filters the table; with none, every pod-restart shows. The
-    // service and pod selections are disjoint by construction (the rail routes
-    // a pod under a fully selected service into `services`, a lone pod into
-    // `pods`), so a row survives when its service is selected or the pod tuple
-    // itself is selected (PR 708 review #6).
-    const filterActive = search.services.length > 0 || search.pods.length > 0;
+    // The pod filters expand to pod tuples the same way Calls sends them; with none, every pod-restart shows.
+    const selected = translateConditions(applied, state.namespaces, search.selection).params?.pods;
+    const tuples = selected === undefined ? null : new Set(selected);
     const out: PodRow[] = [];
     for (const ns of state.namespaces) {
       for (const svc of ns.services) {
-        const svcSelected = search.services.includes(svc.key);
         for (const pod of svc.pods) {
-          if (filterActive && !svcSelected && !search.pods.includes(pod.tuple)) continue;
+          if (tuples !== null && !tuples.has(pod.tuple)) continue;
           for (const restart of pod.restarts) {
             out.push({
               key: `${pod.tuple}@${restart.restart_time_ms}`,
@@ -156,31 +168,43 @@ export function PodsPage() {
       }
     }
     return out;
-  }, [state, search.services, search.pods]);
+  }, [state, applied, search.selection]);
 
   return (
     <Layout className={styles.page}>
-      <Layout.Sider
-        width={320}
-        theme="light"
-        breakpoint="lg"
-        collapsedWidth={0}
-        onCollapse={setRailCollapsed}
-        zeroWidthTriggerStyle={{ top: 0, left: 0, zIndex: 20 }}
-        className={styles.sider}
-      >
-        <DiscoveryRail pods={railPodsState} selection={draftSelection} onSelectionChange={setDraftSelection} />
-      </Layout.Sider>
-      <Layout.Content className={`${styles.content}${railCollapsed ? ` ${styles.railGutter}` : ''}`}>
-        <PeriodControls
-          value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
-          onCommitRange={commitRange}
-          onApply={apply}
-          canApply={selectionDirty}
-          applying={state.kind === 'loading'}
-        />
+      <Layout.Content className={styles.content}>
+        <HeaderSlot>
+          <PeriodControls
+            value={{ from: search.from, to: search.to, fromMs: search.fromMs, toMs: search.toMs }}
+            onCommitRange={commitRange}
+          />
+        </HeaderSlot>
+        <div className={styles.controls}>
+          <div className={styles.bar}>
+            <FilterBar
+              conditions={draft}
+              onChange={setDraft}
+              presets={selectionTokens(draftSelection, () => setDraftSelection(null))}
+              fields={POD_FIELDS}
+              supported={podFieldReason}
+              tokenReason={tokenReason}
+              values={values}
+              onRun={apply}
+              placeholder="Filter pods: pick namespace, service, or pod"
+            />
+          </div>
+          {/* Enabled only when there is unapplied work, so grey means "everything is applied". */}
+          <Button
+            type="primary"
+            onClick={apply}
+            loading={state.kind === 'loading'}
+            disabled={search.fromMs === null || search.toMs === null || !dirty}
+          >
+            Apply
+          </Button>
+        </div>
         {search.fromMs === null || search.toMs === null ? (
-          <Empty className={styles.emptyTop} description="Pick a period and Apply to see pods." />
+          <Empty className={styles.emptyTop} description="Pick a time range to see pods." />
         ) : (
           <>
             {state.kind === 'error' ? (

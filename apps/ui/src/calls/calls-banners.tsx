@@ -1,7 +1,7 @@
 import { Alert, Button, Space, Tag, Typography } from 'antd';
 
 import type { ProblemDetails } from '../api/types';
-import type { CallsSearchState } from '../url/search-params';
+import type { Condition } from '../filter/condition';
 import { formatBytes } from './format';
 
 // The 09 §5 states, each naming what happened and the one action that
@@ -9,12 +9,22 @@ import { formatBytes } from './format';
 
 interface TooWideBannerProps {
   problem: ProblemDetails;
-  search: CallsSearchState;
-  onSearchChange: (next: CallsSearchState) => void;
+  /** The applied conditions. */
+  conditions: readonly Condition[];
+  /** Applies the narrowed conditions and runs the query. */
+  onApply: (next: Condition[]) => void;
 }
 
+const withDuration = (conditions: readonly Condition[], value: string): Condition[] => [
+  ...conditions.filter((c) => c.field !== 'duration'),
+  { field: 'duration', op: '>', values: [value] },
+];
+
+const withoutField = (conditions: readonly Condition[], field: string): Condition[] =>
+  conditions.filter((c) => c.field !== field);
+
 /** Wide-query guard rejection → one-click narrowing chips (09 §5). */
-export function TooWideBanner({ problem, search, onSearchChange }: TooWideBannerProps) {
+export function TooWideBanner({ problem, conditions, onApply }: TooWideBannerProps) {
   const suggested = problem.suggested_filters ?? [];
   const byClass = Object.entries(problem.by_class ?? {}).sort((a, b) => b[1] - a[1]);
   const dominant = byClass[0]?.[0];
@@ -22,17 +32,21 @@ export function TooWideBanner({ problem, search, onSearchChange }: TooWideBanner
   const chips: React.ReactNode[] = [];
   if (suggested.includes('duration_min_ms')) {
     chips.push(
-      <Button key="d500" size="small" onClick={() => onSearchChange({ ...search, durationMinMs: 500 })}>
+      <Button key="d500" size="small" onClick={() => onApply(withDuration(conditions, '500ms'))}>
         &gt;500ms
       </Button>,
-      <Button key="d3s" size="small" onClick={() => onSearchChange({ ...search, durationMinMs: 3000 })}>
+      <Button key="d3s" size="small" onClick={() => onApply(withDuration(conditions, '3s'))}>
         &gt;3s
       </Button>,
     );
   }
   if (suggested.includes('error_only')) {
     chips.push(
-      <Button key="errors" size="small" onClick={() => onSearchChange({ ...search, errorOnly: true })}>
+      <Button
+        key="errors"
+        size="small"
+        onClick={() => onApply([...withoutField(conditions, 'error'), { field: 'error', op: '=', values: ['true'] }])}
+      >
         Errors only
       </Button>,
     );
@@ -46,7 +60,12 @@ export function TooWideBanner({ problem, search, onSearchChange }: TooWideBanner
       <Button
         key="long"
         size="small"
-        onClick={() => onSearchChange({ ...search, retentionClasses: ['long_clean', 'any_error'] })}
+        onClick={() =>
+          onApply([
+            ...withoutField(conditions, 'retention_class'),
+            { field: 'retention_class', op: 'in', values: ['long_clean', 'any_error'] },
+          ])
+        }
       >
         Long or errored calls
       </Button>,
@@ -74,7 +93,7 @@ export function TooWideBanner({ problem, search, onSearchChange }: TooWideBanner
           <Space wrap>
             {chips}
             {suggested.includes('pod') ? (
-              <Typography.Text type="secondary">…or select services in the left rail.</Typography.Text>
+              <Typography.Text type="secondary">…or filter by namespace, service, or pod.</Typography.Text>
             ) : null}
           </Space>
         </Space>
@@ -84,18 +103,30 @@ export function TooWideBanner({ problem, search, onSearchChange }: TooWideBanner
 }
 
 /**
- * The selected services expand to a pod list too long to fit in one GET
- * /calls request line. There is no `service` param to fall back to (02
- * §2.3), so the only way out is fewer pods: clear the selection, or pin
- * individual pods instead of whole services (PR 708 review #8).
+ * The namespace, service, and pod filters expand to a pod list too long to
+ * fit in one GET /calls request line. /calls has no `service` param to fall
+ * back to (02 §2.3), so the only way out is fewer pods (PR 708 review #8).
  */
 export function SelectionTooWideBanner({
-  search,
-  onSearchChange,
+  conditions,
+  expandsPods = true,
+  onApply,
 }: {
-  search: CallsSearchState;
-  onSearchChange: (next: CallsSearchState) => void;
+  conditions: readonly Condition[];
+  /** True when the namespace, service, and pod filters expand to pods, so they make the request long. */
+  expandsPods?: boolean;
+  onApply: (next: Condition[]) => void;
 }) {
+  if (!expandsPods) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        title="Query too long"
+        description="The filters make the request too long to send. Use fewer values in an in list, or a regex instead."
+      />
+    );
+  }
   return (
     <Alert
       type="error"
@@ -104,10 +135,13 @@ export function SelectionTooWideBanner({
       description={
         <Space orientation="vertical" size={4}>
           <Typography.Text>
-            The selected services expand to too many pods for one request. Select fewer services, or pin individual
-            pods instead of whole services.
+            The namespace, service, and pod filters match too many pods for one request. Narrow them, or filter by
+            individual pods.
           </Typography.Text>
-          <Button size="small" onClick={() => onSearchChange({ ...search, services: [], pods: [] })}>
+          <Button
+            size="small"
+            onClick={() => onApply(conditions.filter((c) => !['namespace', 'service', 'pod'].includes(c.field)))}
+          >
             Clear selection
           </Button>
         </Space>
@@ -133,10 +167,10 @@ export function PartialBanner({ reasons, onRetry }: { reasons: string[]; onRetry
 }
 
 /**
- * A partial /pods result drops pods from the rail, which silently narrows the
- * /calls pod filter (expandSelection). The rail shows its own notice, but the
- * results table gives no hint they may be incomplete — so surface it here too
- * (09 §5 Partial). Amber: the shown calls are real, just possibly not all.
+ * A partial /pods result drops pods from the namespace, service, and pod
+ * expansion, which silently narrows the /calls pod filter. Surface it next to
+ * the results (09 §5 Partial). Amber: the shown calls are real, just possibly
+ * not all.
  */
 export function PodsPartialBanner({ reasons, onRetry }: { reasons: string[]; onRetry: () => void }) {
   return (

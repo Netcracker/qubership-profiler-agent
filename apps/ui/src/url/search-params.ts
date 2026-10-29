@@ -1,23 +1,30 @@
+import { DEFAULT_SCOPE } from '../agents/types';
+import type { AgentConfigScopeId } from '../agents/types';
 import { isRelativeExpr, resolveUrlTime } from '../controls/time-range';
 import { isRetentionClass } from '../api/types';
+import { DEFAULT_ORDER, isCallsOrder } from '../calls/sort-order';
+import type { CallsOrder } from '../calls/sort-order';
 import type { RetentionClass } from '../api/types';
+import type { Condition } from '../filter/condition';
+import { formatCondition, parseCondition } from '../filter/grammar';
+import { convertLegacyParams, readPodSelection, writePodSelection } from '../filter/legacy';
+import type { PodSelection } from '../filter/legacy';
 
-// The URL is the source of truth (09 §1, §6): the window, selection, and
-// filters live in the query string, so a shared link reopens the same view.
-// The pagination cursor never enters the URL — it is transient scroll state.
-
-/** Default duration chip: page one must not be sub-millisecond noise (09 §2.3). */
-export const DEFAULT_DURATION_MIN_MS = 500;
+// The URL is the source of truth (09 §1, §6): the window and the applied filters live in the query string, so a
+// shared link reopens the same view. The pagination cursor never enters the URL — it is transient scroll state.
 
 /**
- * Default window tokens for a screen that opts into one via `defaultWindow`: the
- * last hour, Grafana-style. Calls lands on recent data instead of an empty
- * prompt, and the range stays live because the tokens are relative.
+ * Default window tokens for a screen that opts into `defaults`: the last hour,
+ * Grafana-style. Calls lands on recent data instead of an empty prompt, and
+ * the range stays live because the tokens are relative.
  */
 export const DEFAULT_FROM = 'now-1h';
 export const DEFAULT_TO = 'now';
 
-/** /ui/calls and /ui/pods query state (09 §6). */
+/** The filter of a visit with no query string: page one must not be sub-millisecond noise (07 §11). */
+export const DEFAULT_CONDITIONS: readonly Condition[] = [{ field: 'duration', op: '>', values: ['500ms'] }];
+
+/** /ui/calls and /ui/pods query state (09 §6). Both screens read and write the same scheme. */
 export interface CallsSearchState {
   /**
    * Window tokens as the URL holds them, Grafana-style: a relative expression
@@ -28,20 +35,17 @@ export interface CallsSearchState {
   to: string | null;
   fromMs: number | null;
   toMs: number | null;
-  /** Selected services, `namespace/service`. */
-  services: string[];
-  /** Individually selected pods, `namespace/service/pod`. */
-  pods: string[];
-  /** Lower duration bound in ms; 0 means "no minimum". */
-  durationMinMs: number;
-  /** Upper duration bound in ms; 0 means "no maximum" (09 §2.3, old-UI grammar). */
-  durationMaxMs: number;
-  errorOnly: boolean;
-  retentionClasses: RetentionClass[];
-  /** Method substring query (the future `$param=` language is 08 R3). */
-  query: string;
-  /** Hide system/proxy noise (client-side idle-tag filter); default on. */
+  /** The applied conditions, one repeatable `filter` parameter each. */
+  conditions: Condition[];
+  /**
+   * The services and pods of an old link that conditions cannot express, as its `service` and `pod` parameters; a
+   * call of any of them matches. Null for every other link.
+   */
+  selection: PodSelection | null;
+  /** Hide system/proxy noise. A UI flag: the loaded rows are filtered in the browser (redesign plan §4.6). */
   hideSystem: boolean;
+  /** "Sort by", `order=<field>_<asc|desc>`. Kept in the URL even while the browser does the sorting. */
+  order: CallsOrder;
 }
 
 export const EMPTY_CALLS_SEARCH: CallsSearchState = {
@@ -49,14 +53,10 @@ export const EMPTY_CALLS_SEARCH: CallsSearchState = {
   to: null,
   fromMs: null,
   toMs: null,
-  services: [],
-  pods: [],
-  durationMinMs: DEFAULT_DURATION_MIN_MS,
-  durationMaxMs: 0,
-  errorOnly: false,
-  retentionClasses: [],
-  query: '',
-  hideSystem: true,
+  conditions: [],
+  selection: null,
+  hideSystem: false,
+  order: DEFAULT_ORDER,
 };
 
 function parseMs(raw: string | null): number | null {
@@ -75,35 +75,64 @@ function parseWindowToken(raw: string | null, nowMs: number): string | null {
 /** Parse knobs a screen can opt into. */
 export interface ParseCallsOptions {
   /**
-   * Fill an absent or unparseable window with the default last hour so the
-   * screen opens on recent data. Calls opts in; Pods keeps its Apply-gated
-   * "pick a period" prompt.
+   * Fill an absent or unparseable window with the last hour, so the screen
+   * opens on recent data, and give a visit with no query string the default
+   * filter and "Hide system/proxy". Calls opts in; Pods keeps its "pick a
+   * period" prompt.
    */
-  defaultWindow?: boolean;
+  defaults?: boolean;
 }
 
-/** `nowMs` anchors relative tokens; pass a per-load value so resolution is stable. */
+function parseFlag(raw: string | null): boolean | null {
+  if (raw === '1' || raw === 'true') return true;
+  if (raw === '0' || raw === 'false') return false;
+  return null;
+}
+
+/** An absent or unknown `order` falls back to start time, newest first. */
+function parseOrder(raw: string | null): CallsOrder {
+  return raw !== null && isCallsOrder(raw) ? raw : DEFAULT_ORDER;
+}
+
+/**
+ * Reads the calls query state. A `filter` parameter that does not parse is dropped. A link with a query string but
+ * neither `filter` nor `order`, which this page always writes, comes from the old calls page and is converted, with
+ * that page's own defaults. The old page left out a parameter at its default value, so `?from=1000&to=2000` is such a
+ * link too. `nowMs` anchors relative tokens; pass a per-load value so resolution is stable.
+ */
 export function parseCallsSearch(
   sp: URLSearchParams,
   nowMs: number = Date.now(),
   opts: ParseCallsOptions = {},
 ): CallsSearchState {
-  const durationRaw = parseMs(sp.get('duration_min_ms'));
-  const from = parseWindowToken(sp.get('from'), nowMs) ?? (opts.defaultWindow ? DEFAULT_FROM : null);
-  const to = parseWindowToken(sp.get('to'), nowMs) ?? (opts.defaultWindow ? DEFAULT_TO : null);
+  const bare = sp.size === 0;
+  const legacy = !bare && !sp.has('filter') && !sp.has('order');
+  const from = parseWindowToken(sp.get('from'), nowMs) ?? (opts.defaults ? DEFAULT_FROM : null);
+  const to = parseWindowToken(sp.get('to'), nowMs) ?? (opts.defaults ? DEFAULT_TO : null);
+
+  let conditions: Condition[];
+  let selection: PodSelection | null = null;
+  if (legacy) ({ conditions, selection } = convertLegacyParams(sp));
+  else if (bare && opts.defaults) conditions = [...DEFAULT_CONDITIONS];
+  else {
+    conditions = sp.getAll('filter').flatMap((text) => {
+      const r = parseCondition(text);
+      return r.ok ? [r.condition] : [];
+    });
+    selection = readPodSelection(sp);
+  }
+
+  // The old page hid system calls unless told not to; the new URL writes the flag whenever it is on.
+  const hideDefault = legacy || (bare && opts.defaults === true);
   return {
     from,
     to,
     fromMs: resolveUrlTime(from, nowMs),
     toMs: resolveUrlTime(to, nowMs),
-    services: sp.getAll('service').filter((s) => s.split('/').length === 2),
-    pods: sp.getAll('pod').filter((s) => s.split('/').length === 3),
-    durationMinMs: durationRaw ?? DEFAULT_DURATION_MIN_MS,
-    durationMaxMs: parseMs(sp.get('duration_max_ms')) ?? 0,
-    errorOnly: sp.get('error_only') === 'true',
-    retentionClasses: sp.getAll('retention_class').filter(isRetentionClass),
-    query: sp.get('q') ?? '',
-    hideSystem: sp.get('hide_system') !== 'false',
+    conditions,
+    selection,
+    hideSystem: parseFlag(sp.get('hide_system')) ?? hideDefault,
+    order: parseOrder(sp.get('order')),
   };
 }
 
@@ -124,40 +153,88 @@ export function freezeWindow(state: CallsSearchState): CallsSearchState {
   };
 }
 
-/** Inverse of parseCallsSearch; omits values equal to the defaults. */
+/**
+ * Inverse of parseCallsSearch. The state is written in full, with the API's own parameter names (redesign plan
+ * §4.2). Of the old parameters, only `service` and `pod` are written, for the selection of an old link.
+ */
 export function callsSearchToParams(state: CallsSearchState): URLSearchParams {
   const sp = new URLSearchParams();
   if (state.from !== null) sp.set('from', state.from);
   if (state.to !== null) sp.set('to', state.to);
-  for (const s of state.services) sp.append('service', s);
-  for (const p of state.pods) sp.append('pod', p);
-  if (state.durationMinMs !== DEFAULT_DURATION_MIN_MS) {
-    sp.set('duration_min_ms', String(state.durationMinMs));
-  }
-  if (state.durationMaxMs !== 0) sp.set('duration_max_ms', String(state.durationMaxMs));
-  if (state.errorOnly) sp.set('error_only', 'true');
-  for (const c of state.retentionClasses) sp.append('retention_class', c);
-  if (state.query !== '') sp.set('q', state.query);
-  if (!state.hideSystem) sp.set('hide_system', 'false');
+  for (const c of state.conditions) sp.append('filter', formatCondition(c));
+  writePodSelection(sp, state.selection);
+  sp.set('order', state.order);
+  if (state.hideSystem) sp.set('hide_system', '1');
   return sp;
 }
 
-/** /ui/tree/:pk query hints (02 §2.2 cold lookup). */
+/** The fixed tabs of the tree page, in display order. The first one is the default. */
+export const TREE_TABS = ['tree', 'flame', 'hotspots', 'params'] as const;
+
+export type TreeTab = (typeof TREE_TABS)[number];
+
+export function isTreeTab(s: string): s is TreeTab {
+  return (TREE_TABS as readonly string[]).includes(s);
+}
+
+/** /ui/tree/:pk query state: the cold-lookup hints (02 §2.2) and the open fixed tab (09 §6). */
 export interface TreeSearchState {
   tsMs: number | null;
   retentionClass: RetentionClass | null;
+  /** A missing or unknown `tab` opens Call Tree. Derived tabs are browser state and never get here. */
+  tab: TreeTab;
 }
 
 export function parseTreeSearch(sp: URLSearchParams): TreeSearchState {
   const classRaw = sp.get('retention_class');
+  const tabRaw = sp.get('tab');
   return {
     tsMs: parseMs(sp.get('ts_ms')),
     retentionClass: classRaw !== null && isRetentionClass(classRaw) ? classRaw : null,
+    tab: tabRaw !== null && isTreeTab(tabRaw) ? tabRaw : 'tree',
   };
 }
 
+/** Sets `tab` in a copy of the tree query string. The default tab is left out, so a plain link stays short. */
+export function withTreeTab(sp: URLSearchParams, tab: TreeTab): URLSearchParams {
+  const next = new URLSearchParams(sp);
+  if (tab === 'tree') next.delete('tab');
+  else next.set('tab', tab);
+  return next;
+}
+
 /** Builds the {base}tree/:pk href a calls row opens in a new tab (09 §2.3); base is the build-time UI base. */
-export function treeHref(pkPath: string, tsMs: number, retentionClass: RetentionClass): string {
-  const sp = new URLSearchParams({ ts_ms: String(tsMs), retention_class: retentionClass });
+export function treeHref(pkPath: string, tsMs: number, retentionClass: RetentionClass, tab: TreeTab = 'tree'): string {
+  const sp = withTreeTab(new URLSearchParams({ ts_ms: String(tsMs), retention_class: retentionClass }), tab);
   return `${import.meta.env.BASE_URL}tree/${encodeURIComponent(pkPath)}?${sp.toString()}`;
+}
+
+export const AGENTS_TABS = ['settings', 'raw', 'agents'] as const;
+
+export type AgentsTab = (typeof AGENTS_TABS)[number];
+
+/** /ui/agents query state: the scope being configured and the open tab. */
+export interface AgentsSearchState {
+  /** Not checked against the scope tree here; the API answers 404 for an unknown id. */
+  scope: AgentConfigScopeId;
+  tab: AgentsTab;
+}
+
+export const EMPTY_AGENTS_SEARCH: AgentsSearchState = { scope: DEFAULT_SCOPE, tab: 'settings' };
+
+export function parseAgentsSearch(sp: URLSearchParams): AgentsSearchState {
+  const scope = sp.get('scope') ?? '';
+  const tab = sp.get('tab') ?? '';
+  return {
+    scope: scope === '' ? EMPTY_AGENTS_SEARCH.scope : scope,
+    tab: (AGENTS_TABS as readonly string[]).includes(tab) ? (tab as AgentsTab) : EMPTY_AGENTS_SEARCH.tab,
+  };
+}
+
+/** Inverse of parseAgentsSearch; omits values equal to the defaults. */
+export function agentsSearchToParams(state: AgentsSearchState): URLSearchParams {
+  const sp = new URLSearchParams();
+  if (state.scope !== EMPTY_AGENTS_SEARCH.scope) sp.set('scope', state.scope);
+  if (state.tab !== EMPTY_AGENTS_SEARCH.tab) sp.set('tab', state.tab);
+  return sp;
 }

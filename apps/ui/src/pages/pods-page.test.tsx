@@ -1,10 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { App as AntdApp } from 'antd';
 import { HttpResponse, http } from 'msw';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { BROWSER_ZONE } from '../controls/time-range';
 import { server } from '../mocks/node';
+import { AppShell } from '../shell/app-shell';
 import { setZone } from '../ui/timezone';
 import { PodsPage } from './pods-page';
 
@@ -21,22 +24,96 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
+function Location() {
+  const location = useLocation();
+  return <div data-testid="location">{decodeURIComponent(location.search)}</div>;
+}
+
+// Wrapped in AntdApp, as in app.tsx: the page shows its toast through the App.
 function renderPodsPage(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/pods" element={<PodsPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <AntdApp>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            path="/pods"
+            element={
+              <>
+                <PodsPage />
+                <Location />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </AntdApp>,
   );
 }
 
 describe('PodsPage', () => {
-  it('offers a period picker and rail without any URL window', async () => {
+  it('offers a period picker and a filter bar, and no rail, without any URL window', async () => {
     renderPodsPage('/pods');
     expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Filter services')).toBeInTheDocument();
-    expect(screen.getByText('Pick a period and Apply to see pods.')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Filter calls' })).toBeInTheDocument();
+    expect(screen.queryByRole('tree')).not.toBeInTheDocument();
+    expect(document.querySelector('aside')).toBeNull();
+    expect(screen.getByText('Pick a time range to see pods.')).toBeInTheDocument();
+  });
+
+  it('filters the table by the service filter of the shared URL and keeps the other filters', async () => {
+    const to = Date.now();
+    const duration = encodeURIComponent('duration>1s');
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&filter=${encodeURIComponent('service=billing')}&filter=${duration}`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    const tuples = screen.getAllByRole('row').slice(1).map((row) => row.textContent ?? '');
+    expect(tuples.every((t) => t.includes('/billing/'))).toBe(true);
+    // Calls' own conditions are not Pods Info's to show.
+    expect(screen.queryByRole('button', { name: 'Remove the filter duration > 1s' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove the filter service = billing' })).toBeInTheDocument();
+  });
+
+  it('applies a filter built in the bar, keeping the conditions only Calls uses', async () => {
+    const to = Date.now();
+    const duration = encodeURIComponent('duration>1s');
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&filter=${duration}`);
+    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    expect(screen.getAllByRole('row').slice(1).some((row) => !row.textContent!.includes('/billing/'))).toBe(true);
+
+    const bar = screen.getByRole('combobox', { name: 'Filter calls' });
+    await userEvent.click(bar);
+    await userEvent.type(bar, 'service{Enter}');
+    // The table filters by pod tuples, so only = and in can be picked.
+    expect(screen.getByRole('option', { name: /^!=/ })).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.type(bar, '={Enter}billing{Enter}');
+    expect(screen.getByRole('button', { name: 'Remove the filter service = billing' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Apply$/ }));
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('filter=service=billing'));
+    expect(screen.getByTestId('location')).toHaveTextContent('filter=duration>1s');
+    await waitFor(() => {
+      const rows = screen.getAllByRole('row').slice(1);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.textContent!.includes('/billing/'))).toBe(true);
+    });
+  });
+
+  it('puts the time range in the shell header and keeps Apply in the page', () => {
+    render(
+      <AntdApp>
+        <MemoryRouter initialEntries={['/pods']}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/pods" element={<PodsPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AntdApp>,
+    );
+    const header = screen.getByRole('banner');
+    expect(within(header).getByRole('button', { name: 'Time range' })).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Zoom out time range' })).toBeInTheDocument();
+    expect(within(header).queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument();
   });
 
   it('loads the pods table after picking a period and applying', async () => {
@@ -84,7 +161,8 @@ describe('PodsPage', () => {
   it('links each row to its td/top dump download once dumps-collector is configured', async () => {
     const to = Date.now();
     renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&duration_min_ms=0`);
-    await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
+    // The rows can render before /config answers; the links come with it.
+    await screen.findAllByRole('link', { name: 'Thread dumps' }, { timeout: 5000 });
 
     const dataRow = screen.getAllByRole('row')[1]!;
     const threadLink = within(dataRow).getByRole('link', { name: 'Thread dumps' });
@@ -147,6 +225,31 @@ describe('PodsPage', () => {
     const filtered = screen.getAllByRole('row').slice(1).map(tupleOf);
     expect(filtered).toHaveLength(restartRows);
     expect(new Set(filtered)).toEqual(new Set([selected]));
+  });
+
+  it('shows the services of an old link from two namespaces, without the other pairs', async () => {
+    const tupleOf = (row: HTMLElement): string =>
+      within(row).getByText((c) => /^[^/]+\/[^/]+\/[^/]+$/.test(c)).textContent ?? '';
+    const to = Date.now();
+    renderPodsPage(`/pods?from=${to - 15 * 60 * 1000}&to=${to}&service=payments/billing&service=orders/checkout`);
+    // AntD's empty placeholder is a row too, so wait until every body row holds a pod tuple.
+    const rows = await waitFor(
+      () => {
+        const body = screen.getAllByRole('row').slice(1);
+        expect(body.length).toBeGreaterThan(0);
+        return body.map(tupleOf);
+      },
+      { timeout: 5000 },
+    );
+    const services = new Set(rows.map((t) => t.split('/').slice(0, 2).join('/')));
+    expect(services).toEqual(new Set(['payments/billing', 'orders/checkout']));
+
+    // Removing the selection token and applying shows every pod and drops it from the URL.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove the filter service or pod in payments/billing, orders/checkout' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Apply$/ }));
+    await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('service='));
   });
 
   // The pod table renders "Session start"/"Data range" in the app-wide display

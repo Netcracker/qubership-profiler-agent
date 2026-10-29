@@ -1,0 +1,63 @@
+/* The Help popover's body. antd draws the popover's own surface and shadow. */
+.help {
+  width: 440px;
+  max-width: 86vw;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.title {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.example {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--pf-color-border-soft);
+  border-radius: 6px;
+  background: var(--pf-color-ground);
+}
+
+.caption {
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.03em;
+  color: var(--pf-color-dim);
+}
+
+.exampleRow {
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+/* A fixed column, so the explanations line up under each other. */
+.term {
+  flex: 0 0 132px;
+  font-size: 12px;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.text {
+  flex: 1;
+  color: var(--pf-color-dim);
+}
+
+.strong {
+  font-weight: 500;
+}
+
+.dim {
+  color: var(--pf-color-dim);
+}

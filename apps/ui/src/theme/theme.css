@@ -1,20 +1,182 @@
-/* Brand palette values that have no antd semantic token, kept next to
-   profiler-theme.ts so the whole palette lives in one place. The rest of the
-   palette is the token map in that file. */
+/* The redesign palette as CSS variables. The first group repeats the values
+   that profiler-theme.ts hands to antd, for markup outside an antd component
+   (`--ant-*` variables exist only under one). The rest are colors antd has no
+   token for. */
 :root {
-  /* Mid step of the duration heat ramp, between colorWarning and colorError
-     (APIHUB deprecated-orange). Used by durationHeat in calls/format.ts. */
+  --pf-font-sans: 'Inter Variable', Inter, 'Segoe UI', system-ui, sans-serif;
+  --pf-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --pf-color-ground: #f5f5fa;
+  --pf-color-surface: #ffffff;
+  --pf-color-border: #d5dce3;
+  --pf-color-border-soft: #e6ebf1;
+  --pf-color-text: #353c4e;
+  --pf-color-dim: #626d82;
+  --pf-color-faint: #8f9eb4;
+  --pf-color-accent: #0068ff;
+  --pf-color-accent-text: #005dcf;
+  --pf-color-ok: #00a356;
+  --pf-color-warn: #b8760c;
+  --pf-color-crit: #d10049;
+
+  /* Surfaces and states. */
+  --pf-color-surface2: #edf1f5;
+  --pf-color-accent-soft: #d6edff;
+  --pf-color-veil: rgba(46, 58, 82, 0.09);
+  --pf-color-header: #0068ff;
+  --pf-color-warn-bg: #fff4d6;
+  --pf-color-crit-bg: #ffe3e9;
+  --pf-shadow: 0 4px 12px rgba(0, 0, 0, 0.16), 0 12px 32px rgba(0, 0, 0, 0.12);
+
+  /* Mid step of the duration heat ramp, between colorWarning and colorError.
+     Used by durationHeat in calls/format.ts, after --pf-color-ok and
+     --pf-color-warn and before --pf-color-crit. */
   --pf-color-heat-mid: #ef9206;
 
-  /* Darker draft-chip blue for processing tags: colorInfo (#61AAF2) is too pale
-     on the light info background, so tag text uses this instead. */
+  /* Histogram and share bars. */
+  --pf-color-bar: #0068ff;
+  --pf-color-bar-soft: rgba(0, 104, 255, 0.22);
+  --pf-color-bar-err: #d10049;
+
+  /* Tags. Processing tags (sql, duration, SQL param keys) take the darker blue
+     for their text; see the rule below. */
+  --pf-color-tag-err-bg: #ffe3e9;
+  --pf-color-tag-info-bg: #d6edff;
   --pf-color-tag-info-text: #004eae;
+
+  /* Call tree: search-match mark, connector lines, and SQL syntax colors. */
+  --pf-color-mark: #ffea9f;
+  --pf-color-guide: #b4bfcf;
+  --pf-color-syntax-keyword: #005dcf;
+  --pf-color-syntax-number: #00874a;
+
+  /* Setup categories: the row background of a categorized subtree, and its
+     badge, in the order categories.ts hands them out. Translucent, so a badge
+     reads on a plain, a hovered, and a selected row. */
+  --pf-color-cat-1: rgba(0, 104, 255, 0.16);
+  --pf-color-cat-2: rgba(124, 92, 255, 0.22);
+  --pf-color-cat-3: rgba(14, 157, 148, 0.22);
+  --pf-color-cat-4: rgba(184, 118, 12, 0.24);
+  --pf-color-cat-5: rgba(209, 0, 73, 0.16);
+  --pf-color-cat-6: rgba(0, 163, 86, 0.2);
+
+  /* Flame graph blocks: the same hues as the badges, stronger. A block without
+     a category takes --pf-color-bar-soft. */
+  --pf-color-flame-1: rgba(0, 104, 255, 0.3);
+  --pf-color-flame-2: rgba(124, 92, 255, 0.38);
+  --pf-color-flame-3: rgba(14, 157, 148, 0.38);
+  --pf-color-flame-4: rgba(184, 118, 12, 0.4);
+  --pf-color-flame-5: rgba(209, 0, 73, 0.3);
+  --pf-color-flame-6: rgba(0, 163, 86, 0.36);
 }
 
-/* Processing tags (sql, duration, SQL param keys) inherit colorInfo for their
-   text, which reads faintly on the pale info fill. Swap in the darker brand
-   blue. antd's own rule carries specificity 0,4,0, so `!important` is the clean
-   way to win without matching its brittle internal class chain. */
+:root[data-theme='dark'] {
+  --pf-color-ground: #171b24;
+  --pf-color-surface: #1e232e;
+  --pf-color-border: #333b4a;
+  --pf-color-border-soft: #2a313e;
+  --pf-color-text: #e6e9ef;
+  --pf-color-dim: #a4aec1;
+  --pf-color-faint: #7d879b;
+  --pf-color-accent: #4d9bff;
+  --pf-color-accent-text: #6fb0ff;
+  --pf-color-ok: #3fd07f;
+  --pf-color-warn: #ffb02e;
+  --pf-color-crit: #ff6b78;
+
+  --pf-color-surface2: #262c39;
+  --pf-color-accent-soft: #1c2b45;
+  --pf-color-veil: rgba(255, 255, 255, 0.07);
+  --pf-color-header: #005dcf;
+  --pf-color-warn-bg: #3a2f14;
+  --pf-color-crit-bg: #45202a;
+  --pf-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+
+  --pf-color-heat-mid: #ffb02e;
+
+  --pf-color-bar: #3d8bf2;
+  --pf-color-bar-soft: rgba(61, 139, 242, 0.28);
+  --pf-color-bar-err: #f25567;
+
+  --pf-color-tag-err-bg: #45202a;
+  --pf-color-tag-info-bg: #1c2b45;
+  --pf-color-tag-info-text: #9cc8ff;
+
+  --pf-color-mark: #5a4a12;
+  --pf-color-guide: #4d586b;
+  --pf-color-syntax-keyword: #6fb0ff;
+  --pf-color-syntax-number: #6fdc9c;
+
+  --pf-color-cat-1: rgba(77, 155, 255, 0.24);
+  --pf-color-cat-2: rgba(150, 125, 255, 0.3);
+  --pf-color-cat-3: rgba(46, 196, 182, 0.26);
+  --pf-color-cat-4: rgba(255, 176, 46, 0.24);
+  --pf-color-cat-5: rgba(255, 107, 120, 0.24);
+  --pf-color-cat-6: rgba(63, 208, 127, 0.24);
+
+  --pf-color-flame-1: rgba(77, 155, 255, 0.4);
+  --pf-color-flame-2: rgba(150, 125, 255, 0.46);
+  --pf-color-flame-3: rgba(46, 196, 182, 0.42);
+  --pf-color-flame-4: rgba(255, 176, 46, 0.4);
+  --pf-color-flame-5: rgba(255, 107, 120, 0.4);
+  --pf-color-flame-6: rgba(63, 208, 127, 0.4);
+}
+
+/* antd styles its own components from the tokens; this covers the page around
+   them and any markup that is not an antd component. */
+body {
+  font-family: var(--pf-font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--pf-color-text);
+  background: var(--pf-color-ground);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers and identifiers: fixed-width digits so columns of durations, counts,
+   and timestamps line up. */
+.pf-mono {
+  font-family: var(--pf-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* Processing tags inherit colorInfo for their text, which reads faintly on the
+   pale info fill. Swap in the darker brand blue. antd's own rule carries
+   specificity 0,4,0, so `!important` is the clean way to win without matching
+   its brittle internal class chain. */
 .ant-tag-processing {
   color: var(--pf-color-tag-info-text) !important;
+}
+
+/* highlight.js ships one stylesheet per theme, and param-value-viewer.tsx
+   imports the light one (github.css). Its white block and dark text do not fit
+   the dark surfaces, so the dark theme drops the block background, letting the
+   full-value modal show through, and recolors the token classes that the SQL,
+   XML, and JSON grammars emit. */
+:root[data-theme='dark'] .hljs {
+  color: var(--pf-color-text);
+  background: transparent;
+}
+
+:root[data-theme='dark'] .hljs-keyword,
+:root[data-theme='dark'] .hljs-type,
+:root[data-theme='dark'] .hljs-built_in,
+:root[data-theme='dark'] .hljs-name,
+:root[data-theme='dark'] .hljs-attr,
+:root[data-theme='dark'] .hljs-attribute,
+:root[data-theme='dark'] .hljs-operator {
+  color: var(--pf-color-syntax-keyword);
+}
+
+:root[data-theme='dark'] .hljs-number,
+:root[data-theme='dark'] .hljs-literal,
+:root[data-theme='dark'] .hljs-string,
+:root[data-theme='dark'] .hljs-meta,
+:root[data-theme='dark'] .hljs-variable {
+  color: var(--pf-color-syntax-number);
+}
+
+:root[data-theme='dark'] .hljs-comment {
+  color: var(--pf-color-faint);
 }

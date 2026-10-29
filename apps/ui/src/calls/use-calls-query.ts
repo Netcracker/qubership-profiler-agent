@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { ApiError, isCursorRejection, isWideQueryRejection } from '../api/client';
+import { ApiError, isCursorRejection, isInvalidRequest, isWideQueryRejection } from '../api/client';
 import { fetchCallsFirstPage, fetchCallsNextPage } from '../api/endpoints';
 import type { CallsFilter } from '../api/endpoints';
 import { pkToPath } from '../api/pk';
@@ -33,6 +33,8 @@ export type CallsQueryState =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'too-wide'; problem: ProblemDetails }
+  /** The backend rejected the query, such as a filter it does not implement; `detail` says what. */
+  | { kind: 'invalid'; detail: string }
   | { kind: 'all-failed'; detail: string }
   | { kind: 'error'; message: string }
   | CallsReady;
@@ -71,12 +73,14 @@ export function useCallsQuery(filter: CallsFilter | null): UseCallsQueryResult {
       : JSON.stringify([
           filter.fromMs,
           filter.toMs,
+          [...(filter.filters ?? [])].sort(),
           [...(filter.pods ?? [])].sort(),
           filter.method ?? '',
           filter.durationMinMs ?? 0,
           filter.durationMaxMs ?? 0,
           filter.errorOnly ?? false,
           [...(filter.retentionClasses ?? [])].sort(),
+          filter.order ?? '',
         ]);
 
   useEffect(() => {
@@ -120,6 +124,8 @@ export function useCallsQuery(filter: CallsFilter | null): UseCallsQueryResult {
         if (controller.signal.aborted) return;
         if (isWideQueryRejection(e) && e.problem !== null) {
           commit({ kind: 'too-wide', problem: e.problem });
+        } else if (isInvalidRequest(e)) {
+          commit({ kind: 'invalid', detail: e.message });
         } else if (e instanceof ApiError && e.status === 504) {
           commit({ kind: 'all-failed', detail: e.problem?.detail ?? e.message });
         } else {
