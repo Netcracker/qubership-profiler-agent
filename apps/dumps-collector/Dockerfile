@@ -11,7 +11,7 @@ ARG TARGETARCH
 ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=4.0.7
 
 # renovate: datasource=maven depName=qubership-profiler-diagtools packageName=org.qubership.profiler:qubership-profiler-diagtools versioning=maven
-ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=4.0.7
+ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=4.0.8
 
 ENV INSTALLER_CLOUD="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip"
 
