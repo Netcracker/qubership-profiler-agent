@@ -115,7 +115,7 @@ func Write(w http.ResponseWriter, body Body) error {
 }
 
 // Send serves body as the response to c.
-func Send(c echo.Context, body Body) error {
+func Send(c *echo.Context, body Body) error {
 	return Write(c.Response(), body)
 }
 
@@ -123,20 +123,25 @@ func Send(c echo.Context, body Body) error {
 // producer: a handler that returned a raw error, an unmatched route, a wrong
 // method. Install it as echo.Echo.HTTPErrorHandler.
 //
-// An *echo.HTTPError below 500 keeps its status and message; anything else
-// answers 500 with internalDetail, so err never reaches the client. A response
-// that is already committed is left alone: /trace streams through
-// http.ServeContent, and a late error must not corrupt the bytes it wrote.
-func ErrorHandler(err error, c echo.Context) {
-	if c.Response().Committed {
+// An error carrying a status below 500 (an *echo.HTTPError, or a sentinel such
+// as echo.ErrNotFound) keeps that status, and its message or else the status
+// text; anything else answers 500 with internalDetail, so err never reaches
+// the client. A response that is already committed is left alone: /trace
+// streams through http.ServeContent, and a late error must not corrupt the
+// bytes it wrote.
+func ErrorHandler(c *echo.Context, err error) {
+	if r, _ := echo.UnwrapResponse(c.Response()); r != nil && r.Committed {
 		return
 	}
 	status := http.StatusInternalServerError
 	detail := internalDetail
-	var httpErr *echo.HTTPError
-	if errors.As(err, &httpErr) && httpErr.Code >= 400 && httpErr.Code < 500 {
-		status = httpErr.Code
-		detail = fmt.Sprintf("%v", httpErr.Message)
+	if code, ok := clientStatus(err); ok {
+		status = code
+		detail = http.StatusText(code)
+		var httpErr *echo.HTTPError
+		if errors.As(err, &httpErr) && httpErr.Message != "" {
+			detail = httpErr.Message
+		}
 	}
 	if c.Request().Method == http.MethodHead {
 		// Mirrors echo.DefaultHTTPErrorHandler: the status and the headers a
@@ -220,14 +225,26 @@ func codeForStatus(status int) string {
 // operator attention, unlike a real 5xx or an unexpected error (PR 708 review
 // #23).
 func IsClientSide(err error) bool {
-	var httpErr *echo.HTTPError
-	if errors.As(err, &httpErr) && httpErr.Code >= 400 && httpErr.Code < 500 {
+	if _, ok := clientStatus(err); ok {
 		return true
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	return isBrokenPipeOrReset(err)
+}
+
+// clientStatus returns the 4xx status err carries through
+// echo.HTTPStatusCoder, which both *echo.HTTPError and Echo's routing
+// sentinels (echo.ErrNotFound, echo.ErrMethodNotAllowed) implement.
+func clientStatus(err error) (int, bool) {
+	var sc echo.HTTPStatusCoder
+	if errors.As(err, &sc) {
+		if code := sc.StatusCode(); code >= 400 && code < 500 {
+			return code, true
+		}
+	}
+	return 0, false
 }
 
 // isBrokenPipeOrReset detects a client that closed its connection while the

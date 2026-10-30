@@ -2,7 +2,10 @@ package server
 
 import (
 	"archive/zip"
+	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
@@ -10,8 +13,12 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c echo.Context) error {
-	return func(c echo.Context) error {
+// dispositionQuoter escapes a file name for the quoted filename parameter of
+// Content-Disposition, as echo.Context.Attachment does.
+var dispositionQuoter = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+
+func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c *echo.Context) error {
+	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 
 		// Get parameters from query params
@@ -26,7 +33,14 @@ func downloadHeapDump(requestProcessor *task.RequestProcessor) func(c echo.Conte
 		}
 
 		if fileLocation.PathToZip == "" {
-			return c.Attachment(fileLocation.PathToFiles[0], filepath.Base(fileLocation.PathToFiles[0]))
+			// Not c.Attachment: Echo v5 opens that path through Echo.Filesystem,
+			// which is rooted at the working directory, and the dump lives on
+			// the PV outside it.
+			file := fileLocation.PathToFiles[0]
+			name := filepath.Base(file)
+			c.Response().Header().Set(echo.HeaderContentDisposition,
+				fmt.Sprintf(`attachment; filename="%s"`, dispositionQuoter.Replace(name)))
+			return c.FileFS(name, os.DirFS(filepath.Dir(file)))
 		} else {
 			zipReader, err := zip.OpenReader(fileLocation.PathToZip)
 			if err != nil {
