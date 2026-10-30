@@ -4,7 +4,7 @@ import (
 	"net/url"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/pkg/errors"
 )
 

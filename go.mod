@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/labstack/echo-contrib v0.50.1
-	github.com/labstack/echo/v4 v4.16.3
+	github.com/labstack/echo/v5 v5.4.2
 	github.com/minio/minio-go/v7 v7.4.1
 	github.com/oklog/run v1.2.0
 	github.com/otiai10/copy v1.14.1
@@ -109,6 +109,7 @@ require (
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
+	github.com/labstack/echo/v4 v4.15.0 // indirect
 	github.com/labstack/gommon v0.5.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/magiconair/properties v1.8.10 // indirect

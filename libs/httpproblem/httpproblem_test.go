@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

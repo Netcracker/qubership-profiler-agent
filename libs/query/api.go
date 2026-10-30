@@ -11,8 +11,8 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 )
 
 // problem is an RFC 7807 body (02 §8) with the §2.3.2 guard extensions. The

@@ -28,7 +28,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/pkg/errors"
 )
 
