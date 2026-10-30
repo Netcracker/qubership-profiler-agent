@@ -1,0 +1,37 @@
+{{- $protocols := include "gateway.protocols" . | fromYaml -}}
+{{- $enabled := include "gateway.enabledProtocols" . | fromJsonArray -}}
+{{- $profilerPorts := (include "gateway.profilerPorts" . | fromYaml).ports -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gateway.serviceName" . }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "gateway.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- range $name := $enabled }}
+    {{- range index $protocols $name "ports" }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .name }}
+      protocol: TCP
+    {{- end }}
+    {{- end }}
+    {{- range $profilerPorts }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .name }}
+      protocol: TCP
+    {{- end }}
+    # diag-proxy exposed its probe port under this name.
+    - name: agent-probes
+      port: {{ .Values.ports.probes }}
+      targetPort: probes
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.ports.metrics }}
+      targetPort: metrics
+      protocol: TCP

@@ -10,11 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
-	"github.com/Netcracker/qubership-profiler-backend/libs/server"
 	"github.com/pkg/errors"
 )
 

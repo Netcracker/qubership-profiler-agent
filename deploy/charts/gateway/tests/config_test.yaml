@@ -1,0 +1,109 @@
+suite: gateway Collector config
+templates:
+  - templates/configmap.yaml
+release:
+  name: test
+tests:
+  - it: forwards every protocol to the upstream by default
+    asserts:
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "otlp_grpc/upstream:\\n\\s+endpoint: jaeger-collector.jaeger.svc:4317"
+      - notMatchRegex:
+          path: data["otel.yaml"]
+          pattern: "nop"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/otlp:\\n\\s+exporters:\\n\\s+- otlp_grpc/upstream\\n\\s+processors:\\n\\s+- memory_limiter\\n\\s+- batch"
+
+  - it: sends a discarding protocol to nop without batch
+    set:
+      traces.otlp.mode: discard
+      traces.jaeger.enabled: false
+      traces.zipkin.enabled: false
+    asserts:
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "exporters:\\n\\s+nop: \\{\\}"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/otlp:\\n\\s+exporters:\\n\\s+- nop\\n\\s+processors:\\n\\s+- memory_limiter\\n\\s+receivers:"
+      - notMatchRegex:
+          path: data["otel.yaml"]
+          pattern: "otlp_grpc/upstream"
+
+  - it: removes the receiver and pipeline of a disabled protocol
+    set:
+      traces.jaeger.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: data["otel.yaml"]
+          pattern: "\\n\\s+jaeger:|traces/jaeger|14250|14268"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/zipkin:"
+
+  - it: serves probes and metrics on the configured ports
+    set:
+      ports.probes: 9000
+      ports.metrics: 9001
+    asserts:
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "health_check:\\n\\s+endpoint: 0.0.0.0:9000\\n\\s+path: /probes/ready"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "host: 0.0.0.0\\n\\s+port: 9001"
+
+  - it: merges config over the rendered config
+    set:
+      config:
+        processors:
+          filter/drop:
+            error_mode: ignore
+        service:
+          pipelines:
+            traces/otlp:
+              processors: [memory_limiter, filter/drop, batch]
+    asserts:
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "filter/drop:\\n\\s+error_mode: ignore"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/otlp:\\n\\s+exporters:\\n\\s+- otlp_grpc/upstream\\n\\s+processors:\\n\\s+- memory_limiter\\n\\s+- filter/drop\\n\\s+- batch"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/zipkin:"
+
+  - it: rejects an unknown mode
+    set:
+      traces.zipkin.mode: drop
+    asserts:
+      - failedTemplate:
+          errorPattern: 'traces.zipkin.mode is "drop"; use passthrough or discard'
+
+  - it: rejects a config with every protocol disabled
+    set:
+      traces.otlp.enabled: false
+      traces.jaeger.enabled: false
+      traces.zipkin.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "every trace protocol is disabled"
+
+  - it: rejects an unknown dumps mode
+    set:
+      dumps.enabled: true
+      dumps.mode: reject
+    asserts:
+      - failedTemplate:
+          errorPattern: 'dumps.mode is "reject"; use passthrough or discard'
+
+  - it: rejects an unknown tcp mode
+    set:
+      tcp.enabled: true
+      tcp.mode: reject
+    asserts:
+      - failedTemplate:
+          errorPattern: 'tcp.mode is "reject"; use passthrough or discard'

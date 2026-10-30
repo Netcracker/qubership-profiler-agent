@@ -14,8 +14,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/pkg/errors"
 )

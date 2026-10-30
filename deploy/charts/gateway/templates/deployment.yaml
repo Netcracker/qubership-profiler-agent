@@ -1,0 +1,120 @@
+{{- $protocols := include "gateway.protocols" . | fromYaml -}}
+{{- $enabled := include "gateway.enabledProtocols" . | fromJsonArray -}}
+{{- $profilerPorts := (include "gateway.profilerPorts" . | fromYaml).ports -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gateway.fullname" . }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gateway.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # A config change is a Collector restart either way; the checksum
+        # makes Helm roll the pods instead of leaving them on the old config.
+        checksum/config: {{ include "gateway.config" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gateway
+          image: {{ include "gateway.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --config=/conf/otel.yaml
+          ports:
+            {{- range $name := $enabled }}
+            {{- range index $protocols $name "ports" }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: TCP
+            {{- end }}
+            {{- end }}
+            {{- range $profilerPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: TCP
+            {{- end }}
+            - name: probes
+              containerPort: {{ .Values.ports.probes }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.ports.metrics }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /probes/ready
+              port: probes
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /probes/ready
+              port: probes
+            initialDelaySeconds: 1
+            timeoutSeconds: 1
+            failureThreshold: 30
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            {{- if include "gateway.profilerEnabled" . }}
+            # A directory mount, not subPath: the kubelet updates only
+            # directory mounts when the ConfigMap changes.
+            - name: rules
+              mountPath: {{ include "gateway.rulesFile" . | dir }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "gateway.fullname" . }}
+        {{- if include "gateway.profilerEnabled" . }}
+        - name: rules
+          configMap:
+            name: {{ include "gateway.fullname" . }}-rules
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

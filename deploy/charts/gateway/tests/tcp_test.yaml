@@ -1,0 +1,50 @@
+suite: gateway profiler_tcp
+templates:
+  - templates/configmap.yaml
+  - templates/rules-configmap.yaml
+  - templates/deployment.yaml
+  - templates/service.yaml
+release:
+  name: test
+tests:
+  - it: leaves profiler TCP out by default
+    asserts:
+      - template: templates/configmap.yaml
+        notMatchRegex:
+          path: data["otel.yaml"]
+          pattern: "profiler_tcp"
+      - template: templates/service.yaml
+        notContains:
+          path: spec.ports
+          content: { name: cdt-tcp }
+          any: true
+
+  - it: renders the extension, the port, and the rules ConfigMap
+    set:
+      tcp.enabled: true
+    asserts:
+      - template: templates/configmap.yaml
+        matchRegex:
+          path: data["otel.yaml"]
+          pattern: "profiler_tcp:\\n\\s+endpoint: 0.0.0.0:1715\\n\\s+max_connections: 256\\n\\s+mode: passthrough\\n\\s+rules_file: /etc/gateway/rules/rules.yaml\\n\\s+upstream: profiler-collector-agent.profiler.svc:1715"
+      - template: templates/configmap.yaml
+        matchRegex:
+          path: data["otel.yaml"]
+          pattern: "extensions:\\n\\s+- health_check\\n\\s+- profiler_tcp"
+      - template: templates/service.yaml
+        contains:
+          path: spec.ports
+          content: { name: cdt-tcp, port: 1715, targetPort: cdt-tcp, protocol: TCP }
+      - template: templates/rules-configmap.yaml
+        hasDocuments:
+          count: 1
+
+  - it: lists both extensions when both are on
+    set:
+      tcp.enabled: true
+      dumps.enabled: true
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "extensions:\\n\\s+- health_check\\n\\s+- profiler_dumps\\n\\s+- profiler_tcp"

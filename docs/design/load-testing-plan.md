@@ -61,7 +61,7 @@ cannot exercise backpressure or crashloop paths. Gap analysis against the Java d
 | G9 | No load-shape knobs (bytes/s, calls/s, distributions); all pods send identical traffic | Medium | parameter sweeps |
 
 Implementation: a "virtual dumper" behavioral layer in Go (shared between `tools/load-generator/pkg/cdt` and
-`libs/emulator`) that mirrors the `DumperThread` + `DefaultCollectorClient` state machine. The behavioral
+`libs/wire/emulator`) that mirrors the `DumperThread` + `DefaultCollectorClient` state machine. The behavioral
 contract — wire rules, state machine, knobs, calibration method — lives in `virtual-dumper.md`:
 
 - N producer goroutines per pod model app threads; each fills a per-thread trace buffer with jittered delays, so
@@ -165,7 +165,7 @@ saturation signal fires.
 - 1 replica; thousands of nearly idle connections (keep-alive traffic only), ramp from 1000 upward.
 - Measure RAM and goroutine cost per connection and per tracked pod-restart; find where accept latency, RAM
   (`PROFILER_MEM_BUDGET` pressure), or file-descriptor limits bite.
-- Note: there is no accept-side connection cap today (`libs/server/services.go`); record what failure looks like.
+- Note: there is no accept-side connection cap today (`libs/wire/server/services.go`); record what failure looks like.
 
 ### T4. Soak
 
@@ -298,7 +298,7 @@ G1–G9 are closed:
 - **G1–G2**: producer goroutines model app threads; logical trace chunks interleave on the wire and calls records
   carry the (file index, buffer offset, record index) linkage, verified by decoding the wire through
   `libs/parser/pipe` in the package tests.
-- **G3–G6**: the transport (`libs/emulator`) matches the agent ack protocol (+1 pending ack per `RCV_DATA`, no
+- **G3–G6**: the transport (`libs/wire/emulator`) matches the agent ack protocol (+1 pending ack per `RCV_DATA`, no
   per-payload flush, opportunistic drains via FIONREAD, typed `ACK_ERROR_MAGIC`); the lifecycle reconnects after
   10 s with a full dictionary resend under `resetRequired=1`. Lifecycle tests run against the `emutest` scripted
   collector on a fake clock.

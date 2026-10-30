@@ -1,0 +1,76 @@
+suite: gateway profiler_dumps
+templates:
+  - templates/configmap.yaml
+  - templates/rules-configmap.yaml
+  - templates/deployment.yaml
+  - templates/service.yaml
+release:
+  name: test
+tests:
+  - it: leaves dumps out by default
+    asserts:
+      - template: templates/configmap.yaml
+        notMatchRegex:
+          path: data["otel.yaml"]
+          pattern: "profiler_dumps"
+      - template: templates/rules-configmap.yaml
+        hasDocuments:
+          count: 0
+      - template: templates/service.yaml
+        notContains:
+          path: spec.ports
+          content: { name: cdt-http }
+          any: true
+
+  - it: renders the extension, the port, and the rules mount
+    set:
+      dumps.enabled: true
+      dumps.maxBodySizePerType.td: 64MiB
+    asserts:
+      - template: templates/configmap.yaml
+        matchRegex:
+          path: data["otel.yaml"]
+          pattern: "profiler_dumps:\\n\\s+endpoint: 0.0.0.0:8080\\n\\s+max_body_size: 10GiB\\n\\s+max_body_size_per_type:\\n\\s+td: 64MiB"
+      - template: templates/configmap.yaml
+        matchRegex:
+          path: data["otel.yaml"]
+          pattern: "rules_file: /etc/gateway/rules/rules.yaml\\n\\s+upstream: http://cloud-profiler-dumps-collector.profiler.svc:8080"
+      - template: templates/configmap.yaml
+        matchRegex:
+          path: data["otel.yaml"]
+          pattern: "extensions:\\n\\s+- health_check\\n\\s+- profiler_dumps"
+      - template: templates/service.yaml
+        contains:
+          path: spec.ports
+          content: { name: cdt-http, port: 8080, targetPort: cdt-http, protocol: TCP }
+      - template: templates/deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: { name: rules, mountPath: /etc/gateway/rules, readOnly: true }
+      - template: templates/deployment.yaml
+        contains:
+          path: spec.template.spec.volumes
+          content: { name: rules, configMap: { name: test-gateway-rules } }
+
+  - it: writes the rules into the watched ConfigMap
+    set:
+      dumps.enabled: true
+      rules:
+        - match: { namespace: "load-*", dump_type: [hprof] }
+          mode: discard
+    template: templates/rules-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["rules.yaml"]
+          pattern: "rules:\\n- match:\\n    dump_type:\\n    - hprof\\n    namespace: load-\\*\\n  mode: discard"
+
+  - it: omits the upstream in discard mode when it is emptied
+    set:
+      dumps.enabled: true
+      dumps.mode: discard
+      dumps.upstream: ""
+    template: templates/configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["otel.yaml"]
+          pattern: "upstream: http"

@@ -7,7 +7,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/generator"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/stretchr/testify/assert"
 )
 

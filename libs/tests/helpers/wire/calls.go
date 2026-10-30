@@ -9,7 +9,7 @@ package wire
 import (
 	"bytes"
 
-	emwire "github.com/Netcracker/qubership-profiler-backend/libs/emulator/wire"
+	emwire "github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/wire"
 )
 
 // callsHeaderMagic marks a versioned calls file. The agent writes

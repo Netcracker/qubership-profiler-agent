@@ -1,8 +1,8 @@
 package vdumper
 
 import (
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 )
 
 // Transport is the protocol-level connection the virtual dumper drives — the

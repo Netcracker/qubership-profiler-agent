@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"gopkg.in/yaml.v3"
 )
 
