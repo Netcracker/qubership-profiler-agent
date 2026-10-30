@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // The first asset URL in the built index.html carries the Vite base, e.g.
@@ -40,7 +40,7 @@ func uiPrefix(fsys fs.FS) string {
 // handleUI serves the embedded single-page app (07 §6): real files come from
 // the embedded dist, anything else falls back to index.html so client-side
 // routes ({base}calls, {base}tree/:pk) deep-link and refresh.
-func (s *Service) handleUI(c echo.Context) error {
+func (s *Service) handleUI(c *echo.Context) error {
 	p := strings.TrimPrefix(c.Request().URL.Path, s.uiPrefix)
 	p = strings.TrimPrefix(p, "/")
 	// A root-base build registers the catch-all at "/", so echo backtracks an

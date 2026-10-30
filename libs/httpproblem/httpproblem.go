@@ -26,7 +26,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // ContentType is the RFC 7807 media type every problem body is served with.
@@ -115,7 +115,7 @@ func Write(w http.ResponseWriter, body Body) error {
 }
 
 // Send serves body as the response to c.
-func Send(c echo.Context, body Body) error {
+func Send(c *echo.Context, body Body) error {
 	return Write(c.Response(), body)
 }
 
@@ -127,16 +127,20 @@ func Send(c echo.Context, body Body) error {
 // answers 500 with internalDetail, so err never reaches the client. A response
 // that is already committed is left alone: /trace streams through
 // http.ServeContent, and a late error must not corrupt the bytes it wrote.
-func ErrorHandler(err error, c echo.Context) {
-	if c.Response().Committed {
+func ErrorHandler(c *echo.Context, err error) {
+	if response, err := echo.UnwrapResponse(c.Response()); err == nil && response.Committed {
 		return
 	}
 	status := http.StatusInternalServerError
 	detail := internalDetail
-	var httpErr *echo.HTTPError
-	if errors.As(err, &httpErr) && httpErr.Code >= 400 && httpErr.Code < 500 {
-		status = httpErr.Code
-		detail = fmt.Sprintf("%v", httpErr.Message)
+	var httpErr echo.HTTPStatusCoder
+	if errors.As(err, &httpErr) && httpErr.StatusCode() >= 400 && httpErr.StatusCode() < 500 {
+		status = httpErr.StatusCode()
+		detail = err.Error()
+		var explicit *echo.HTTPError
+		if errors.As(err, &explicit) {
+			detail = explicit.Message
+		}
 	}
 	if c.Request().Method == http.MethodHead {
 		// Mirrors echo.DefaultHTTPErrorHandler: the status and the headers a
@@ -220,8 +224,8 @@ func codeForStatus(status int) string {
 // operator attention, unlike a real 5xx or an unexpected error (PR 708 review
 // #23).
 func IsClientSide(err error) bool {
-	var httpErr *echo.HTTPError
-	if errors.As(err, &httpErr) && httpErr.Code >= 400 && httpErr.Code < 500 {
+	var httpErr echo.HTTPStatusCoder
+	if errors.As(err, &httpErr) && httpErr.StatusCode() >= 400 && httpErr.StatusCode() < 500 {
 		return true
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

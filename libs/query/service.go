@@ -12,8 +12,8 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/hot"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"github.com/oklog/run"
 )
 
@@ -88,17 +88,14 @@ func New(opts Options) *Service {
 		s.hot = hot.NewClient(cfg.FanoutTimeout, b)
 	}
 	e := echo.New()
-	e.HideBanner = true
-	e.HidePort = true
 	// Everything no handler answered itself — a raw error, an unmatched route,
 	// a wrong method — still leaves as the §8 problem envelope.
 	e.HTTPErrorHandler = httpproblem.ErrorHandler
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus:   true,
 		LogURI:      true,
-		LogError:    true,
 		HandleError: true,
-		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
 			ctx := c.Request().Context()
 			switch {
 			case v.Error == nil:
@@ -128,16 +125,16 @@ func (s *Service) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	s.echo.Server.BaseContext = func(net.Listener) context.Context { return ctx }
+	server := &http.Server{Addr: s.cfg.ListenAddr, Handler: s.echo, BaseContext: func(net.Listener) context.Context { return ctx }}
 	var gr run.Group
 	gr.Add(func() error {
-		err := s.echo.Start(s.cfg.ListenAddr)
+		err := server.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
 	}, func(error) {
-		_ = s.echo.Shutdown(context.Background())
+		_ = server.Shutdown(context.Background())
 	})
 	gr.Add(func() error {
 		<-ctx.Done()
