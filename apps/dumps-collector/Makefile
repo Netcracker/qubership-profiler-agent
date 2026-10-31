@@ -64,6 +64,8 @@ setup:
 	mkdir -p $(OUTPUT_DIR)
 	mkdir -p $(SAAS_MANIFEST_DIR)
 	cp -R ../../deploy/charts $(SAAS_MANIFEST_DIR)/
+# profiler-backend needs its SeaweedFS subchart archive, which is not committed.
+	helm dependency update $(SAAS_MANIFEST_DIR)/charts/profiler-backend
 
 docker-prepare:
 	cd ../.. && $(GRADLEW) --quiet :installer:prepareDumpsCollectorDocker
