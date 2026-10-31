@@ -69,24 +69,24 @@ func TestClassesForPrunes(t *testing.T) {
 	assert.Equal(t, all, src.ClassesFor(model.CallsQuery{}), "no filter lists every class")
 
 	assert.Equal(t, []string{model.RetentionAnyError, model.RetentionCorrupted},
-		src.ClassesFor(model.CallsQuery{ErrorOnly: true}), "error_only keeps the error classes")
+		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.ErrorCondition(true)}}), "error_only keeps the error classes")
 
 	assert.Equal(t, []string{model.RetentionLongClean, model.RetentionHugeClean, model.RetentionAnyError, model.RetentionCorrupted},
-		src.ClassesFor(model.CallsQuery{DurationMinMs: 1000}),
+		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.DurationCondition(model.OpGe, int64(1000))}}),
 		"duration_min_ms >= 1000 drops short_clean and normal_clean, error classes carry any duration")
 
 	assert.Equal(t, []string{model.RetentionNormalClean, model.RetentionLongClean, model.RetentionHugeClean, model.RetentionAnyError, model.RetentionCorrupted},
-		src.ClassesFor(model.CallsQuery{DurationMinMs: 100}), "the 100ms threshold drops only short_clean")
+		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.DurationCondition(model.OpGe, int64(100))}}), "the 100ms threshold drops only short_clean")
 
-	assert.Equal(t, all, src.ClassesFor(model.CallsQuery{DurationMinMs: 99}),
+	assert.Equal(t, all, src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.DurationCondition(model.OpGe, int64(99))}}),
 		"a threshold below 100ms prunes nothing: short_clean can hold such calls")
 
 	assert.Equal(t, []string{model.RetentionShortClean},
-		src.ClassesFor(model.CallsQuery{RetentionClasses: []string{model.RetentionShortClean}}),
+		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.RetentionClassCondition(model.RetentionShortClean)}}),
 		"an explicit class filter selects prefixes verbatim")
 
 	assert.Equal(t, []string{model.RetentionAnyError},
-		src.ClassesFor(model.CallsQuery{RetentionClasses: []string{model.RetentionShortClean, model.RetentionAnyError}, ErrorOnly: true}),
+		src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.RetentionClassCondition(model.RetentionShortClean, model.RetentionAnyError), model.ErrorCondition(true)}}),
 		"filters intersect")
 }
 
@@ -106,7 +106,7 @@ func TestClassesForMatchesClassification(t *testing.T) {
 			if int64(minMs) > durationMs {
 				continue // the row filter drops the call anyway
 			}
-			assert.Contains(t, src.ClassesFor(model.CallsQuery{DurationMinMs: minMs}), class,
+			assert.Contains(t, src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.DurationCondition(model.OpGe, int64(minMs))}}), class,
 				"a %dms call (class %s) matching duration_min_ms=%d must stay listed", durationMs, class, minMs)
 		}
 	}
@@ -114,6 +114,6 @@ func TestClassesForMatchesClassification(t *testing.T) {
 	// The spec's concrete regression: a 5s call is long_clean under the
 	// [100ms, 1s, 10s] thresholds, and duration_min_ms=2000 must keep
 	// long_clean in the LIST plan.
-	assert.Contains(t, src.ClassesFor(model.CallsQuery{DurationMinMs: 2000}),
+	assert.Contains(t, src.ClassesFor(model.CallsQuery{Filters: []model.Condition{model.DurationCondition(model.OpGe, int64(2000))}}),
 		model.ClassifyDuration(5*time.Second, false, nil))
 }

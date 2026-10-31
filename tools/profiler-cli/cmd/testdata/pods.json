@@ -1,0 +1,10 @@
+{
+  "pods": [
+    {"namespace": "prod", "service": "orders", "pod": "orders-5d9c", "restart_time_ms": 1760400000000, "time_min_ms": 1760430000000, "time_max_ms": 1760433600000},
+    {"namespace": "prod", "service": "billing", "pod": "billing-7f8c", "restart_time_ms": 1760420000000, "time_min_ms": 1760431000000, "time_max_ms": 1760433600000},
+    {"namespace": "prod", "service": "billing", "pod": "billing-7f8c", "restart_time_ms": 1760410000000, "time_min_ms": 1760430000000, "time_max_ms": 1760430900000},
+    {"namespace": "stage", "service": "billing", "pod": "billing-0a1b", "restart_time_ms": 1760400000000, "time_min_ms": 1760430000000, "time_max_ms": 1760433600000}
+  ],
+  "partial": false,
+  "partial_reasons": []
+}

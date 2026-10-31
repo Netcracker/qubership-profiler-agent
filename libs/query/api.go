@@ -4,6 +4,8 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -48,6 +50,9 @@ type podsResponse struct {
 // unavailable in this deployment, not an error.
 type configResponse struct {
 	DumpsCollectorURL string `json:"dumps_collector_url"`
+	// FilterCapabilities is what this build implements of the filter model
+	// (02 §2.3.4), so the UI can disable the rest instead of probing.
+	FilterCapabilities model.FilterCapabilities `json:"filter_capabilities"`
 }
 
 func (s *Service) routes(e *echo.Echo) {
@@ -83,7 +88,10 @@ func (s *Service) routes(e *echo.Echo) {
 // handleConfig serves GET /api/v1/config: static, deployment-specific values
 // the UI cannot derive on its own.
 func (s *Service) handleConfig(c echo.Context) error {
-	return c.JSON(http.StatusOK, configResponse{DumpsCollectorURL: s.cfg.DumpsCollectorURL})
+	return c.JSON(http.StatusOK, configResponse{
+		DumpsCollectorURL:  s.cfg.DumpsCollectorURL,
+		FilterCapabilities: model.Capabilities(),
+	})
 }
 
 func sendProblem(c echo.Context, p problem) error {
@@ -123,6 +131,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 
 	var q model.CallsQuery
 	var after *model.Position
+	frozen := params
 	firstPage := !params.Has("cursor")
 	if firstPage {
 		parsed, errDetail := model.ParseCallsQuery(params)
@@ -137,10 +146,14 @@ func (s *Service) handleCalls(c echo.Context) error {
 		}
 		// Pages 2..N run against the frozen query; re-sent filters must match
 		// it or the request is rejected (02 §2.3.1).
-		if detail := frozenQueryMismatch(tok.Query, params); detail != "" {
+		frozenQ, err := tok.query()
+		if err != nil {
+			return cursorRejected(c, err.Error())
+		}
+		if detail := frozenQueryMismatch(tok.Params, frozenQ, params); detail != "" {
 			return cursorRejected(c, detail)
 		}
-		q = tok.Query
+		q, frozen = frozenQ, tok.Params
 		after = &tok.Pos
 	}
 
@@ -215,7 +228,11 @@ func (s *Service) handleCalls(c echo.Context) error {
 	// Hot tier: one sorted run per healthy replica (02 §3, §7.2). A replica
 	// that filled its page may hold more rows past it, so it keeps next_cursor
 	// alive; the §2.3.1 termination tolerates the resulting empty last page.
-	hotRuns, hotOK, hotFail, hotReasons, budgetDenied := s.hotCalls(ctx, tier, q, after, limit, page)
+	match, err := q.Matcher()
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	hotRuns, hotFullAt, hotOK, hotFail, hotReasons, budgetDenied := s.hotCalls(ctx, tier, q, match, after, limit, page)
 	if budgetDenied != nil {
 		// A budget denial fails the whole page atomically (02 §7.5): serving
 		// the other sources' rows would advance the cursor past the rows the
@@ -225,10 +242,8 @@ func (s *Service) handleCalls(c echo.Context) error {
 	succeeded += hotOK
 	failed += hotFail
 	partial = append(partial, hotReasons...)
-	for _, run := range hotRuns {
-		if len(run) == limit {
-			more = true
-		}
+	if len(hotFullAt) > 0 {
+		more = true
 	}
 	runs = append(runs, hotRuns...)
 
@@ -239,6 +254,20 @@ func (s *Service) handleCalls(c echo.Context) error {
 
 	rows, mergeMore := model.MergeRuns(runs, limit)
 	more = more || mergeMore
+	var cursorAt *model.Position
+	if len(rows) > 0 {
+		last := rows[len(rows)-1].Position()
+		cursorAt = &last
+	}
+	if stop, ok := earliestPosition(hotFullAt); ok {
+		// Rows past a full replica's last row are not known to be complete:
+		// that replica holds unseen rows there. Below the stop every source
+		// has answered in full, so a short page may resume from the stop.
+		rows = slices.DeleteFunc(rows, func(r model.CallRow) bool { return r.Position().After(stop) })
+		if len(rows) < limit {
+			cursorAt = &stop
+		}
+	}
 
 	resp := callsResponse{
 		Calls:          make([]model.CallJSON, 0, len(rows)),
@@ -252,11 +281,26 @@ func (s *Service) handleCalls(c echo.Context) error {
 	for _, row := range rows {
 		resp.Calls = append(resp.Calls, row.JSON())
 	}
-	if more && len(rows) > 0 {
-		cur := encodeCursor(q, rows[len(rows)-1].Position())
+	if more && cursorAt != nil {
+		cur := encodeCursor(frozen, *cursorAt)
 		resp.NextCursor = &cur
 	}
 	return c.JSON(http.StatusOK, resp)
+}
+
+// earliestPosition returns the position that sorts first in the §2.3.1
+// order.
+func earliestPosition(ps []model.Position) (model.Position, bool) {
+	if len(ps) == 0 {
+		return model.Position{}, false
+	}
+	first := ps[0]
+	for _, p := range ps[1:] {
+		if p.Before(first) {
+			first = p
+		}
+	}
+	return first, true
 }
 
 // handlePods serves GET /api/v1/pods (02 §2.7): the union of live
@@ -371,93 +415,24 @@ func parseLimit(raw string, cfg Config) (int, string) {
 }
 
 // frozenQueryMismatch compares re-sent filter parameters against the frozen
-// query (02 §2.3.1): parameters the client omits fall back to the frozen
-// values; parameters it re-sends must match them exactly.
-func frozenQueryMismatch(frozen model.CallsQuery, params map[string][]string) string {
-	resent, errDetail := parseResent(frozen, params)
+// query (02 §2.3.1). A re-sent parameter replaces its frozen value and an
+// omitted one keeps it; the result must hold the same window and the same
+// set of conditions, compared in canonical form.
+func frozenQueryMismatch(frozen url.Values, frozenQ model.CallsQuery, params url.Values) string {
+	merged := url.Values{}
+	for name, vs := range frozen {
+		merged[name] = vs
+	}
+	for name, vs := range frozenParams(params) {
+		merged[name] = vs
+	}
+	resent, errDetail := model.ParseCallsQuery(merged)
 	if errDetail != "" {
 		return errDetail
 	}
-	if !callsQueryEqual(frozen, resent) {
+	if resent.FromMs != frozenQ.FromMs || resent.ToMs != frozenQ.ToMs ||
+		!slices.Equal(model.CanonicalConditions(resent.Filters), model.CanonicalConditions(frozenQ.Filters)) {
 		return "re-sent filters do not match the query frozen in the cursor; restart from page 1"
 	}
 	return ""
-}
-
-// parseResent overlays the parameters present in the request onto the frozen
-// query, so an omitted parameter never counts as a mismatch.
-func parseResent(frozen model.CallsQuery, params map[string][]string) (model.CallsQuery, string) {
-	out := frozen
-	get := func(name string) string {
-		if vs := params[name]; len(vs) > 0 {
-			return vs[0]
-		}
-		return ""
-	}
-	if raw := get("from"); raw != "" {
-		v, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
-			return out, "from must be Unix ms"
-		}
-		out.FromMs = v
-	}
-	if raw := get("to"); raw != "" {
-		v, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
-			return out, "to must be Unix ms"
-		}
-		out.ToMs = v
-	}
-	if vs, ok := params["pod"]; ok {
-		out.Pods = vs
-	}
-	if vs, ok := params["method"]; ok && len(vs) > 0 {
-		out.Method = vs[0]
-	}
-	if vs, ok := params["retention_class"]; ok {
-		out.RetentionClasses = vs
-	}
-	if raw := get("duration_min_ms"); raw != "" {
-		v, err := strconv.ParseInt(raw, 10, 32)
-		if err != nil {
-			return out, "duration_min_ms must be an integer"
-		}
-		out.DurationMinMs = int32(v)
-	}
-	if raw := get("duration_max_ms"); raw != "" {
-		v, err := strconv.ParseInt(raw, 10, 32)
-		if err != nil {
-			return out, "duration_max_ms must be an integer"
-		}
-		out.DurationMaxMs = int32(v)
-	}
-	if raw := get("error_only"); raw != "" {
-		v, err := strconv.ParseBool(raw)
-		if err != nil {
-			return out, "error_only must be a boolean"
-		}
-		out.ErrorOnly = v
-	}
-	return out, ""
-}
-
-func callsQueryEqual(a, b model.CallsQuery) bool {
-	if a.FromMs != b.FromMs || a.ToMs != b.ToMs || a.Method != b.Method ||
-		a.DurationMinMs != b.DurationMinMs || a.DurationMaxMs != b.DurationMaxMs ||
-		a.ErrorOnly != b.ErrorOnly {
-		return false
-	}
-	return stringsEqual(a.Pods, b.Pods) && stringsEqual(a.RetentionClasses, b.RetentionClasses)
-}
-
-func stringsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

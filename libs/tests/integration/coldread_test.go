@@ -547,7 +547,7 @@ func TestColdReadPath(t *testing.T) {
 
 		fake.reset()
 		problem := getProblem(t, guardApi, "/api/v1/calls", window, http.StatusBadRequest)
-		assert.Equal(t, []string{"pod", "retention_class", "duration_min_ms", "error_only"}, problem.SuggestedFilters)
+		assert.Equal(t, []string{"pod", "namespace", "service", "retention_class", "duration_min_ms", "error_only"}, problem.SuggestedFilters)
 		assert.Nil(t, problem.EstimatedFiles, "the span layer fires before the LIST (02 §2.3.2)")
 		assert.Empty(t, fake.listedPrefixes(), "no discovery LIST ran")
 		assert.Empty(t, fake.openedKeys(), "no parquet was opened")
@@ -588,13 +588,13 @@ func TestColdReadPath(t *testing.T) {
 		// as an attacker would, since the contract defers HMAC signing. Its
 		// frozen query spans far past PROFILER_WIDE_RANGE_LIMIT, so page 1 would
 		// have rejected it; the guard must re-run on the cursor page too.
-		token := fmt.Sprintf(`{"v":1,"q":{"from":0,"to":%d},"pos":{"ts_ms":0,"pk":{}},"iat":%d}`,
+		token := fmt.Sprintf(`{"v":2,"q":{"from":["0"],"to":["%d"]},"pos":{"ts_ms":0,"pk":{}},"iat":%d}`,
 			int64(9999999999999), time.Now().UnixMilli())
 		forged := base64.RawURLEncoding.EncodeToString([]byte(token))
 
 		problem := getProblem(t, guardApi, "/api/v1/calls",
 			url.Values{"cursor": {forged}, "limit": {"1000"}}, http.StatusBadRequest)
-		assert.Equal(t, []string{"pod", "retention_class", "duration_min_ms", "error_only"}, problem.SuggestedFilters)
+		assert.Equal(t, []string{"pod", "namespace", "service", "retention_class", "duration_min_ms", "error_only"}, problem.SuggestedFilters)
 		assert.Empty(t, fake.listedPrefixes(), "the forged wide query is rejected before any discovery LIST")
 		assert.Empty(t, fake.openedKeys(), "no parquet was opened")
 	})
