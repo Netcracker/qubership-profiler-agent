@@ -24,7 +24,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // The §2.3 page-size bounds; the fan-out always sends an explicit limit, the
@@ -44,17 +44,15 @@ type API struct {
 // Handler itself).
 func New(store *hotstore.Store) *API {
 	e := echo.New()
-	e.HideBanner = true
-	e.HidePort = true
 	// This echo runs no logger middleware, so the mapper is wrapped to log the
 	// cause before it is dropped from the response: a 500 here would otherwise
 	// reach neither the caller nor the operator, and the fan-out only ever
 	// quotes a truncated snippet of the body (02 §7.4).
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
+	e.HTTPErrorHandler = func(c *echo.Context, err error) {
 		if !httpproblem.IsClientSide(err) {
 			log.Error(c.Request().Context(), err, "internal API request failed, uri = %s", c.Request().RequestURI)
 		}
-		httpproblem.ErrorHandler(err, c)
+		httpproblem.ErrorHandler(c, err)
 	}
 	a := &API{store: store, echo: e}
 	e.GET("/internal/v1/calls", a.handleCalls)
@@ -73,22 +71,23 @@ func (a *API) Handler() http.Handler { return a.echo }
 
 // Run serves /internal/v1 until ctx is cancelled.
 func (a *API) Run(ctx context.Context, addr string) error {
+	server := &http.Server{Addr: addr, Handler: a.echo}
 	go func() {
 		<-ctx.Done()
-		_ = a.echo.Shutdown(context.Background())
+		_ = server.Shutdown(context.Background())
 	}()
-	err := a.echo.Start(addr)
+	err := server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
 }
 
-func sendProblem(c echo.Context, status int, code, title, detail string) error {
+func sendProblem(c *echo.Context, status int, code, title, detail string) error {
 	return httpproblem.Send(c, httpproblem.New(status, code, title, detail))
 }
 
-func badRequest(c echo.Context, detail string) error {
+func badRequest(c *echo.Context, detail string) error {
 	return sendProblem(c, http.StatusBadRequest, httpproblem.CodeInvalidRequest, "invalid request", detail)
 }
 
@@ -97,7 +96,7 @@ func badRequest(c echo.Context, detail string) error {
 // and none of them is the unmatched route that httpproblem.CodeNotFound is
 // reserved for, so a version-skewed query service can tell "no such endpoint"
 // from "no such data".
-func notFound(c echo.Context, code, detail string) error {
+func notFound(c *echo.Context, code, detail string) error {
 	return sendProblem(c, http.StatusNotFound, code, "not found", detail)
 }
 
@@ -115,7 +114,7 @@ type callsResponse struct {
 // handleCalls serves GET /internal/v1/calls: the §2.3 filter params plus the
 // keyset position (after_ts_ms / after_pk) the fan-out seeks past on pages
 // 2..N (§2.3.1). Rows come only from this replica's call index.
-func (a *API) handleCalls(c echo.Context) error {
+func (a *API) handleCalls(c *echo.Context) error {
 	params := c.QueryParams()
 	q, errDetail := model.ParseCallsQuery(params)
 	if errDetail != "" {
@@ -296,7 +295,7 @@ func (a *API) toCallRow(idx hotstore.CallIndexRow) (model.CallRow, error) {
 
 // handleCall serves GET /internal/v1/calls/{pk}: a single-row fetch from this
 // replica (02 §3).
-func (a *API) handleCall(c echo.Context) error {
+func (a *API) handleCall(c *echo.Context) error {
 	pk, err := model.ParsePKPath(c.Param("pk"))
 	if err != nil {
 		return badRequest(c, err.Error())
@@ -320,7 +319,7 @@ func (a *API) handleCall(c echo.Context) error {
 // assembled from the hot segments by the seal pass's chunk walk (01 §4.3,
 // §4.5), with the §2.4 caching headers. 404 when the blob cannot be
 // assembled — absent is a state, not an error.
-func (a *API) handleTrace(c echo.Context) error {
+func (a *API) handleTrace(c *echo.Context) error {
 	pk, err := model.ParsePKPath(c.Param("pk"))
 	if err != nil {
 		return badRequest(c, err.Error())
@@ -366,7 +365,7 @@ type podsResponse struct {
 // handlePods serves GET /internal/v1/pods: the pod-restarts this replica
 // holds indexed calls for within [from, to), with their data bounds — the
 // hot half of the §2.7 union.
-func (a *API) handlePods(c echo.Context) error {
+func (a *API) handlePods(c *echo.Context) error {
 	fromMs, toMs, errDetail := model.ParseWindow(c.QueryParams())
 	if errDetail != "" {
 		return badRequest(c, errDetail)
@@ -409,7 +408,7 @@ type dictionarySnapshot struct {
 // pod-restarts hosted by this replica (02 §2.6, §3). The ETag is
 // (pod-restart, version); a live dictionary only grows, so If-None-Match
 // revalidation answers 304 until it does.
-func (a *API) handleDictionary(c echo.Context) error {
+func (a *API) handleDictionary(c *echo.Context) error {
 	tuple, err := model.ParsePodRestartPath(c.Param("podRestart"))
 	if err != nil {
 		return badRequest(c, err.Error())
@@ -454,7 +453,7 @@ type suspendTimelineEvent struct {
 // intervals with (08-ui-backend-requirements.md R7). The timeline comes from
 // the replica's RAM mirror of suspend.wal, which recovery reloads, so live
 // and recovered pod-restarts both answer.
-func (a *API) handleSuspend(c echo.Context) error {
+func (a *API) handleSuspend(c *echo.Context) error {
 	tuple, err := model.ParsePodRestartPath(c.Param("podRestart"))
 	if err != nil {
 		return badRequest(c, err.Error())
@@ -488,7 +487,7 @@ type valuesResponse struct {
 // The query service's /tree path fetches a call's references in one batch;
 // the value streams stay internal — the external API never exposes them
 // (02 §2.5).
-func (a *API) handleValues(c echo.Context) error {
+func (a *API) handleValues(c *echo.Context) error {
 	tuple, err := model.ParsePodRestartPath(c.Param("podRestart"))
 	if err != nil {
 		return badRequest(c, err.Error())
@@ -534,7 +533,7 @@ type hotWindow struct {
 // handleHotWindow serves GET /internal/v1/health/hot-window. An empty index
 // reports oldest = now: the window [now, now) holds nothing, so the cold
 // tier keeps covering the whole query range.
-func (a *API) handleHotWindow(c echo.Context) error {
+func (a *API) handleHotWindow(c *echo.Context) error {
 	nowMs := clock.Now().UnixMilli()
 	oldest, ok, err := a.store.HotWindowOldestMs()
 	if err != nil {

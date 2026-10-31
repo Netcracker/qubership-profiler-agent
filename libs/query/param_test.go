@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,8 +20,7 @@ func TestPKParamDecodesPercentEncoding(t *testing.T) {
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		c := e.NewContext(req, httptest.NewRecorder())
-		c.SetParamNames("pk")
-		c.SetParamValues(segment)
+		c.SetPathValues(echo.PathValues{{Name: "pk", Value: segment}})
 
 		pk, err := pkParam(c)
 		require.NoError(t, err, segment)
