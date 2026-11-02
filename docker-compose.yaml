@@ -9,7 +9,7 @@ services:
   # volume server, filer, S3 gateway, and admin UI in one process. The data
   # directory is not a volume, so the objects die with the container.
   seaweedfs:
-    image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+    image: chrislusf/seaweedfs:4.51@sha256:f7a49e3f3972ebed5be2ed4befa4a0c68eb7bdddba6e692d42729ceb545134b8
     environment:
       # The S3 gateway turns this pair into its admin identity.
       AWS_ACCESS_KEY_ID: profiler
