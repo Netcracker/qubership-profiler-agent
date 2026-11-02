@@ -1,6 +1,6 @@
 ARG IMAGE=alpine/openjdk21:21.0.3.9.04
-ARG AGENT_LINK
 FROM ${IMAGE}
+ARG AGENT_LINK
 
 ### Star update agent inside the image
 ENV APP_UID=10001

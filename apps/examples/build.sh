@@ -7,6 +7,8 @@ DOCKER_PUSH="true"
 
 # Docker build settings
 DOCKER_BASE_IMAGE="alpine/openjdk17:17.0.7.7.05"
+# Base image for applications whose pom.xml sets java.version to 21
+DOCKER_BASE_IMAGE_JAVA21="alpine/openjdk21:21.0.3.9.04"
 
 # Dockerfiles that will use agent inside the base image
 # DOCKER_FILE_QUARKUS="docker/Dockerfile.jvm"
@@ -75,9 +77,19 @@ if [[ "${DOCKER_BUILD}" == "true" ]]; then
             dockerfile="${application}/${DOCKER_FILE_QUARKUS}"
         fi
 
+        java_version=$(sed -n 's:.*<java.version>\([0-9]*\)</java.version>.*:\1:p' "${application}/pom.xml" | head -n 1)
+        case "${java_version}" in
+            11|17) base_image="${DOCKER_BASE_IMAGE}" ;;
+            21) base_image="${DOCKER_BASE_IMAGE_JAVA21}" ;;
+            *)
+                echo "=> No base image for ${application}: java.version '${java_version}' in ${application}/pom.xml is not 11, 17, or 21" >&2
+                exit 1
+                ;;
+        esac
+
         docker build \
             --tag "${tag}" \
-            --build-arg IMAGE="${DOCKER_BASE_IMAGE}" \
+            --build-arg IMAGE="${base_image}" \
             --file "${dockerfile}" ./${application}/
 
         built_images=("${built_images[@]}" "$tag")
