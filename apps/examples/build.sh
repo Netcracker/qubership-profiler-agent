@@ -32,6 +32,7 @@ applications=(
     "spring-boot-3-jetty"
     "spring-boot-3-tomcat"
     "spring-boot-3-undertow"
+    "spring-boot-4-tomcat"
 )
 
 built_images=()
