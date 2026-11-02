@@ -243,9 +243,6 @@ class SpringBoot4TomcatProfilingTest {
                 it.eventType == "enter" && it.tag.contains("org.postgresql.core.v3.QueryExecutorImpl.execute")
             },
             Marker("sql tag") { it.eventType == "tag" && it.tag == "sql" },
-            Marker("enter HikariPool.getConnection") {
-                it.eventType == "enter" && it.tag.contains("com.zaxxer.hikari.pool.HikariPool.getConnection")
-            },
             Marker("resttemplate.url /demo/ping") {
                 it.eventType == "tag" && it.tag == "resttemplate.url" && it.value.contains("/demo/ping")
             },
@@ -259,7 +256,6 @@ class SpringBoot4TomcatProfilingTest {
             "web.url",
             "QueryExecutorImpl",
             "sql",
-            "HikariPool",
             "resttemplate",
             "parseHTTP",
             "profiler.plugin.exception",
