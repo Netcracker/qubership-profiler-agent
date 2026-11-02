@@ -58,6 +58,21 @@ class AgentLogCheckTest {
     }
 
     @Test
+    fun `a jar whose manifest cannot be read is reported`() {
+        val log = """
+            INFO  com.netcracker.profiler.agent.Bootstrap - Profiler started
+            WARN  com.netcracker.profiler.instrument.enhancement.ClassInfoImpl - Unable to open jar file /app/app.jar/!BOOT-INF/lib/postgresql-42.7.14.jar
+        """.trimIndent()
+
+        assertEquals(
+            listOf(
+                "WARN  com.netcracker.profiler.instrument.enhancement.ClassInfoImpl - Unable to open jar file /app/app.jar/!BOOT-INF/lib/postgresql-42.7.14.jar",
+            ),
+            agentFailureLines(log),
+        )
+    }
+
+    @Test
     fun `a configuration tag skipped by its condition is not reported`() {
         val log = """
             ERROR com.netcracker.profiler.configuration.ConfigurationImpl - Ignoring tag [profiler, enhancer] since condition did not match

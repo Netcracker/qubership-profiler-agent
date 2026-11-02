@@ -10,6 +10,8 @@ private val FAILURE_PATTERNS = listOf(
     Regex("""Exception in profiler plugin"""),
     // ProfilingTransformer: a rule names an if-enhancer filter that does not exist
     Regex("""Filter \S+ is not found"""),
+    // ClassInfoImpl: the jar of a hooked class has no readable manifest, so a version-gated enhancer skips it
+    Regex("""Unable to open jar file """),
 )
 
 /**

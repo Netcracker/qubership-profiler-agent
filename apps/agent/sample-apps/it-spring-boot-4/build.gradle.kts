@@ -14,7 +14,24 @@ tasks.withType<KotlinJvmCompile>().configureEach {
     }
 }
 
+// https://github.com/gradle/gradle/pull/16627
+private inline fun <reified T : Named> AttributeContainer.attribute(attr: Attribute<T>, value: String) =
+    attribute(attr, objects.named<T>(value))
+
+val installerZipElements = configurations.dependencyScope("installerZipElements")
+
+// The agent the base images carry. The images are tagged by name, so the test declares the installer as an input
+// to rerun when an agent or plugin change rebuilds the images.
+val installerZip = configurations.resolvable("installerZip") {
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, "javaagent")
+        attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, buildParameters.testJdkVersion)
+    }
+    extendsFrom(installerZipElements.get())
+}
+
 dependencies {
+    installerZipElements(projects.installer)
     val testcontainersBom = enforcedPlatform("org.testcontainers:testcontainers-bom:2.0.5")
     testImplementation(testcontainersBom)
     testImplementation("org.testcontainers:testcontainers")
@@ -64,6 +81,7 @@ tasks.test {
     dependsOn(buildDemoApp, ":installer:buildBaseImage", ":installer:buildBaseImageJdk25")
 
     inputs.files(demoTargetDir).withPropertyName("demoTarget").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(installerZip).withPropertyName("installerZip").withPathSensitivity(PathSensitivity.NONE)
 
     systemProperty("test.baseImageTag.jdk21", "qubership/qubership-core-base-image:profiler-latest")
     systemProperty("test.baseImageTag.jdk25", "qubership/qubership-core-base-image:profiler-jdk25-latest")
