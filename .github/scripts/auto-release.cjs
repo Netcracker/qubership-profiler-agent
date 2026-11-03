@@ -8,7 +8,8 @@ const imageReleaseFixes = require('./image-release-fixes.cjs');
  *
  * A release is due when a security fix has landed on the branch since the latest release, or on the weekly run
  * nearest to one month after it. Nothing is released while the branch has only version-bump commits since the
- * release tag, or while a run of the release workflow is not completed.
+ * release, or while a run of the release workflow is not completed. The latest release is the newest successful run
+ * of the release workflow on the branch, or the latest GitHub release when the branch has no such run.
  *
  * @param {object} args
  * @param {object} args.github the Octokit client of actions/github-script
@@ -24,16 +25,26 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   const { owner, repo } = context.repo;
 
   const { data: latest } = await github.rest.repos.getLatestRelease({ owner, repo });
-  const releasedAt = new Date(latest.published_at);
-  core.info(`Latest release: ${latest.tag_name}, published at ${latest.published_at}`);
+  // The release workflow builds the branch tip it checks out after the run is created, and publishes the GitHub
+  // release before the images, so a run that fails after publishing may ship only some images. Creation is the latest
+  // moment known to be released; a re-run moves run_started_at but keeps created_at.
+  const { data: { workflow_runs: [releaseRun] } } = await github.rest.actions.listWorkflowRuns({
+    owner, repo, workflow_id: workflowId, branch, status: 'success', per_page: 1,
+  });
+  const releasedAt = new Date(releaseRun ? releaseRun.created_at : latest.published_at);
+  const releasedCommit = releaseRun ? releaseRun.head_sha : latest.tag_name;
+  const releaseSource = releaseRun
+    ? `${workflowId} run ${releaseRun.id} created at ${releaseRun.created_at} on ${releaseRun.head_sha}`
+    : `${latest.tag_name}, published at ${latest.published_at}`;
+  core.info(`Latest release: ${releaseSource}`);
 
-  // The release workflow pushes "chore: bump version to x.y.z" after the tag, so that commit alone is no change
+  // The release workflow pushes "chore: bump version to x.y.z" commits, so those alone are no change
   const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
-    owner, repo, basehead: `${latest.tag_name}...${branch}`,
+    owner, repo, basehead: `${releasedCommit}...${branch}`,
   });
   const changes = comparison.commits.filter(c => !c.commit.message.startsWith('chore: bump version to '));
   const hasChanges = changes.length > 0 || comparison.ahead_by > comparison.commits.length;
-  core.info(`Commits on ${branch} since ${latest.tag_name}: ${comparison.ahead_by}, excluding version bumps: ${changes.length}`);
+  core.info(`Commits on ${branch} since ${releasedCommit}: ${comparison.ahead_by}, excluding version bumps: ${changes.length}`);
 
   const fixes = [
     ...await dependabotFixes({ github, owner, repo, releasedAt }),
@@ -55,7 +66,7 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   let release = false;
   let reason;
   if (!hasChanges) {
-    reason = `${branch} has no changes since ${latest.tag_name}`;
+    reason = `${branch} has no changes since ${releasedCommit}`;
   } else if (releaseRunning) {
     reason = `a ${workflowId} run is in progress`;
   } else if (fixes.length > 0) {
@@ -63,7 +74,7 @@ module.exports = async function autoRelease({ github, context, core, now, branch
     reason = 'security fixes since the latest release';
   } else if (monthElapsed) {
     release = true;
-    reason = `a month has passed since ${latest.tag_name}`;
+    reason = `a month has passed since the latest release`;
   } else {
     reason = `no security fixes, next monthly release is due around ${anniversary.toISOString().slice(0, 10)}`;
   }
@@ -72,7 +83,7 @@ module.exports = async function autoRelease({ github, context, core, now, branch
 
   await core.summary
     .addHeading('Auto release', 2)
-    .addRaw(`Latest release: ${latest.tag_name}, published at ${latest.published_at}`, true)
+    .addRaw(`Latest release: ${releaseSource}`, true)
     .addRaw(`Commits since the release, excluding version bumps: ${changes.length}`, true)
     .addRaw(`Decision: ${decision}${dryRun ? ' (dry run)' : ''}`, true)
     .addRaw(images.status, true)

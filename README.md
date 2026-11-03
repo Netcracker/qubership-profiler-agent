@@ -104,8 +104,10 @@ since the latest release, or Grype or Trivy finds a HIGH or CRITICAL vulnerabili
 `main`. Image comparisons use categories of the form `<image>:<tag>@<platform>` and match the advisory and package
 across all locations in each image. Scorecard alerts do not count as vulnerabilities. Otherwise the workflow releases
 when about a month has passed since the latest release. It does nothing when `main` has no commits since the latest
-release tag. Run it manually with `dry-run` to see the decision, the alerts it counted, and any skipped image
-comparisons without releasing.
+release. The latest release is the creation time of the newest successful release workflow run on `main`, kept across
+re-runs, so a fix merged while a release runs still counts, and so does a fix after a run that failed after publishing.
+Without such a run, the latest GitHub release is used. Run it manually with `dry-run` to see the decision, the alerts it
+counted, and any skipped image comparisons without releasing.
 
 Each image pair requires error-free scans of the same image and platform with the same scanner version and
 configuration. Both analyses must be for the current `main` commit, at most 48 hours old, and at most 24 hours apart.

@@ -33,6 +33,8 @@ function fakeGitHub({
   dependabotFixed = [], dependabotOpen = [],
   codeScanningFixed = [],
   runStatuses = ['completed'],
+  releaseRuns = [],
+  comparisons = {},
   imageAnalyses = [], sarif = {},
   publishers = [],
   scanRuns = [{
@@ -63,12 +65,10 @@ function fakeGitHub({
       repos: {
         getLatestRelease: async () => ({ data: { tag_name: 'v4.0.7', published_at: RELEASED_AT } }),
         getBranch: async () => ({ data: { commit: { sha: 'current-head' } } }),
-        compareCommitsWithBasehead: async () => ({
-          data: {
-            ahead_by: commits.length,
-            commits: commits.map(message => ({ commit: { message } })),
-          },
-        }),
+        compareCommitsWithBasehead: async ({ basehead }) => {
+          const messages = comparisons[basehead] || commits;
+          return { data: { ahead_by: messages.length, commits: messages.map(message => ({ commit: { message } })) } };
+        },
       },
       dependabot: {
         listAlertsForRepo: async ({ state }) => ({ data: state === 'fixed' ? dependabotFixed : dependabotOpen }),
@@ -77,7 +77,9 @@ function fakeGitHub({
         listAlertsForRepo: async () => ({ data: codeScanningFixed }),
       },
       actions: {
-        listWorkflowRuns: async ({ workflow_id, per_page }) => ({ data: { workflow_runs: per_page === 20
+        listWorkflowRuns: async ({ workflow_id, per_page, status }) => ({ data: { workflow_runs: status === 'success'
+          ? releaseRuns.filter(r => r.conclusion === status)
+          : per_page === 20
           ? runStatuses.map(status => ({ status }))
           : workflow_id === 'security-scan.yml' ? scanRuns : publishers.filter(r => r.path === workflow_id) } }),
         createWorkflowDispatch: async params => { dispatches.push(params); },
@@ -172,6 +174,59 @@ describe('autoRelease', () => {
       dependabotFixed: [dependabotAlert()],
     }));
     assert.strictEqual(decision.release, false);
+  });
+
+  // The latest GitHub release was published at RELEASED_AT, 2026-09-28T12:00:00Z
+  const releaseRun = (createdAt, conclusion = 'success', startedAt = createdAt) => ({
+    id: 7, head_sha: 'released-head', conclusion, created_at: createdAt, run_started_at: startedAt,
+  });
+
+  it('counts a Dependabot fix detected after the release run was created, even though the release was published later', async () => {
+    const decision = await decide(fakeGitHub({
+      releaseRuns: [releaseRun('2026-09-28T11:00:00Z')],
+      dependabotFixed: [
+        dependabotAlert({ number: 1, fixedAt: '2026-09-28T10:59:59Z' }),
+        dependabotAlert({ number: 2, fixedAt: '2026-09-28T11:00:01Z' }),
+      ],
+    }));
+    assert.deepStrictEqual(fixNumbers(decision), [2]);
+  });
+
+  it('counts a fix merged between a failed release attempt and its successful re-run', async () => {
+    const decision = await decide(fakeGitHub({
+      releaseRuns: [releaseRun('2026-09-28T11:00:00Z', 'success', '2026-10-01T09:00:00Z')],
+      dependabotFixed: [dependabotAlert({ number: 3, fixedAt: '2026-09-30T00:00:00Z' })],
+    }));
+    assert.deepStrictEqual(fixNumbers(decision), [3]);
+  });
+
+  it('counts fixes since an earlier successful release run when the latest release run failed', async () => {
+    const decision = await decide(fakeGitHub({
+      releaseRuns: [releaseRun('2026-09-28T11:00:00Z', 'failure'), releaseRun('2026-08-28T11:00:00Z')],
+      dependabotFixed: [
+        dependabotAlert({ number: 1, fixedAt: '2026-08-28T10:59:59Z' }),
+        dependabotAlert({ number: 2, fixedAt: '2026-09-15T00:00:00Z' }),
+      ],
+    }));
+    assert.deepStrictEqual(fixNumbers(decision), [2]);
+  });
+
+  it('counts commits since the commit of the successful release run, not since the latest tag', async () => {
+    const decision = await decide(fakeGitHub({
+      releaseRuns: [releaseRun('2026-08-28T11:00:00Z')],
+      comparisons: {
+        'v4.0.7...main': ['chore: bump version to 4.0.8'],
+        'released-head...main': ['fix: something', 'chore: bump version to 4.0.8'],
+      },
+      dependabotFixed: [dependabotAlert()],
+    }));
+    assert.strictEqual(decision.reason, 'security fixes since the latest release');
+  });
+
+  it('releases monthly a month after the successful release run, although a later GitHub release exists', async () => {
+    const decision = await decide(fakeGitHub({ releaseRuns: [releaseRun('2026-09-18T12:00:00Z')] }),
+      { now: new Date('2026-10-19T06:00:00Z') });
+    assert.strictEqual(decision.reason, 'a month has passed since the latest release');
   });
 
   it('skips while a release.yaml run is in progress', async () => {
