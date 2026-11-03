@@ -102,9 +102,10 @@ function freshnessProblem(pair, state, boundary, now, scanRuns) {
     if (analysis.commit_sha !== state.sha) return 'analysis is for an older branch commit';
     const runs = scanRuns.filter(r => r.head_sha === analysis.commit_sha
       && Date.parse(r.run_started_at) <= time && Date.parse(r.updated_at) >= time);
-    if (runs.length === 0 || runs.some(r => r.status !== 'completed' || r.conclusion !== 'success'
+    // A run fails when any of its jobs fails; this analysis is judged by the checks below and by findings().
+    if (runs.length === 0 || runs.some(r => r.status !== 'completed'
       || Date.parse(r.run_started_at) <= boundary || Date.parse(r.run_started_at) < now.getTime() - 2 * DAY)) {
-      return 'scan workflow failed, is incomplete, or started before the freshness boundary';
+      return 'scan workflow is incomplete or started before the freshness boundary';
     }
     // Scheduled scans use fixed options for both tags; manual inputs are absent from analysis metadata.
     if (runs.some(r => r.event !== 'schedule')) return 'scan options are unknown for a non-scheduled run';

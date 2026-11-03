@@ -456,9 +456,17 @@ describe('autoRelease scan provenance', () => {
     assert.strictEqual(decision.release, false);
   });
 
+  it('compares fresh analyses from a scan run that failed in another job', async () => {
+    const github = fakeGitHub({ ...imageScans(), scanRuns: [{
+      event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'failure',
+      run_started_at: '2026-10-19T04:50:00Z', updated_at: '2026-10-19T05:30:00Z',
+    }] });
+    const decision = await decide(github);
+    assert.deepStrictEqual(fixNumbers(decision), [20]);
+  });
+
   for (const [name, scanRuns] of [
     ['missing scan run', []],
-    ['failed scan run', [{ status: 'completed', conclusion: 'failure' }]],
     ['unfinished scan run', [{ status: 'in_progress', conclusion: null }]],
     ['scan run for another commit', [{ head_sha: 'other-head' }]],
     ['scan run outside the analysis interval', [{ updated_at: '2026-10-19T04:59:59Z' }]],

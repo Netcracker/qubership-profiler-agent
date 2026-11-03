@@ -1,3 +1,4 @@
+# auto-release.yaml starts on completed runs of this workflow by its name
 name: Security Scan Docker Packages
 run-name: >
   Security Scan #${{ github.run_number }} for ${{ inputs.image != '' && inputs.image != null && inputs.image || 'all repository docker images' }}
