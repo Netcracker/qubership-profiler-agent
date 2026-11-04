@@ -216,7 +216,7 @@ Avoid in the trigger:
 
 The skill is what the agent reads **after** it decides to engage. Its job
 is to teach the agent things it cannot infer from imports, types, or
-generic documentation. Three rules:
+generic documentation. Four rules:
 
 ### 1. Encode platform-specific knowledge, nothing else
 
@@ -258,6 +258,14 @@ different from the previous example?". If a real variant exists (Quarkus
 fast-jar vs Spring Boot uber-jar; net/http vs Fiber middleware), show it
 once and label what makes it different.
 
+An example that needs a caveat after it teaches what the caveat forbids,
+because the agent copies the example. At commit `51b35c9`,
+`change-description-authoring` showed its pull request description under
+four headings and then said "The *After* above carries headings only to
+label its slots"; the description of pgjdbc/pgjdbc#4388, a 17-line fix,
+came out under three headings. Show the shape you want in the common
+case instead.
+
 When listing pitfalls, prefer **rule + brief reason** over a wall of
 `// WRONG: …` snippets. Negative examples without the matching positive
 flow leave the reader guessing what was supposed to happen. A
@@ -271,6 +279,25 @@ writing new code or reviewing existing code. Avoid a dedicated
 "Reviewing an existing X" section that restates the same rules in
 checklist form — that's two sources to keep in sync. Express the rules
 once, in active voice, and let them apply to both directions.
+
+### 4. Fix a bad output where the rule stops, not by adding what to write
+
+This applies to a skill and to any instruction file an agent reads
+(`*.instructions.md`, `AGENTS.md`, `CLAUDE.md`, a rule file). When an
+agent leaves a part of its output empty or fills it with something wrong
+(a commit body that guesses at a cause, a review that pads a section
+with "none found because…"), first give that part a condition that ends
+it: when the part is absent, and, where it is owed, what to state and
+where to stop. A clause on where to stop bounds the part on the inputs
+that need it; only the condition on when it is absent keeps it off the
+inputs where it is noise. A rule that says "write X" fires on every
+input, including those where X is noise, and such rules pile up one per
+bad output until every output carries all of them. Add one only where
+the reader needs X on every input.
+
+Before adding a rule to a section, read the rules that earlier failures
+added there (`git log -S '<phrase>'` finds each one's commit and
+reason), and drop the ones the new rule makes unnecessary.
 
 ## Agents, hooks, and prompts
 
@@ -424,6 +451,11 @@ dependency:
   package's actual name; multiple packages collide otherwise.
 - **Hand-edited AGENTS.md / CLAUDE.md in a repo that already uses
   APM.** Edit the local `.apm/` package and re-run `apm compile`.
+- **One "write X" rule per bad output.** Give that part of the output
+  the condition that ends it first (rule 4); a "write X" rule fires
+  where X is noise.
+- **An example followed by "do not copy this part".** Change the
+  example to the common case (rule 2).
 - **Shipping a workflow as a prompt.** `apm compile` skips prompts for
   the Codex target, so the slash-command silently disappears there.
   Write a user-invoked skill (no paired instruction) instead.
