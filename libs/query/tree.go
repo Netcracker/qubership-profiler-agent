@@ -28,7 +28,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/pkg/errors"
 )
 
@@ -39,7 +39,7 @@ type pointHints struct {
 	classes []string
 }
 
-func parsePointHints(c echo.Context) (pointHints, string) {
+func parsePointHints(c *echo.Context) (pointHints, string) {
 	var h pointHints
 	if raw := c.QueryParam("ts_ms"); raw != "" {
 		v, err := strconv.ParseInt(raw, 10, 64)
@@ -186,7 +186,7 @@ func (s *Service) discoverAndFetch(ctx context.Context, pk model.PK, tsMs int64,
 // pointProblem maps a miss to the §8 status: 504 only when at least one
 // source failed and none produced the call; otherwise an honest 404 whose
 // detail explains the §2.2 hint when it could have changed the answer.
-func (s *Service) pointProblem(c echo.Context, pk model.PK, hints pointHints, fetch pointFetch) error {
+func (s *Service) pointProblem(c *echo.Context, pk model.PK, hints pointHints, fetch pointFetch) error {
 	if fetch.truncated != "" {
 		return sendProblem(c, problem{Problem: httpproblem.New(http.StatusNotFound,
 			httpproblem.CodeTraceUnavailable, "trace blob unavailable",
@@ -206,7 +206,7 @@ func (s *Service) pointProblem(c echo.Context, pk model.PK, hints pointHints, fe
 // handleCallTrace serves GET /api/v1/calls/{pk}/trace (02 §2.4): the raw
 // blob, immutable per PK, with Range support. The §7.4 partial envelope does
 // not apply — the blob is either present or absent.
-func (s *Service) handleCallTrace(c echo.Context) error {
+func (s *Service) handleCallTrace(c *echo.Context) error {
 	pk, err := pkParam(c)
 	if err != nil {
 		return badRequest(c, err.Error())
@@ -240,7 +240,7 @@ func (s *Service) handleCallTrace(c echo.Context) error {
 // decoded into the int-keyed MessagePack tree, self-contained — the per-tree
 // dictionary carries only the strings this tree references, and big-parameter
 // values are inlined (or explicitly marked unresolved, never dropped).
-func (s *Service) handleCallTree(c echo.Context) error {
+func (s *Service) handleCallTree(c *echo.Context) error {
 	ctx := c.Request().Context()
 	pk, err := pkParam(c)
 	if err != nil {
