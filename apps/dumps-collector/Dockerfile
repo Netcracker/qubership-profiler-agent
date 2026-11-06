@@ -1,7 +1,7 @@
 # Build context: repository root
 # Usage: make -C apps/dumps-collector docker-build
 
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24@sha256:fa4881266890ef051f0ce63afdfaccb69bbe8186084387f4fafd60d7ecbabc71 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS builder
 
 # Multi-arch build support
 ARG TARGETOS=linux
