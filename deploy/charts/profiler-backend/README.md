@@ -66,6 +66,7 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `collector.agentService.type` | `ClusterIP` | `NodePort` / `LoadBalancer` (OrbStack) for host-reachable agents. |
 | `collector.terminationGracePeriodSeconds` | `100` | ≥ the 03 §5.4 shutdown budget. |
 | `collector.env`, `query.env`, `maintain.env` | `{}` | Extra env (name → value) for the remaining `PROFILER_*` knobs. |
+| `pvc.metadata.annotations` | `{}` | Annotations for the collector PVCs (`volumeClaimTemplates`). Values must be strings. See the note below the table before changing it on an existing release. |
 | `query.replicas` / `query.port` | `2` / `8080` | Stateless; scale horizontally. |
 | `maintain.mode` | `cronjob` | `deployment` runs the singleton loop — the only mode with `/metrics`. |
 | `maintain.schedule` | `0 * * * *` | CronJob mode. |
@@ -73,6 +74,22 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `minio.enabled` | `false` | Dev/smoke MinIO (emptyDir storage, same credentials Secret). |
 | `metrics.serviceMonitor.enabled` | `false` | Requires the prometheus-operator CRDs. Also creates the query and maintain PodMonitors; see the note under [Metrics contract](#metrics-contract). |
 | `metrics.prometheusRule.enabled` | `false` | Ships `files/prometheus-rules.yaml` as a PrometheusRule. |
+
+PVC annotations: `pvc.metadata.annotations` goes into the collector StatefulSet `volumeClaimTemplates`, which
+Kubernetes does not allow to change on an existing StatefulSet. It works for new installs, but setting or changing it on
+an existing release fails `helm upgrade` with `Forbidden`. Changing the template also never updates PVCs that already
+exist. For an existing release, annotate the PVCs, orphan-delete the StatefulSet, and upgrade. The collector pods and
+their PVCs keep running, and the recreated StatefulSet adopts them. With Argo CD, replace the `helm upgrade` step with a
+sync. The example sets the Argo CD prune guard. `--set` splits keys on dots, so escape the dots in the annotation key as
+`\.`, or put the annotations in a values file instead.
+
+```bash
+sel='app.kubernetes.io/instance=<release>,app.kubernetes.io/component=collector'
+kubectl annotate pvc -n <namespace> -l "$sel" --overwrite argocd.argoproj.io/sync-options=Prune=false
+kubectl delete sts -n <namespace> -l "$sel" --cascade=orphan
+helm upgrade <release> deploy/charts/profiler-backend -n <namespace> --reuse-values \
+  --set-string 'pvc.metadata.annotations.argocd\.argoproj\.io/sync-options=Prune=false'
+```
 
 ## Metrics contract
 
