@@ -22,6 +22,10 @@ npm run build      # tsc + vite build into dist/
 
 `VITE_QUERY_URL=http://host:8080 npm run dev` points the proxy at a remote query.
 
+`make dev-mock`, `make dev`, `make test`, `make typecheck`, and `make build` run the same scripts and install
+dependencies first when `package-lock.json` changed. From the repository root, use `make ui-dev-mock`, `make ui-dev`,
+`make ui-test`, or `make ui-build`.
+
 ## Deployment
 
 `embed.go` embeds `dist/` into the query binary (`go:embed`), which serves it at `/ui` with an SPA
