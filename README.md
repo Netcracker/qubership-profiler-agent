@@ -98,6 +98,25 @@ git clone https://github.com/Netcracker/qubership-profiler-agent.git
 
 This project defines a [manual release workflow](.github/workflows/release.yaml).
 
+The [Auto Release workflow](.github/workflows/auto-release.yaml) runs when the weekly scheduled security scan completes
+and on Mondays, and starts the release workflow on `main` when a Dependabot or source code scanning alert has been fixed
+since the latest release, or Grype or Trivy finds a HIGH or CRITICAL vulnerability in `latest` that is absent from
+`main`. Image comparisons use categories of the form `<image>:<tag>@<platform>` and match the advisory and package
+across all locations in each image. Scorecard alerts do not count as vulnerabilities. Otherwise the workflow releases
+when about a month has passed since the latest release. It does nothing when `main` has no commits since the latest
+release. The latest release is the creation time of the newest successful release workflow run on `main`, kept across
+re-runs, so a fix merged while a release runs still counts, and so does a fix after a run that failed after publishing.
+Without such a run, the latest GitHub release is used. Run it manually with `dry-run` to see the decision, the alerts it
+counted, and any skipped image comparisons without releasing.
+
+Each image pair requires error-free scans of the same image and platform with the same scanner version and
+configuration. Both analyses must be for the current `main` commit, at most 48 hours old, and at most 24 hours apart.
+Their scan workflows must have completed, and a run whose other jobs failed still counts. They must have started after
+the latest release and all runs of the release and backend image build workflows, including failed runs that may have
+published some images. A running publisher, missing or incomplete report, or a branch, image publication, or release
+change during comparison invalidates the image comparison. Skipped image comparisons leave Dependabot, source code
+scanning, and monthly release decisions available.
+
 To trigger a release, go to the
 👉 [Actions tab → release.yaml](https://github.com/Netcracker/qubership-profiler-agent/actions/workflows/release.yaml)
 and run it manually.
