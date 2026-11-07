@@ -36,6 +36,11 @@ repositories:
     url: https://charts.min.io/
   - name: chaos-mesh
     url: https://charts.chaos-mesh.org
+  # Not installed by this stand: profiler-backend declares the SeaweedFS
+  # subchart, and the `helm dependency build` helmfile runs for a local chart
+  # needs its repository registered.
+  - name: seaweedfs
+    url: https://seaweedfs.github.io/seaweedfs/helm
 
 # The monitoring-operator charts are not published to any registry; helmfile's
 # built-in go-getter support (git::) serves them straight from the tagged git

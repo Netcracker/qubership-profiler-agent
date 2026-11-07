@@ -2,8 +2,8 @@ apiVersion: v2
 name: profiler-backend
 description: >-
   Go profiler backend (Stage 1): collector StatefulSet with per-replica RWO
-  storage, query Deployment, maintain job, optional in-cluster MinIO for
-  dev/smoke, and Prometheus monitoring objects. See
+  storage, query Deployment, maintain job, optional SeaweedFS subchart as an
+  in-cluster S3 store for dev/smoke, and Prometheus monitoring objects. See
   docs/design/04-storage-layout.md.
 type: application
 version: 0.1.0
@@ -13,3 +13,10 @@ home: https://github.com/Netcracker/qubership-profiler-agent/
 maintainers:
   - name: NetCracker
     email: opensourcegroup@netcracker.com
+
+dependencies:
+  # In-cluster S3 store for dev and smoke runs; off unless seaweedfs.enabled.
+  - name: seaweedfs
+    version: 4.48.0
+    repository: https://seaweedfs.github.io/seaweedfs/helm
+    condition: seaweedfs.enabled
