@@ -7,7 +7,8 @@ and TCP/IP network connections and I/O.
 
 - Tomcat >= 10.x
 - WildFly <= 27.x
-- Spring Boot >= 3.x (in case if Spring Boot will use a Tomcat)
+- Spring Boot 3.x and 4.x with embedded Tomcat. `SpringBoot4TomcatProfilingTest` in
+  [sample-apps/it-spring-boot-4](../../sample-apps/it-spring-boot-4) runs Spring Boot 4.1 with Tomcat 11.
 
 > **Note:**
 > Plugin to instrument Tomcat <= 9.x you can find in module [tomcat_http](../tomcat_http).

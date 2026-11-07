@@ -52,6 +52,9 @@
             <method>executeUpdate</method>
             <execute-before type="org/postgresql/jdbc/PgStatement">setSessionInfo$profiler</execute-before>
         </rule>
+    </ruleset>
+    <!-- The postgresql enhancer checks the hooked class's own jar for a pgjdbc version, which HikariCP never has -->
+    <ruleset>
         <rule>
             <class>com.zaxxer.hikari.pool.HikariPool</class>
             <method>getConnection</method>
