@@ -1,6 +1,6 @@
 ---
 name: markdown-line-length-120
-description: Apply Markdown drafting rules an autofixer cannot fix — wrap body lines at 120 chars (MD013), one H1 per document (MD025), named links instead of bare URLs (MD034), language tag on every fenced code block (MD040). Use when editing `*.md` in a repository that pins markdownlint `MD013.line_length` to 120.
+description: Apply Markdown drafting rules an autofixer cannot fix — wrap body lines at 120 chars (MD013), one H1 per document (MD025), named links instead of bare URLs (MD034), language tag on every fenced code block (MD040). Use when editing `*.md` in a repository that pins markdownlint `MD013.line_length` to 120. Do not wrap text for GitHub, GitLab, or JIRA; they reflow it automatically.
 ---
 
 # Markdown drafting rules an autofixer cannot fix
@@ -17,6 +17,9 @@ boundaries; never split `` `inline code` `` or a `[link](url)` span across
 lines. List-item continuations indent by two spaces to line up with the
 bullet content. Exempt from the limit: YAML frontmatter, fenced code blocks,
 and pipe tables — do not reformat them to fit 120.
+
+When preparing text for GitHub, Gitlab or JIRA (PR or issue description, comment, discussion), don't hard-wrap.
+Keep each paragraph and list item on one line; GitHub, Gitlab, JIRA re-flow it.
 
 ## One H1 per document (`MD025`)
 
