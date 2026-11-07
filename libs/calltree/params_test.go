@@ -19,7 +19,7 @@ func TestSQLSignature(t *testing.T) {
 		"SELECT ab1cd FROM t":                 "SaFt",
 		"":                                    "",
 	} {
-		assert.Equal(t, want, sqlSignature(sql), "signature of %q", sql)
+		assert.Equal(t, want, SQLSignature(sql), "signature of %q", sql)
 	}
 }
 

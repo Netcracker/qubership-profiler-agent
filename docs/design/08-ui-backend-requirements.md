@@ -40,7 +40,7 @@ the read path simply does not project it. Those are cheap wins. The genuinely ne
 |----|-------|-------------|----------------------|
 | R1 | A | Expose the dropped call columns in `CallJSON`: `suspend_ms`, `queue_wait_ms`, `transactions`, `file_read`, `file_written`, `net_read`, `net_written`, `logs_generated`, `logs_written`. | `CallV2Projected` already reads them; add them to `CallRow` / `CallJSON` and to the hot SQLite index projection so both tiers agree. Additive JSON fields. |
 | R2 | C | `order=duration_desc` on `/calls` for "slowest calls" (goal #3). | Prune to `long_clean` + error classes (retention class is a duration band), k-way merge, sort by `duration_ms`, bound by the wide-query guard. No duration index today, so this scans and sorts within the pruned classes. |
-| R3 | C (deferred) | Richer query — `$param=value` and `+`/`-` boolean terms, as the old search box had. | `/calls` `method` is a substring match only today. Needs a parameter index. |
+| R3 | C (deferred) | Richer query — `$param=value` and `+`/`-` boolean terms, as the old search box had. | `/calls` `method` is a substring match only today. The filter model of `02-read-contract.md` §2.3.3 specifies param conditions (`$param=value` becomes `<param>=<value>`); stage A filters params by a row scan, with no parameter index. |
 | R4 | C (deferred) | `sql_count` / `rpc_count` columns for "most SQL/RPC" (goal #3). | Not captured by the agent today (`transactions` is the nearest: DB-access count). Derive from tree params, or add agent fields. |
 
 `trace_id` / `span_id` were columns in the old calls model (`C_TRACE_ID`, `C_SPAN_ID`). Confirm whether the
