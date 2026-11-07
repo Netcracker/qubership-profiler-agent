@@ -66,6 +66,10 @@ type Config struct {
 	// unavailable rather than guess a scheme and host that may not resolve
 	// (PR 708 review #18).
 	DumpsCollectorURL string
+	// Links are the trace and logs link templates /config hands to the UI
+	// (PROFILER_LINKS, 02 §2.8). The app wiring validates them at startup
+	// with ParseLinks; the service serves them as given.
+	Links []Link
 }
 
 // Normalize fills unset fields with the 02 §9 defaults.

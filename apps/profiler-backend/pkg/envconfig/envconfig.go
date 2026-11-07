@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-backend/libs/query"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/Netcracker/qubership-profiler-backend/libs/s3"
 	"github.com/kelseyhightower/envconfig"
@@ -145,6 +146,13 @@ type (
 		// way to derive it. Empty leaves the Pods Info dump link-out
 		// unavailable (PR 708 review #18).
 		DumpsCollectorURL string `envconfig:"DUMPS_COLLECTOR_URL"`
+
+		// Links are the trace and logs link templates of the call tree page
+		// (02 §2.8), as a JSON array: a list of structured entries does not
+		// fit the comma-separated form the other list knobs use, because a
+		// URL template itself contains commas and equals signs. A malformed
+		// entry fails startup rather than rendering a broken button.
+		Links Links `envconfig:"PROFILER_LINKS"`
 
 		S3 S3
 	}
@@ -389,6 +397,20 @@ func (t *TTL) Decode(value string) error {
 		return errors.Errorf("ttl %q: want <non-negative integer>d or a Go duration", value)
 	}
 	*t = TTL(v)
+	return nil
+}
+
+// Links decodes PROFILER_LINKS: a JSON array of {label, kind, url_template}
+// objects (02 §2.8). Nil (the env unset or empty) configures no links.
+type Links []query.Link
+
+// Decode implements envconfig.Decoder.
+func (l *Links) Decode(value string) error {
+	links, err := query.ParseLinks(value)
+	if err != nil {
+		return err
+	}
+	*l = links
 	return nil
 }
 
