@@ -90,14 +90,24 @@ JDK tools:
 The CDT agent uses several directories to store diagnostic information.  
 Almost all of these directories can be overridden during deployment.
 
-All of these directories require read-write access.  
-So, if your pod is running with a read-only root filesystem, you must use ephemeral storage (such as `emptyDir`)
+The agent itself (`lib/agent.jar`, `diagtools`, `diag-bootstrap.sh`, `diag-lib.sh`, and the default `config/`) lives in
+`NC_DIAGNOSTIC_HOME`, which the bootstrap script defaults to its own folder: `/app/diag` in the cloud core image. Only
+the `dev` mode writes there: it unpacks agent updates into that folder, and falls back to `prod` when it cannot. In
+other modes the folder can stay on a read-only root filesystem. Do not mount an `emptyDir` over it: the mount hides the
+agent.
+
+If `NC_DIAGNOSTIC_FOLDER` is unset and `/app/ncdiag` does not exist or is not writable, the agent writes its runtime
+data into `NC_DIAGNOSTIC_HOME`. It does the same when the agent in `NC_DIAGNOSTIC_HOME` predates `NC_DIAGNOSTIC_HOME`,
+and after a `dev` mode update.
+
+The directories in the table below require read-write access. If your pod runs with a read-only root filesystem, mount
+ephemeral storage (such as `emptyDir`) at each of them.
 
 <!-- markdownlint-disable line-length -->
 | Default directory      | Environment name           | Make sense override | Description                                                                                                                                                                                |
 |------------------------|----------------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | /tmp/diagnostic        | NC_DIAGNOSTIC_LOGS_FOLDER  | ✗ No                | Use to store information as from cdt itself (logs from cdt agent's bash scripts) and for store diagnostic information by application (like, GC logs, top command, heap dump, thread dump). |
-| /app/ncdiag            | NC_DIAGNOSTIC_FOLDER       | ✗ No                | Home directory of cdt agent. Use to store any runtime settings (from zookeeper) and for update cdt agent to latest version from collector-service, and other local information.            |
+| /app/ncdiag            | NC_DIAGNOSTIC_FOLDER       | ✗ No                | Runtime data of cdt agent: settings from zookeeper or consul, the copy of the agent configuration, local dumps, and other local information.                                              |
 | /diagnostic-pv-storage | DIAGNOSTIC_PV_DUMPS_FOLDER | ✗ No                | Use as storage before send diagnostic information to collector-service. Also can be use with Persistence Volume to store diagnostic information between pod runs.                          |
 <!-- markdownlint-enable line-length -->
 
@@ -117,6 +127,7 @@ Examples of the information and files that can be stored in these directories:
 * `NC_DIAGNOSTIC_FOLDER` = `/app/ncdiag`
 
     ```bash
+    /app/ncdiag/config/                                 # copy of the agent configuration, rebuilt on every start
     /app/ncdiag/localdump                               # cdt agent calls dump
     /app/ncdiag/pod.name                                # pod name which cdt agent can read instead of hostname
     /app/ncdiag/start_time.txt                          # contains a start time of pod
@@ -210,7 +221,8 @@ used and custom bash scripts are provided:
 <!-- markdownlint-disable line-length -->
 | Name                            | Default                | Description                                                                                                                                                                                                                                         |
 |---------------------------------|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| NC_DIAGNOSTIC_FOLDER            | /app/ncdiag            | Allow to specify the folder where the diagnostic agent is installed, but do not modify it when the application uses the cloud core image as a base image. To enable this feature, the user may need to make additional changes to the agent scripts |
+| NC_DIAGNOSTIC_HOME              | folder of `diag-bootstrap.sh` | Folder where the diagnostic agent is installed: `lib/agent.jar`, `diagtools`, `diag-lib.sh`, and `config/`. Only the `dev` mode writes there, to unpack agent updates. If the folder of `diag-bootstrap.sh` does not hold both `diag-lib.sh` and `lib/agent.jar`, the default is `NC_DIAGNOSTIC_FOLDER`, or legacy `PROFILER_FOLDER` |
+| NC_DIAGNOSTIC_FOLDER            | /app/ncdiag            | Folder where the diagnostic agent writes at runtime. It must be writable; mount an `emptyDir` there when the root filesystem is read-only. Do not modify it when the application uses the cloud core image as a base image |
 | PROFILER_ENABLED                | false                  | Deprecated! Use NC_DIAGNOSTIC_MODE                                                                                                                                                                                                                  |
 | REMOTE_DUMP_HOST                | empty                  | Deprecated! Use NC_DIAGNOSTIC_AGENT_SERVICE                                                                                                                                                                                                         |
 | REMOTE_STATIC_HOST              | ?                      | Deprecated!                                                                                                                                                                                                                                         |

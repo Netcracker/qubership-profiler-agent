@@ -5,7 +5,8 @@
 # 2. Source it in local entry_point
 # 3. Append X_JAVA_ARGS variable that it produces to java startup parameters
 # 4. After java process finishes, call function send_crash_dump
-# 5. Variable NC_DIAGNOSTIC_FOLDER has to be initialized with a path to folder where diagnostic agent should be unzipped
+# 5. Variable NC_DIAGNOSTIC_HOME has to be initialized with a path to folder where diagnostic agent is unzipped
+#    when this script is not in that folder
 
 ALREADY_UPDATED="$1"
 
@@ -64,22 +65,59 @@ write_esc_log "Start loading and initializing ESC agent scripts"
 
 export DOWNLOAD_SUCCESSFUL=true;
 
-if [[ -z "${NC_DIAGNOSTIC_FOLDER}" ]]; then
-  if [[ -z "${PROFILER_FOLDER}" ]]; then
-    NC_DIAGNOSTIC_FOLDER="$(cd "$(realpath "$(dirname "${BASH_SOURCE[0]}")")" && pwd)"
-    write_esc_log "NC_DIAGNOSTIC_FOLDER is not set by image. defaulting it to location of the bootstrap script ${NC_DIAGNOSTIC_FOLDER}"
-    export NC_DIAGNOSTIC_FOLDER
+# NC_DIAGNOSTIC_HOME is where the agent is installed: diag-lib.sh, diagtools, lib/agent.jar and config/.
+# The image may keep it read-only.
+# NC_DIAGNOSTIC_FOLDER is where the agent writes at runtime: properties/, localdump/, pod.name and the lock file.
+# A container with a read-only root filesystem mounts an emptyDir or a tmpfs at /app/ncdiag for it.
+bootstrap_folder="$(cd "$(realpath "$(dirname "${BASH_SOURCE[0]}")")" && pwd)"
+if [[ -z "${NC_DIAGNOSTIC_HOME}" ]]; then
+  if [[ -f "${bootstrap_folder}/diag-lib.sh" ]] && [[ -f "${bootstrap_folder}/lib/agent.jar" ]]; then
+    NC_DIAGNOSTIC_HOME="${bootstrap_folder}"
   else
-    write_esc_log "NC_DIAGNOSTIC_FOLDER is not set by image. defaulting it to legacy PROFILER_FOLDER value ${PROFILER_FOLDER}"
-    export NC_DIAGNOSTIC_FOLDER="${PROFILER_FOLDER}"
+    # The bootstrap script is not next to the agent, so the agent is where the image unpacked it
+    NC_DIAGNOSTIC_HOME="${NC_DIAGNOSTIC_FOLDER:-${PROFILER_FOLDER:-${bootstrap_folder}}}"
   fi
-else
-  export NC_DIAGNOSTIC_FOLDER="${NC_DIAGNOSTIC_FOLDER}"
+  write_esc_log "NC_DIAGNOSTIC_HOME is not set by image. defaulting it to ${NC_DIAGNOSTIC_HOME}"
 fi
+export NC_DIAGNOSTIC_HOME
+
+diag_folder_defaulted=false
+if [[ -z "${NC_DIAGNOSTIC_FOLDER}" ]]; then
+  diag_folder_defaulted=true
+  if [[ -n "${PROFILER_FOLDER}" ]]; then
+    write_esc_log "NC_DIAGNOSTIC_FOLDER is not set by image. defaulting it to legacy PROFILER_FOLDER value ${PROFILER_FOLDER}"
+    NC_DIAGNOSTIC_FOLDER="${PROFILER_FOLDER}"
+  elif ! [[ -d /app/ncdiag && -w /app/ncdiag ]]; then
+    write_esc_log "NC_DIAGNOSTIC_FOLDER is not set by image, and /app/ncdiag is not a writable folder. defaulting it to NC_DIAGNOSTIC_HOME ${NC_DIAGNOSTIC_HOME}"
+    NC_DIAGNOSTIC_FOLDER="${NC_DIAGNOSTIC_HOME}"
+  elif ! grep -q NC_DIAGNOSTIC_HOME "${NC_DIAGNOSTIC_HOME}/diag-lib.sh" 2>/dev/null; then
+    # diag-lib.sh released before NC_DIAGNOSTIC_HOME expects the agent in NC_DIAGNOSTIC_FOLDER
+    write_esc_log "NC_DIAGNOSTIC_FOLDER is not set by image, and ${NC_DIAGNOSTIC_HOME}/diag-lib.sh does not support a separate runtime folder. defaulting it to NC_DIAGNOSTIC_HOME ${NC_DIAGNOSTIC_HOME}"
+    NC_DIAGNOSTIC_FOLDER="${NC_DIAGNOSTIC_HOME}"
+  else
+    write_esc_log "NC_DIAGNOSTIC_FOLDER is not set by image. defaulting it to /app/ncdiag"
+    NC_DIAGNOSTIC_FOLDER=/app/ncdiag
+    # properties/ caches settings from the config server. An emptyDir at /app/ncdiag outlives a container restart, and
+    # a setting removed from the server has to stop applying, as it does when the folder is in the container layer.
+    rm -rf "${NC_DIAGNOSTIC_FOLDER}/properties"
+  fi
+fi
+export NC_DIAGNOSTIC_FOLDER
 mkdir -p "${NC_DIAGNOSTIC_FOLDER}"
 
+# The agent reads every file under the config/ folder next to _config.xml, and the custom configuration below is
+# written into config/default/. NC_DIAGNOSTIC_HOME may be read-only, so the agent gets a copy of config/ in
+# NC_DIAGNOSTIC_FOLDER, rebuilt on every start so it never keeps a custom configuration from an earlier one.
+if [[ ! "${NC_DIAGNOSTIC_FOLDER}" -ef "${NC_DIAGNOSTIC_HOME}" ]] && [[ -d "${NC_DIAGNOSTIC_HOME}/config" ]]; then
+  rm -rf "${NC_DIAGNOSTIC_FOLDER}/config"
+  if ! cp -R "${NC_DIAGNOSTIC_HOME}/config" "${NC_DIAGNOSTIC_FOLDER}/config"; then
+    write_esc_log "WARNING: failed to copy ${NC_DIAGNOSTIC_HOME}/config to ${NC_DIAGNOSTIC_FOLDER}/config. The agent reads its configuration from ${NC_DIAGNOSTIC_HOME}/config, and NC_DIAGNOSTIC_CUSTOM_CONFIG is not applied"
+    rm -rf "${NC_DIAGNOSTIC_FOLDER}/config"
+  fi
+fi
+
 # shellcheck disable=SC1090,SC1091
-. "${NC_DIAGNOSTIC_FOLDER}/diag-lib.sh"
+. "${NC_DIAGNOSTIC_HOME}/diag-lib.sh"
 
 if [ "true" = "${CONSUL_ENABLED}" ] || [ -n "${CONSUL_URL}" ] ; then
     config=consulCfg
@@ -92,7 +130,7 @@ fi
 if [[ -n "${NC_DIAGNOSTIC_CUSTOM_CONFIG}" ]]; then
   echo "${NC_DIAGNOSTIC_CUSTOM_CONFIG}" > "${NC_DIAGNOSTIC_FOLDER}/config/default/custom-config.xml"
 elif [ -n "${config}" ] && [ "${NC_DIAGNOSTIC_MODE}" != "off" ] ; then
-  "${NC_DIAGNOSTIC_FOLDER}"/diagtools "${config}" "${NC_DIAGNOSTIC_FOLDER}/properties" \
+  "${NC_DIAGNOSTIC_HOME}"/diagtools "${config}" "${NC_DIAGNOSTIC_FOLDER}/properties" \
       esc.config \
       NC_DIAGNOSTIC_ESC_ENABLED \
       NC_DIAGNOSTIC_ESC_BUFFERS \
@@ -163,7 +201,7 @@ function enable_diag() {
   apply_esc_configuration_to_X_JAVA_ARGS
 
   if diagnostic_enabled ; then
-    "${NC_DIAGNOSTIC_FOLDER}"/diagtools schedule &
+    "${NC_DIAGNOSTIC_HOME}"/diagtools schedule &
   fi
 }
 
@@ -175,11 +213,21 @@ if [ "dev" = "${NC_DIAGNOSTIC_MODE}" ] ; then
     write_esc_log "Updating ESC agent since DEV mode is specified"
     export DOWNLOAD_SUCCESSFUL=true
     download_file "/api/v1/diagnostic/agent/updates?forMD5=" "/tmp/installer.zip"
-    if [ "${DOWNLOAD_SUCCESSFUL}" = "true" ] ; then
-      unzip "-oq" -od "${NC_DIAGNOSTIC_FOLDER}" /tmp/installer.zip && rm /tmp/installer.zip
+    # The update replaces the installed agent, so it fails when NC_DIAGNOSTIC_HOME is read-only
+    if [ "${DOWNLOAD_SUCCESSFUL}" = "true" ] && unzip "-oq" -od "${NC_DIAGNOSTIC_HOME}" /tmp/installer.zip ; then
+      rm -f /tmp/installer.zip
       write_esc_log "ESC agent has been downloaded"
+      # The collector may serve an agent.jar released before NC_DIAGNOSTIC_HOME, which runs diagtools from
+      # NC_DIAGNOSTIC_FOLDER. NC_DIAGNOSTIC_HOME is writable here, so it keeps the runtime data too.
+      if [ "${diag_folder_defaulted}" = "true" ] ; then
+        export NC_DIAGNOSTIC_FOLDER="${NC_DIAGNOSTIC_HOME}"
+      fi
       # shellcheck disable=SC1090,SC1091
-      . "${NC_DIAGNOSTIC_FOLDER}/diag-bootstrap.sh" UPDATED
+      . "${NC_DIAGNOSTIC_HOME}/diag-bootstrap.sh" UPDATED
+    elif [ "${DOWNLOAD_SUCCESSFUL}" = "true" ] ; then
+      rm -f /tmp/installer.zip
+      write_esc_log "Failed to unpack the ESC agent update into ${NC_DIAGNOSTIC_HOME}. Agent will run with PROD profile."
+      export NC_DIAGNOSTIC_MODE="prod"
     else
       write_esc_log "Failed to update ESC agent in DEV profile. Agent will run with PROD profile."
       export NC_DIAGNOSTIC_MODE="prod"
