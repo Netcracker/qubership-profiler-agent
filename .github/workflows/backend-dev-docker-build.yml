@@ -149,7 +149,7 @@ jobs:
           arguments: --quiet :installer:prepareDumpsCollectorDocker
 
       - name: "Create metadata"
-        uses: netcracker/qubership-workflow-hub/actions/metadata-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        uses: netcracker/qubership-workflow-hub/actions/metadata-action@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
         id: metadata
         with:
           ref: ${{ github.head_ref && format('refs/heads/{0}', github.head_ref) || github.ref }}
@@ -181,7 +181,7 @@ jobs:
           echo "**Tags:** ${TAGS}" >> $GITHUB_STEP_SUMMARY
 
       - name: "Build and Publish Docker Image"
-        uses: netcracker/qubership-workflow-hub/actions/docker-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
         with:
           component: ${{ toJson(matrix.component) }}
           platforms: ${{ needs.load-docker-build-components.outputs.platforms }}
