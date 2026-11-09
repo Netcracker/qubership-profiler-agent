@@ -1,6 +1,7 @@
 'use strict';
 
 const DAY = 24 * 3600 * 1000;
+const imageReleaseFixes = require('./image-release-fixes.cjs');
 
 /**
  * Decides whether to release, and starts the release workflow when it should.
@@ -69,6 +70,10 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   anniversary.setUTCMonth(anniversary.getUTCMonth() + 1);
   const monthElapsed = now.getTime() >= anniversary.getTime() - 3.5 * DAY;
 
+  const images = await imageReleaseFixes({ github, owner, repo, branch, workflowId, latest, now });
+  core.info(images.status);
+  fixes.push(...images.fixes);
+
   let release = false;
   let reason;
   if (releaseRunning) {
@@ -86,8 +91,8 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   } else {
     reason = `no security fixes, next monthly release is due around ${anniversary.toISOString().slice(0, 10)}`;
   }
-  // A release run that started while the alerts were read may already publish these fixes, and one that finished
-  // changed the latest release or the pause this decision relied on
+  // A release run that started while the alerts and images were read may already publish these fixes, and one that
+  // finished changed the latest release or the pause this decision relied on
   if (release && runState(await releaseRuns({ github, owner, repo, workflowId })) !== runState(runs)) {
     release = false;
     reason = `${workflowId} runs changed while deciding`;
@@ -100,6 +105,7 @@ module.exports = async function autoRelease({ github, context, core, now, branch
     .addRaw(`Latest release: ${releaseSource}`, true)
     .addRaw(`Commits since the release, excluding version bumps: ${changes.length}`, true)
     .addRaw(`Decision: ${decision}${dryRun ? ' (dry run)' : ''}`, true)
+    .addRaw(images.status, true)
     .addTable([
       ['Source', 'Alert', 'Severity', 'Subject', 'Fixed at'].map(data => ({ data, header: true })),
       ...fixes.map(f => [f.source, f.number ? `#${f.number}` : '', f.severity, f.subject, f.fixedAt]),
@@ -158,8 +164,7 @@ async function dependabotFixes({ github, owner, repo, releasedAt }) {
     }));
 }
 
-// An alert of Grype or Trivy covers the latest and main scans of an image together, so whether it is open or fixed does
-// not show that main has a fix the released image lacks
+// Image alerts can stay globally open while latest is vulnerable and main is fixed; compare their analyses separately.
 const IMAGE_SCANNERS = new Set(['Grype', 'Trivy']);
 
 async function codeScanningFixes({ github, owner, repo, branch, releasedAt }) {
