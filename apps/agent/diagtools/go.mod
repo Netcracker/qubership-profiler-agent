@@ -2,7 +2,7 @@ module github.com/Netcracker/qubership-profiler-agent/diagtools
 
 go 1.26.7
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/go-zookeeper/zk v1.0.4
