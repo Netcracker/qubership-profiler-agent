@@ -362,10 +362,10 @@ isolation is weak. Scan for them on every editing pass.
     number a sentence contains.
     - **Pick the unit that makes the short form exact.** `64000000` is `64 MB` and `8388608` is `8 MiB`; swapping the
       two misleads the reader about whether `64M` in a config matches the limit.
-    - **Spell an inexact short form out: `about 1 GiB (1073741823 bytes)`.** An unmarked short form claims to be exact,
-      so the hedge carries information rather than softening a claim, and it belongs even where §6 would otherwise cut
-      one. Write the word, not `~`, per the notation rule above. Where the direction matters, as with a limit a reader
-      could configure straight past, `just under 1 GiB` names the side the value falls on and `about` does not.
+    - **Where no unit makes the short form exact, say so in words: `just under 1 GiB (1073741823 bytes)`.** An unmarked
+      short form claims to be exact, so this hedge carries information, and §6 does not cut it. Name the side the value
+      falls on where a reader could configure past it; `about` is enough where the side does not matter. Write the word,
+      not `~`.
     - **A value a formatter fills in at runtime** prints as digits, so the unit belongs in the surrounding text:
       `exceeds the limit of {0} bytes`.
 - **An apostrophe inside a format pattern is an operator, not punctuation.** In `java.text.MessageFormat`, which every
@@ -497,12 +497,7 @@ states what the commit does. Where the repository prefixes subjects (`type(scope
 after the prefix.
 
 - *Before:* `Updated some files to fix the thing that was broken sometimes.`
-- *After:* `fix(auth): refresh token before retry on 401`, plus a body explaining the race behind the original failure.
-
-**Each section of a description opens at its own level.** BLUF applies to the document and again to every section:
-state the observable defect or the violated contract before the arithmetic, the call path, or the mechanism that
-proves it. Where a lead sentence above the sections already names the defect, the first section may open with the
-mechanism.
+- *After:* `fix(auth): refresh token before retry on 401`
 
 What the body of a commit carries, which sections a pull request description has and what each one owes the reviewer,
 whether a prefix or a length limit applies, which trailers a reader greps, and what a squash merge copies into the
@@ -511,43 +506,36 @@ history are `change-description-authoring`.
 ### Review replies
 
 The reader is the reviewer. They wrote their comment days ago, the thread has scrolled off screen, and they read
-your reply once, on GitHub, between two other tasks. Write so that one read is enough.
+your reply once, on GitHub, between two other tasks. Write so that one read is enough, and stop when the point is
+answered: the whole reply to a one-line nit you fixed is `Fixed in abc1234.`
 
-- **One section per point the reviewer made, in the reviewer's order.** Open the section by restating the point in
-  one sentence, in the reviewer's words or as a short quote, so they do not scroll up to find it. Then give the
-  answer in one sentence. Then the evidence: the constant and its value, the file, the test class, the quote with
-  its date and link.
-- **Restate a list by quoting it or repeating its items, never by counting it.** Where the reviewer listed five
-  numbers or four citations, write `the five limits you list` and then the five, or quote the sentence. `Two of the
-  five values you list are off` and `the three citations you list` are new claims, and a count is the claim most
-  likely to be off by one. Check the count against the reviewer's text before you write it, or do not write it.
-- **One piece of evidence per sentence.** A sentence carries the constant and its value, or the file, or the quote
-  with its date. A link replaces a commit hash and a date, so give the link and not all three. Put the rest of the
-  evidence in a table under the sentence, not in the sentence.
-- **Quote what you cite.** `Item 3 of your review` sends the reviewer up the thread even with a link beside it.
-  Quote the item in one line, or leave the citation out.
-- **A heading names the reviewer's point, not your conclusion.** Write `The GSS limits` or `Tests that need a
-  server`, not `Both changes use the same two libpq constants`. The conclusion is the first sentence under the
-  heading, next to the evidence for it.
-- **Say what is right before what is wrong.** Where the reviewer's point holds, say so first, in that section. A
-  reply that only disputes is read as a defense, even when every sentence in it is true.
+- **The answer, then the evidence.** Give the answer in one sentence, then what supports it: the constant and its
+  value, the file, the test class, a link. One piece of evidence per sentence; a link replaces a commit hash and a
+  date, so give the link and not all three.
+- **A reply that answers several points gets one section per point, in the reviewer's order.** Open each section with
+  the reviewer's sentence it answers, so they do not scroll up to find it, and give it a heading that names the point,
+  not your conclusion: `The GSS limits` or `Tests that need a server`, not `Both changes use the same two libpq
+  constants`. A reply to one point needs neither, unless it is posted away from the comment, such as in a new issue
+  or on another pull request; there, open with the reviewer's sentence.
+- **Where you cite the reviewer, quote their sentence exactly,** punctuation included. Never paraphrase it and never
+  count it: `Two of the five values you list are off`, `the three citations you list`, and `item 3 of your review`
+  are claims the reviewer has to check against their own text, and a count is the claim most likely to be off by one.
+- **Where you dispute a point and part of it holds, say that part first.** A reply that only disputes is read as a
+  defense, even when every sentence in it is true.
 - **`I` and `you` are the normal subjects.** The author checked, rebased, chose, proposes. The reviewer wrote,
   cites, proposes. A sentence whose subject is an abstraction and whose verb is `is` (`the properties are not a
   symptom of`, `the rest of the comparison is checkable`) hides who did what. Name the person or the component,
   and use a verb that names an action.
-- **Every referent is in the reply or linked from it.** `Your earlier review`, `that commit`, `the compromise you
-  propose`, `the same path`, `here`, `above` each send the reviewer up the thread. Link the comment, name the commit
-  by hash, or restate the point in half a sentence.
+- **A referent outside the thread the reply sits in is linked or restated.** `Your earlier review`, `that commit`, `the
+  compromise you propose`, and `the same path` send the reviewer to find it, and in a reply posted away from the
+  comment, so do `here` and `above`. Link the comment, name the commit by hash, or restate the point in half a
+  sentence.
 - **Ask for a decision as a question, with the options named.** `Do you want the driver to close the connection,
   or to skip the row and fail the query? I will implement either.` A section that describes a contradiction and
   stops has not asked anything.
-- **Quote the reviewer exactly**, punctuation included, with the date or a link. Do not paraphrase a sentence you
-  are about to disagree with.
 - **State the fact and what it means for the decision, and stop.** Do not end a section on a line written to land
   (`Which one to keep is not.`, `a property of the queue, not of the change`). The reviewer is deciding what to
-  merge, not scoring a debate.
-- **Length.** A comment with N points gets about N short sections. A section past five sentences moves its evidence
-  into a table or a link to the code.
+  merge, not scoring a debate. A section past five sentences links to the code for the rest of its evidence.
 
 Before and after, from one reply:
 
@@ -565,25 +553,25 @@ Before and after, from one reply:
 
 ### Changelog and release notes
 
-User-facing voice: name the change as what the reader can now do, or what behavior has changed, and name the symptom a
-reader will search the release notes for, such as the exception class or the error text, even at the cost of a second
-sentence. Which parts an entry carries, in which order, and where a breaking change is marked are
-`change-description-authoring`.
+User-facing voice: name the change as what the reader can now do, or what behavior has changed. Which parts an entry
+carries, in which order, and where a breaking change is marked are `change-description-authoring`.
 
 - *Before:* `Refactored the resolver pipeline for better performance.`
-- *After:* `Resolver now caches DNS lookups for 30 seconds. Cold-start latency drops on connection-heavy workloads.`
+- *After:* `The resolver caches DNS lookups for 30 seconds, so new connections open faster.`
 
 ### Error and log messages
 
-Adapt the Atlassian pattern for developer surfaces: **reason + action + consequence**, in that order, in one or two
-short sentences. No `please`, no `sorry`. Second person where you address the user; third person where you describe
-state. Name the offending input or resource, and include identifiers a developer can grep. Logs add structured fields
-rather than padding the message with context. The double-quote default of §2 covers prose: a message may quote a path or
-an identifier the way its platform does (`'/etc/foo.yaml'`), as long as one codebase picks one style.
+Lead with what failed, and name the offending input or resource with identifiers a developer can grep. Where the fix is
+something other than undoing that input, such as a permission or a setting, give it as an action: `set PGSSLROOTCERT to
+the file that holds the CA certificate`. Where the fix is to undo the input, the message names it and stops. Add a
+consequence only where execution continues past the message. What else a message carries, such as why the check exists
+or where to change a limit, is `telemetry-authoring`. No `please`, no `sorry`. Second person where you address the user;
+third person where you describe state. Logs add structured fields rather than padding the message with context. The
+double-quote default of §2 covers prose: a message may quote a path or an identifier the way its platform does
+(`'/etc/foo.yaml'`), as long as one codebase picks one style.
 
-- *Before:* `Sorry! Something went wrong, please try again later.`
-- *After:* `Cannot open config file '/etc/foo.yaml': permission denied.` `Run as a user with read access, or set
-  FOO_CONFIG to a readable path.`
+- *Before:* `Sorry! The port you entered is invalid, please check your input.`
+- *After:* `port must be between 1 and 65535, got 70000`
 
 **A message is bound to the vocabulary of the code it reports on** (§4a), and the binding costs most here: the reader
 holds a string and a search box, with no context around either. Where the message is translated, the English text is the
@@ -594,7 +582,8 @@ severity to prose; do not promote a recoverable retry to an error string.
 
 ## 8. Final-pass checklist
 
-Run this once before commit. Each item should take seconds.
+Run this once before commit. Each item should take seconds. An item asks about a rule stated above, and where that rule
+has a condition, the item applies only under it.
 
 - BLUF: does the page, paragraph, or message open with the conclusion?
 - Length: any sentence over 30 words that does not earn it?
@@ -619,8 +608,8 @@ Run this once before commit. Each item should take seconds.
   did any repair create a re-read of its own?
 - Notation: any `+`, `/`, `~`, or `≥` standing in for a word where nothing is being computed?
 - Numbers: any digit grouping in a value a reader would grep, paste, or compare with the code? Does every size or
-  duration a reader has to judge carry both forms, `64 MB (64000000 bytes)`, with the unit either exact or hedged in
-  words?
+  duration above 100000 that a reader weighs against their own configuration carry both forms, `64 MB (64000000
+  bytes)`, with the unit either exact or hedged in words?
 - Behavior: does any sentence state what does not happen differently, where naming the behavior would do?
 - Provenance: does any sentence state what another API allows, where the rule this one follows is what the reader
   needs? Does any contrast raise a why-not that the next clause then answers?
@@ -632,7 +621,8 @@ Run this once before commit. Each item should take seconds.
 - Content: did you decide what belongs here before polishing it, and did the skill for this artifact settle which
   paragraphs exist?
 - Diagnostics: is every quoted error or log message a literal, punctuation included?
-- Domain format: subject line imperative; error follows reason + action + consequence; release note is user-visible?
+- Domain format: subject line imperative; does an error message lead with what failed, give an action where the fix is
+  not undoing the named input, and add a consequence only where execution continues; release note is user-visible?
 - Identifiers: is every issue, PR, commit, or version number one that exists, and every claim from the bug report
   checked against the code?
 
