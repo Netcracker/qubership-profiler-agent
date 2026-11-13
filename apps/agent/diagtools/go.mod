@@ -2,21 +2,21 @@ module github.com/Netcracker/qubership-profiler-agent/diagtools
 
 go 1.26.7
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/go-zookeeper/zk v1.0.4
 	github.com/hashicorp/consul/api/v2 v2.0.0
-	github.com/shirou/gopsutil/v4 v4.26.9
+	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/stretchr/testify v1.12.1
 	github.com/vlsi/jattach/v2 v2.2.2
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
-	github.com/ebitengine/purego v0.11.1 // indirect
+	github.com/ebitengine/purego v0.11.2 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect

@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { message } from 'antd';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -55,6 +56,11 @@ describe('PodsPage', () => {
   });
 
   it('pins a live relative range to an absolute permalink on "y"', async () => {
+    // The static message API mounts the toast in a React root of its own, which
+    // cleanup() does not unmount. Its auto-close timer would then update that root
+    // after the test environment is torn down and fail the run with
+    // "window is not defined".
+    const success = vi.spyOn(message, 'success').mockImplementation(() => undefined as never);
     renderPodsPage('/pods?from=now-3h&to=now');
     await waitFor(() => expect(screen.getAllByRole('row').length).toBeGreaterThan(1), { timeout: 5000 });
     // The live range reads as its quick-range name.
@@ -67,6 +73,7 @@ describe('PodsPage', () => {
       expect(screen.getByRole('button', { name: 'Time range' })).toHaveTextContent(/\d{4}-\d{2}-\d{2}/),
     );
     expect(screen.getByRole('button', { name: 'Time range' })).not.toHaveTextContent('Last 3 hours');
+    expect(success).toHaveBeenCalledWith('Time range pinned to a permalink');
   });
 
   it('applies a freshly picked period on a bare /pods, populating the table at once', async () => {

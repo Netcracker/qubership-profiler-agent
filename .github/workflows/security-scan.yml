@@ -1,3 +1,4 @@
+# auto-release.yaml starts on completed runs of this workflow by its name
 name: Security Scan Docker Packages
 run-name: >
   Security Scan #${{ github.run_number }} for ${{ inputs.image != '' && inputs.image != null && inputs.image || 'all repository docker images' }}
@@ -55,28 +56,56 @@ jobs:
     permissions:
       packages: read
     outputs:
-      packages: ${{ steps.ghcr.outputs.packages }}
-      has-packages: ${{ steps.ghcr.outputs.has-packages }}
+      packages: ${{ steps.filter.outputs.packages }}
+      has-packages: ${{ steps.filter.outputs.has-packages }}
+      retired: ${{ steps.filter.outputs.retired }}
     steps:
+      - name: Checkout the image list
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .qubership/docker-build-config.cfg
+          sparse-checkout-cone-mode: false
+
       - name: List GHCR packages for this repo
         id: ghcr
-        uses: Netcracker/qubership-workflow-hub/actions/ghcr-discover-repo-packages@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        uses: Netcracker/qubership-workflow-hub/actions/ghcr-discover-repo-packages@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
         env:
           GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }} # zizmor: ignore[secrets-outside-env]
-
-      - name: Print packages
-        env:
-          PACKAGES: ${{ steps.ghcr.outputs.packages }}
-        run: echo "$PACKAGES" | jq '.'
-
-      - name: Continue only if repo has GHCR packages
-        if: ${{ steps.ghcr.outputs.has-packages == 'true' }}
-        run: echo "Packages found!"
 
       - name: No packages found, fail the job
         if: ${{ steps.ghcr.outputs.has-packages != 'true' }}
         run: |
           echo "No packages found in GHCR for this repository."
+          exit 1
+
+      # GHCR keeps packages of images the repository no longer builds, such as
+      # qubership-profiler-maintenance, and nothing rebuilds them, so scanning
+      # them only reports findings no one can fix.
+      - name: Keep only images the repository still builds
+        id: filter
+        env:
+          PACKAGES: ${{ steps.ghcr.outputs.packages }}
+          BUILD_CONFIG: .qubership/docker-build-config.cfg
+        run: |
+          set -euo pipefail
+          built=$(jq -c '[.components[].name]' "$BUILD_CONFIG")
+          packages=$(jq -c --argjson built "$built" '[.[] | select(.name | IN($built[]))]' <<<"$PACKAGES")
+          retired=$(jq -c --argjson built "$built" '[.[] | select(.name | IN($built[]) | not) | .name]' <<<"$PACKAGES")
+          echo "Not built by $BUILD_CONFIG, skipped: $(jq -r 'if length == 0 then "none" else join(", ") end' <<<"$retired")"
+          echo "$packages" | jq '.'
+          {
+            echo "packages=$packages"
+            echo "retired=$retired"
+            echo "has-packages=$(jq 'length > 0' <<<"$packages")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: No built images found, fail the job
+        if: ${{ steps.filter.outputs.has-packages != 'true' }}
+        env:
+          PACKAGES: ${{ steps.ghcr.outputs.packages }}
+        run: |
+          echo "GHCR returned $(jq 'length' <<<"$PACKAGES") packages for this repository, and none is named as a component in .qubership/docker-build-config.cfg."
           exit 1
 
   security-scan-matrix:
@@ -93,7 +122,7 @@ jobs:
         tag: ${{ (github.event_name == 'workflow_dispatch' && fromJson(format('["{0}"]', inputs.tag))) || fromJson('["latest","main"]') }}
 
     name: "${{ format('{0}:{1}', matrix.package.path, matrix.tag) }}"
-    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
     with:
       target: ${{ inputs.target || 'docker' }}
       image: ${{ format('{0}:{1}', matrix.package.path, matrix.tag) }}
@@ -111,7 +140,7 @@ jobs:
       packages: read
       contents: read
     name: "Run Security Scan (single image)"
-    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+    uses: netcracker/qubership-workflow-hub/.github/workflows/re-security-scan.yml@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
     with:
       target: ${{ inputs.target || 'docker' }}
       image: ${{ inputs.image }}
@@ -120,3 +149,72 @@ jobs:
       grype-scan: ${{ inputs.grype-scan }}
       only-fixed: ${{ inputs.only-fixed }}
       continue-on-error: ${{ inputs.continue-on-error }}
+
+  # Code scanning keeps an alert open while the latest analysis of a configuration (its
+  # category and tool) reports it. The scan above no longer uploads for retired images, so
+  # their alerts would stay open forever. An empty SARIF uploaded under the same category
+  # and tool closes them as fixed.
+  find-retired-configurations:
+    needs: debug-packages
+    if: >-
+      ${{ (inputs.image == '' || inputs.image == null)
+      && (github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch)
+      && needs.debug-packages.outputs.retired != '[]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: read
+    outputs:
+      configurations: ${{ steps.find.outputs.configurations }}
+    steps:
+      - name: Find configurations with open findings for retired images
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          RETIRED: ${{ needs.debug-packages.outputs.retired }}
+        run: |
+          set -euo pipefail
+          for tool in Trivy Grype; do
+            gh api --paginate "repos/$REPOSITORY/code-scanning/analyses?ref=$REF&tool_name=$tool&per_page=100" --jq '.[]'
+          done > analyses.jsonl
+          # A configuration whose latest successful analysis has no results has no open
+          # alerts, so it is not uploaded again.
+          configurations=$(jq -c -s --argjson retired "$RETIRED" '
+            [ .[]
+              | select(.error == "")
+              | .category |= rtrimstr("/")
+              | select(.category as $c | $retired | any(. as $n | $c == $n or ($c | startswith($n + ":")))) ]
+            | group_by([.category, .tool.name])
+            | map(max_by(.created_at) | select(.results_count > 0)
+                | {category, tool: .tool.name, results: .results_count})
+          ' analyses.jsonl)
+          echo "Configurations of retired images with findings on $REF:"
+          jq -r 'if length == 0 then "none" else .[] | "\(.tool) \(.category): \(.results) results" end' <<<"$configurations"
+          echo "configurations=$configurations" >> "$GITHUB_OUTPUT"
+
+  close-retired-findings:
+    needs: find-retired-configurations
+    if: ${{ needs.find-retired-configurations.outputs.configurations != '[]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: ${{ fromJson(needs.find-retired-configurations.outputs.configurations) }}
+    name: "Close ${{ matrix.configuration.tool }} findings for ${{ matrix.configuration.category }}"
+    steps:
+      - name: Write an empty SARIF for the tool
+        env:
+          TOOL: ${{ matrix.configuration.tool }}
+        run: |
+          set -euo pipefail
+          jq -n --arg tool "$TOOL" '{version: "2.1.0", runs: [{tool: {driver: {name: $tool}}, results: []}]}' > empty.sarif
+
+      - name: Upload the empty SARIF under the retired category
+        uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
+        with:
+          sarif_file: empty.sarif
+          category: ${{ matrix.configuration.category }}
+          wait-for-processing: true

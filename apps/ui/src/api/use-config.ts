@@ -12,7 +12,10 @@ export function useConfig(): ConfigState {
   useEffect(() => {
     const controller = new AbortController();
     fetchConfig(controller.signal)
-      .then((config) => setState({ kind: 'ready', config }))
+      .then((config) => {
+        if (controller.signal.aborted) return; // unmounted while the body was read
+        setState({ kind: 'ready', config });
+      })
       .catch(() => {
         if (controller.signal.aborted) return;
         setState({ kind: 'error' });

@@ -1,0 +1,6 @@
+# OSV-Scanner reads this file for the manifests in this directory, go.mod among
+# them. OpenSSF Scorecard runs OSV-Scanner for its Vulnerabilities check.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "The advisory covers golang.org/x/crypto/openpgp, which no binary links: `go mod why golang.org/x/crypto/openpgp` reports that the main module does not need the package. The golang.org/x/crypto module stays because echo, minio-go, testcontainers, and golang.org/x/net import other packages from it, and the advisory has no fixed version."
