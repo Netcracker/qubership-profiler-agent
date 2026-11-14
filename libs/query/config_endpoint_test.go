@@ -44,6 +44,33 @@ func TestConfigEndpoint(t *testing.T) {
 		}
 	})
 
+	t.Run("reports the implemented filter model (02 §2.3.4)", func(t *testing.T) {
+		server := httptest.NewServer(New(Options{}).Handler())
+		defer server.Close()
+
+		resp, err := http.Get(server.URL + "/api/v1/config")
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		var body struct {
+			FilterCapabilities struct {
+				Fields         map[string][]string `json:"fields"`
+				ParamOperators []string            `json:"param_operators"`
+				SpecialValues  []string            `json:"special_values"`
+				Orders         []string            `json:"orders"`
+				GroupBy        []string            `json:"group_by"`
+			} `json:"filter_capabilities"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		caps := body.FilterCapabilities
+		assert.Equal(t, []string{">", ">=", "<", "<=", "between"}, caps.Fields["duration"])
+		assert.Equal(t, []string{"=", "in"}, caps.Fields["service"])
+		assert.Equal(t, []string{"="}, caps.Fields["request_id"])
+		assert.Equal(t, []string{"="}, caps.ParamOperators)
+		assert.NotNil(t, caps.SpecialValues, "an empty list, not null")
+		assert.Equal(t, []string{"start_desc"}, caps.Orders)
+		assert.NotNil(t, caps.GroupBy, "an empty list, not null")
+	})
+
 	t.Run("reports an empty URL when unconfigured, not an error", func(t *testing.T) {
 		svc := New(Options{})
 		server := httptest.NewServer(svc.Handler())

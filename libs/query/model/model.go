@@ -8,7 +8,6 @@ package model
 
 import (
 	"container/heap"
-	"strings"
 )
 
 // Retention classes (01-write-contract.md §6.4). The values double as S3 key
@@ -94,17 +93,13 @@ type (
 		Tier            Tier
 	}
 
-	// CallsQuery is the frozen /calls filter set (02 §2.3, §2.3.1). It rides
-	// inside the cursor verbatim, so every field must be JSON-comparable.
+	// CallsQuery is the frozen /calls query (02 §2.3, §2.3.1): the window and
+	// the filter conditions (§2.3.3), with the legacy parameters already
+	// turned into conditions. It rides inside the cursor verbatim.
 	CallsQuery struct {
-		FromMs           int64    `json:"from"`
-		ToMs             int64    `json:"to"`
-		Pods             []string `json:"pod,omitempty"` // "<ns>/<service>/<pod>"
-		Method           string   `json:"method,omitempty"`
-		DurationMinMs    int32    `json:"duration_min_ms,omitempty"`
-		DurationMaxMs    int32    `json:"duration_max_ms,omitempty"` // 0 = unset
-		ErrorOnly        bool     `json:"error_only,omitempty"`
-		RetentionClasses []string `json:"retention_class,omitempty"`
+		FromMs  int64       `json:"from"`
+		ToMs    int64       `json:"to"`
+		Filters []Condition `json:"filters,omitempty"`
 	}
 
 	// PodTuple is one /pods identity tuple (02 §2.7).
@@ -188,53 +183,6 @@ func (p Position) After(cursor Position) bool {
 // Position returns the row's point in the pagination order.
 func (r CallRow) Position() Position {
 	return Position{TsMs: r.TsMs, PK: r.PK}
-}
-
-// Match applies the row-level predicates of §2.3 (the ts window and the
-// filters that do not prune files). Method is a substring match — it covers
-// the contract's "substring/prefix" without a second operator.
-func (q CallsQuery) Match(r CallRow) bool {
-	if r.TsMs < q.FromMs || r.TsMs >= q.ToMs {
-		return false
-	}
-	if len(q.Pods) > 0 {
-		podId := r.PK.PodNamespace + "/" + r.PK.PodService + "/" + r.PK.PodName
-		found := false
-		for _, p := range q.Pods {
-			if p == podId {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	if q.Method != "" && !strings.Contains(r.Method, q.Method) {
-		return false
-	}
-	if q.DurationMinMs > 0 && r.DurationMs < q.DurationMinMs {
-		return false
-	}
-	if q.DurationMaxMs > 0 && r.DurationMs > q.DurationMaxMs {
-		return false
-	}
-	if q.ErrorOnly && !r.ErrorFlag {
-		return false
-	}
-	if len(q.RetentionClasses) > 0 {
-		found := false
-		for _, c := range q.RetentionClasses {
-			if c == r.RetentionClass {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
 }
 
 // mergeHeap orders run heads by (ts_ms DESC, pk ASC), then by Tier so a

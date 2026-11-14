@@ -60,7 +60,11 @@ type ScanResult struct {
 // guard before any file is opened (§2.3.2).
 func (s *Source) Calls(ctx context.Context, d Discovery, q model.CallsQuery, after *model.Position, limit int, page *budget.Lease) (ScanResult, error) {
 	var res ScanResult
-	ls := listScan{src: s, q: q, after: after, limit: limit, page: page}
+	matcher, err := q.Matcher()
+	if err != nil {
+		return res, err
+	}
+	ls := listScan{src: s, match: matcher, after: after, limit: limit, page: page}
 	for _, ref := range d.Files {
 		if err := ctx.Err(); err != nil {
 			return res, err
@@ -91,7 +95,7 @@ func IsBudgetDenial(err error) bool {
 // request page lease, and the more flag.
 type listScan struct {
 	src      *Source
-	q        model.CallsQuery
+	match    *model.Matcher
 	after    *model.Position
 	limit    int
 	page     *budget.Lease
@@ -111,7 +115,7 @@ func (ls *listScan) consume(ctx context.Context, _ int, _ int64, rows []storagep
 	run := make([]model.CallRow, 0, len(rows))
 	for i := range rows {
 		row := toCallRow(&rows[i])
-		if !ls.q.Match(row) {
+		if !ls.match.Match(&row) {
 			continue
 		}
 		if ls.after != nil && !row.Position().After(*ls.after) {
