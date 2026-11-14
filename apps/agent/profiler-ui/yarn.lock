@@ -168,7 +168,7 @@ jquery.rule@^1.1.2:
   resolved "https://registry.yarnpkg.com/jquery.rule/-/jquery.rule-1.1.2.tgz#d91828265e50b9837d74af84c5cf38397d891802"
   integrity sha512-AAm4fVZPW1AHjWrX0ptjZ7gY4MJYv0NJB4QULng7jULWtK1499EGwqU8+ckDtUbZzzKBDqIiCVCdjMuznsnpJw==
 
-"jquery@>= 1.4.0", "jquery@>=1.12.0 <5.0.0":
+"jquery@>= 1.4.0", "jquery@>=1.12.0 <5.0.0", "jquery@>=3.5.1 <5":
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/jquery/-/jquery-4.0.0.tgz#95c33ac29005ff72ec444c5ba1cf457e61404fbb"
   integrity sha512-TXCHVR3Lb6TZdtw1l3RTLf8RBWVGexdxL6AC8/e0xZKEpBflBsjh9/8LXw+dkNFuOyW9B7iB3O1sP7hS0Kiacg==
@@ -335,11 +335,11 @@ source-map-js@^1.2.2:
   integrity sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==
 
 timepicker@^1.14.1:
-  version "1.14.1"
-  resolved "https://registry.yarnpkg.com/timepicker/-/timepicker-1.14.1.tgz#455cb5ca8831deb2cd6adf28da270874ed75555c"
-  integrity sha512-sNy0zVRacCNQ2bo4NLAG3+AX9ARxmH5IMqwZva9rzzFMJcfKfEnGzmDG7gMYeN5gbM76bzfZbld5WiWcshAUrw==
+  version "1.15.0"
+  resolved "https://registry.yarnpkg.com/timepicker/-/timepicker-1.15.0.tgz#55381cb5ed1087bb2bb2cfd24bb2bf13be19c7fe"
+  integrity sha512-p21IMbH2a2P7NPu+2u93+TNE2CQdEiK7RE4iYwdPStIq0DxjnWYzhzr/zi50/QWLIN4/WVMktSblnlgVRkvUrA==
   dependencies:
-    jquery "^3.5.1"
+    jquery ">=3.5.1 <5"
 
 tinyglobby@^0.2.17:
   version "0.2.17"
