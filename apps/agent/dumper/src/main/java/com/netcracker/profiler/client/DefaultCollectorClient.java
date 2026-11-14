@@ -38,6 +38,7 @@ public class DefaultCollectorClient implements DumperCollectorClient {
     private static final Logger log = LoggerFactory.getLogger(DefaultCollectorClient.class);
     public static final long BLOCKING_WRITE_TIMEOUT = 10L;
     public static final String ENV_NC_DIAGNOSTIC_FOLDER = "NC_DIAGNOSTIC_FOLDER";
+    public static final String ENV_NC_DIAGNOSTIC_HOME = "NC_DIAGNOSTIC_HOME";
     public static final String ENV_KEYSTORE_FILE_PATH = "NC_DIAGNOSTIC_KEYSTORE";
     public static final String  ENV_KEYSTORE_PASSWORD = "NC_DIAGNOSTIC_KEYSTORE_PASSWD";
     public static final String  TLS_KEYSTORE_PATH = "TLS_KEYSTORE_PATH";
@@ -360,21 +361,21 @@ public class DefaultCollectorClient implements DumperCollectorClient {
         log.info("Executing command {}: {}", id, command);
         try {
             String execCommand = null;
-            String diagnosticFolder = System.getenv(ENV_NC_DIAGNOSTIC_FOLDER);
-            if (StringUtils.isBlank(diagnosticFolder)) {
-                log.warn("Command {} requires presence of ENV variable NC_DIAGNOSTIC_FOLDER", command);
+            String diagtoolsFolder = diagtoolsFolder(System.getenv());
+            if (diagtoolsFolder == null) {
+                log.warn("Command {} requires environment variable NC_DIAGNOSTIC_HOME or NC_DIAGNOSTIC_FOLDER that points to the folder with diagtools", command);
                 return false;
             }
 
             if ("heap".equals(command)) {
                 log.info("run heap request");
-                execCommand = diagnosticFolder + "/diagtools heap";
+                execCommand = diagtoolsFolder + "/diagtools heap";
             } else if ("td".equals(command)) {
                 log.info("run td request");
-                execCommand = diagnosticFolder + "/diagtools dump";
+                execCommand = diagtoolsFolder + "/diagtools dump";
             } else if ("top".equals(command)) {
                 log.info("run top request");
-                execCommand = diagnosticFolder + "/diagtools dump";
+                execCommand = diagtoolsFolder + "/diagtools dump";
             }
             if (execCommand != null) {
                 runningCommands.put(id, Runtime.getRuntime().exec(execCommand));
@@ -384,6 +385,19 @@ public class DefaultCollectorClient implements DumperCollectorClient {
             log.error("Failed to execute command {}: {}", id, command, t);
         }
         return false;
+    }
+
+    /**
+     * Returns the folder with diagtools: {@code NC_DIAGNOSTIC_HOME}, or {@code NC_DIAGNOSTIC_FOLDER} when the former is
+     * blank, or {@code null} when both are blank.
+     */
+    static String diagtoolsFolder(Map<String, String> env) {
+        // diagtools is installed next to the agent, and an older diag-bootstrap.sh exports only NC_DIAGNOSTIC_FOLDER
+        String folder = env.get(ENV_NC_DIAGNOSTIC_HOME);
+        if (StringUtils.isBlank(folder)) {
+            folder = env.get(ENV_NC_DIAGNOSTIC_FOLDER);
+        }
+        return StringUtils.isBlank(folder) ? null : folder;
     }
 
     private void reportCommandResult(UUID commandId, boolean success) throws IOException {

@@ -3,6 +3,7 @@ package constants
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -515,4 +516,16 @@ func TestUploadTimeout(t *testing.T) {
 	assert.Equal(t, 15*time.Minute, UploadTimeout(testCtx))
 	assert.Equal(t, "DIAGNOSTIC_UPLOAD_TIMEOUT", NcDiagUploadTimeout)
 	os.Setenv("DIAGNOSTIC_UPLOAD_TIMEOUT", "")
+}
+
+func TestPropertyIsReadFromNcDiagnosticFolder(t *testing.T) {
+	isTest = false
+	t.Cleanup(func() { isTest = true })
+	folder := t.TempDir()
+	t.Setenv(NcDiagnosticFolder, folder)
+	t.Setenv(NcDiagGcEnabled, "")
+	assert.NoError(t, os.Mkdir(filepath.Join(folder, "properties"), 0o755))
+	assert.NoError(t, os.WriteFile(filepath.Join(folder, "properties", NcDiagGcEnabled), []byte("false"), 0o644))
+
+	assert.False(t, IsGcLogEnabled(testCtx), "%s/properties/%s holds false", folder, NcDiagGcEnabled)
 }
