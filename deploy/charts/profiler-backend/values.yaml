@@ -146,6 +146,22 @@ query:
   # "https://dumps-collector-<namespace>.<cloud-public-host>" (matching the
   # dumps-collector chart's own default ingress host convention).
   dumpsCollectorUrl: ""
+  # Link buttons on the call tree page that open the call in a tracing or
+  # logging system (02-read-contract.md §2.8). Each entry needs a label, a
+  # kind ("trace" or "logs"), and a url_template: an absolute http(s) URL
+  # that may use {trace_id}, {from_ms}, {to_ms}, {namespace}, {service}, and
+  # {pod}. The UI URL-encodes the values. The keys are the ones of the
+  # /api/v1/config response, so the list reaches the query pod unchanged as
+  # PROFILER_LINKS; a malformed entry stops the pod at startup with an error
+  # that names it. Empty (the default) shows no link buttons. Example:
+  #   links:
+  #     - label: Open trace · Tempo
+  #       kind: trace
+  #       url_template: "https://grafana.example/explore?trace={trace_id}"
+  #     - label: Logs · Grafana
+  #       kind: logs
+  #       url_template: "https://grafana.example/logs?pod={pod}&from={from_ms}&to={to_ms}"
+  links: []
 
 maintain:
   # cronjob: one pod per run (batch/v1 CronJob, --run-now).

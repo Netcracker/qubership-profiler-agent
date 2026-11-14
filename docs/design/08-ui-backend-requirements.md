@@ -138,6 +138,11 @@ pass-through chain so a match inside one stays reachable (`tree/search.ts`).
   Tempo or VictoriaTraces and to logs in VictoriaLogs / Grafana. Implementing the wiring is deferred;
   surfacing the params and the link seam now avoids a later rework. Inbound navigation (trace/log → profile)
   needs the param-filter query (R3) to find calls by `trace_id`.
+- **The link-template seam is filled.** `/api/v1/config` carries the templates as an optional `links` list that
+  the operator configures (`02-read-contract.md` §2.8). The seam was provisioned as a map from a param to a URL.
+  The contract has a list of labeled templates instead, with fixed placeholders for the trace ID, the pod
+  identity, and the call's time window, so one deployment can link to several systems. Inbound navigation is
+  still open.
 
 ## 10. Deferred: dump analysis and the `apps/agent/parsers/` module
 

@@ -134,6 +134,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 			FanoutTimeout:      cfg.FanoutTimeout,
 			OverlapMargin:      cfg.OverlapMargin,
 			DumpsCollectorURL:  cfg.DumpsCollectorURL,
+			Links:              cfg.Links,
 		},
 		ColdStore: query.NewS3ObjectReader(mc, cfg.S3.PathPrefix),
 		Metrics:   query.NewMetrics(reg),
