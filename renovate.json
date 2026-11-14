@@ -96,6 +96,17 @@
       ]
     },
     {
+      "description": "Keep Spring Boot 4 example modules on Spring Boot 4",
+      "groupName": "Spring Boot 4 sample app",
+      "matchFileNames": [
+        "apps/examples/spring-boot-4-*/**"
+      ],
+      "allowedVersions": "< 5",
+      "matchPackageNames": [
+        "org.springframework.boot{/,}**"
+      ]
+    },
+    {
       "description": "Disable Docker images that are unavailable from their registries",
       "matchDatasources": [
         "docker"
