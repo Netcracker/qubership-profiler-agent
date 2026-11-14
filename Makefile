@@ -333,6 +333,7 @@ kind-smoke:
 .PHONY: helm-lint
 helm-lint:
 	@echo "==> helm lint deploy/charts/profiler-backend..."
+	helm dependency update deploy/charts/profiler-backend
 	helm lint deploy/charts/profiler-backend
 	@echo "==> Rendering with monitoring enabled and validating with kubeconform..."
 	@rm -rf .helm-render
@@ -379,6 +380,7 @@ charts-build:
 		for chart in $(CHARTS_DIR)/*; do \
 			if [ -d "$$chart" ] && [ -f "$$chart/Chart.yaml" ]; then \
 				echo "Validating chart: $$(basename $$chart)"; \
+				helm dependency update "$$chart" || exit 1; \
 				helm lint "$$chart" || exit 1; \
 			fi; \
 		done; \
