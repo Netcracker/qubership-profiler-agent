@@ -1,1 +1,43 @@
 * @asatt @denifilatoff @vlsi
+
+# BEGIN codeowners-for-bot-updates: files that bots update have no owner
+# A bot PR that changes only these files requests no review. The list holds
+# the files that Renovate and Dependabot commits changed, plus file names
+# that cover copies added later. Regenerate it with the
+# codeowners-for-bot-updates skill instead of editing it:
+# https://github.com/Netcracker/qubership-ai-packages/tree/main/agent-packages/codeowners-for-bot-updates
+# The last matching line wins, so the block stays at the end of the file.
+/.agents/skills/
+/.claude/rules/
+/.claude/skills/
+/.cursor/rules/
+/.github/actions/
+/.github/workflows/
+*.gradle
+*.gradle.kts
+apm.lock.yaml
+Chart.yaml
+compose.yaml
+compose.yml
+docker-compose.yaml
+docker-compose.yml
+*Dockerfile*
+go.mod
+go.sum
+gradle-wrapper.jar
+gradle-wrapper.properties
+gradlew
+gradlew.bat
+helmfile.d/
+helmfile.yaml
+helmfile.yaml.gotmpl
+helmfile.yml
+helmfile.yml.gotmpl
+libs.versions.toml
+maven-wrapper.properties
+package-lock.json
+package.json
+pom.xml
+/renovate.json
+yarn.lock
+# END codeowners-for-bot-updates
