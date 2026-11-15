@@ -17,7 +17,7 @@ dependencies {
         // versions held still beside it live in apps/agent/plugins/*/build.gradle.kts, which Renovate ignores.
         api("com.rabbitmq:amqp-client:5.37.1")
         api("com.zaxxer:HikariCP:7.1.0")
-        api("io.mockk:mockk:1.14.11")
+        api("io.mockk:mockk:1.14.12")
         api("io.undertow:undertow-servlet:2.3.27.Final")
         api("org.jmockit:jmockit-coverage:1.23")
         api("org.jmockit:jmockit:1.50")
