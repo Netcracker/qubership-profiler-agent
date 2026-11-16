@@ -21,8 +21,8 @@ on:
         type: boolean
         default: false
   push:
-    branches-ignore:
-      - 'renovate/**'
+    branches:
+      - main
     paths:
       - 'apps/agent/**'
       - 'build-logic/**'
