@@ -107,7 +107,11 @@ as vulnerabilities. Otherwise the workflow releases when about a month has passe
 nothing when `main` has no commits since the latest release, or while a release workflow run is in progress. The latest
 release is the creation time of the newest successful release workflow run on `main`, kept across re-runs, so a fix
 merged while a release runs still counts. Without such a run, the latest GitHub release is used. Run it manually with
-`dry-run` to see the decision, the alerts it counted, and any skipped image comparisons without releasing.
+`dry-run` to see the decision without releasing.
+
+Every run posts its decision as a notice on the run page. Its summary lists the alerts it counted, the alerts fixed
+since the release that it did not count with the reason, and each image pair it skipped with the condition that failed.
+The decision is also the `result` output of the `decide` step.
 
 A Dependabot alert counts only for a runtime dependency outside `apps/examples/` and the `it-*` integration test
 directories, and only when the same advisory is not still open for the same package in such a dependency. Alerts on
@@ -121,13 +125,18 @@ Central, tagging the release, or pushing the version bump. Re-run its failed job
 the cause is fixed; automatic releases resume after a release workflow run on `main` succeeds. The workflow also skips
 the release when a release workflow run starts or finishes while it reads the alerts and images.
 
-Each image pair requires error-free scans of the same image and platform with the same scanner version and
-configuration. Both analyses must be for the current `main` commit, at most 48 hours old, and at most 24 hours apart.
-Their scan workflows must have completed, and a run whose other jobs failed still counts. They must have started after
-the latest release and all runs of the release and backend image build workflows on `main`, including failed runs that
-may have published some images. A running publisher, missing or incomplete report, or a branch, image publication, or
-release change during comparison invalidates the image comparison. Skipped image comparisons leave Dependabot, source
-code scanning, and monthly release decisions available.
+Only the images `.qubership/docker-build-config.cfg` builds are compared, as in the security scan. Analyses of other
+images, such as `qubership-profiler-maintenance`, are not compared; the summary lists them as not built when the
+analyses the run reads include them. A built image without a Grype or Trivy analysis from the last 48 hours counts as a
+pair not compared. Each image pair requires error-free scans of the same image and platform with the same scanner
+version and configuration. Both analyses must be for the current `main` commit, at most 48 hours old, and at most 24
+hours apart. Their scan workflows must have completed, and a run whose other jobs failed still counts. They must have
+started after the latest release and all runs of the release and backend image build workflows on `main`, including
+failed runs that may have published some images. A running publisher, missing or incomplete report, or a branch, image
+publication, or release change during comparison invalidates the image comparison. Skipped image comparisons leave
+Dependabot, source code scanning, and monthly release decisions available. The Monday run usually skips every image
+pair, because images published after the Sunday scan make the scans stale; the run that the scan triggers is the one
+that can compare them, and its summary shows whether it did.
 
 To trigger a release, go to the
 👉 [Actions tab → release.yaml](https://github.com/Netcracker/qubership-profiler-agent/actions/workflows/release.yaml)

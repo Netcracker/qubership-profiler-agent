@@ -16,6 +16,10 @@ const imageReleaseFixes = require('./image-release-fixes.cjs');
  * the release workflow are read again right before the dispatch, and any change since the first read skips the
  * release.
  *
+ * The decision is posted as a notice. The log and the job summary list the alerts it counted, the alerts fixed since
+ * the release that it did not count with the reason, and the image pairs it could not compare with the condition that
+ * failed.
+ *
  * @param {object} args
  * @param {object} args.github the Octokit client of actions/github-script
  * @param {object} args.context the workflow context of actions/github-script
@@ -24,9 +28,11 @@ const imageReleaseFixes = require('./image-release-fixes.cjs');
  * @param {string} args.branch the branch to release from
  * @param {string} args.workflowId the file name of the release workflow
  * @param {boolean} args.dryRun reports the decision without starting the release workflow
- * @returns {Promise<{release: boolean, reason: string, fixes: object[]}>} the decision and the alerts it counted
+ * @param {string[]} args.images the image names the repository builds, from .qubership/docker-build-config.cfg
+ * @returns {Promise<{release: boolean, reason: string, fixes: object[], notCounted: object[], images: object}>} the
+ *   decision, the alerts it counted, the alerts fixed since the release that it did not count, and the image comparison
  */
-module.exports = async function autoRelease({ github, context, core, now, branch, workflowId, dryRun }) {
+module.exports = async function autoRelease({ github, context, core, now, branch, workflowId, dryRun, images: built }) {
   const { owner, repo } = context.repo;
 
   const runs = await releaseRuns({ github, owner, repo, workflowId });
@@ -49,7 +55,8 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   const releaseSource = releaseRun
     ? `${workflowId} run ${releaseRun.id} created at ${releaseRun.created_at} on ${releaseRun.head_sha}`
     : `${latest.tag_name}, published at ${latest.published_at}`;
-  core.info(`Latest release: ${releaseSource}`);
+  core.info(`Latest GitHub release: ${latest.tag_name}, published at ${latest.published_at}`);
+  core.info(`Counting from: ${releaseSource}`);
 
   // The release workflow pushes "chore: bump version to x.y.z" commits, so those alone are no change
   const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
@@ -59,10 +66,10 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   const hasChanges = changes.length > 0 || comparison.ahead_by > comparison.commits.length;
   core.info(`Commits on ${branch} since ${releasedCommit}: ${comparison.ahead_by}, excluding version bumps: ${changes.length}`);
 
-  const fixes = [
-    ...await dependabotFixes({ github, owner, repo, releasedAt }),
-    ...await codeScanningFixes({ github, owner, repo, branch, releasedAt }),
-  ];
+  const dependabot = await dependabotFixes({ github, owner, repo, releasedAt });
+  const codeScanning = await codeScanningFixes({ github, owner, repo, branch, releasedAt });
+  const fixes = [...dependabot.fixes, ...codeScanning.fixes];
+  const notCounted = [...dependabot.notCounted, ...codeScanning.notCounted];
 
   // A weekly run falls at most 3.5 days from the anniversary. Waiting for the first run after it instead would
   // stretch the interval towards five weeks.
@@ -70,9 +77,11 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   anniversary.setUTCMonth(anniversary.getUTCMonth() + 1);
   const monthElapsed = now.getTime() >= anniversary.getTime() - 3.5 * DAY;
 
-  const images = await imageReleaseFixes({ github, owner, repo, branch, workflowId, latest, now });
+  const images = await imageReleaseFixes({ github, owner, repo, branch, workflowId, latest, now, images: built });
   core.info(images.status);
   fixes.push(...images.fixes);
+  for (const f of fixes) core.info(`Counted: ${describeAlert(f)}`);
+  for (const f of notCounted) core.info(`Not counted: ${describeAlert(f)}: ${f.reason}`);
 
   let release = false;
   let reason;
@@ -89,7 +98,10 @@ module.exports = async function autoRelease({ github, context, core, now, branch
     release = true;
     reason = `a month has passed since the latest release`;
   } else {
-    reason = `no security fixes, next monthly release is due around ${anniversary.toISOString().slice(0, 10)}`;
+    const uncompared = images.total - images.compared;
+    reason = 'no security fixes found'
+      + (uncompared > 0 ? `, ${uncompared} of ${images.total} image pairs not compared` : '')
+      + `; the next monthly release is due around ${anniversary.toISOString().slice(0, 10)}`;
   }
   // A release run that started while the alerts and images were read may already publish these fixes, and one that
   // finished changed the latest release or the pause this decision relied on
@@ -97,20 +109,37 @@ module.exports = async function autoRelease({ github, context, core, now, branch
     release = false;
     reason = `${workflowId} runs changed while deciding`;
   }
-  const decision = `${release ? 'release' : 'skip'}: ${reason}`;
+  const decision = `${release ? 'release' : 'skip'}: ${reason}${dryRun ? ' (dry run)' : ''}`;
   core.info(`Decision: ${decision}`);
+  core.notice(decision, { title: 'Auto release decision' });
 
-  await core.summary
+  const summary = core.summary
     .addHeading('Auto release', 2)
-    .addRaw(`Latest release: ${releaseSource}`, true)
-    .addRaw(`Commits since the release, excluding version bumps: ${changes.length}`, true)
-    .addRaw(`Decision: ${decision}${dryRun ? ' (dry run)' : ''}`, true)
-    .addRaw(images.status, true)
-    .addTable([
+    .addRaw(`Decision: ${decision}`, true)
+    .addList([
+      `Latest GitHub release: ${latest.tag_name}, published at ${latest.published_at}`,
+      `Counting from: ${releaseSource}`,
+      `Commits since then, excluding version bumps: ${changes.length}`,
+    ])
+    .addHeading('Counted security fixes', 3);
+  if (fixes.length > 0) {
+    summary.addTable([
       ['Source', 'Alert', 'Severity', 'Subject', 'Fixed at'].map(data => ({ data, header: true })),
       ...fixes.map(f => [f.source, f.number ? `#${f.number}` : '', f.severity, f.subject, f.fixedAt]),
-    ])
-    .write();
+    ]);
+  } else {
+    summary.addRaw('None.', true);
+  }
+  if (notCounted.length > 0) {
+    summary.addHeading('Fixed since the release, not counted', 3).addTable([
+      ['Source', 'Alert', 'Subject', 'Fixed at', 'Reason'].map(data => ({ data, header: true })),
+      ...notCounted.map(f => [f.source, `#${f.number}`, f.subject, f.fixedAt, f.reason]),
+    ]);
+  }
+  const [imageHeadline, ...imageDetails] = images.status.split('\n');
+  summary.addHeading('Images', 3).addRaw(imageHeadline, true);
+  if (imageDetails.length > 0) summary.addList(imageDetails);
+  await summary.write();
 
   if (failedRun) {
     core.setFailed(`Automatic releases are paused: ${workflowId} run ${failedRun.id} on ${branch} concluded `
@@ -123,8 +152,10 @@ module.exports = async function autoRelease({ github, context, core, now, branch
     await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflowId, ref: branch });
     core.info(`Started ${workflowId} on ${branch}`);
   }
-  return { release, reason, fixes };
+  return { release, reason, fixes, notCounted, images };
 };
+
+const describeAlert = f => `${f.source}${f.number ? ` #${f.number}` : ''} ${f.subject}, fixed at ${f.fixedAt}`;
 
 // Every run of the release workflow on every branch, newest first. A re-run keeps the creation time of its run, so
 // only the whole list shows an old run that runs again.
@@ -139,7 +170,13 @@ const UNSHIPPED_MANIFEST = /^apps\/examples\/|(^|\/)it-[^/]+\//;
 
 // Only runtime dependencies ship. The Gradle dependency submission sets no scope, and its one manifest,
 // settings.gradle.kts, also covers build tools such as Checkstyle and Error Prone, so its alerts do not count.
-const ships = a => a.dependency.scope === 'runtime' && !UNSHIPPED_MANIFEST.test(a.dependency.manifest_path);
+function unshipped(a) {
+  if (a.dependency.scope !== 'runtime') {
+    return `the dependency scope is ${a.dependency.scope ?? 'not set'}, not runtime`;
+  }
+  if (UNSHIPPED_MANIFEST.test(a.dependency.manifest_path)) return `${a.dependency.manifest_path} does not ship`;
+  return null;
+}
 
 // A Dependabot alert is fixed once the manifest on the default branch no longer has the vulnerable version.
 // Moving a manifest also fixes its alerts and opens the same ones at the new path, so an advisory that is still
@@ -150,18 +187,29 @@ async function dependabotFixes({ github, owner, repo, releasedAt }) {
   const open = await github.paginate(github.rest.dependabot.listAlertsForRepo,
     { owner, repo, state: 'open', per_page: 100 });
   const key = a => `${a.security_advisory.ghsa_id} ${a.dependency.package.ecosystem}:${a.dependency.package.name}`;
-  const stillOpen = new Set(open.filter(ships).map(key));
-  return fixed
-    .filter(a => new Date(a.fixed_at) > releasedAt
-      && ships(a)
-      && !stillOpen.has(key(a)))
-    .map(a => ({
-      source: 'Dependabot',
-      number: a.number,
-      severity: a.security_advisory.severity,
-      subject: `${a.dependency.package.name} (${a.dependency.manifest_path})`,
-      fixedAt: a.fixed_at,
-    }));
+  const stillOpen = new Map(open.filter(a => !unshipped(a)).map(a => [key(a), a]));
+  return split(fixed.filter(a => new Date(a.fixed_at) > releasedAt), a => ({
+    source: 'Dependabot',
+    number: a.number,
+    severity: a.security_advisory.severity,
+    subject: `${a.dependency.package.name} (${a.dependency.manifest_path})`,
+    fixedAt: a.fixed_at,
+    reason: unshipped(a) ?? (stillOpen.has(key(a))
+      ? `${a.security_advisory.ghsa_id} is still open in ${stillOpen.get(key(a)).dependency.manifest_path} `
+        + `(alert #${stillOpen.get(key(a)).number})`
+      : null),
+  }));
+}
+
+// Splits alerts into the fixes that count and the ones whose reason says why not
+function split(alerts, describe) {
+  const fixes = [];
+  const notCounted = [];
+  for (const { reason, ...fix } of alerts.map(describe)) {
+    if (reason) notCounted.push({ ...fix, reason });
+    else fixes.push(fix);
+  }
+  return { fixes, notCounted };
 }
 
 // Image alerts can stay globally open while latest is vulnerable and main is fixed; compare their analyses separately.
@@ -170,17 +218,17 @@ const IMAGE_SCANNERS = new Set(['Grype', 'Trivy']);
 async function codeScanningFixes({ github, owner, repo, branch, releasedAt }) {
   const fixed = await github.paginate(github.rest.codeScanning.listAlertsForRepo,
     { owner, repo, state: 'fixed', ref: `refs/heads/${branch}`, per_page: 100 });
-  // Scorecard reports repository settings, and a rule without security_severity_level is no vulnerability
-  return fixed
-    .filter(a => new Date(a.fixed_at) > releasedAt
-      && a.tool.name !== 'Scorecard'
-      && !IMAGE_SCANNERS.has(a.tool.name)
-      && a.rule.security_severity_level)
-    .map(a => ({
-      source: a.tool.name,
-      number: a.number,
-      severity: a.rule.security_severity_level,
-      subject: `${a.rule.id} (${a.most_recent_instance.category})`,
-      fixedAt: a.fixed_at,
-    }));
+  // Scorecard reports repository settings, not vulnerabilities, so its alerts are left out of both lists
+  const candidates = fixed.filter(a => new Date(a.fixed_at) > releasedAt
+    && a.tool.name !== 'Scorecard'
+    && !IMAGE_SCANNERS.has(a.tool.name));
+  return split(candidates, a => ({
+    source: a.tool.name,
+    number: a.number,
+    severity: a.rule.security_severity_level,
+    subject: `${a.rule.id} (${a.most_recent_instance.category})`,
+    fixedAt: a.fixed_at,
+    // A rule without security_severity_level is no vulnerability
+    reason: a.rule.security_severity_level ? null : 'the rule has no security severity',
+  }));
 }

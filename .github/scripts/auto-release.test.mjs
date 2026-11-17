@@ -107,27 +107,38 @@ function fakeGitHub({
   return github;
 }
 
-const core = {
-  info() {},
-  summary: {
-    addHeading() { return this; },
-    addRaw() { return this; },
-    addTable() { return this; },
+// A job summary that records each call as [method, argument]
+function recordingSummary() {
+  const calls = [];
+  const record = method => function (arg) { calls.push([method, arg]); return this; };
+  return {
+    calls,
+    addHeading: record('addHeading'),
+    addRaw: record('addRaw'),
+    addList: record('addList'),
+    addTable: record('addTable'),
     async write() {},
-  },
-};
+  };
+}
 
-// Returns the decision together with the messages the script passed to core.setFailed
-async function decide(github, { now = MONDAY_BEFORE_MONTH, dryRun = false } = {}) {
+// Returns the decision together with the messages the script passed to core.setFailed and core.notice, and the calls
+// it made on core.summary
+async function decide(github, {
+  now = MONDAY_BEFORE_MONTH, dryRun = false, images = ['qubership-profiler-backend', 'qubership-profiler-transfer'],
+} = {}) {
   const failures = [];
+  const notices = [];
+  const summary = recordingSummary();
   const decision = await autoRelease({
-    github, now, dryRun,
-    core: { ...core, setFailed: message => failures.push(message) },
+    github, now, dryRun, images,
+    core: {
+      info() {}, summary, setFailed: message => failures.push(message), notice: message => notices.push(message),
+    },
     context: { repo: { owner: 'Netcracker', repo: 'qubership-profiler-agent' } },
     branch: 'main',
     workflowId: 'release.yaml',
   });
-  return { ...decision, failures };
+  return { ...decision, failures, notices, summary: summary.calls };
 }
 
 const fixNumbers = decision => decision.fixes.map(f => f.number);
@@ -400,10 +411,12 @@ describe('autoRelease', () => {
   });
 });
 
-function imageScans({ tool = 'Grype', latestFindings = [{}], mainFindings = [] } = {}) {
-  const imageAnalyses = ['latest', 'main'].map((tag, id) => ({
-    id,
-    category: `qubership-profiler-backend:${tag}@linux/amd64`,
+function imageScans({
+  tool = 'Grype', image = 'qubership-profiler-backend', ids = [0, 1], latestFindings = [{}], mainFindings = [],
+} = {}) {
+  const imageAnalyses = ['latest', 'main'].map((tag, index) => ({
+    id: ids[index],
+    category: `${image}:${tag}@linux/amd64`,
     ref: 'refs/heads/main',
     commit_sha: 'current-head',
     created_at: '2026-10-19T05:00:00Z',
@@ -693,4 +706,211 @@ describe('autoRelease scan provenance', () => {
       assert.deepStrictEqual({ release: decision.release, dispatches: github.dispatches }, { release: false, dispatches: [] });
     });
   }
+});
+
+// Two scans merged into the options of one fakeGitHub
+const mergeScans = (...scans) => ({
+  imageAnalyses: scans.flatMap(s => s.imageAnalyses),
+  sarif: Object.assign({}, ...scans.map(s => s.sarif)),
+});
+
+describe('autoRelease report', () => {
+  it('compares only the images the build config builds, and lists the others as not built', async () => {
+    const scans = mergeScans(
+      imageScans({ latestFindings: [{ number: 20 }] }),
+      imageScans({ image: 'qubership-profiler-maintenance', ids: [2, 3], latestFindings: [{ number: 21 }] }),
+    );
+    const decision = await decide(fakeGitHub(scans), { images: ['qubership-profiler-backend'] });
+    // Two pairs: Grype on the backend, and Trivy on the backend, which has no analysis
+    assert.deepStrictEqual(
+      { fixes: fixNumbers(decision), total: decision.images.total, notBuilt: decision.images.notBuilt },
+      { fixes: [20], total: 2, notBuilt: ['qubership-profiler-maintenance'] });
+  });
+
+  it('groups pairs skipped for one reason, naming the publisher run and when it finished', async () => {
+    const scans = mergeScans(imageScans(), imageScans({ tool: 'Trivy', ids: [2, 3] }));
+    const decision = await decide(fakeGitHub({ ...scans, publishers: [publisher('backend-dev-docker-build.yml', {
+      id: 5, updated_at: '2026-10-19T05:00:01Z',
+    })] }), { images: ['qubership-profiler-backend'] });
+    assert.deepStrictEqual(decision.images.skipped, [{
+      reason: 'the main analysis predates the images backend-dev-docker-build.yml run 5 published by 2026-10-19T05:00:01Z',
+      pairs: [
+        'Grype qubership-profiler-backend@linux/amd64 (main analysis at 2026-10-19T05:00:00Z)',
+        'Trivy qubership-profiler-backend@linux/amd64 (main analysis at 2026-10-19T05:00:00Z)',
+      ],
+    }]);
+  });
+
+  it('counts a built image that no scanner analyzed as pairs not compared', async () => {
+    const decision = await decide(fakeGitHub(imageScans({ latestFindings: [] })));
+    assert.deepStrictEqual({ total: decision.images.total, compared: decision.images.compared,
+      skipped: decision.images.skipped }, { total: 4, compared: 1, skipped: [{
+      reason: 'the scanner has no analysis of the image on main from the last 48 hours',
+      pairs: ['Trivy qubership-profiler-backend', 'Grype qubership-profiler-transfer', 'Trivy qubership-profiler-transfer'],
+    }] });
+  });
+
+  it('names the publisher run that started during the comparison', async () => {
+    const github = fakeGitHub(imageScans());
+    const list = github.rest.actions.listWorkflowRuns;
+    let reads = 0;
+    github.rest.actions.listWorkflowRuns = async params => {
+      if (params.workflow_id === 'backend-dev-docker-build.yml' && ++reads > 1) {
+        return { data: { workflow_runs: [publisher(params.workflow_id, { id: 7, status: 'in_progress' })] } };
+      }
+      return list(params);
+    };
+    const decision = await decide(github);
+    assert.strictEqual(decision.images.status.split('\n')[0], 'Image comparison: no image fixes counted, because '
+      + 'backend-dev-docker-build.yml run 7 started, backend-dev-docker-build.yml run 7 updated at 2026-10-18T12:00:00Z '
+      + 'during the comparison.');
+  });
+
+  it('reports every built image as not compared when there are no analyses at all', async () => {
+    const decision = await decide(fakeGitHub());
+    assert.strictEqual(decision.reason,
+      'no security fixes found, 4 of 4 image pairs not compared; the next monthly release is due around 2026-10-28');
+  });
+
+  const scheduledScan = {
+    id: 3, event: 'schedule', head_sha: 'current-head', status: 'completed', conclusion: 'success',
+    run_started_at: '2026-10-19T04:50:00Z', updated_at: '2026-10-19T05:30:00Z',
+  };
+  const manualScan = { ...scheduledScan, event: 'workflow_dispatch' };
+  for (const [name, change, reason] of [
+    ['a scan before the release', s => { s.imageAnalyses[1].created_at = '2026-09-28T11:59:59Z'; },
+      'the main analysis predates the latest release v4.0.7, published at 2026-09-28T12:00:00Z'],
+    ['a running publisher', s => { s.publishers = [publisher('release.yaml', { id: 6, status: 'in_progress' })]; },
+      'release.yaml run 6 may be publishing images'],
+    ['a missing main analysis', s => { s.imageAnalyses.pop(); }, 'there is no main analysis'],
+    ['a future scan', s => { s.imageAnalyses[1].created_at = '2026-10-19T06:00:00.001Z'; },
+      'the main analysis was created at 2026-10-19T06:00:00.001Z, after this run started at 2026-10-19T06:00:00.000Z'],
+    ['an invalid timestamp', s => { s.imageAnalyses[1].created_at = 'invalid'; },
+      'the main analysis has an invalid created_at "invalid"'],
+    ['an older commit', s => { s.imageAnalyses[1].commit_sha = 'old-head'; },
+      'the main analysis is for commit old-head, and main is at current-'],
+    ['a manual scan', s => { s.scanRuns = [manualScan]; },
+      'Security Scan run 3 was started by workflow_dispatch, so its scan options are unknown'],
+    ['a scanner error', s => { s.imageAnalyses[1].error = 'scan failed'; },
+      'the main analysis reports an error: scan failed'],
+    ['different scanner versions', s => { s.imageAnalyses[1].tool = { name: 'Grype', version: '2.0' }; },
+      'the scanner versions differ: main 2.0, latest 1.0.0'],
+    ['a truncated SARIF report', s => { s.imageAnalyses[1].results_count = 1; },
+      'the SARIF report of the main analysis is incomplete or unrecognized'],
+    ['a missing latest analysis', s => { s.imageAnalyses.shift(); }, 'there is no latest analysis'],
+    ['a scanner warning', s => { s.imageAnalyses[1].warning = 'incomplete analysis'; },
+      'the main analysis reports a warning: incomplete analysis'],
+    ['no result count', s => { s.imageAnalyses[1].results_count = undefined; }, 'the main analysis has no result count'],
+    ['another workflow', s => { s.imageAnalyses[1].analysis_key = '.github/workflows/other.yml:scan'; },
+      'the main analysis comes from .github/workflows/other.yml:scan, not from security-scan.yml'],
+    ['different configurations', s => { s.imageAnalyses[1].environment = '{"scope":"critical"}'; },
+      'the main and latest analyses ran with different scan configurations'],
+    ['scans more than 24 hours apart', s => {
+      s.imageAnalyses[1].created_at = '2026-10-18T04:00:00Z';
+      s.scanRuns = s.imageAnalyses.map((a, i) => ({ ...scheduledScan, id: 3 + i, run_started_at: a.created_at,
+        updated_at: a.created_at }));
+    }, 'the main and latest analyses are 25.0 hours apart, more than 24'],
+    ['no scan run at the time of the analysis', s => { s.scanRuns = []; },
+      'no Security Scan run on current- was running when the main analysis was created at 2026-10-19T05:00:00Z'],
+    ['an unfinished scan run', s => { s.scanRuns = [{ ...scheduledScan, status: 'in_progress' }]; },
+      'Security Scan run 3 is in_progress'],
+    ['a scan run that started before an image publication', s => {
+      s.publishers = [publisher('release.yaml', { id: 6, updated_at: '2026-10-19T04:55:00Z' })];
+    }, 'Security Scan run 3 started at 2026-10-19T04:50:00Z, before the images release.yaml run 6 published by '
+      + '2026-10-19T04:55:00Z'],
+    ['an expired scan run', s => {
+      s.imageAnalyses.forEach(a => { a.created_at = '2026-10-17T05:50:00Z'; });
+      s.scanRuns = [{ ...scheduledScan, run_started_at: '2026-10-17T05:45:00Z', updated_at: '2026-10-17T05:55:00Z' }];
+    }, 'Security Scan run 3 started at 2026-10-17T05:45:00Z, more than 48 hours before this run'],
+  ]) {
+    it(`names the condition that skipped a pair with ${name}`, async () => {
+      const scans = { ...imageScans(), scanRuns: [scheduledScan] };
+      change(scans);
+      const decision = await decide(fakeGitHub(scans), { images: ['qubership-profiler-backend'] });
+      const grype = decision.images.skipped.filter(s => s.pairs.some(pair => pair.startsWith('Grype ')));
+      assert.deepStrictEqual(grype.map(s => s.reason), [reason]);
+    });
+  }
+
+  it('says how many image pairs were not compared when it finds no security fix', async () => {
+    const scans = imageScans({ latestFindings: [] });
+    scans.imageAnalyses[1].error = 'scan failed';
+    const decision = await decide(fakeGitHub(scans), { images: ['qubership-profiler-backend'] });
+    assert.strictEqual(decision.reason,
+      'no security fixes found, 2 of 2 image pairs not compared; the next monthly release is due around 2026-10-28');
+  });
+
+  it('claims no image coverage gap when every image pair was compared', async () => {
+    const scans = mergeScans(imageScans({ latestFindings: [] }),
+      imageScans({ tool: 'Trivy', ids: [2, 3], latestFindings: [] }));
+    const decision = await decide(fakeGitHub(scans), { images: ['qubership-profiler-backend'] });
+    assert.strictEqual(decision.reason, 'no security fixes found; the next monthly release is due around 2026-10-28');
+  });
+
+  it('lists a Dependabot alert in the Gradle build as fixed but not counted, with the reason', async () => {
+    const decision = await decide(fakeGitHub({ dependabotFixed: [dependabotAlert({
+      number: 319, manifest: 'settings.gradle.kts', scope: null, ecosystem: 'maven',
+      name: 'org.jetbrains.kotlin:kotlin-gradle-plugin', fixedAt: '2026-10-15T06:47:21Z',
+    })] }));
+    assert.deepStrictEqual(decision.notCounted, [{
+      source: 'Dependabot', number: 319, severity: 'high',
+      subject: 'org.jetbrains.kotlin:kotlin-gradle-plugin (settings.gradle.kts)', fixedAt: '2026-10-15T06:47:21Z',
+      reason: 'the dependency scope is not set, not runtime',
+    }]);
+  });
+
+  it('lists a fixed Dependabot alert whose advisory is still open in another manifest as not counted', async () => {
+    const decision = await decide(fakeGitHub({
+      dependabotFixed: [dependabotAlert({ number: 320, manifest: 'backend/go.mod' })],
+      dependabotOpen: [dependabotAlert({ number: 350, manifest: 'go.mod' })],
+    }));
+    assert.deepStrictEqual(decision.notCounted.map(f => [f.number, f.reason]),
+      [[320, 'GHSA-aaaa-bbbb-cccc is still open in go.mod (alert #350)']]);
+  });
+
+  it('lists a fixed code scanning alert without a security severity as not counted', async () => {
+    const decision = await decide(fakeGitHub({
+      codeScanningFixed: [codeScanningAlert({ number: 13, rule: 'js/unused-local-variable', severity: null })],
+    }));
+    assert.deepStrictEqual(decision.notCounted.map(f => [f.number, f.reason]),
+      [[13, 'the rule has no security severity']]);
+  });
+
+  it('writes None. under the counted fixes when nothing counts, and names the latest release by tag', async () => {
+    const decision = await decide(fakeGitHub());
+    const raw = decision.summary.filter(([method]) => method !== 'addTable');
+    assert.deepStrictEqual(raw.slice(1, 4), [
+      ['addRaw', 'Decision: skip: no security fixes found, 4 of 4 image pairs not compared; the next monthly release is '
+        + 'due around 2026-10-28'],
+      ['addList', ['Latest GitHub release: v4.0.7, published at 2026-09-28T12:00:00Z',
+        'Counting from: v4.0.7, published at 2026-09-28T12:00:00Z', 'Commits since then, excluding version bumps: 1']],
+      ['addHeading', 'Counted security fixes'],
+    ]);
+    assert.deepStrictEqual(raw[4], ['addRaw', 'None.']);
+  });
+
+  it('writes the counted fixes as a table, not None., when a fix counts', async () => {
+    const decision = await decide(fakeGitHub({ dependabotFixed: [dependabotAlert({ number: 338 })] }));
+    const afterHeading = decision.summary[decision.summary.findIndex(([, arg]) => arg === 'Counted security fixes') + 1];
+    assert.deepStrictEqual(afterHeading[0], 'addTable');
+    assert.deepStrictEqual(afterHeading[1][1],
+      ['Dependabot', '#338', 'high', 'github.com/labstack/echo/v4 (go.mod)', '2026-10-10T00:00:00Z']);
+  });
+
+  it('writes the alerts fixed since the release but not counted as a table with the reason', async () => {
+    const decision = await decide(fakeGitHub({
+      codeScanningFixed: [codeScanningAlert({ number: 13, rule: 'js/unused-local-variable', severity: null })],
+    }));
+    const tables = decision.summary.filter(([method]) => method === 'addTable').map(([, rows]) => rows);
+    assert.deepStrictEqual(tables, [[
+      ['Source', 'Alert', 'Subject', 'Fixed at', 'Reason'].map(data => ({ data, header: true })),
+      ['CodeQL', '#13', 'js/unused-local-variable (dumps-collector)', '2026-10-18T03:20:35Z',
+        'the rule has no security severity'],
+    ]]);
+  });
+
+  it('posts the decision as a notice', async () => {
+    const decision = await decide(fakeGitHub({ dependabotFixed: [dependabotAlert()] }), { dryRun: true });
+    assert.deepStrictEqual(decision.notices, ['release: security fixes since the latest release (dry run)']);
+  });
 });
