@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type APIError struct {
@@ -36,6 +36,6 @@ func (ae APIError) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (ae *APIError) ReturnWithError(c echo.Context) error {
+func (ae *APIError) ReturnWithError(c *echo.Context) error {
 	return c.JSON(ae.errorCode, ae)
 }

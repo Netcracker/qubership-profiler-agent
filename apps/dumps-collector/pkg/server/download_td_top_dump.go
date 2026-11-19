@@ -12,11 +12,11 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
-func downloadTdTopDump(requestProcessor *task.RequestProcessor) func(c echo.Context) error {
-	return func(c echo.Context) error {
+func downloadTdTopDump(requestProcessor *task.RequestProcessor) func(c *echo.Context) error {
+	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 
 		// Get parameters from query params
@@ -53,7 +53,7 @@ func downloadTdTopDump(requestProcessor *task.RequestProcessor) func(c echo.Cont
 		c.Response().Header().Add("Content-Type", "application/zip")
 		c.Response().Header().Add("Content-Disposition", "attachment; filename="+fileName+";")
 
-		z := zip.NewWriter(c.Response().Writer)
+		z := zip.NewWriter(c.Response())
 		defer func() { _ = z.Close() }()
 
 		for _, fileLocation := range filesLocations {

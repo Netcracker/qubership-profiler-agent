@@ -11,22 +11,18 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
-	"github.com/labstack/echo-contrib/echoprometheus"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo-contrib/v5/echoprometheus"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 )
 
 func StartHttpServer(ctx context.Context, requestProcessor *task.RequestProcessor, bindAddress string, extraRoutes ...func(*echo.Echo)) error {
 	e := echo.New()
-	e.Server.BaseContext = func(_ net.Listener) context.Context {
-		return ctx
-	}
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus:   true,
 		LogURI:      true,
-		LogError:    true,
 		HandleError: true,
-		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
 			ctx := c.Request().Context()
 			if v.Error != nil {
 				log.Error(ctx, v.Error, "Request error, uri = %s, status = %d", v.URI, v.Status)
@@ -47,10 +43,17 @@ func StartHttpServer(ctx context.Context, requestProcessor *task.RequestProcesso
 		configure(e)
 	}
 
-	return e.Start(bindAddress)
+	server := &http.Server{
+		Addr:    bindAddress,
+		Handler: e,
+		BaseContext: func(_ net.Listener) context.Context {
+			return ctx
+		},
+	}
+	return server.ListenAndServe()
 }
 
-func getQueryString(c echo.Context, name string) (string, *APIError) {
+func getQueryString(c *echo.Context, name string) (string, *APIError) {
 	str := c.QueryParam(name)
 	if str == "" {
 		return "", NewAPIError(
@@ -63,7 +66,7 @@ func getQueryString(c echo.Context, name string) (string, *APIError) {
 
 // getPathParam extracts a required path parameter from the Echo context.
 // If the parameter is missing or empty, it returns an APIError with status 500.
-func getPathParam(c echo.Context, name string) (string, *APIError) {
+func getPathParam(c *echo.Context, name string) (string, *APIError) {
 	value := c.Param(name)
 	if value == "" {
 		return "", NewAPIError(
@@ -74,7 +77,7 @@ func getPathParam(c echo.Context, name string) (string, *APIError) {
 	return value, nil
 }
 
-func getQueryInt64(c echo.Context, name string) (int64, *APIError) {
+func getQueryInt64(c *echo.Context, name string) (int64, *APIError) {
 	str, apiError := getQueryString(c, name)
 	if apiError != nil {
 		return 0, apiError
@@ -89,7 +92,7 @@ func getQueryInt64(c echo.Context, name string) (int64, *APIError) {
 	return val, nil
 }
 
-func getQueryDumpType(c echo.Context, name string) (model.DumpType, *APIError) {
+func getQueryDumpType(c *echo.Context, name string) (model.DumpType, *APIError) {
 	str, apiError := getQueryString(c, name)
 	if apiError != nil {
 		return model.HeapDumpType, apiError

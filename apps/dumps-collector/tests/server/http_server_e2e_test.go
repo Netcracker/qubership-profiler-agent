@@ -23,7 +23,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
 	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -77,7 +77,7 @@ func (s *E2ETestSuite) SetupSuite() {
 	baseDir := s.baseDir
 	go func() {
 		_ = server.StartHttpServer(s.ctx, rp, bindAddr, func(e *echo.Echo) {
-			e.POST("/esc/rescan", func(c echo.Context) error {
+			e.POST("/esc/rescan", func(c *echo.Context) error {
 				rt, err := task.NewRescanTask(baseDir, dbClient)
 				if err != nil {
 					return c.JSON(500, map[string]string{"error": err.Error()})
@@ -87,7 +87,7 @@ func (s *E2ETestSuite) SetupSuite() {
 				}
 				return c.JSON(200, map[string]string{"status": "ok"})
 			})
-			e.POST("/esc/insert", func(c echo.Context) error {
+			e.POST("/esc/insert", func(c *echo.Context) error {
 				dateFromMs, err := getQueryInt64Param(c, "dateFrom")
 				if err != nil {
 					return c.JSON(400, map[string]string{"error": err.Error()})
@@ -105,7 +105,7 @@ func (s *E2ETestSuite) SetupSuite() {
 				}
 				return c.JSON(200, map[string]string{"status": "ok"})
 			})
-			e.POST("/esc/pack", func(c echo.Context) error {
+			e.POST("/esc/pack", func(c *echo.Context) error {
 				beforeMs, err := getQueryInt64Param(c, "before")
 				if err != nil {
 					return c.JSON(400, map[string]string{"error": err.Error()})
@@ -119,7 +119,7 @@ func (s *E2ETestSuite) SetupSuite() {
 				}
 				return c.JSON(200, map[string]string{"status": "ok"})
 			})
-			e.GET("/esc/statistics", func(c echo.Context) error {
+			e.GET("/esc/statistics", func(c *echo.Context) error {
 				dateFromMs, err := getQueryInt64Param(c, "dateFrom")
 				if err != nil {
 					return c.JSON(400, map[string]string{"error": err.Error()})
@@ -397,6 +397,8 @@ func (s *E2ETestSuite) TestDownloadHeapDump() {
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, 200, resp.StatusCode)
+	expectedName := task.FileNameInPV(ts) + string(model.HeapDumpType.GetFileSuffix())
+	require.Equal(t, `attachment; filename="`+expectedName+`"`, resp.Header.Get("Content-Disposition"))
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -560,7 +562,7 @@ func filterByNamespace(stats []*model.StatisticItem, ns string) []*model.Statist
 	return result
 }
 
-func getQueryInt64Param(c echo.Context, name string) (int64, error) {
+func getQueryInt64Param(c *echo.Context, name string) (int64, error) {
 	s := c.QueryParam(name)
 	if s == "" {
 		return 0, fmt.Errorf("missing required parameter: %s", name)

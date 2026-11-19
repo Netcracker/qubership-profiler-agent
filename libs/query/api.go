@@ -11,8 +11,8 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/budget"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 )
 
 // problem is an RFC 7807 body (02 §8) with the §2.3.2 guard extensions. The
@@ -71,7 +71,7 @@ func (s *Service) routes(e *echo.Echo) {
 			// the app: opening the service host lands on the UI instead of a
 			// 404. The redirect is temporary because the base is a build-time
 			// switch — a root rebuild must not fight a cached 301.
-			e.GET("/", func(c echo.Context) error {
+			e.GET("/", func(c *echo.Context) error {
 				return c.Redirect(http.StatusFound, s.uiPrefix+"/")
 			})
 			e.GET(s.uiPrefix, s.handleUI, middleware.Gzip())
@@ -82,17 +82,17 @@ func (s *Service) routes(e *echo.Echo) {
 
 // handleConfig serves GET /api/v1/config: static, deployment-specific values
 // the UI cannot derive on its own.
-func (s *Service) handleConfig(c echo.Context) error {
+func (s *Service) handleConfig(c *echo.Context) error {
 	return c.JSON(http.StatusOK, configResponse{DumpsCollectorURL: s.cfg.DumpsCollectorURL})
 }
 
-func sendProblem(c echo.Context, p problem) error {
+func sendProblem(c *echo.Context, p problem) error {
 	return httpproblem.Send(c, p)
 }
 
 // badRequest rejects a request the caller has to fix. A cursor failure is not
 // one of those — it goes through cursorRejected.
-func badRequest(c echo.Context, detail string) error {
+func badRequest(c *echo.Context, detail string) error {
 	return sendProblem(c, problem{Problem: httpproblem.New(http.StatusBadRequest,
 		httpproblem.CodeInvalidRequest, "invalid request", detail)})
 }
@@ -102,12 +102,12 @@ func badRequest(c echo.Context, detail string) error {
 // the client's answer — restart from page 1 — is the opposite of what it does
 // with a badRequest, and a paging client must not have to read the detail
 // prose to tell the two apart.
-func cursorRejected(c echo.Context, detail string) error {
+func cursorRejected(c *echo.Context, detail string) error {
 	return sendProblem(c, problem{Problem: httpproblem.New(http.StatusBadRequest,
 		httpproblem.CodeCursorRejected, "invalid request", detail)})
 }
 
-func gatewayTimeout(c echo.Context, reasons []string) error {
+func gatewayTimeout(c *echo.Context, reasons []string) error {
 	return sendProblem(c, problem{Problem: httpproblem.New(http.StatusGatewayTimeout,
 		httpproblem.CodeNoSourceAvailable, "no data source available", strings.Join(reasons, "; "))})
 }
@@ -117,7 +117,7 @@ func gatewayTimeout(c echo.Context, reasons []string) error {
 // every hot replica plus the cutoff-bounded cold LIST — and k-way merge with
 // cold-preferred PK dedup (§2.3.1, §4.3, §6). The fan-out is re-issued whole
 // on every page; the cursor carries the only cross-page state.
-func (s *Service) handleCalls(c echo.Context) error {
+func (s *Service) handleCalls(c *echo.Context) error {
 	ctx := c.Request().Context()
 	params := c.QueryParams()
 
@@ -262,7 +262,7 @@ func (s *Service) handleCalls(c echo.Context) error {
 // handlePods serves GET /api/v1/pods (02 §2.7): the union of live
 // pod-restarts from the hot replicas and closed ones from the pods/v1
 // manifests, merged on the identity tuple with widened time bounds.
-func (s *Service) handlePods(c echo.Context) error {
+func (s *Service) handlePods(c *echo.Context) error {
 	ctx := c.Request().Context()
 	fromMs, toMs, errDetail := model.ParseWindow(c.QueryParams())
 	if errDetail != "" {
@@ -312,7 +312,7 @@ const (
 // that would shrink the request's appetite and, when discovery already ran,
 // the scan estimate. The detail separates transient contention from a
 // structural misfit.
-func (s *Service) sendBudgetRejection(c echo.Context, endpoint string, cause error, q *model.CallsQuery, disc *cold.Discovery) error {
+func (s *Service) sendBudgetRejection(c *echo.Context, endpoint string, cause error, q *model.CallsQuery, disc *cold.Discovery) error {
 	reason := "exhausted"
 	detail := "the process-wide read memory budget is exhausted by concurrent requests; retry later or narrow the query"
 	if errors.Is(cause, budget.ErrNeverFits) {
@@ -341,7 +341,7 @@ func (s *Service) sendBudgetRejection(c echo.Context, endpoint string, cause err
 	return sendProblem(c, p)
 }
 
-func (s *Service) sendGuardRejection(c echo.Context, rej *guardRejection) error {
+func (s *Service) sendGuardRejection(c *echo.Context, rej *guardRejection) error {
 	s.metrics.countGuardRejection(rej.Layer)
 	p := problem{
 		Problem: httpproblem.New(http.StatusBadRequest, httpproblem.CodeQueryTooWide,
