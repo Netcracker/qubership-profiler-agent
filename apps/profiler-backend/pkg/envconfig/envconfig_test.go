@@ -110,6 +110,41 @@ func TestQueryRejectsNegativeBudgetWait(t *testing.T) {
 	assert.Contains(t, err.Error(), "PROFILER_READ_BUDGET_WAIT")
 }
 
+func TestQueryLinks(t *testing.T) {
+	t.Setenv("S3_ENDPOINT", "https://s3.example.com")
+	t.Setenv("S3_BUCKET", "profiler-data")
+	t.Setenv("S3_ACCESS_KEY", "ak")
+	t.Setenv("S3_SECRET_KEY", "sk")
+
+	t.Run("unset configures no links", func(t *testing.T) {
+		q, err := ParseQuery()
+		require.NoError(t, err)
+		assert.Empty(t, q.Links)
+	})
+
+	t.Run("decodes the JSON array", func(t *testing.T) {
+		t.Setenv("PROFILER_LINKS",
+			`[{"label": "Open trace", "kind": "trace", "url_template": "https://tempo.example/trace/{trace_id}"}]`)
+		q, err := ParseQuery()
+		require.NoError(t, err)
+		assert.Equal(t,
+			Links{{Label: "Open trace", Kind: "trace", URLTemplate: "https://tempo.example/trace/{trace_id}"}},
+			q.Links)
+	})
+
+	// The fail-loudly rule again: a broken template stops startup, and the
+	// error names both the env var and the entry.
+	t.Run("rejects a malformed entry", func(t *testing.T) {
+		t.Setenv("PROFILER_LINKS",
+			`[{"label": "Pod logs", "kind": "logs", "url_template": "https://logs.example/?pod={pod_name}"}]`)
+		_, err := ParseQuery()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "PROFILER_LINKS")
+		assert.Contains(t, err.Error(), `entry 1 (label "Pod logs")`)
+		assert.Contains(t, err.Error(), "unknown placeholder {pod_name}")
+	})
+}
+
 func TestTTLDecode(t *testing.T) {
 	for raw, want := range map[string]TTL{
 		"1d":   TTL(24 * time.Hour),
