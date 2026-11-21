@@ -1,0 +1,22 @@
+<!--
+    Logback configuration for the profiler AGENT (not the application). The agent loads its own
+    isolated copy of Logback via its PluginClassLoader, so this config is wired in through the
+    agent's own `-Dprofiler.log.config` switch (see the test's container CMD), independent of
+    whatever Logback the host application configures.
+
+    Everything the agent logs — including plugin exceptions routed through
+    ProfilerPluginLoggerImpl ("Exception in profiler plugin" + stack trace) — is written to a
+    known file the integration test copies out of the container and inspects.
+-->
+<configuration>
+    <appender name="PLUGIN_FILE" class="ch.qos.logback.core.FileAppender">
+        <file>/tmp/agent-plugin.log</file>
+        <append>false</append>
+        <encoder>
+            <pattern>%-5level %logger - %msg%n%rEx</pattern>
+        </encoder>
+    </appender>
+    <root level="INFO">
+        <appender-ref ref="PLUGIN_FILE"/>
+    </root>
+</configuration>
