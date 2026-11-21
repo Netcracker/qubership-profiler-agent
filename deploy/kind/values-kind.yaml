@@ -1,7 +1,8 @@
 # kind / CI values for deploy/charts/profiler-backend: one replica of everything,
-# in-cluster MinIO, fast loops so the smoke completes in minutes.
+# in-cluster SeaweedFS, fast loops so the smoke completes in minutes.
 #
 #   kind load docker-image profiler-backend:dev
+#   helm dependency update deploy/charts/profiler-backend
 #   helm install profiler deploy/charts/profiler-backend -f deploy/kind/values-kind.yaml
 
 collector:
@@ -56,10 +57,24 @@ maintain:
       # that headroom on the CI stand (libs/maintain MemoryBudgetMultiplier).
       memory: 768Mi
 
-minio:
+seaweedfs:
   enabled: true
+  allInOne:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  s3:
+    credentials:
+      admin:
+        accessKey: &s3AccessKey profiler
+        secretKey: &s3SecretKey profiler-secret
 
+# The profiler workloads sign in as the SeaweedFS admin identity above.
 s3:
   auth:
-    accessKey: minioadmin
-    secretKey: minioadmin
+    accessKey: *s3AccessKey
+    secretKey: *s3SecretKey

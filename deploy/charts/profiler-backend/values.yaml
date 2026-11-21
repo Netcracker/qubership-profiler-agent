@@ -2,7 +2,7 @@
 #
 # Portability: the defaults carry no kind- or OrbStack-specific assumptions.
 # The two knobs that differ between local clusters are Helm values only:
-#   - collector.storage.storageClassName / minio.storage.storageClassName
+#   - collector.storage.storageClassName
 #     (empty = the cluster's default StorageClass)
 #   - collector.agentService.type (ClusterIP everywhere; NodePort for kind
 #     port-mappings; LoadBalancer on OrbStack, which ships a built-in LB)
@@ -23,7 +23,7 @@ fullnameOverride: ""
 
 s3:
   # Endpoint URL; an https:// scheme enables TLS. Leave empty with
-  # minio.enabled=true to use the in-cluster dev MinIO.
+  # seaweedfs.enabled=true to use the in-cluster dev SeaweedFS.
   endpoint: ""
   bucket: profiler-data
   # Object-key prefix below the bucket (S3_PATH_PREFIX), applied to EVERY key
@@ -191,16 +191,42 @@ retention:
   corruptedTTL: 7d
   podsTTL: 185d
 
-# In-cluster MinIO for dev and smoke runs. Storage is an emptyDir — data dies
-# with the pod. Point s3.endpoint at a real object store for anything else.
-# The chart renders no console Ingress: reach the console locally with
-# `kubectl port-forward` to consolePort (PR 708 review #17).
-minio:
+# In-cluster SeaweedFS for dev and smoke runs, installed from the upstream
+# chart declared under `dependencies` in Chart.yaml. Everything below
+# `enabled` passes through to that chart unchanged; see its values.yaml for
+# the full set. Point s3.endpoint at a real object store for anything else.
+#
+# The defaults run one all-in-one pod (master, volume, filer, and S3 gateway)
+# on an emptyDir, so the objects die with the pod.
+seaweedfs:
   enabled: false
-  # Netcracker's MinIO build, pinned to a dated release and digest. The
-  # upstream quay.io/minio/minio image now requires authentication to pull.
-  image: ghcr.io/netcracker/qubership-minio:RELEASE.2026-06-26T06-18-36Z@sha256:8738ba45f08a2a8ed2f61491ffc7ff8c350ac64c20600bebcf80d3af930154ca
-  consolePort: 9001
+  # The all-in-one pod replaces the per-component StatefulSets.
+  master:
+    enabled: false
+  volume:
+    enabled: false
+  filer:
+    enabled: false
+  allInOne:
+    enabled: true
+    s3:
+      enabled: true
+      enableAuth: true
+  s3:
+    # The S3 identity the profiler workloads sign in with. Helm cannot pass
+    # s3.auth to a subchart, so set the same key pair here. Without it the
+    # subchart generates a random pair and every profiler request gets a 403.
+    credentials:
+      admin:
+        accessKey: ""
+        secretKey: ""
+
+global:
+  seaweedfs:
+    # The subchart's ClusterRole grants cluster-wide write access to pods,
+    # which the all-in-one pod does not use. Off, so the chart stays
+    # namespace-scoped.
+    createClusterRole: false
 
 metrics:
   serviceMonitor:
