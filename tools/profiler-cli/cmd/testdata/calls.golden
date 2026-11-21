@@ -1,0 +1,5 @@
+Window: 2026-10-14T11:00:00.000Z to 2026-10-14T12:00:00.000Z (1h0m0s)
+START                     DUR ms  CPU ms  WAIT ms  QUEUE ms  SUSP ms  ERR  POD                        METHOD                            IDS                                                                                           REF
+2026-10-14T11:50:00.000Z  2470    310     1900     15        120      yes  prod/billing/billing-7f8c  com.example.Billing.charge(long)  request_id=abc123 trace_id=4bf92f3577b34da6a3ce929d0e0e4736 POST http://billing:8080/charges  prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error
+2026-10-14T11:33:00.000Z  12      1       0        0         0        -    prod/billing/billing-7f8c  com.example.Health.check          no tree (buffer_full)                                                                         prod:billing:billing-7f8c:1760420000000:5:9000:1@1760432000000@short_clean
+More calls: --cursor cursor-page-2

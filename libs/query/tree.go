@@ -153,10 +153,9 @@ func (s *Service) fetchPoint(ctx context.Context, pk model.PK, hints pointHints,
 // miss — the caller may widen the class set and retry (№16). A budget denial
 // lands in out.budgetDenied and stops the lookup.
 func (s *Service) discoverAndFetch(ctx context.Context, pk model.PK, tsMs int64, classes []string, out *pointFetch, point *budget.Lease, columns []string) (*storageparquet.CallV2, bool) {
-	q := model.CallsQuery{
-		FromMs:           tsMs,
-		ToMs:             tsMs + 1,
-		RetentionClasses: classes,
+	q := model.CallsQuery{FromMs: tsMs, ToMs: tsMs + 1}
+	if len(classes) > 0 {
+		q.Filters = []model.Condition{model.RetentionClassCondition(classes...)}
 	}
 	discovery, err := s.cold.Discover(ctx, q)
 	if err != nil {

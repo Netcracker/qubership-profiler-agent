@@ -1,0 +1,6 @@
+Window: 2026-10-14T11:00:00.000Z to 2026-10-14T12:00:00.000Z (1h0m0s)
+Partial: s3 list pods/v1/2026/10/14/: timeout
+NAMESPACE  SERVICE  POD           STARTED                   FIRST CALL                LAST CALL
+prod       billing  billing-7f8c  2026-10-14T03:00:00.000Z  2026-10-14T11:00:00.000Z  2026-10-14T11:10:00.000Z
+prod       billing  billing-7f8c  2026-10-14T11:15:00.000Z  2026-10-14T11:16:00.000Z  2026-10-14T12:00:00.000Z
+prod       orders   orders-5d9c   2026-10-13T11:00:00.000Z  2026-10-14T11:00:00.000Z  2026-10-14T12:00:00.000Z

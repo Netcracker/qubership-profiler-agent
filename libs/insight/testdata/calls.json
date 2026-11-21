@@ -1,0 +1,24 @@
+{
+  "calls": [
+    {
+      "pk": {"pod_namespace": "prod", "pod_service": "billing", "pod_name": "billing-7f8c", "restart_time_ms": 1760420000000, "trace_file_index": 5, "buffer_offset": 12340, "record_index": 0},
+      "ts_ms": 1760433000123, "duration_ms": 2470, "method": "void com.example.Billing.charge(long) (Billing.java) [billing.jar]",
+      "thread_name": "http-nio-8080-exec-3", "cpu_time_ms": 310, "wait_time_ms": 1900, "memory_used": 1048576,
+      "queue_wait_ms": 15, "suspend_ms": 120, "child_calls": 42, "transactions": 2, "logs_generated": 0, "logs_written": 0,
+      "file_read": 0, "file_written": 0, "net_read": 300, "net_written": 400, "error_flag": true, "retention_class": "any_error",
+      "params": {"trace.id": ["4bf92f3577b34da6a3ce929d0e0e4736"], "x-request-id": ["abc123"], "web.method": ["POST"], "web.url": ["http://billing:8080/charges"]},
+      "trace_blob_size": null, "truncated_reason": null
+    },
+    {
+      "pk": {"pod_namespace": "prod", "pod_service": "billing", "pod_name": "billing-7f8c", "restart_time_ms": 1760420000000, "trace_file_index": 5, "buffer_offset": 9000, "record_index": 1},
+      "ts_ms": 1760432000000, "duration_ms": 12, "method": "com.example.Health.check",
+      "thread_name": "http-nio-8080-exec-1", "cpu_time_ms": 1, "wait_time_ms": 0, "memory_used": 0,
+      "queue_wait_ms": 0, "suspend_ms": 0, "child_calls": 0, "transactions": 0, "logs_generated": 0, "logs_written": 0,
+      "file_read": 0, "file_written": 0, "net_read": 0, "net_written": 0, "error_flag": false, "retention_class": "short_clean",
+      "params": {}, "trace_blob_size": 0, "truncated_reason": "buffer_full"
+    }
+  ],
+  "next_cursor": "cursor-page-2",
+  "partial": true,
+  "partial_reasons": ["collector 10.0.0.7 calls: timeout"]
+}

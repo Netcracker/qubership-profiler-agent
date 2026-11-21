@@ -33,12 +33,16 @@ var (
 // budgeted production path is Source.Calls, which streams the same batches
 // against the read budget and caps what it retains (02 §7.5).
 func ScanFile(ctx context.Context, store ObjectStore, ref FileRef, q model.CallsQuery, after *model.Position) ([]model.CallRow, error) {
+	matcher, err := q.Matcher()
+	if err != nil {
+		return nil, err
+	}
 	var out []model.CallRow
-	err := scanBatches(ctx, store, ref, nil, projectedFootprint, nil,
+	err = scanBatches(ctx, store, ref, nil, projectedFootprint, nil,
 		func(_ context.Context, _ int, _ int64, rows []storageparquet.CallV2Projected, _ *budget.Lease) (bool, error) {
 			for i := range rows {
 				row := toCallRow(&rows[i])
-				if !q.Match(row) {
+				if !matcher.Match(&row) {
 					continue
 				}
 				if after != nil && !row.Position().After(*after) {
