@@ -58,6 +58,13 @@ s3:
     # never enable it in production: it defeats TLS.
     insecureSkipVerify: false
 
+# Annotations for the collector PVCs created from volumeClaimTemplates (for example, to keep
+# Argo CD from pruning them: argocd.argoproj.io/sync-options: Prune=false). Empty by default.
+# Cannot be changed on an existing StatefulSet; see README.
+pvc:
+  metadata:
+    annotations: {}
+
 collector:
   replicas: 2
   agentPort: 1715
