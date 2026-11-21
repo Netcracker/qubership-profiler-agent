@@ -23,7 +23,7 @@ func propFile(fileName string) string {
 	if isTest {
 		return filepath.FromSlash(fileName)
 	}
-	return filepath.Join(DefaultNcProfilerFolder, "properties", fileName)
+	return filepath.Join(DiagFolder(), "properties", fileName)
 }
 
 func readFullFile(filePath string) (body []byte, err error) {

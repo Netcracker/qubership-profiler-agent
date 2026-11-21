@@ -41,7 +41,14 @@ function apply_esc_configuration_to_X_JAVA_ARGS() {
     # NC_DIAGNOSTIC_ESC_TAG_LIMIT should be in range 100..5100 (or -1)
     local esc_tag_limit
     esc_tag_limit="$(get_option_value NC_DIAGNOSTIC_ESC_TAG_LIMIT 5000)"
-    java_agent="${java_agent}-javaagent:${NC_DIAGNOSTIC_FOLDER}/lib/agent.jar"
+    local agent_home="${NC_DIAGNOSTIC_HOME:-${NC_DIAGNOSTIC_FOLDER}}"
+    java_agent="${java_agent}-javaagent:${agent_home}/lib/agent.jar"
+    # diag-bootstrap.sh copies config/ to NC_DIAGNOSTIC_FOLDER when NC_DIAGNOSTIC_HOME is another folder.
+    # The agent derives profiler.home from profiler.config when only the latter is set, so both are passed.
+    if [[ ! "${NC_DIAGNOSTIC_FOLDER}" -ef "${agent_home}" ]] && [[ -f "${NC_DIAGNOSTIC_FOLDER}/config/_config.xml" ]]; then
+      java_agent="${java_agent} -Dprofiler.home=${agent_home}"
+      java_agent="${java_agent} -Dprofiler.config=${NC_DIAGNOSTIC_FOLDER}/config/_config.xml"
+    fi
     java_agent="${java_agent} -Dcom.netcracker.profiler.agent.Profiler.MAX_BUFFERS=${esc_buffers}"
     java_agent="${java_agent} -Dcom.netcracker.profiler.agent.Profiler.INITIAL_BUFFERS=${esc_buffers}"
     java_agent="${java_agent} -Dcom.netcracker.profiler.agent.Profiler.DICTIONARY_TAG_TRIM_SIZE=${esc_tag_limit}"
@@ -115,7 +122,7 @@ send_crash_dump() {
 
    write_esc_log 'start to send crash dump'
 
-  "${NC_DIAGNOSTIC_FOLDER}"/diagtools scan "$(diagnostic_logs_folder)"/*.hprof* ./core* ./hs_err*
+  "${NC_DIAGNOSTIC_HOME:-${NC_DIAGNOSTIC_FOLDER}}"/diagtools scan "$(diagnostic_logs_folder)"/*.hprof* ./core* ./hs_err*
 }
 export -f send_crash_dump
 

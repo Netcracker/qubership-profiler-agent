@@ -58,7 +58,7 @@ Building from source:
 
 Environment variables used by tool:
 
-- NC_DIAGNOSTIC_FOLDER path - to diagnostic folder. Default is `/tmp/diagnostic`.
+- NC_DIAGNOSTIC_FOLDER - path to the folder the agent writes at runtime: `properties/`, `pod.name`, the lock file. Default is `/app/ncdiag`.
 - NC_DIAGNOSTIC_LOGS_FOLDER - path to logs. Default is `/tmp/diagnostic/log`.
 - LOG_FILE_SIZE - size of log file in MB. Default is 1.
 - LOG_FILE_BACKUPS - number of log file backups. Default is 5.
@@ -70,7 +70,7 @@ Environment variables used by tool:
 - DIAGNOSTIC_DUMP_INTERVAL - dump interval used in case of schedule. Default is 1 minute. Support go Duration format.
 - DIAGNOSTIC_SCAN_INTERVAL - scan interval used in case of schedule. Default is 1 minutes. Support go Duration format.
 - NC_DIAGNOSTIC_AGENT_SERVICE - diagnostic agent service name. Default is `nc-diagnostic-agent`.
-- PROFILER_FOLDER -path to profiler folder. Default is `/app/diag`
+- PROFILER_FOLDER - legacy name of NC_DIAGNOSTIC_FOLDER. diag-bootstrap.sh and diagtools use it when NC_DIAGNOSTIC_FOLDER is unset.
 - ZOOKEEPER_ENABLED - used to check if zookeeper enabled. Default is false.
 - CLOUD_NAMESPACE - contains actual microservice namespace. Can't be empty.
 - MICROSERVICE_NAME - contains actual microservice name. Can't be empty.
