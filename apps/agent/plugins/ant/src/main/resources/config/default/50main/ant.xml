@@ -41,11 +41,6 @@
             <execute-after exception="true">logExit$profiler</execute-after>
             <do-not-profile/>
         </rule>
-        <rule>
-            <class>com.netcracker.dsi.offlineimport.tool.ImportToolTask</class>
-            <method>execute</method>
-            <execute-before>logImportFile$profiler</execute-before>
-        </rule>
     </ruleset>
 
     <ruleset>
