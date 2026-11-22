@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     cd apps/dumps-collector && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /workspace/tools/prf_dump_writer main.go
 
-FROM nginx:1.31.8-alpine3.24@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
+FROM nginx:1.31.8-alpine3.24@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
 
 USER root
 
