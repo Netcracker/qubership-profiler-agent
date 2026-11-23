@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -186,6 +187,9 @@ func TestWatcherKeepsRulesOnBadFile(t *testing.T) {
 // ConfigMap volume: the file is a symlink through `..data`, and an update
 // points `..data` at a new timestamped directory.
 func TestWatcherFollowsConfigMapSwap(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("kqueue does not report the rename into ..data; the watcher targets Kubernetes ConfigMap mounts on Linux")
+	}
 	dir := t.TempDir()
 	v1 := filepath.Join(dir, "..2026_10_29_v1")
 	v2 := filepath.Join(dir, "..2026_10_29_v2")
