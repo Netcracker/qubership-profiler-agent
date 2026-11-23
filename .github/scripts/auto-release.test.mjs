@@ -741,6 +741,25 @@ describe('autoRelease report', () => {
     }]);
   });
 
+  for (const [order, publishers, newest] of [
+    ['the backend build run is newer', [
+      publisher('release.yaml', { id: 4, updated_at: '2026-10-19T05:00:01Z' }),
+      publisher('backend-dev-docker-build.yml', { id: 5, updated_at: '2026-10-19T05:10:00Z' }),
+    ], 'backend-dev-docker-build.yml run 5'],
+    ['the release run is newer', [
+      publisher('release.yaml', { id: 4, updated_at: '2026-10-19T05:10:00Z' }),
+      publisher('backend-dev-docker-build.yml', { id: 5, updated_at: '2026-10-19T05:00:01Z' }),
+    ], 'release.yaml run 4'],
+  ]) {
+    it(`names the newer publisher run when ${order}`, async () => {
+      const scans = mergeScans(imageScans(), imageScans({ tool: 'Trivy', ids: [2, 3] }));
+      const decision = await decide(fakeGitHub({ ...scans, publishers }), { images: ['qubership-profiler-backend'] });
+      assert.deepStrictEqual(decision.images.skipped.map(s => s.reason), [
+        `the main analysis predates the images ${newest} published by 2026-10-19T05:10:00Z`,
+      ]);
+    });
+  }
+
   it('counts a built image that no scanner analyzed as pairs not compared', async () => {
     const decision = await decide(fakeGitHub(imageScans({ latestFindings: [] })));
     assert.deepStrictEqual({ total: decision.images.total, compared: decision.images.compared,
