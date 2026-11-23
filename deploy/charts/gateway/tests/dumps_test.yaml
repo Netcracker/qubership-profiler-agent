@@ -30,7 +30,7 @@ tests:
       - template: templates/configmap.yaml
         matchRegex:
           path: data["otel.yaml"]
-          pattern: "profiler_dumps:\\n\\s+endpoint: 0.0.0.0:8080\\n\\s+max_body_size: 10GiB\\n\\s+max_body_size_per_type:\\n\\s+td: 64MiB"
+          pattern: "profiler_dumps:\\n\\s+endpoint: 0.0.0.0:8080\\n\\s+idle_timeout: 60s\\n\\s+max_body_size: 10GiB\\n\\s+max_body_size_per_type:\\n\\s+td: 64MiB"
       - template: templates/configmap.yaml
         matchRegex:
           path: data["otel.yaml"]

@@ -289,6 +289,7 @@ diag-proxy today, the gateway's streaming path is a behavior fix, and the cutove
 | `connect_timeout` | `1s` | Upstream dial deadline. Matches nginx `proxy_connect_timeout`. |
 | `response_header_timeout` | `10m` | Upstream header deadline. Longer than the client's 5 min on purpose. |
 | `read_header_timeout` | `10s` | Client header deadline. |
+| `idle_timeout` | `60s` | Longest pause in body progress, a client read or an upstream write. Matches nginx `client_body_timeout` and `proxy_send_timeout`. |
 | `max_body_size` | `10GiB` | Storage cap. Over the cap: abort upstream, drain, answer 204. |
 | `max_body_size_per_type` | none | Per type, for example `{ hprof: 10GiB, td: 64MiB, gc: 256MiB }`. |
 | `max_concurrent_uploads` | `16` | Memory knob. Over the cap the upload is discarded with 204, never queued. |

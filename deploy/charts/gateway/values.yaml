@@ -72,6 +72,9 @@ dumps:
   maxBodySizePerType: {}
   # Over the cap an upload is discarded with 204, never queued.
   maxConcurrentUploads: 16
+  # Longest pause in body progress, a client read or an upstream write. A
+  # slow upload that keeps moving has no deadline.
+  idleTimeout: 60s
 
 # Profiler agent connections on port 1715, through the profiler_tcp
 # extension. Off by default, for the same image reason as dumps.

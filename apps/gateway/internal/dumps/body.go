@@ -3,7 +3,10 @@ package dumps
 import (
 	"errors"
 	"io"
+	"net"
+	"net/http"
 	"sync"
+	"time"
 )
 
 var (
@@ -90,4 +93,39 @@ func (b *capBody) state() bodyState {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return bodyState{total: b.n, overCap: b.overCap, clientErr: b.clientErr}
+}
+
+// idleBody renews a read deadline on the client connection before each
+// read, so a client that stops sending fails the read instead of holding
+// an upload slot. A body that keeps moving has no overall deadline. At EOF
+// the deadline is cleared: the server's background read starts then and
+// must not time out while the upstream answers.
+type idleBody struct {
+	io.ReadCloser
+	rc      *http.ResponseController
+	timeout time.Duration
+}
+
+func (b *idleBody) Read(p []byte) (int, error) {
+	_ = b.rc.SetReadDeadline(time.Now().Add(b.timeout))
+	n, err := b.ReadCloser.Read(p)
+	if errors.Is(err, io.EOF) {
+		_ = b.rc.SetReadDeadline(time.Time{})
+	}
+	return n, err
+}
+
+// writeIdleConn bounds each write to the upstream, like nginx
+// proxy_send_timeout. An upstream that stops reading fails the write, and
+// the transport aborts the request.
+type writeIdleConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *writeIdleConn) Write(p []byte) (int, error) {
+	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Write(p)
 }

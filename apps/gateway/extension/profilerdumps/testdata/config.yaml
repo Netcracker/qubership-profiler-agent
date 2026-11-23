@@ -8,6 +8,7 @@ profiler_dumps/custom:
   connect_timeout: 2s
   response_header_timeout: 15m
   read_header_timeout: 5s
+  idle_timeout: 30s
   max_body_size: 2GiB
   max_body_size_per_type: { hprof: 10GiB, td: 64MiB, gc: 1048576 }
   max_concurrent_uploads: 4

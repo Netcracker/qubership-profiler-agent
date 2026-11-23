@@ -54,6 +54,7 @@ func TestCustomConfig(t *testing.T) {
 	assert.Equal(t, units.ByteSize(2<<30), cfg.MaxBodySize)
 	assert.Equal(t, map[string]units.ByteSize{"hprof": 10 << 30, "td": 64 << 20, "gc": 1 << 20}, cfg.MaxBodySizePerType)
 	assert.Equal(t, 15*time.Minute, cfg.ResponseHeaderTimeout)
+	assert.Equal(t, 30*time.Second, cfg.IdleTimeout)
 	assert.Equal(t, time.Minute, cfg.DrainTimeout)
 	require.Len(t, cfg.Rules, 1)
 	assert.Equal(t, rules.Rule{
@@ -86,6 +87,7 @@ func TestValidate(t *testing.T) {
 		"relative prefix":   func(c *Config) { c.PathPrefix = "diagnostic" },
 		"no methods":        func(c *Config) { c.AllowedMethods = nil },
 		"zero timeout":      func(c *Config) { c.ConnectTimeout = 0 },
+		"zero idle timeout": func(c *Config) { c.IdleTimeout = 0 },
 		"zero body size":    func(c *Config) { c.MaxBodySize = 0 },
 		"unknown dump type": func(c *Config) { c.MaxBodySizePerType = map[string]units.ByteSize{"core": 1} },
 		"zero concurrency":  func(c *Config) { c.MaxConcurrentUploads = 0 },

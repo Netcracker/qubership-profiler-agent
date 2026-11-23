@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,6 +97,7 @@ func baseConfig() Config {
 		ConnectTimeout:        time.Second,
 		ResponseHeaderTimeout: 10 * time.Second,
 		ReadHeaderTimeout:     10 * time.Second,
+		IdleTimeout:           10 * time.Second,
 		MaxBodySize:           64 << 20,
 		MaxConcurrentUploads:  4,
 		DrainTimeout:          5 * time.Second,
@@ -257,7 +259,8 @@ func TestDiscardWorksWithoutUpstream(t *testing.T) {
 }
 
 // Traps 2 and 3: a body that takes longer than every configured timeout
-// still goes through. Only headers have deadlines.
+// still goes through. Only headers have deadlines; the body has an idle
+// bound, and each pause here is shorter than it.
 func TestSlowBodyOutlastsTimeouts(t *testing.T) {
 	up := newUpstream(t)
 	cfg := baseConfig()
@@ -265,6 +268,7 @@ func TestSlowBodyOutlastsTimeouts(t *testing.T) {
 	cfg.ReadHeaderTimeout = 100 * time.Millisecond
 	cfg.ResponseHeaderTimeout = 100 * time.Millisecond
 	cfg.ConnectTimeout = 100 * time.Millisecond
+	cfg.IdleTimeout = 100 * time.Millisecond
 	gw := startServer(t, cfg, nil)
 
 	data := randomBytes(t, 64<<10)
@@ -447,4 +451,94 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, int64(1000), sums["profiler_gateway_bytes_forwarded_total"])
 	assert.Equal(t, int64(300), sums["profiler_gateway_bytes_discarded_total"])
 	assert.Equal(t, int64(0), sums["profiler_gateway_uploads_in_flight"])
+}
+
+// zeros is an endless body.
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+// F3: a client that stops sending is dropped within the idle timeout. It
+// gets no status, so it keeps the file, and its slot is freed.
+func TestStalledClientIsDroppedAndFreesSlot(t *testing.T) {
+	for name, mode := range map[string]rules.Mode{"passthrough": rules.Passthrough, "discard": rules.Discard} {
+		t.Run(name, func(t *testing.T) {
+			up := newUpstream(t)
+			cfg := baseConfig()
+			cfg.Upstream = up.url(t)
+			cfg.MaxConcurrentUploads = 1
+			cfg.IdleTimeout = 200 * time.Millisecond
+			gw := startServer(t, cfg, &rules.Policy{Default: mode})
+
+			conn, err := net.Dial("tcp", strings.TrimPrefix(gw, "http://"))
+			require.NoError(t, err)
+			defer conn.Close()
+			_, err = io.WriteString(conn, "PUT "+heapPath+" HTTP/1.1\r\nHost: gw\r\n"+
+				"Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n")
+			require.NoError(t, err)
+
+			require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+			start := time.Now()
+			answer, err := io.ReadAll(conn)
+			require.NoError(t, err, "the gateway closes the connection")
+			assert.Empty(t, string(answer), "no status, so the client keeps the file")
+			assert.Less(t, time.Since(start), 2*time.Second)
+
+			if mode == rules.Passthrough {
+				resp := do(t, http.MethodPut, gw+heapPath, bytes.NewReader([]byte("next")), "application/octet-stream")
+				assert.Equal(t, http.StatusCreated, resp.StatusCode, "the slot is free, so the upload is forwarded")
+			}
+		})
+	}
+}
+
+// F4: an upstream that accepts and then stops reading fails the upload
+// with 502 within the idle timeout, and frees the slot.
+func TestStalledUpstreamAnswers502AndFreesSlot(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	var mu sync.Mutex
+	var held []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, c)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			_ = c.Close()
+		}
+	})
+
+	cfg := baseConfig()
+	cfg.Upstream = &url.URL{Scheme: "http", Host: ln.Addr().String()}
+	cfg.MaxConcurrentUploads = 1
+	cfg.IdleTimeout = 200 * time.Millisecond
+	gw := startServer(t, cfg, nil)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	// The second upload would get 204 over concurrency if the first one
+	// still held the slot.
+	for i := range 2 {
+		req, err := http.NewRequest(http.MethodPut, gw+heapPath, chunked{io.LimitReader(zeros{}, 64<<20)})
+		require.NoError(t, err)
+		start := time.Now()
+		resp, err := client.Do(req)
+		require.NoError(t, err, "upload %d", i)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusBadGateway, resp.StatusCode, "upload %d", i)
+		assert.Less(t, time.Since(start), 5*time.Second, "upload %d", i)
+	}
 }

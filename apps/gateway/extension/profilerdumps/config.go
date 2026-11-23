@@ -34,8 +34,11 @@ type Config struct {
 	// the body is sent. Keep it longer than the client's 5-minute deadline.
 	ResponseHeaderTimeout time.Duration `mapstructure:"response_header_timeout"`
 	// ReadHeaderTimeout bounds the wait for the client's request header.
-	// The body has no deadline.
 	ReadHeaderTimeout time.Duration `mapstructure:"read_header_timeout"`
+	// IdleTimeout bounds a pause in body progress, a client read or an
+	// upstream write, like nginx client_body_timeout and proxy_send_timeout.
+	// A slow body that keeps moving has no deadline.
+	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
 	// MaxBodySize caps an upload. Over the cap the upstream request is
 	// aborted, the rest is drained, and the client gets 204.
 	MaxBodySize units.ByteSize `mapstructure:"max_body_size"`
@@ -65,6 +68,7 @@ func createDefaultConfig() *Config {
 		ConnectTimeout:        time.Second,
 		ResponseHeaderTimeout: 10 * time.Minute,
 		ReadHeaderTimeout:     10 * time.Second,
+		IdleTimeout:           60 * time.Second,
 		MaxBodySize:           10 << 30,
 		MaxConcurrentUploads:  16,
 		DrainTimeout:          30 * time.Second,
@@ -97,6 +101,7 @@ func (c *Config) Validate() error {
 		"connect_timeout":         c.ConnectTimeout,
 		"response_header_timeout": c.ResponseHeaderTimeout,
 		"read_header_timeout":     c.ReadHeaderTimeout,
+		"idle_timeout":            c.IdleTimeout,
 		"drain_timeout":           c.DrainTimeout,
 	} {
 		if d <= 0 {

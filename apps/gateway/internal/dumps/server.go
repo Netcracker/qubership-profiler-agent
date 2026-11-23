@@ -41,6 +41,9 @@ type Config struct {
 	ConnectTimeout        time.Duration
 	ResponseHeaderTimeout time.Duration
 	ReadHeaderTimeout     time.Duration
+	// IdleTimeout bounds a pause in body progress: a client read or an
+	// upstream write. Zero disables it.
+	IdleTimeout time.Duration
 	// MaxBodySize caps an upload in bytes; MaxBodySizePerType overrides it
 	// per dump type.
 	MaxBodySize          int64
@@ -96,16 +99,23 @@ func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Mete
 	return s, nil
 }
 
+// dial connects to the upstream and bounds each write by IdleTimeout.
+func (s *Server) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := net.Dialer{Timeout: s.cfg.ConnectTimeout, KeepAlive: 30 * time.Second}
+	conn, err := d.DialContext(ctx, network, addr)
+	if err != nil || s.cfg.IdleTimeout <= 0 {
+		return conn, err
+	}
+	return &writeIdleConn{Conn: conn, timeout: s.cfg.IdleTimeout}, nil
+}
+
 func (s *Server) newProxy() *httputil.ReverseProxy {
 	upstream := s.cfg.Upstream
 	transport := &http.Transport{
 		// A dump goes straight to the collector, never through an
 		// environment proxy.
-		Proxy: nil,
-		DialContext: (&net.Dialer{
-			Timeout:   s.cfg.ConnectTimeout,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		Proxy:       nil,
+		DialContext: s.dial,
 		// Counted from the end of the request body, so a long upload does
 		// not run into it. There is no whole-request timeout: the client
 		// already has one.
@@ -181,6 +191,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	attrs := parsePath(r.URL.Path, s.cfg.PathPrefix)
+	if s.cfg.IdleTimeout > 0 {
+		r.Body = &idleBody{ReadCloser: r.Body, rc: http.NewResponseController(w), timeout: s.cfg.IdleTimeout}
+	}
 
 	select {
 	case s.sem <- struct{}{}:
@@ -227,7 +240,7 @@ func (s *Server) discard(w http.ResponseWriter, r *http.Request, dumpType, outco
 	if err != nil {
 		s.metrics.upload(r.Context(), dumpType, outcomeClientAborted, n)
 		s.logger.Debug("Client aborted a discarded upload", zap.String("path", r.URL.Path), zap.Error(err))
-		return
+		abortClient()
 	}
 	s.metrics.upload(r.Context(), dumpType, outcome, n)
 	w.WriteHeader(http.StatusNoContent)
@@ -239,13 +252,11 @@ func (s *Server) discard(w http.ResponseWriter, r *http.Request, dumpType, outco
 // The upstream's status goes to the client unchanged, 405 on DELETE included.
 func (s *Server) modifyResponse(resp *http.Response) error {
 	st := resp.Request.Context().Value(ctxKey{}).(*requestState)
-	_, _ = st.body.drain()
-	bs := st.body.state()
-	outcome := outcomeForwarded
-	if bs.clientErr != nil {
-		outcome = outcomeClientAborted
+	if _, err := st.body.drain(); err != nil {
+		// proxyError counts it and drops the connection.
+		return err
 	}
-	s.metrics.upload(resp.Request.Context(), st.dumpType, outcome, bs.total)
+	s.metrics.upload(resp.Request.Context(), st.dumpType, outcomeForwarded, st.body.state().total)
 	return nil
 }
 
@@ -258,7 +269,7 @@ func (s *Server) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 	if before.overCap {
 		if _, derr := st.body.drain(); derr != nil {
 			s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, st.body.state().total)
-			return
+			abortClient()
 		}
 		s.metrics.upload(ctx, st.dumpType, outcomeOverCap, st.body.state().total)
 		s.logger.Info("Discarded an upload over the size cap",
@@ -269,18 +280,23 @@ func (s *Server) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 	if before.clientErr != nil {
 		s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, before.total)
 		s.logger.Debug("Client aborted an upload", zap.String("path", r.URL.Path), zap.Error(before.clientErr))
-		return
+		abortClient()
 	}
 	s.metrics.upstreamErrors.Add(ctx, 1, metric.WithAttributes(surfaceAttr))
 	if _, derr := st.body.drain(); derr != nil {
 		s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, st.body.state().total)
-		return
+		abortClient()
 	}
 	s.metrics.upload(ctx, st.dumpType, outcomeUpstreamError, st.body.state().total)
 	s.logger.Warn("Upstream failed; answering 502 so the client keeps the file and retries",
 		zap.String("path", r.URL.Path), zap.Error(err))
 	w.WriteHeader(http.StatusBadGateway)
 }
+
+// abortClient drops the client connection without an answer. Any status,
+// even the 200 that net/http writes by default, could make the client
+// delete a file that was never stored.
+func abortClient() { panic(http.ErrAbortHandler) }
 
 // RecordRulesReload counts a rules file load.
 func (s *Server) RecordRulesReload(ok bool) {

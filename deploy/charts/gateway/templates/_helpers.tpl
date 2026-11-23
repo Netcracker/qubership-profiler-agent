@@ -153,6 +153,7 @@ The Collector config. A discarding pipeline exports to `nop` and skips
   "mode" .mode
   "max_body_size" .maxBodySize
   "max_concurrent_uploads" (int .maxConcurrentUploads)
+  "idle_timeout" .idleTimeout
   "rules_file" (include "gateway.rulesFile" $) -}}
 {{- if .upstream -}}
 {{- $_ := set $d "upstream" .upstream -}}

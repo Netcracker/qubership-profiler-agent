@@ -59,6 +59,7 @@ func (e *dumpsExtension) Start(_ context.Context, host component.Host) error {
 		ConnectTimeout:        cfg.ConnectTimeout,
 		ResponseHeaderTimeout: cfg.ResponseHeaderTimeout,
 		ReadHeaderTimeout:     cfg.ReadHeaderTimeout,
+		IdleTimeout:           cfg.IdleTimeout,
 		MaxBodySize:           int64(cfg.MaxBodySize),
 		MaxConcurrentUploads:  cfg.MaxConcurrentUploads,
 		DrainTimeout:          cfg.DrainTimeout,

@@ -53,7 +53,8 @@ service:
 | `allowed_methods`         | `[PUT, POST, DELETE]` | Other methods get 405.                                          |
 | `connect_timeout`         | `1s`                  | Upstream dial deadline.                                         |
 | `response_header_timeout` | `10m`                 | Wait for the upstream's answer after the body is sent.          |
-| `read_header_timeout`     | `10s`                 | Wait for the client's request header. The body has no deadline. |
+| `read_header_timeout`     | `10s`                 | Wait for the client's request header.                           |
+| `idle_timeout`            | `60s`                 | Longest pause in body progress. See below.                      |
 | `max_body_size`           | `10GiB`               | Size cap. Over it: abort upstream, drain, answer 204.           |
 | `max_body_size_per_type`  | none                  | Cap per dump type: `hprof`, `td`, `gc`, `other`.                |
 | `max_concurrent_uploads`  | `16`                  | Over it, an upload is discarded with 204, never queued.         |
@@ -65,6 +66,9 @@ Behavior that follows from the diagtools client, which resends a file from byte 
 
 - `discard`, the caps, and the concurrency limit all read the body to the end and answer 204, so the client deletes
   its copy. The gateway never sheds load with 413, 429, or 503.
+- A body has no overall deadline, so a slow 10 GB upload completes. A pause longer than `idle_timeout` fails it: a
+  client that stops sending is dropped without an answer, so it keeps the file, and an upstream that stops reading
+  answers 502. Either way the upload slot is freed.
 - In `passthrough` the upstream's status reaches the client unchanged, including 405 on `DELETE`. An unreachable
   upstream answers 502, so the client keeps the file and retries.
 - Uploads stream: memory per upload is bounded by buffers, about 90 KB measured, not by file size. The multipart body
