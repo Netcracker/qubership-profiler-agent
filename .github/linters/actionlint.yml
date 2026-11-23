@@ -1,0 +1,15 @@
+# Overrides config/linters/actionlint.yml from Netcracker/.github, so the shared ignores are repeated here.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'shellcheck reported issue in this script: SC2086:info.+'
+      - 'shellcheck reported issue in this script: SC2002:style.+'
+      - 'property "workflow_(sha|ref|repository)" is not defined in object type'
+      - 'specifying action "\$/[^"]+" in invalid format because ref is missing'
+      # GitHub grants Dependabot alerts to GITHUB_TOKEN through this scope, and actionlint 1.7.12 does not list it yet:
+      # https://github.com/rhysd/actionlint/issues/713
+      - 'unknown permission scope "vulnerability-alerts"'
+  actions/**/*.{yml,yaml}:
+    ignore:
+      - 'shellcheck reported issue in this script: SC2086:info.+'
+      - 'shellcheck reported issue in this script: SC2002:style.+'

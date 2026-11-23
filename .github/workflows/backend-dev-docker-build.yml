@@ -24,6 +24,15 @@ on:
     branches-ignore:
       - 'renovate/**'
     paths:
+      - 'apps/agent/**'
+      - 'build-logic/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - '.dockerignore'
+      - '.qubership/docker-build-config.cfg'
       - 'apps/dumps-collector/**'
       - 'apps/profiler-backend/**'
       - 'apps/ui/**'
@@ -41,6 +50,15 @@ on:
     branches:
       - '**'
     paths:
+      - 'apps/agent/**'
+      - 'build-logic/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - '.dockerignore'
+      - '.qubership/docker-build-config.cfg'
       - 'apps/dumps-collector/**'
       - 'apps/profiler-backend/**'
       - 'apps/ui/**'
@@ -117,8 +135,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up JDK 21
+        if: matrix.component.file == 'apps/dumps-collector/Dockerfile'
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Build agent installer
+        if: matrix.component.file == 'apps/dumps-collector/Dockerfile'
+        uses: burrunan/gradle-cache-action@404534c34a2faa40430357a3183522a845b04f3b # v3.0.3
+        with:
+          arguments: --quiet :installer:prepareDumpsCollectorDocker
+
       - name: "Create metadata"
-        uses: netcracker/qubership-workflow-hub/actions/metadata-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        uses: netcracker/qubership-workflow-hub/actions/metadata-action@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
         id: metadata
         with:
           ref: ${{ github.head_ref && format('refs/heads/{0}', github.head_ref) || github.ref }}
@@ -150,7 +181,7 @@ jobs:
           echo "**Tags:** ${TAGS}" >> $GITHUB_STEP_SUMMARY
 
       - name: "Build and Publish Docker Image"
-        uses: netcracker/qubership-workflow-hub/actions/docker-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        uses: netcracker/qubership-workflow-hub/actions/docker-action@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
         with:
           component: ${{ toJson(matrix.component) }}
           platforms: ${{ needs.load-docker-build-components.outputs.platforms }}

@@ -6,7 +6,7 @@
 
 # The Stage 5 UI (apps/ui) builds in its own stage, so the image carries the
 # /ui assets without a node toolchain on the host (07-ui-design.md §6).
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS ui-builder
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS ui-builder
 
 WORKDIR /ui
 
@@ -21,7 +21,7 @@ ARG UI_BASE_PATH=/ui/
 ENV UI_BASE_PATH=$UI_BASE_PATH
 RUN npm run build
 
-FROM golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -29,17 +29,14 @@ ARG TARGETARCH
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
-# The root go.mod replaces libs/wire with the local directory, so Go needs that
-# module's go.mod to load the module graph.
-COPY libs/wire/go.mod libs/wire/go.sum libs/wire/
-RUN go mod download
-
 COPY libs/ libs/
 COPY apps/profiler-backend/ apps/profiler-backend/
 COPY apps/ui/embed.go apps/ui/
 COPY --from=ui-builder /ui/dist/ apps/ui/dist/
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -o /workspace/profiler-backend ./apps/profiler-backend
 
 # /data seeds the collector volume with the right owner: a named volume copies

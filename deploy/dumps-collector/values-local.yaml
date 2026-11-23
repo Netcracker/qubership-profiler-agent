@@ -22,7 +22,7 @@ dumpsCollector:
   name: cloud-profiler-dumps-collector
   replicas: 1
 
-  # Local image built with: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector:local .
+  # Local image built with: make -C apps/dumps-collector docker-build DOCKER_IMAGE=dumps-collector:local
   image: dumps-collector:local
   imagePullPolicy: Never  # Use local image, don't try to pull
 

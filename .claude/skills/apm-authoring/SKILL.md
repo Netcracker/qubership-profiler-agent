@@ -351,16 +351,22 @@ author: <your-org>
 # Optional: list other APM packages this one depends on.
 dependencies:
   apm:
-    - <owner>/<repo>/<path>/agent-packages/<package>#<ref>
+    - ../<sibling-package>                                   # same repository
+    - <owner>/<repo>/<path>/agent-packages/<package>#<ref>   # another repository
 ```
 
 Conventions for the dependency list:
 
-- Pin to a tag (`@v1.2.0`) for stable consumers; pin to a branch
+- A package in the same repository is a relative path from this
+  package's directory: `../<name>`. It resolves at the same commit as
+  the package that declares it, so it needs no ref of its own.
+- A package in another git repository is an absolute reference,
+  `<owner>/<repo>/<path>/agent-packages/<name>#<ref>`. Pin a tag
+  (`#v1.2.0`, not `@v1.2.0`) for stable consumers; pin a branch
   (`#feat/agent-packages`) only while a feature is still in review.
-- Each dependency line resolves to one `agent-packages/<name>/` folder,
-  so the suffix in the URL must end in the package directory — never
-  the repo root.
+- Each remote dependency line resolves to one `agent-packages/<name>/`
+  folder, so the suffix in the URL must end in the package directory,
+  never the repo root.
 
 ## Reference: the umbrella pattern
 

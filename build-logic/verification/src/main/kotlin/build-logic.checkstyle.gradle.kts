@@ -7,7 +7,7 @@ plugins {
 }
 
 checkstyle {
-    toolVersion = "14.3.0"
+    toolVersion = "14.4.0"
     providers.gradleProperty("checkstyle.version")
         .takeIf { it.isPresent }
         ?.let { toolVersion = it.get() }
@@ -25,7 +25,7 @@ checkstyle {
 
 dependencies {
     constraints {
-        checkstyle("org.apache.commons:commons-lang3:3.21.0")
+        checkstyle("org.apache.commons:commons-lang3:3.22.0")
     }
 }
 

@@ -10,7 +10,7 @@ pluginManagement {
         kotlin("jvm") version "2.4.21"
         kotlin("kapt") version "2.4.21"
         kotlin("plugin.spring") version "2.4.21"
-        id("me.champeau.jmh") version "0.7.3"
+        id("me.champeau.jmh") version "0.7.4"
     }
 }
 
@@ -32,9 +32,9 @@ gradle.allprojects {
     if (path != ":plugins" && path != ":sample-apps") {
         buildscript {
             dependencies {
-                classpath(platform("com.fasterxml.jackson:jackson-bom:2.22.4"))
+                classpath(platform("com.fasterxml.jackson:jackson-bom:2.23.0"))
                 constraints {
-                    classpath("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
+                    classpath("org.eclipse.jgit:org.eclipse.jgit:7.8.1.202611041320-r")
                 }
             }
         }

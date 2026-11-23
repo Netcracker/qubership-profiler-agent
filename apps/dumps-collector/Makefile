@@ -1,7 +1,7 @@
 # Cloud Profiler Dumps Collector Makefile
 # Go application with Docker build
 
-.PHONY: help build clean docker-build docker-tag archive test run
+.PHONY: help build clean setup docker-prepare docker-build docker-tag archive test run
 
 # Variables
 ARTIFACT_NAME := cloud-profiler-dumps-collector
@@ -10,6 +10,7 @@ OUTPUT_DIR := $(BUILD_DIR)/_output
 SAAS_MANIFEST_DIR := deployments
 DOCKER_IMAGE := $(ARTIFACT_NAME)
 BINARY_NAME := prf_dump_writer
+GRADLEW ?= ./gradlew
 
 # Build settings - can be overridden for cross-compilation
 GOOS ?= $(shell go env GOOS)
@@ -20,6 +21,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build         - Build the Go application"
 	@echo "  clean         - Clean build artifacts"
+	@echo "  docker-prepare - Build the agent installer for Docker"
 	@echo "  docker-build  - Build Docker image"
 	@echo "  docker-tag    - Tag Docker image (requires DOCKER_NAMES variable)"
 	@echo "  archive       - Create deployment archive"
@@ -63,8 +65,11 @@ setup:
 	mkdir -p $(SAAS_MANIFEST_DIR)
 	cp -R ../../deploy/charts $(SAAS_MANIFEST_DIR)/
 
+docker-prepare:
+	cd ../.. && $(GRADLEW) --quiet :installer:prepareDumpsCollectorDocker
+
 # Build Docker image (runs from repository root context)
-docker-build: setup
+docker-build: setup docker-prepare
 	@echo "==> Building Docker image..."
 	docker build \
 		--pull \

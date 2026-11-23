@@ -223,6 +223,15 @@ val installerZip by tasks.registering(Zip::class) {
     }
 }
 
+val prepareDumpsCollectorDocker by tasks.registering(Sync::class) {
+    group = LifecycleBasePlugin.BUILD_GROUP
+    description = "Prepares the agent installer for the dumps-collector Docker image"
+    from(installerZip) {
+        rename { "installer.zip" }
+    }
+    into(layout.buildDirectory.dir("docker"))
+}
+
 // Publish installer.zip to Maven repository so users could consume
 val javaagent = configurations.consumable("javaagent") {
     attributes {

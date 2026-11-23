@@ -1,55 +1,28 @@
 # Build context: repository root
-# Usage: docker build -f apps/dumps-collector/Dockerfile -t dumps-collector .
+# Usage: make -C apps/dumps-collector docker-build
 
-FROM golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS builder
 
 # Multi-arch build support
 ARG TARGETOS=linux
 ARG TARGETARCH
 
-# renovate: datasource=maven depName=qubership-profiler-installer packageName=org.qubership.profiler:qubership-profiler-installer versioning=maven
-ARG QUBERSHIP_PROFILER_INSTALLER_VERSION=4.0.7
-
-# renovate: datasource=maven depName=qubership-profiler-diagtools packageName=org.qubership.profiler:qubership-profiler-diagtools versioning=maven
-ARG QUBERSHIP_PROFILER_DIAGTOOLS_VERSION=4.0.7
-
-ENV INSTALLER_CLOUD="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-installer/${QUBERSHIP_PROFILER_INSTALLER_VERSION}/qubership-profiler-installer-${QUBERSHIP_PROFILER_INSTALLER_VERSION}.zip"
-
-RUN apk --no-cache add \
-        unzip \
-        curl \
-    && rm -rf /var/cache/apk/*
-
 # Use repository root structure to match Go module paths
 WORKDIR /workspace
 RUN mkdir -p tools
 
-# Copy go modules from repository root
+# Copy go modules and sources preserving the module structure
 COPY go.mod go.sum ./
-# The root go.mod replaces libs/wire with the local directory, so Go needs that
-# module's go.mod to load the module graph.
-COPY libs/wire/go.mod libs/wire/go.sum libs/wire/
-RUN go mod download
-
-# Copy go sources preserving the module structure
 COPY apps/dumps-collector/ apps/dumps-collector/
 COPY libs/ libs/
 
-# Download installer
-RUN curl -o installer_cloud.zip "${INSTALLER_CLOUD}"
-
-# Download diagtools for the target architecture
-RUN DIAGTOOLS_URL="https://repo1.maven.org/maven2/org/qubership/profiler/qubership-profiler-diagtools/${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}/qubership-profiler-diagtools-${QUBERSHIP_PROFILER_DIAGTOOLS_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz" \
-    && curl -o diagtools.tar.gz "${DIAGTOOLS_URL}" \
-    && tar -xzf diagtools.tar.gz \
-    && cp diagtools-*/diag-bootstrap.sh /workspace/tools/ \
-    && rm -rf diagtools.tar.gz diagtools-*
-
 # Build from the app directory
-RUN cd apps/dumps-collector && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /workspace/tools/prf_dump_writer main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd apps/dumps-collector && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /workspace/tools/prf_dump_writer main.go
 
-FROM nginx:1.31.7-alpine3.24@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+FROM nginx:1.31.8-alpine3.24@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
 
 USER root
 
@@ -65,7 +38,8 @@ ENV DIAGNOSTIC_TOOLS_LOCATION=${DOCROOT}/api/v1/diagnostic/tools/
 
 COPY --from=builder --chown=${USER_UID} /workspace/tools ${DIAGNOSTIC_TOOLS_LOCATION}
 
-COPY --from=builder --chown=${USER_UID} /workspace/installer_cloud.zip ${DOCROOT}/api/v1/diagnostic/agent/installer.zip
+COPY --chown=${USER_UID} apps/agent/installer/build/docker/installer.zip ${DOCROOT}/api/v1/diagnostic/agent/installer.zip
+COPY --chown=${USER_UID} apps/agent/diagtools/scripts/diag-bootstrap.sh ${DIAGNOSTIC_TOOLS_LOCATION}/diag-bootstrap.sh
 
 COPY apps/dumps-collector/static/index.html ${DIAGNOSTIC_TOOLS_LOCATION}/index.html
 

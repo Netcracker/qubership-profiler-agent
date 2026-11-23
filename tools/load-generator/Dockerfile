@@ -6,7 +6,7 @@
 # the k6/x/cdt module and the go-prometheus-exporter live in this module, and
 # the traffic is fully synthetic — no captured dumps enter the image.
 
-FROM golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -14,15 +14,15 @@ ARG TARGETARCH
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
-RUN go mod download
-
 COPY libs/ libs/
 COPY tools/load-generator/ tools/load-generator/
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-w -s" -o /workspace/k6 ./tools/load-generator/k6runner
 
-FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS release
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS release
 
 COPY --from=builder /workspace/k6 /xk6/k6
 COPY tools/load-generator/scripts /xk6/scripts
