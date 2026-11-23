@@ -6,7 +6,7 @@ import (
 )
 
 func Fatal(ctx context.Context, err error, format string, a ...any) {
-	fmt.Printf(header(ctx, 2, ERROR, format), a...)
+	printf(ctx, 2, ERROR, format, a...)
 	panic(err)
 }
 
@@ -25,7 +25,7 @@ func Error(ctx context.Context, err error, format string, a ...any) {
 		} else {
 			format = format + ": %+v"
 		}
-		fmt.Printf(header(ctx, 2, ERROR, format), arr...)
+		printf(ctx, 2, ERROR, format, arr...)
 	}
 }
 
@@ -42,7 +42,7 @@ func IsWarningEnabled(ctx context.Context) bool {
 
 func Warning(ctx context.Context, format string, a ...any) {
 	if IsWarningEnabled(ctx) {
-		fmt.Printf(header(ctx, 2, WARNING, format), a...)
+		printf(ctx, 2, WARNING, format, a...)
 	}
 }
 
@@ -55,7 +55,7 @@ func IsInfoEnabled(ctx context.Context) bool {
 
 func Info(ctx context.Context, format string, a ...any) {
 	if IsInfoEnabled(ctx) {
-		fmt.Printf(header(ctx, 2, INFO, format), a...)
+		printf(ctx, 2, INFO, format, a...)
 	}
 }
 
@@ -68,7 +68,7 @@ func IsDebugEnabled(ctx context.Context) bool {
 
 func Debug(ctx context.Context, format string, a ...any) {
 	if IsDebugEnabled(ctx) {
-		fmt.Printf(header(ctx, 2, DEBUG, format), a...)
+		printf(ctx, 2, DEBUG, format, a...)
 	}
 }
 
@@ -81,7 +81,7 @@ func IsTraceEnabled(ctx context.Context) bool {
 
 func Trace(ctx context.Context, format string, a ...any) {
 	if IsTraceEnabled(ctx) {
-		fmt.Printf(header(ctx, 2, TRACE, format), a...)
+		printf(ctx, 2, TRACE, format, a...)
 	}
 }
 
@@ -94,6 +94,22 @@ func IsExtraTraceEnabled(ctx context.Context) bool {
 
 func ExtraTrace(ctx context.Context, format string, a ...any) {
 	if IsExtraTraceEnabled(ctx) {
-		fmt.Printf(header(ctx, 4, EXTRA, format), a...)
+		printf(ctx, 4, EXTRA, format, a...)
 	}
 }
+
+// printf sends one record to the sink in ctx, if WithSink set one, and
+// otherwise prints it to stdout after the header. skip is the header's
+// runtime.Caller depth as seen from the exported function that called printf.
+func printf(ctx context.Context, skip int, lvl level, format string, a ...any) {
+	if sink := sinkFrom(ctx); sink != nil {
+		// format goes through a call, as it does through header below, so go
+		// vet does not treat the exported functions as printf wrappers and
+		// start failing callers that pass a non-constant format.
+		sink(string(lvl), fmt.Sprintf(withoutHeader(format), a...))
+		return
+	}
+	fmt.Printf(header(ctx, skip+1, lvl, format), a...)
+}
+
+func withoutHeader(format string) string { return format }

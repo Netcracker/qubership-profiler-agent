@@ -41,3 +41,23 @@ func GetContextName(ctx context.Context) string {
 	}
 	return ""
 }
+
+type sinkKey struct{}
+
+// Sink receives a log record in place of stdout: the level name, such as
+// "INFO", and the formatted message without the header.
+type Sink func(level, msg string)
+
+// WithSink returns a context whose log records go to sink instead of stdout.
+// The level in the context still decides which records are written.
+func WithSink(baseCtx context.Context, sink Sink) context.Context {
+	return context.WithValue(baseCtx, sinkKey{}, sink)
+}
+
+func sinkFrom(ctx context.Context) Sink {
+	if ctx == nil {
+		return nil
+	}
+	sink, _ := ctx.Value(sinkKey{}).(Sink)
+	return sink
+}

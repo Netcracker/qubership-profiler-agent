@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"errors"
 	"net"
 	"syscall"
 	"testing"
@@ -8,9 +9,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
+	wirelog "github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
@@ -133,4 +138,22 @@ func TestBadHandshakeIsClosed(t *testing.T) {
 		assert.ErrorIs(t, err, syscall.ECONNRESET, name)
 		_ = c.Close()
 	}
+}
+
+// TestDiscardLogsGoToTheExtensionLogger checks that libs/wire records from
+// discarded connections reach the extension's logger rather than stdout.
+func TestDiscardLogsGoToTheExtensionLogger(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	p, err := New(baseConfig(""), &rules.Policy{Default: rules.Discard}, zap.New(core), noop.NewMeterProvider().Meter("test"))
+	require.NoError(t, err)
+
+	out := wirelog.CaptureAsString(func() {
+		wirelog.Error(p.sinkCtx, errors.New("i/o timeout"), "could not read at pos # %d", 9)
+		wirelog.Info(p.sinkCtx, "below the default level")
+	}, true)
+
+	assert.Empty(t, out)
+	require.Equal(t, 1, logs.Len())
+	assert.Equal(t, zap.ErrorLevel, logs.All()[0].Level)
+	assert.Equal(t, "could not read at pos # 9: i/o timeout", logs.All()[0].Message)
 }

@@ -28,6 +28,7 @@ import (
 	"go.uber.org/zap"
 
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	wirelog "github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
 
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
@@ -71,6 +72,9 @@ type Proxy struct {
 	bufs    sync.Pool
 	// sink runs the collector protocol for discarded connections.
 	sink *server.Service
+	// sinkCtx routes the libs/wire log records of discarded connections
+	// to logger instead of stdout.
+	sinkCtx context.Context
 
 	ln     net.Listener
 	mu     sync.Mutex
@@ -133,6 +137,7 @@ func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Mete
 		sem:     make(chan struct{}, cfg.MaxConnections),
 		conns:   map[*session]struct{}{},
 	}
+	p.sinkCtx = wirelog.WithSink(context.Background(), zapSink(logger))
 	p.sink = server.PrepareServer(context.Background(), server.ConnectionOpts{
 		Timeout:              discardTimeout,
 		RotationPeriod:       uint64(cfg.RotationPeriod.Milliseconds()),
@@ -275,7 +280,7 @@ func (p *Proxy) discard(s *session, prefix []byte) {
 	p.metrics.total.Add(ctx, 1, mode)
 	p.metrics.active.Add(ctx, 1, mode)
 	defer p.metrics.active.Add(ctx, -1, mode)
-	p.sink.ServeConn(ctx, newReplayConn(s.client, prefix))
+	p.sink.ServeConn(p.sinkCtx, newReplayConn(s.client, prefix))
 }
 
 // Reevaluate applies changed rules to open connections. A connection whose
@@ -408,5 +413,21 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return errors.Join(err, ctx.Err())
+	}
+}
+
+// zapSink writes libs/wire log records to logger at the matching level.
+func zapSink(logger *zap.Logger) wirelog.Sink {
+	return func(level, msg string) {
+		switch level {
+		case string(wirelog.ERROR):
+			logger.Error(msg)
+		case string(wirelog.WARNING):
+			logger.Warn(msg)
+		case string(wirelog.INFO):
+			logger.Info(msg)
+		default:
+			logger.Debug(msg)
+		}
 	}
 }
