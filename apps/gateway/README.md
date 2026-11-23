@@ -112,13 +112,14 @@ and pod. The extension reads it with the collector's own reader, picks the mode,
   The agent gets real stream handles and acks, logs nothing, and keeps its dumper alive. It still instruments and
   sends, and it cannot receive dump requests from the UI.
 
-A connection with no valid handshake within `handshake_timeout` is closed; the legacy `0x08` handshake is not
-supported. An unreachable upstream and a full `max_connections` also close the connection: the agent marks its
-dumper dead, logs one warning, and retries every 10 seconds.
+A connection with no valid handshake within `handshake_timeout` is reset; the legacy `0x08` handshake is not
+supported. An unreachable upstream and a full `max_connections` also reset the connection: the agent marks its
+dumper dead, logs one warning, and retries every 10 seconds. The gateway sends a reset, not a FIN, because the agent
+reads an EOF as "no data yet" and waits out its 30-second read timeout before it retries.
 
-A rules file change is applied to open connections too: each one whose mode changes is closed, and the agent
+A rules file change is applied to open connections too: each one whose mode changes is reset, and the agent
 reconnects within 10 seconds into the new mode. That is the only way to move an agent out of `discard`, because the
-upstream never saw that connection's handshake. Shutdown closes every connection at once.
+upstream never saw that connection's handshake. Shutdown resets every connection at once.
 
 Measured on a laptop: a gateway hop adds about 21 µs to a 1 KB request and its answer, and an idle passthrough
 connection costs about 40 KB.

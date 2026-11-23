@@ -1,8 +1,8 @@
 package tcp
 
 import (
-	"io"
 	"net"
+	"syscall"
 	"testing"
 	"time"
 
@@ -133,7 +133,7 @@ func TestBadHandshakeIsClosed(t *testing.T) {
 		require.NoError(t, err, name)
 		require.NoError(t, c.SetReadDeadline(time.Now().Add(5*time.Second)))
 		_, err = c.Read(make([]byte, 1))
-		assert.ErrorIs(t, err, io.EOF, name)
+		assert.ErrorIs(t, err, syscall.ECONNRESET, name)
 		_ = c.Close()
 	}
 }

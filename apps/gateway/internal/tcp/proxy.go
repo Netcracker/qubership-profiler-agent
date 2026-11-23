@@ -11,7 +11,7 @@
 // establish, or one that drops, makes the agent mark its dumper dead, log
 // one warning, drop its buffers, and retry every 10 seconds
 // (DUMPER_RESTART_INTERVAL). So the proxy refuses over its connection cap
-// and on an unreachable upstream by closing the socket: the agent copes
+// and on an unreachable upstream by resetting the socket: the agent copes
 // with that on its own.
 package tcp
 
@@ -103,6 +103,22 @@ func (s *session) close() {
 	}
 }
 
+// abort closes the agent leg with a reset and the upstream leg normally.
+func (s *session) abort() {
+	abort(s.client)
+	s.close()
+}
+
+// abort closes c with a TCP RST instead of a FIN. The agent treats EOF as
+// "no data yet" (EndlessSocketInputStream) and spins until its 30 s read
+// timeout; a reset fails its read at once, so it retries in 10 s.
+func abort(c net.Conn) {
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetLinger(0)
+	}
+	_ = c.Close()
+}
+
 // New builds a Proxy. It opens no socket.
 func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Meter) (*Proxy, error) {
 	m, err := newMetrics(meter)
@@ -182,13 +198,13 @@ func (p *Proxy) acceptLoop() error {
 			p.metrics.refused.Add(context.Background(), 1)
 			p.logger.Debug("Refused an agent connection over max_connections",
 				zap.Stringer("remote", c.RemoteAddr()), zap.Int("max_connections", p.cfg.MaxConnections))
-			_ = c.Close()
+			abort(c)
 			continue
 		}
 		s := &session{client: c}
 		if !p.track(s) {
 			<-p.sem
-			_ = c.Close()
+			abort(c)
 			return nil
 		}
 		p.wg.Add(1)
@@ -230,6 +246,7 @@ func (p *Proxy) serve(s *session) {
 	if err != nil {
 		p.logger.Info("Closing an agent connection without a valid handshake",
 			zap.Stringer("remote", s.client.RemoteAddr()), zap.Error(err))
+		abort(s.client)
 		return
 	}
 	s.mu.Lock()
@@ -284,7 +301,7 @@ func (p *Proxy) Reevaluate() {
 		if !changed {
 			continue
 		}
-		s.close()
+		s.abort()
 		closed++
 		p.metrics.closedByReload.Add(context.Background(), 1, modeAttr(string(from)))
 		p.logger.Info("Closed an agent connection whose mode changed; the agent reconnects in the new mode",
@@ -305,6 +322,7 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 		p.metrics.upstreamErrors.Add(ctx, 1, metric.WithAttributes(surfaceAttr))
 		p.logger.Warn("Upstream unreachable; closing the agent connection, the agent retries in 10 s",
 			zap.String("upstream", p.cfg.Upstream), zap.Stringer("remote", s.client.RemoteAddr()), zap.Error(err))
+		abort(s.client)
 		return
 	}
 	s.mu.Lock()
@@ -374,7 +392,7 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	}
 	p.mu.Unlock()
 	for _, s := range sessions {
-		s.close()
+		s.abort()
 	}
 	p.sink.Stop()
 	done := make(chan struct{})

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -52,7 +53,9 @@ func TestPassthroughIntoRealCollector(t *testing.T) {
 	assert.Equal(t, "billing", l.pods[0].Service)
 }
 
-func TestUpstreamDownClosesTheAgent(t *testing.T) {
+// TestUpstreamDownResetsTheAgent: the agent must see a reset, not an EOF,
+// which it would take for "no data yet" and spin on for 30 s.
+func TestUpstreamDownResetsTheAgent(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	dead := ln.Addr().String()
@@ -68,7 +71,7 @@ func TestUpstreamDownClosesTheAgent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, c.SetReadDeadline(time.Now().Add(5*time.Second)))
 	_, err = c.Read(make([]byte, 1))
-	assert.ErrorIs(t, err, io.EOF, "the agent sees a close and retries on its own")
+	assert.ErrorIs(t, err, syscall.ECONNRESET, "the agent sees a reset and retries on its own")
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_upstream_errors_total"))
 }
 
@@ -129,7 +132,7 @@ func TestMaxConnectionsRefuses(t *testing.T) {
 	defer func() { _ = second.Close() }()
 	require.NoError(t, second.SetReadDeadline(time.Now().Add(5*time.Second)))
 	_, err = second.Read(make([]byte, 1))
-	assert.ErrorIs(t, err, io.EOF, "over the cap the connection is closed on arrival")
+	assert.ErrorIs(t, err, syscall.ECONNRESET, "over the cap the connection is reset on arrival")
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_connections_refused_total"))
 
 	// The slot frees when the first connection ends.
