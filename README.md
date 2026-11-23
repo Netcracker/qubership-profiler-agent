@@ -109,9 +109,12 @@ release is the creation time of the newest successful release workflow run on `m
 merged while a release runs still counts. Without such a run, the latest GitHub release is used. Run it manually with
 `dry-run` to see the decision without releasing.
 
-Every run posts its decision as a notice on the run page. Its summary lists the alerts it counted, the alerts fixed
-since the release that it did not count with the reason, and each image pair it skipped with the condition that failed.
-The decision is also the `result` output of the `decide` step.
+Every run posts its decision as a notice on the run page. Its summary lists the alerts it counted, the Dependabot and
+source code scanning alerts fixed since the release that it did not count with the reason, and each image pair it
+skipped with the condition that failed. Grype and Trivy alerts are judged only by the image comparison, and Scorecard
+alerts are left out of both lists. A fixed Dependabot alert whose advisory is still open for the same package in a
+shipped dependency is given only as a count, because the run page is public and the Dependabot alerts are not; the
+Dependabot alerts of the repository list them. The decision is also the `result` output of the `decide` step.
 
 A Dependabot alert counts only for a runtime dependency outside `apps/examples/` and the `it-*` integration test
 directories, and only when the same advisory is not still open for the same package in such a dependency. Alerts on
@@ -125,18 +128,22 @@ Central, tagging the release, or pushing the version bump. Re-run its failed job
 the cause is fixed; automatic releases resume after a release workflow run on `main` succeeds. The workflow also skips
 the release when a release workflow run starts or finishes while it reads the alerts and images.
 
-Only the images `.qubership/docker-build-config.cfg` builds are compared, as in the security scan. Analyses of other
-images, such as `qubership-profiler-maintenance`, are not compared; the summary lists them as not built when the
-analyses the run reads include them. A built image without a Grype or Trivy analysis from the last 48 hours counts as a
-pair not compared. Each image pair requires error-free scans of the same image and platform with the same scanner
-version and configuration. Both analyses must be for the current `main` commit, at most 48 hours old, and at most 24
-hours apart. Their scan workflows must have completed, and a run whose other jobs failed still counts. They must have
-started after the latest release and all runs of the release and backend image build workflows on `main`, including
-failed runs that may have published some images. A running publisher, missing or incomplete report, or a branch, image
-publication, or release change during comparison invalidates the image comparison. Skipped image comparisons leave
-Dependabot, source code scanning, and monthly release decisions available. The Monday run usually skips every image
-pair, because images published after the Sunday scan make the scans stale; the run that the scan triggers is the one
-that can compare them, and its summary shows whether it did.
+Only the images that `.qubership/docker-build-config.cfg` builds at the current `main` commit are compared, as in the
+security scan. The workflow reads the file at that commit, not from its own checkout. Analyses of other images, such as
+`qubership-profiler-maintenance`, are not compared; the summary lists them as not built when they were created in the
+last 48 hours. An image pair is one scanner, one built image, and one platform with an analysis from the last 48 hours.
+A scanner without such an analysis of a built image counts as one pair not compared, whatever number of platforms the
+image has. Each image pair requires error-free scans of the same image and platform with the same scanner version and
+configuration. Both analyses must be for the current `main` commit, at most 48 hours old, and at most 24 hours apart.
+Their scan workflows must have completed, and a run whose other jobs failed still counts. They must have started after
+the latest release and after the last update of every run of the release and backend image build workflows on `main`,
+including failed runs that may have published some images and runs that published nothing. A run of those workflows that
+has not completed, for example a queued one, skips every pair. A missing or incomplete report skips its pair. A branch
+move, an update of a publisher run, or a change of the latest release during the comparison discards the pairs compared
+so far, and the summary lists them under that change. Skipped image comparisons leave Dependabot, source code scanning,
+and monthly release decisions available. The run that the weekly scan triggers compares the images first. The Monday run
+and manual runs can compare the same scans while they still meet these conditions, but a merge to `main` after the
+Sunday scan publishes new images and makes the scans stale.
 
 To trigger a release, go to the
 👉 [Actions tab → release.yaml](https://github.com/Netcracker/qubership-profiler-agent/actions/workflows/release.yaml)

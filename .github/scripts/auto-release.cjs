@@ -16,9 +16,12 @@ const imageReleaseFixes = require('./image-release-fixes.cjs');
  * the release workflow are read again right before the dispatch, and any change since the first read skips the
  * release.
  *
- * The decision is posted as a notice. The log and the job summary list the alerts it counted, the alerts fixed since
- * the release that it did not count with the reason, and the image pairs it could not compare with the condition that
- * failed.
+ * The decision is posted as a notice. The log and the job summary list the alerts it counted, the Dependabot and source
+ * code scanning alerts fixed since the release that it did not count with the reason, and the image pairs it could not
+ * compare with the condition that failed. Grype and Trivy alerts are judged only by the image comparison, and Scorecard
+ * alerts are left out of both lists. A fixed Dependabot alert whose advisory is still open in a shipped dependency is
+ * reported only as a count, because the log and the summary of this public repository are visible to readers who cannot
+ * see its Dependabot alerts.
  *
  * @param {object} args
  * @param {object} args.github the Octokit client of actions/github-script
@@ -28,11 +31,11 @@ const imageReleaseFixes = require('./image-release-fixes.cjs');
  * @param {string} args.branch the branch to release from
  * @param {string} args.workflowId the file name of the release workflow
  * @param {boolean} args.dryRun reports the decision without starting the release workflow
- * @param {string[]} args.images the image names the repository builds, from .qubership/docker-build-config.cfg
- * @returns {Promise<{release: boolean, reason: string, fixes: object[], notCounted: object[], images: object}>} the
- *   decision, the alerts it counted, the alerts fixed since the release that it did not count, and the image comparison
+ * @returns {Promise<{release: boolean, reason: string, fixes: object[], notCounted: object[], stillOpen: number,
+ *   images: object}>} the decision; the alerts it counted; the alerts fixed since the release that it did not count,
+ *   except those whose advisory is still open in a shipped dependency; the number of those; and the image comparison
  */
-module.exports = async function autoRelease({ github, context, core, now, branch, workflowId, dryRun, images: built }) {
+module.exports = async function autoRelease({ github, context, core, now, branch, workflowId, dryRun }) {
   const { owner, repo } = context.repo;
 
   const runs = await releaseRuns({ github, owner, repo, workflowId });
@@ -77,11 +80,17 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   anniversary.setUTCMonth(anniversary.getUTCMonth() + 1);
   const monthElapsed = now.getTime() >= anniversary.getTime() - 3.5 * DAY;
 
-  const images = await imageReleaseFixes({ github, owner, repo, branch, workflowId, latest, now, images: built });
+  const images = await imageReleaseFixes({ github, owner, repo, branch, workflowId, latest, now });
   core.info(images.status);
   fixes.push(...images.fixes);
   for (const f of fixes) core.info(`Counted: ${describeAlert(f)}`);
   for (const f of notCounted) core.info(`Not counted: ${describeAlert(f)}: ${f.reason}`);
+  const stillOpenLine = dependabot.stillOpen > 0
+    ? `Not counted: ${dependabot.stillOpen} Dependabot ${dependabot.stillOpen === 1 ? 'alert' : 'alerts'} fixed since `
+      + 'the release, because the same advisory is still open for the same package in a shipped dependency; the '
+      + 'Dependabot alerts of the repository list them'
+    : null;
+  if (stillOpenLine) core.info(stillOpenLine);
 
   let release = false;
   let reason;
@@ -130,15 +139,16 @@ module.exports = async function autoRelease({ github, context, core, now, branch
   } else {
     summary.addRaw('None.', true);
   }
+  if (notCounted.length > 0 || stillOpenLine) summary.addHeading('Fixed since the release, not counted', 3);
   if (notCounted.length > 0) {
-    summary.addHeading('Fixed since the release, not counted', 3).addTable([
+    summary.addTable([
       ['Source', 'Alert', 'Subject', 'Fixed at', 'Reason'].map(data => ({ data, header: true })),
       ...notCounted.map(f => [f.source, `#${f.number}`, f.subject, f.fixedAt, f.reason]),
     ]);
   }
-  const [imageHeadline, ...imageDetails] = images.status.split('\n');
-  summary.addHeading('Images', 3).addRaw(imageHeadline, true);
-  if (imageDetails.length > 0) summary.addList(imageDetails);
+  if (stillOpenLine) summary.addRaw(stillOpenLine, true);
+  summary.addHeading('Images', 3).addRaw(images.headline, true);
+  if (images.details.length > 0) summary.addList(images.details);
   await summary.write();
 
   if (failedRun) {
@@ -152,7 +162,7 @@ module.exports = async function autoRelease({ github, context, core, now, branch
     await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflowId, ref: branch });
     core.info(`Started ${workflowId} on ${branch}`);
   }
-  return { release, reason, fixes, notCounted, images };
+  return { release, reason, fixes, notCounted, stillOpen: dependabot.stillOpen, images };
 };
 
 const describeAlert = f => `${f.source}${f.number ? ` #${f.number}` : ''} ${f.subject}, fixed at ${f.fixedAt}`;
@@ -180,25 +190,30 @@ function unshipped(a) {
 
 // A Dependabot alert is fixed once the manifest on the default branch no longer has the vulnerable version.
 // Moving a manifest also fixes its alerts and opens the same ones at the new path, so an advisory that is still
-// open for the same package in a shipped manifest does not count.
+// open for the same package in a shipped manifest does not count. Such alerts are returned as a count in stillOpen,
+// not in notCounted, so that no report names a vulnerability that still ships. Advisories open only in manifests that
+// do not ship are not withheld.
 async function dependabotFixes({ github, owner, repo, releasedAt }) {
   const fixed = await github.paginate(github.rest.dependabot.listAlertsForRepo,
     { owner, repo, state: 'fixed', per_page: 100 });
   const open = await github.paginate(github.rest.dependabot.listAlertsForRepo,
     { owner, repo, state: 'open', per_page: 100 });
   const key = a => `${a.security_advisory.ghsa_id} ${a.dependency.package.ecosystem}:${a.dependency.package.name}`;
-  const stillOpen = new Map(open.filter(a => !unshipped(a)).map(a => [key(a), a]));
-  return split(fixed.filter(a => new Date(a.fixed_at) > releasedAt), a => ({
-    source: 'Dependabot',
-    number: a.number,
-    severity: a.security_advisory.severity,
-    subject: `${a.dependency.package.name} (${a.dependency.manifest_path})`,
-    fixedAt: a.fixed_at,
-    reason: unshipped(a) ?? (stillOpen.has(key(a))
-      ? `${a.security_advisory.ghsa_id} is still open in ${stillOpen.get(key(a)).dependency.manifest_path} `
-        + `(alert #${stillOpen.get(key(a)).number})`
-      : null),
-  }));
+  const openKeys = new Set(open.filter(a => !unshipped(a)).map(key));
+  const recent = fixed.filter(a => new Date(a.fixed_at) > releasedAt);
+  // A fixed alert in a manifest that does not ship is withheld too: its advisory and package are those of an open alert
+  const stillOpen = recent.filter(a => openKeys.has(key(a)));
+  return {
+    ...split(recent.filter(a => !stillOpen.includes(a)), a => ({
+      source: 'Dependabot',
+      number: a.number,
+      severity: a.security_advisory.severity,
+      subject: `${a.dependency.package.name} (${a.dependency.manifest_path})`,
+      fixedAt: a.fixed_at,
+      reason: unshipped(a),
+    })),
+    stillOpen: stillOpen.length,
+  };
 }
 
 // Splits alerts into the fixes that count and the ones whose reason says why not

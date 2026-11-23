@@ -44,14 +44,13 @@ jobs:
       # reads Dependabot alerts
       vulnerability-alerts: read
     steps:
-      - name: Checkout the decision script and the image list
+      # The script reads .qubership/docker-build-config.cfg through the API at the main commit it checks the scans
+      # against, so the checkout, which can be another commit, supplies only the code
+      - name: Checkout the decision script
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # .qubership/docker-build-config.cfg lists the images security-scan.yml scans, and only those are compared
-          sparse-checkout: |
-            .github/scripts
-            .qubership
+          sparse-checkout: .github/scripts
 
       - name: Decide and start the Release workflow
         id: decide
@@ -61,14 +60,11 @@ jobs:
         with:
           # language=javascript
           script: |
-            const fs = require('node:fs');
             const autoRelease = require('./.github/scripts/auto-release.cjs');
-            const buildConfig = JSON.parse(fs.readFileSync('.qubership/docker-build-config.cfg', 'utf8'));
             return await autoRelease({
               github, context, core,
               now: new Date(),
               branch: 'main',
               workflowId: 'release.yaml',
               dryRun: process.env.DRY_RUN === 'true',
-              images: buildConfig.components.map(c => c.name),
             });
