@@ -17,6 +17,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
+
+	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
 )
 
 func randomBytes(t testing.TB, n int) []byte {
@@ -282,4 +284,51 @@ func memInUse() int64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	return int64(m.HeapInuse + m.StackInuse)
+}
+
+// TestUpstreamCloseEndsTheSession: the collector restarts while the agent
+// keeps its old socket open without sending, as the agent does after a read
+// timeout. The gateway must end that session, so a later reload closes only
+// the agent's live connection.
+func TestUpstreamCloseEndsTheSession(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	hs := handshakeBytes(t, "ns-1", "svc", "pod-1")
+	upClosed := make(chan struct{})
+	go func() {
+		for i := 0; ; i++ {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			if i == 0 { // the collector restarts: read the handshake, then close
+				_, _ = io.ReadFull(c, make([]byte, len(hs)))
+				_ = c.Close()
+				close(upClosed)
+				continue
+			}
+			go func() { defer c.Close(); _, _ = io.Copy(c, c) }()
+		}
+	}()
+
+	policy := &rules.Policy{Default: rules.Passthrough}
+	reader := sdkmetric.NewManualReader()
+	p := startProxy(t, baseConfig(ln.Addr().String()), policy, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	stale, err := net.Dial("tcp", p.Addr().String())
+	require.NoError(t, err)
+	defer func() { _ = stale.Close() }()
+	_, err = stale.Write(hs)
+	require.NoError(t, err)
+	<-upClosed
+	require.Eventually(t, func() bool {
+		return sum(t, reader, "profiler_gateway_connections_active") == 0
+	}, 5*time.Second, 10*time.Millisecond, "the session ends with its upstream")
+
+	live := dialEcho(t, p.Addr().String())
+	defer func() { _ = live.Close() }()
+	policy.SetFileRules(rules.Set{{Match: rules.Match{Service: "svc"}, Mode: rules.Discard}})
+	p.Reevaluate()
+	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_connections_closed_by_reload_total"))
 }

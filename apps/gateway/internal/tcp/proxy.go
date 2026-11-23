@@ -348,14 +348,22 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 		}
 		errc <- p.copy(toUpstream, s.client, up)
 	}()
-	go func() { errc <- p.copy(s.client, up, s.client) }()
+	upDone := make(chan error, 1)
+	go func() { upDone <- p.copy(s.client, up, s.client) }()
 
-	// One side finishing cleanly half-closes the other and waits for it.
-	// An error on either side ends both.
-	if err := <-errc; err != nil {
-		return
+	// The agent finishing cleanly half-closes the upstream and waits for it.
+	// The upstream ending ends the session: nothing can answer the agent any
+	// more, and the agent may leave its old socket open after a read timeout,
+	// which would keep this session tracked forever. An error ends both.
+	select {
+	case err := <-errc:
+		if err != nil {
+			return
+		}
+		<-upDone
+	case <-upDone:
+		abort(s.client)
 	}
-	<-errc
 }
 
 // copy moves bytes until src ends, then half-closes dst so the peer sees
