@@ -188,6 +188,21 @@ func dialEcho(t testing.TB, addr string) net.Conn {
 	return c
 }
 
+// readEnd reads r until it fails and returns that error: io.EOF after a FIN,
+// ECONNRESET after a reset. A net.Conn gets a 5 s deadline; the emulator sets
+// its own per read.
+func readEnd(r io.Reader) error {
+	if c, ok := r.(net.Conn); ok {
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	}
+	buf := make([]byte, 64<<10)
+	for {
+		if _, err := r.Read(buf); err != nil {
+			return err
+		}
+	}
+}
+
 // sendStream opens a stream, sends the chunks as RCV_DATA, and flushes, so
 // every ack has been drained when it returns.
 func sendStream(t *testing.T, ac *emulator.AgentConnection, stream string, chunks ...[]byte) {

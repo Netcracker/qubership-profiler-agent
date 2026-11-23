@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -142,12 +143,17 @@ func connectAgent(t *testing.T, addr string) *emulator.AgentConnection {
 	return ac
 }
 
+// waitClosed reads the agent's socket until the rules change resets it. A
+// FIN would end the read with io.EOF instead.
 func waitClosed(t *testing.T, ac *emulator.AgentConnection) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		_, err := ac.InitStream(model.StreamTrace, 0, false)
-		return err != nil
-	}, 5*time.Second, 20*time.Millisecond, "the rules change must close the connection")
+	buf := make([]byte, 4<<10)
+	for {
+		if _, err := ac.Read(buf); err != nil {
+			require.ErrorIs(t, err, syscall.ECONNRESET, "the rules change must reset the connection")
+			return
+		}
+	}
 }
 
 // TestRulesFileMovesAConnectedAgent is the G4 reload acceptance test: rules

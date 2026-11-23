@@ -313,13 +313,20 @@ func (p *Proxy) Reevaluate() {
 // passthrough dials the upstream and splices the two sockets. prefix holds
 // bytes already read from the agent, sent upstream before the rest.
 func (p *Proxy) passthrough(s *session, prefix []byte) {
+	// The agent leg gets a FIN only when the agent finished first and both
+	// copies ended cleanly; every other end resets it.
+	fin := false
+	defer func() {
+		if !fin {
+			abort(s.client)
+		}
+	}()
 	ctx := context.Background()
 	up, err := net.DialTimeout("tcp", p.cfg.Upstream, p.cfg.ConnectTimeout)
 	if err != nil {
 		p.metrics.upstreamErrors.Add(ctx, 1, metric.WithAttributes(surfaceAttr))
 		p.logger.Warn("Upstream unreachable; closing the agent connection, the agent retries in 10 s",
 			zap.String("upstream", p.cfg.Upstream), zap.Stringer("remote", s.client.RemoteAddr()), zap.Error(err))
-		abort(s.client)
 		return
 	}
 	s.mu.Lock()
@@ -343,42 +350,36 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 				return
 			}
 		}
-		errc <- p.copy(toUpstream, s.client, up)
+		err := p.copy(toUpstream, s.client)
+		if err == nil {
+			// Half-close, so the upstream sees the end of the stream.
+			err = up.(*net.TCPConn).CloseWrite()
+		}
+		errc <- err
 	}()
 	upDone := make(chan error, 1)
-	go func() { upDone <- p.copy(s.client, up, s.client) }()
+	go func() { upDone <- p.copy(s.client, up) }()
 
-	// The agent finishing cleanly half-closes the upstream and waits for it.
+	// The agent finishing cleanly waits for the upstream to finish answering.
 	// The upstream ending ends the session: nothing can answer the agent any
 	// more, and the agent may leave its old socket open after a read timeout,
 	// which would keep this session tracked forever. An error ends both.
 	select {
 	case err := <-errc:
-		if err != nil {
-			return
-		}
-		<-upDone
+		fin = err == nil && <-upDone == nil
 	case <-upDone:
-		abort(s.client)
 	}
 }
 
-// copy moves bytes until src ends, then half-closes dst so the peer sees
-// the end of the stream. It returns nil on a clean end of src.
-func (p *Proxy) copy(dst io.Writer, src io.Reader, dstConn net.Conn) error {
+// copy moves bytes until src ends. It returns nil on a clean end of src.
+func (p *Proxy) copy(dst io.Writer, src io.Reader) error {
 	buf := p.bufs.Get().(*[]byte)
 	defer p.bufs.Put(buf)
 	// Hide WriterTo and ReaderFrom, which net.TCPConn implements: with them
 	// io.CopyBuffer ignores buf and allocates its own, and copy_buffer_size
 	// would bound nothing.
 	_, err := io.CopyBuffer(struct{ io.Writer }{dst}, struct{ io.Reader }{src}, *buf)
-	if err != nil {
-		return err
-	}
-	if cw, ok := dstConn.(interface{ CloseWrite() error }); ok {
-		return cw.CloseWrite()
-	}
-	return dstConn.Close()
+	return err
 }
 
 // Shutdown stops accepting and closes every agent connection at once. An

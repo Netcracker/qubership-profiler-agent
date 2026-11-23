@@ -121,6 +121,18 @@ A rules file change is applied to open connections too: each one whose mode chan
 reconnects within 10 seconds into the new mode. That is the only way to move an agent out of `discard`, because the
 upstream never saw that connection's handshake. Shutdown resets every connection at once.
 
+How the gateway ends the agent's side of a connection:
+
+| End                                                    | Agent sees | Why                                          |
+| ------------------------------------------------------ | ---------- | -------------------------------------------- |
+| The agent finished sending first, then upstream closed | FIN        | A clean end the agent asked for.             |
+| The upstream closed first                              | Reset      | Nothing can answer the agent any more.       |
+| A read or write error in either direction              | Reset      | The stream is broken.                        |
+| Mode changed by a rules reload, or shutdown            | Reset      | The agent reconnects within 10 seconds.      |
+| Upstream unreachable, `max_connections`, bad handshake | Reset      | The agent retries in 10 seconds, no waiting. |
+
+A FIN would make the agent wait out its 30-second read timeout first, so every end the agent did not start is a reset.
+
 Measured on a laptop: a gateway hop adds about 21 µs to a 1 KB request and its answer, and an idle passthrough
 connection costs about 40 KB.
 

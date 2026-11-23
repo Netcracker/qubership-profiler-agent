@@ -120,6 +120,55 @@ func TestReplayAndSpliceAreByteIdentical(t *testing.T) {
 	assert.True(t, bytes.Equal(data, got), "echo differs: got %d of %d bytes", len(got), len(data))
 }
 
+// TestAgentFinishingFirstGetsAFin: the one clean end. The agent half-closes,
+// the upstream answers and closes, and the agent sees a FIN.
+func TestAgentFinishingFirstGetsAFin(t *testing.T) {
+	p := startProxy(t, baseConfig(echoUpstream(t)), nil)
+	c := dialEcho(t, p.Addr().String())
+	defer func() { _ = c.Close() }()
+	require.NoError(t, c.(*net.TCPConn).CloseWrite())
+	assert.ErrorIs(t, readEnd(c), io.EOF)
+}
+
+// TestAgentCopyErrorResetsTheAgent: a failed write to the upstream ends the
+// session with a reset. The upstream fills every buffer toward the agent, so
+// the upstream-to-agent copy is blocked in a write and only the
+// agent-to-upstream copy sees the error.
+func TestAgentCopyErrorResetsTheAgent(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	hs := handshakeBytes(t, "ns-1", "svc", "pod-1")
+	upReset := make(chan struct{})
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		_, _ = io.ReadFull(c, make([]byte, len(hs)))
+		buf := make([]byte, 64<<10)
+		for {
+			_ = c.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
+			if _, err := c.Write(buf); err != nil {
+				break
+			}
+		}
+		abort(c)
+		close(upReset)
+	}()
+
+	p := startProxy(t, baseConfig(ln.Addr().String()), nil)
+	c, err := net.Dial("tcp", p.Addr().String())
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	_, err = c.Write(hs)
+	require.NoError(t, err)
+	<-upReset
+	_, err = c.Write([]byte("after the upstream reset"))
+	require.NoError(t, err)
+	assert.ErrorIs(t, readEnd(c), syscall.ECONNRESET, "the agent sees a reset, not a FIN")
+}
+
 func TestMaxConnectionsRefuses(t *testing.T) {
 	cfg := baseConfig(echoUpstream(t))
 	cfg.MaxConnections = 1
@@ -170,6 +219,7 @@ func TestShutdownClosesAgentConnections(t *testing.T) {
 	start := time.Now()
 	require.NoError(t, p.Shutdown(context.Background()))
 	assert.Less(t, time.Since(start), 2*time.Second, "shutdown does not wait for long-lived agent connections")
+	assert.ErrorIs(t, readEnd(ac), syscall.ECONNRESET, "the agent sees a reset, not a FIN")
 	_, err = ac.InitStream(model.StreamTrace, 0, false)
 	assert.Error(t, err, "the agent sees the close")
 	require.Eventually(t, func() bool {
@@ -327,6 +377,7 @@ func TestUpstreamCloseEndsTheSession(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return sum(t, reader, "profiler_gateway_connections_active") == 0
 	}, 5*time.Second, 10*time.Millisecond, "the session ends with its upstream")
+	assert.ErrorIs(t, readEnd(stale), syscall.ECONNRESET, "the agent sees a reset, not a FIN")
 
 	live := dialEcho(t, p.Addr().String())
 	defer func() { _ = live.Close() }()

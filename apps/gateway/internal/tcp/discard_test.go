@@ -108,13 +108,10 @@ func TestReloadMovesAConnectedAgent(t *testing.T) {
 	assert.Equal(t, int64(2), sum(t, reader, "profiler_gateway_connections_closed_by_reload_total"))
 }
 
-// requireClosed waits until the agent's connection is gone.
+// requireClosed waits until the agent's connection is reset.
 func requireClosed(t *testing.T, ac *emulator.AgentConnection) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		_, err := ac.InitStream(model.StreamTrace, 0, false)
-		return err != nil
-	}, 5*time.Second, 20*time.Millisecond, "the connection must be closed")
+	require.ErrorIs(t, readEnd(ac), syscall.ECONNRESET, "the agent must see a reset, not a FIN")
 }
 
 func TestBadHandshakeIsClosed(t *testing.T) {
