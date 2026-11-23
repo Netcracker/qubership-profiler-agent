@@ -72,9 +72,31 @@ tests:
           path: spec.template.spec.containers[0].args
           value: [--config=/conf/otel.yaml]
 
+  # The default render's checksum is pinned: a rules edit must keep it, so the
+  # pods are not rolled, and a Collector config change must change it.
   - it: annotates the pods with a config checksum
     template: templates/deployment.yaml
     asserts:
-      - matchRegex:
+      - equal:
           path: spec.template.metadata.annotations["checksum/config"]
-          pattern: "^[0-9a-f]{64}$"
+          value: 60d764d01c9ce0792af5d2deae01c2c4266c51be9618cf60c38efe8bc32f3015
+
+  - it: keeps the config checksum when only the rules change
+    template: templates/deployment.yaml
+    set:
+      rules:
+        - match: { service: "chatty-*" }
+          mode: discard
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: 60d764d01c9ce0792af5d2deae01c2c4266c51be9618cf60c38efe8bc32f3015
+
+  - it: changes the config checksum when a trace protocol switches to discard
+    template: templates/deployment.yaml
+    set:
+      traces.zipkin.mode: discard
+    asserts:
+      - notEqual:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: 60d764d01c9ce0792af5d2deae01c2c4266c51be9618cf60c38efe8bc32f3015
