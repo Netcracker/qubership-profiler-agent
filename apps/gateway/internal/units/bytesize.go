@@ -8,20 +8,14 @@ import (
 	"strings"
 )
 
-// ByteSize is a size in bytes. In config it is written as a plain integer or
-// with a unit suffix: B, KB, MB, GB, TB (powers of 1000) or KiB, MiB, GiB,
-// TiB (powers of 1024).
+// ByteSize is a size in bytes. In config it is written as a plain integer,
+// optionally followed by B or by one of the IEC suffixes KiB, MiB, GiB, and
+// TiB (powers of 1024). KB, MB, GB, TB, and the one-letter K, M, G, T are
+// rejected in any case: profiler-backend reads them as powers of 1024, and the
+// SI convention reads them as powers of 1000.
 type ByteSize int64
 
-var suffixes = []struct {
-	suffix string
-	factor int64
-}{
-	// Two-letter binary suffixes go first so that "MiB" is not read as "B".
-	{"KiB", 1 << 10}, {"MiB", 1 << 20}, {"GiB", 1 << 30}, {"TiB", 1 << 40},
-	{"KB", 1e3}, {"MB", 1e6}, {"GB", 1e9}, {"TB", 1e12},
-	{"B", 1},
-}
+var binarySuffixes = map[string]int64{"KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30, "TiB": 1 << 40}
 
 // UnmarshalText parses a size such as "10GiB", "64MiB", or "4096".
 func (b *ByteSize) UnmarshalText(text []byte) error {
@@ -36,14 +30,29 @@ func (b *ByteSize) UnmarshalText(text []byte) error {
 // ParseByteSize parses a size such as "10GiB", "64MiB", or "4096".
 func ParseByteSize(s string) (ByteSize, error) {
 	s = strings.TrimSpace(s)
-	factor := int64(1)
-	number := s
-	for _, u := range suffixes {
-		if strings.HasSuffix(s, u.suffix) {
-			factor = u.factor
-			number = strings.TrimSpace(strings.TrimSuffix(s, u.suffix))
-			break
+	i := strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' })
+	if i < 0 {
+		i = len(s)
+	}
+	number, unit := s[:i], strings.TrimSpace(s[i:])
+	factor, ok := binarySuffixes[unit]
+	if !ok && unit != "" && unit != "B" {
+		// "64M", "64mb", "64MB", and a miscased "64mib" get the IEC
+		// spelling in the error.
+		u := strings.ToUpper(unit)
+		if number != "" && strings.ContainsAny(u[:1], "KMGT") {
+			iec := number + u[:1] + "iB"
+			switch u[1:] {
+			case "", "B":
+				return 0, fmt.Errorf("%q is ambiguous: write %s", s, iec)
+			case "I", "IB":
+				return 0, fmt.Errorf("invalid size %q: write %s", s, iec)
+			}
 		}
+		number = "" // fails ParseInt below
+	}
+	if !ok {
+		factor = 1
 	}
 	n, err := strconv.ParseInt(number, 10, 64)
 	if err != nil || n < 0 {
