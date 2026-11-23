@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net"
@@ -430,22 +431,7 @@ func TestMetrics(t *testing.T) {
 	do(t, http.MethodPut, gw+heapPath, chunked{bytes.NewReader(make([]byte, 1000))}, "application/octet-stream")
 	do(t, http.MethodPut, gw+threadPath, bytes.NewReader(make([]byte, 300)), "text/plain")
 
-	var rm metricdata.ResourceMetrics
-	require.NoError(t, reader.Collect(context.Background(), &rm))
-	sums := map[string]int64{}
-	for _, sm := range rm.ScopeMetrics {
-		for _, m := range sm.Metrics {
-			if s, ok := m.Data.(metricdata.Sum[int64]); ok {
-				for _, dp := range s.DataPoints {
-					key := m.Name
-					if v, ok := dp.Attributes.Value("outcome"); ok {
-						key += "/" + v.AsString()
-					}
-					sums[key] += dp.Value
-				}
-			}
-		}
-	}
+	sums := collectSums(t, reader)
 	assert.Equal(t, int64(1000), sums["profiler_gateway_upload_bytes_total/forwarded"])
 	assert.Equal(t, int64(300), sums["profiler_gateway_upload_bytes_total/discarded"])
 	assert.Equal(t, int64(1000), sums["profiler_gateway_bytes_forwarded_total"])
@@ -540,5 +526,70 @@ func TestStalledUpstreamAnswers502AndFreesSlot(t *testing.T) {
 		_ = resp.Body.Close()
 		assert.Equal(t, http.StatusBadGateway, resp.StatusCode, "upload %d", i)
 		assert.Less(t, time.Since(start), 5*time.Second, "upload %d", i)
+	}
+}
+
+// collectSums reads every int64 sum, keyed by name and, if set, outcome.
+func collectSums(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	sums := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if s, ok := m.Data.(metricdata.Sum[int64]); ok {
+				for _, dp := range s.DataPoints {
+					key := m.Name
+					if v, ok := dp.Attributes.Value("outcome"); ok {
+						key += "/" + v.AsString()
+					}
+					sums[key] += dp.Value
+				}
+			}
+		}
+	}
+	return sums
+}
+
+// failingReader sends r, then fails instead of reaching EOF, like a client
+// whose file read breaks mid-upload.
+type failingReader struct{ r io.Reader }
+
+func (f failingReader) Read(p []byte) (int, error) {
+	n, err := f.r.Read(p)
+	if errors.Is(err, io.EOF) {
+		return n, errors.New("file read failed")
+	}
+	return n, err
+}
+
+// F8: a client body that fails partway counts as client_aborted, not as an
+// upstream error, in both modes.
+func TestClientAbortedUploadOutcome(t *testing.T) {
+	for name, mode := range map[string]rules.Mode{"passthrough": rules.Passthrough, "discard": rules.Discard} {
+		t.Run(name, func(t *testing.T) {
+			up := newUpstream(t)
+			cfg := baseConfig()
+			cfg.Upstream = up.url(t)
+			reader := sdkmetric.NewManualReader()
+			gw := startServer(t, cfg, &rules.Policy{Default: mode},
+				sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+			req, err := http.NewRequest(http.MethodPut, gw+heapPath,
+				failingReader{bytes.NewReader(make([]byte, 256<<10))})
+			require.NoError(t, err)
+			_, err = http.DefaultClient.Do(req)
+			require.Error(t, err)
+
+			key := "profiler_gateway_upload_bytes_total/" + outcomeClientAborted
+			require.Eventually(t, func() bool { return collectSums(t, reader)[key] > 0 },
+				5*time.Second, 10*time.Millisecond)
+			sums := collectSums(t, reader)
+			assert.Equal(t, int64(0), sums["profiler_gateway_upstream_errors_total"])
+			for _, o := range []string{outcomeForwarded, outcomeDiscarded, outcomeUpstreamError} {
+				_, ok := sums["profiler_gateway_upload_bytes_total/"+o]
+				assert.False(t, ok, "outcome %s", o)
+			}
+		})
 	}
 }
