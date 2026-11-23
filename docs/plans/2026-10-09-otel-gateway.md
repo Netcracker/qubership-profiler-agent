@@ -285,7 +285,7 @@ diag-proxy today, the gateway's streaming path is a behavior fix, and the cutove
 | `mode` | `passthrough` | Default mode: `passthrough` or `discard`. |
 | `path_prefix` | `/diagnostic` | Requests outside the prefix get 404. |
 | `allowed_methods` | `[PUT, POST, DELETE]` | Everything diagtools uses. |
-| `upstream_tls` | off | mTLS to the upstream (§7). |
+| `upstream_tls` | not in v1 | mTLS to the upstream. §7 drops it from v1. |
 | `connect_timeout` | `1s` | Upstream dial deadline. Matches nginx `proxy_connect_timeout`. |
 | `response_header_timeout` | `10m` | Upstream header deadline. Longer than the client's 5 min on purpose. |
 | `read_header_timeout` | `10s` | Client header deadline. |
@@ -319,8 +319,8 @@ diag-proxy today, the gateway's streaming path is a behavior fix, and the cutove
 to nginx. With rules configured, the gateway reads the handshake first, decides, dials, and replays the bytes. The
 dial and the upstream's reply must both fit inside the agent's 30 s read timeout; `connect_timeout: 1s` leaves room.
 
-**`discard`** terminates the protocol with `libs/server` and a `Listener` that stores nothing. The handshake reply
-is whatever `libs/server` answers, not a hard-coded V2. `Listener` has nine methods (`RegisterPod`, `AppendData`,
+**`discard`** terminates the protocol with `libs/wire/server` and a `Listener` that stores nothing. The handshake reply
+is whatever `libs/wire/server` answers, not a hard-coded V2. `Listener` has nine methods (`RegisterPod`, `AppendData`,
 `RegisterStream`, `PodDisconnected`, `ReceivedCommand`, `Read`, `Write`, `PrintDebug`, `Close`); the null
 implementation is small, and `Read`/`Write` feed the gateway's byte counters.
 
@@ -357,12 +357,12 @@ restart to undo defeats the purpose of the gateway. Revisit only with a named co
 | `upstream` | none | `host:port` of the collector. Required unless `mode` is `discard`. |
 | `mode` | `passthrough` | Default mode: `passthrough` or `discard`. |
 | `connect_timeout` | `1s` | Upstream dial deadline. Matches nginx. |
-| `upstream_tls` | off | mTLS to the upstream (§7). |
+| `upstream_tls` | not in v1 | mTLS to the upstream. §7 drops it from v1. |
 | `handshake_timeout` | `10s` | Deadline to read the handshake before closing an unidentified connection. |
 | `max_connections` | `256` | Admission cap. Over the cap the connection is refused. |
 | `copy_buffer_size` | `32KiB` | Splice buffer per direction in `passthrough`. |
 | `discard.rotation_period` | `0` | `INIT_STREAM_V2` reply field in `discard`. |
-| `discard.required_rotation_size` | `4MiB` | `INIT_STREAM_V2` reply field; the `libs/server` default. |
+| `discard.required_rotation_size` | `4MiB` | `INIT_STREAM_V2` reply field; the `libs/wire/server` default. |
 | `rules`, `rules_file` | none | Per-source overrides (§8). |
 
 There is no `drain_timeout` on this surface. A connection lives as long as its pod and carries no resumable state,
@@ -372,7 +372,7 @@ Per connection, `passthrough` costs two goroutines, two descriptors, and about 8
 descriptor and about 40 KB. A per-namespace instance sees tens of connections, so the default cap of 256 is a
 safety net, not a tuning target. Keep `max_connections` below half the pod's `nofile` limit.
 
-**One change in `libs/server`.** The extension owns its listener, because it reads the handshake before it decides
+**One change in `libs/wire/server`.** The extension owns its listener, because it reads the handshake before it decides
 where the connection goes. So `libs/wire/server` does not need a bind address; it needs a way to serve a connection
 accepted elsewhere. `Service.ServeConn(ctx, conn)` runs the handler on such a connection, and `Stop` closes it like
 the connections `Start` accepts. The gateway passes a connection that replays the handshake bytes it already read.
@@ -610,8 +610,8 @@ No code. Each answer closes an assumption in this plan.
 - The agent emulator moves to `libs/wire/emulator` (§3.2), so the tests can drive a synthetic agent.
 - `internal/tcp` with the bidirectional splice; the `profilertcp` extension; `max_connections` with refusal;
   `connect_timeout`; `componentstatus`.
-- **Acceptance:** `libs/wire/emulator` drives a synthetic agent through the gateway into a real `libs/server`, and the
-  data arrives intact. With the upstream down, the agent side sees a close and retries. A benchmark records added
+- **Acceptance:** `libs/wire/emulator` drives a synthetic agent through the gateway into a real `libs/wire/server`, and
+  the data arrives intact. With the upstream down, the agent side sees a close and retries. A benchmark records added
   latency and per-connection memory; `load-testing-report.md` §9 measured a ~40× ingest collapse at 2 s of added
   path latency, so the gateway's budget is milliseconds.
 
@@ -638,6 +638,8 @@ No code. Each answer closes an assumption in this plan.
 - Documented `filterprocessor` and `tail_sampling` recipes, with the replica caveat from §6.1.
 - Chart values mapped from the diag-proxy values (§10.1); `upstream_tls` parity if G0 found users; `nofile` set in
   the pod spec.
+- `COPY deploy/charts/gateway /charts/gateway` added to `deploy/docker-transfer/Dockerfile`, which ships only the
+  `dumps-collector` and `profiler-backend` charts today.
 - Cutover notes: port 14267, changed trace error semantics (§6.2), dump size behavior (§4.3), memory request.
 - **Acceptance:** one namespace runs on the gateway with no agent or service change, and trace, profiler, and dump
   volumes match the nginx baseline within measurement noise.

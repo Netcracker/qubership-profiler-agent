@@ -10,8 +10,8 @@ import (
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/units"
 )
 
-// Config is the profiler_tcp extension config. The defaults and the
-// reasoning behind each one are in docs/plans/2026-10-09-otel-gateway.md §5.
+// Config is the profiler_tcp extension config. apps/gateway/README.md lists each key
+// and its default.
 type Config struct {
 	// Endpoint is the listen address.
 	Endpoint string `mapstructure:"endpoint"`

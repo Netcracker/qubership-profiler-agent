@@ -6,7 +6,7 @@ import (
 	emwire "github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/wire"
 )
 
-// TraceEvent and its constructors live in libs/emulator/wire so the virtual
+// TraceEvent and its constructors live in libs/wire/emulator/wire so the virtual
 // dumper and these test builders share one encoder; the aliases below keep
 // this package's call sites unchanged.
 type TraceEvent = emwire.TraceEvent
