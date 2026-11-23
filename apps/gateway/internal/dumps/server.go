@@ -256,8 +256,27 @@ func (s *Server) modifyResponse(resp *http.Response) error {
 		// proxyError counts it and drops the connection.
 		return err
 	}
-	s.metrics.upload(resp.Request.Context(), st.dumpType, outcomeForwarded, st.body.state().total)
+	outcome := outcomeForwarded
+	if !clientAccepts(resp.Request.Method, resp.StatusCode) {
+		outcome = outcomeUpstreamRejected
+	}
+	s.metrics.upload(resp.Request.Context(), st.dumpType, outcome, st.body.state().total)
 	return nil
+}
+
+// clientAccepts reports whether diagtools treats the upstream's status as a
+// success (apps/agent/diagtools/utils/sender.go): 200, 201, or 204 for an
+// upload, and 200, 204, 404, or 405 for a DELETE.
+func clientAccepts(method string, status int) bool {
+	switch status {
+	case http.StatusOK, http.StatusNoContent:
+		return true
+	case http.StatusCreated:
+		return method != http.MethodDelete
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return method == http.MethodDelete
+	}
+	return false
 }
 
 // proxyError handles a failed upstream exchange: an upload over the size

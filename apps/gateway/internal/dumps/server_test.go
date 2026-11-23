@@ -439,6 +439,31 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, int64(0), sums["profiler_gateway_uploads_in_flight"])
 }
 
+func TestUpstreamRejectedOutcome(t *testing.T) {
+	up := newUpstream(t)
+	up.status = func(r *http.Request) int {
+		if r.Method == http.MethodDelete {
+			return http.StatusNotFound
+		}
+		return http.StatusInternalServerError
+	}
+	cfg := baseConfig()
+	cfg.Upstream = up.url(t)
+	reader := sdkmetric.NewManualReader()
+	gw := startServer(t, cfg, nil, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	resp := do(t, http.MethodPut, gw+heapPath, bytes.NewReader(make([]byte, 500)), "application/octet-stream")
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	resp = do(t, http.MethodDelete, gw+heapPath, nil, "")
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	sums := collectSums(t, reader)
+	assert.Equal(t, int64(500), sums["profiler_gateway_upload_bytes_total/upstream_rejected"], "diagtools fails a PUT on 500")
+	_, ok := sums["profiler_gateway_upload_bytes_total/forwarded"]
+	assert.True(t, ok, "diagtools accepts 404 on DELETE")
+	assert.Equal(t, int64(0), sums["profiler_gateway_bytes_forwarded_total"])
+}
+
 // zeros is an endless body.
 type zeros struct{}
 

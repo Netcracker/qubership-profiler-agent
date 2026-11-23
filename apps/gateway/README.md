@@ -163,18 +163,18 @@ rules:
 
 On the Collector's own Prometheus endpoint:
 
-| Metric                                                | Labels                                                                                                               |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `profiler_gateway_uploads_in_flight`                  |                                                                                                                      |
-| `profiler_gateway_upload_bytes_total`                 | `dump_type`, `outcome`: `forwarded`, `discarded`, `over_cap`, `over_concurrency`, `upstream_error`, `client_aborted` |
-| `profiler_gateway_bytes_forwarded_total`              | `surface`: `dumps`, `tcp`                                                                                            |
-| `profiler_gateway_bytes_discarded_total`              | `surface`: `dumps`, `tcp`                                                                                            |
-| `profiler_gateway_upstream_errors_total`              | `surface`: `dumps`, `tcp`                                                                                            |
-| `profiler_gateway_rules_reload_total`                 | `surface`: `dumps`, `tcp`; `result`: `success`, `failure`                                                            |
-| `profiler_gateway_connections_active`                 | `mode`: `passthrough`, `discard`                                                                                     |
-| `profiler_gateway_connections_total`                  | `mode`: `passthrough`, `discard`                                                                                     |
-| `profiler_gateway_connections_refused_total`          |                                                                                                                      |
-| `profiler_gateway_connections_closed_by_reload_total` | `mode`: `passthrough`, `discard`, the mode before the change                                                         |
+| Metric                                                | Labels                                                                                                                                    |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `profiler_gateway_uploads_in_flight`                  |                                                                                                                                           |
+| `profiler_gateway_upload_bytes_total`                 | `dump_type`, `outcome`: `forwarded`, `discarded`, `over_cap`, `over_concurrency`, `upstream_error`, `client_aborted`, `upstream_rejected` |
+| `profiler_gateway_bytes_forwarded_total`              | `surface`: `dumps`, `tcp`                                                                                                                 |
+| `profiler_gateway_bytes_discarded_total`              | `surface`: `dumps`, `tcp`                                                                                                                 |
+| `profiler_gateway_upstream_errors_total`              | `surface`: `dumps`, `tcp`                                                                                                                 |
+| `profiler_gateway_rules_reload_total`                 | `surface`: `dumps`, `tcp`; `result`: `success`, `failure`                                                                                 |
+| `profiler_gateway_connections_active`                 | `mode`: `passthrough`, `discard`                                                                                                          |
+| `profiler_gateway_connections_total`                  | `mode`: `passthrough`, `discard`                                                                                                          |
+| `profiler_gateway_connections_refused_total`          |                                                                                                                                           |
+| `profiler_gateway_connections_closed_by_reload_total` | `mode`: `passthrough`, `discard`, the mode before the change                                                                              |
 
 Alert on a non-zero rate of `profiler_gateway_bytes_discarded_total`: discard answers success, so a forgotten switch is
 otherwise silent data loss. A discard switch is not the only cause: on the dumps surface, an upload over the size or

@@ -12,12 +12,13 @@ import (
 
 // Upload outcomes, the `outcome` attribute of profiler_gateway_upload_bytes_total.
 const (
-	outcomeForwarded       = "forwarded"
-	outcomeDiscarded       = "discarded"
-	outcomeOverCap         = "over_cap"
-	outcomeOverConcurrency = "over_concurrency"
-	outcomeUpstreamError   = "upstream_error"
-	outcomeClientAborted   = "client_aborted"
+	outcomeForwarded        = "forwarded"
+	outcomeDiscarded        = "discarded"
+	outcomeOverCap          = "over_cap"
+	outcomeOverConcurrency  = "over_concurrency"
+	outcomeUpstreamError    = "upstream_error"
+	outcomeClientAborted    = "client_aborted"
+	outcomeUpstreamRejected = "upstream_rejected"
 )
 
 // The names are the ones in plan §12. The Collector's Prometheus endpoint
