@@ -137,7 +137,7 @@ func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Mete
 		Timeout:              discardTimeout,
 		RotationPeriod:       uint64(cfg.RotationPeriod.Milliseconds()),
 		RequiredRotationSize: cfg.RequiredRotationSize,
-	}, discardListener{discarded: m.bytesDiscarded})
+	}, discardListener{metrics: m})
 	p.bufs.New = func() any {
 		b := make([]byte, cfg.CopyBufferSize)
 		return &b
@@ -324,7 +324,7 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 	ctx := context.Background()
 	up, err := net.DialTimeout("tcp", p.cfg.Upstream, p.cfg.ConnectTimeout)
 	if err != nil {
-		p.metrics.upstreamErrors.Add(ctx, 1, metric.WithAttributes(surfaceAttr))
+		p.metrics.UpstreamError(ctx)
 		p.logger.Warn("Upstream unreachable; closing the agent connection, the agent retries in 10 s",
 			zap.String("upstream", p.cfg.Upstream), zap.Stringer("remote", s.client.RemoteAddr()), zap.Error(err))
 		return
@@ -341,7 +341,7 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 	p.metrics.active.Add(ctx, 1, mode)
 	defer p.metrics.active.Add(ctx, -1, mode)
 
-	toUpstream := countingWriter{w: up, counter: p.metrics.bytesForwarded}
+	toUpstream := countingWriter{w: up, metrics: p.metrics}
 	errc := make(chan error, 2)
 	go func() {
 		if len(prefix) > 0 {

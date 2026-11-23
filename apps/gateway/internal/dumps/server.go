@@ -282,7 +282,7 @@ func (s *Server) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 		s.logger.Debug("Client aborted an upload", zap.String("path", r.URL.Path), zap.Error(before.clientErr))
 		abortClient()
 	}
-	s.metrics.upstreamErrors.Add(ctx, 1, metric.WithAttributes(surfaceAttr))
+	s.metrics.UpstreamError(ctx)
 	if _, derr := st.body.drain(); derr != nil {
 		s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, st.body.state().total)
 		abortClient()
@@ -299,10 +299,4 @@ func (s *Server) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 func abortClient() { panic(http.ErrAbortHandler) }
 
 // RecordRulesReload counts a rules file load.
-func (s *Server) RecordRulesReload(ok bool) {
-	result := "success"
-	if !ok {
-		result = "failure"
-	}
-	s.metrics.rulesReloaded(result)
-}
+func (s *Server) RecordRulesReload(ok bool) { s.metrics.RulesReloaded(ok) }
