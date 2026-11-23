@@ -453,7 +453,11 @@ func (sc *ConnectionHandler) Close() (err error) {
 	}
 	if sc.conn != nil {
 		err = sc.conn.Close()
-		if err != nil {
+		if errors.Is(err, net.ErrClosed) {
+			// The owner closed it first, as the gateway does on a rules reload.
+			log.Debug(sc.ctx, "connection from %v was already closed", sc.conn.RemoteAddr())
+			err = nil
+		} else if err != nil {
 			log.Error(sc.ctx, err, "Error during closing the connection from %v ", sc.conn.RemoteAddr())
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,4 +135,24 @@ func TestServeConnAfterStopClosesTheConnection(t *testing.T) {
 	ss.ServeConn(context.Background(), server)
 	_, err := client.Read(make([]byte, 1))
 	assert.Error(t, err)
+}
+
+// TestCloseAfterOwnerClosedTheConnIsNotAnError: the gateway closes a discard
+// connection under the handler on a rules reload; the handler's own Close
+// must not log that as an error.
+func TestCloseAfterOwnerClosedTheConnIsNotAnError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	client, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer client.Close()
+	conn, err := ln.Accept()
+	require.NoError(t, err)
+
+	ss := PrepareServer(context.Background(), ConnectionOpts{}, stubListener{})
+	sc := ss.prepareConnectionHandler(context.Background(), conn)
+	require.NoError(t, conn.Close())
+	out := log.CaptureAsString(func() { assert.NoError(t, sc.Close()) })
+	assert.NotContains(t, out, "ERROR")
 }
