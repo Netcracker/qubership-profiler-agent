@@ -180,11 +180,14 @@ func TestMaxConnectionsRefuses(t *testing.T) {
 	first := dialEcho(t, p.Addr().String())
 	defer func() { _ = first.Close() }()
 
+	// The gateway can send the reset before Dial reads the socket error, so
+	// the reset is reported by Dial or by the first Read.
 	second, err := net.Dial("tcp", p.Addr().String())
-	require.NoError(t, err)
-	defer func() { _ = second.Close() }()
-	require.NoError(t, second.SetReadDeadline(time.Now().Add(5*time.Second)))
-	_, err = second.Read(make([]byte, 1))
+	if err == nil {
+		defer func() { _ = second.Close() }()
+		require.NoError(t, second.SetReadDeadline(time.Now().Add(5*time.Second)))
+		_, err = second.Read(make([]byte, 1))
+	}
 	assert.ErrorIs(t, err, syscall.ECONNRESET, "over the cap the connection is reset on arrival")
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_connections_refused_total"))
 
@@ -239,8 +242,12 @@ func TestForwardedBytesAreCountedWhileOpen(t *testing.T) {
 	_, err = io.ReadFull(c, make([]byte, 1000))
 	require.NoError(t, err)
 
+	// The counter is incremented after the write to the upstream returns, so
+	// the echo can arrive first.
 	hs := int64(len(handshakeBytes(t, "ns-1", "svc", "pod-1")))
-	assert.Equal(t, hs+1000, sum(t, reader, "profiler_gateway_bytes_forwarded_total"))
+	require.Eventually(t, func() bool {
+		return sum(t, reader, "profiler_gateway_bytes_forwarded_total") == hs+1000
+	}, 5*time.Second, 10*time.Millisecond)
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_connections_active"))
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_connections_total"))
 }
