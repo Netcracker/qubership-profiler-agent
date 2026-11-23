@@ -179,15 +179,12 @@ func (p *Proxy) acceptLoop() error {
 			if p.isClosed() {
 				return nil
 			}
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
-				// Out of descriptors or a similar transient failure.
-				backoff = min(max(2*backoff, 5*time.Millisecond), time.Second)
-				p.logger.Warn("Accept failed; retrying", zap.Error(err), zap.Duration("backoff", backoff))
-				time.Sleep(backoff)
-				continue
-			}
-			return err
+			// Only Shutdown ends the loop. Any other failure, such as running
+			// out of descriptors, is retried, as net/http.Server.Serve does.
+			backoff = min(max(2*backoff, 5*time.Millisecond), time.Second)
+			p.logger.Warn("Accept failed; retrying", zap.Error(err), zap.Duration("backoff", backoff))
+			time.Sleep(backoff)
+			continue
 		}
 		backoff = 0
 		select {

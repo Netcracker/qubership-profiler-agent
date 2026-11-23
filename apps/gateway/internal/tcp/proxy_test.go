@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"io"
 	"net"
+	"os"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -331,4 +333,42 @@ func TestUpstreamCloseEndsTheSession(t *testing.T) {
 	policy.SetFileRules(rules.Set{{Match: rules.Match{Service: "svc"}, Mode: rules.Discard}})
 	p.Reevaluate()
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_connections_closed_by_reload_total"))
+}
+
+// emfileListener fails its first n accepts with EMFILE, as a process out of
+// descriptors does, then accepts normally.
+type emfileListener struct {
+	net.Listener
+	n atomic.Int32
+}
+
+func (l *emfileListener) Accept() (net.Conn, error) {
+	if l.n.Add(-1) >= 0 {
+		return nil, &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("accept", syscall.EMFILE)}
+	}
+	return l.Listener.Accept()
+}
+
+// TestAcceptRetriesOutOfDescriptors: running out of descriptors is
+// transient, so the accept loop retries instead of failing the extension.
+func TestAcceptRetriesOutOfDescriptors(t *testing.T) {
+	inner, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ln := &emfileListener{Listener: inner}
+	ln.n.Store(3)
+	p, err := New(baseConfig(echoUpstream(t)), defaultPolicy(), nopLogger(), noopMeter())
+	require.NoError(t, err)
+	p.ln = ln
+	done := make(chan error, 1)
+	go func() { done <- p.acceptLoop() }()
+
+	c := dialEcho(t, inner.Addr().String())
+	_ = c.Close()
+	select {
+	case err := <-done:
+		t.Fatalf("the accept loop stopped: %v", err)
+	default:
+	}
+	require.NoError(t, p.Shutdown(context.Background()))
+	assert.NoError(t, <-done)
 }
