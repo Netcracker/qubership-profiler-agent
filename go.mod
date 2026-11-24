@@ -2,7 +2,7 @@ module github.com/Netcracker/qubership-profiler-backend
 
 go 1.26.0
 
-toolchain go1.27.0
+toolchain go1.27.4
 
 require (
 	github.com/Netcracker/qubership-profiler-agent/libs/wire v0.0.0
