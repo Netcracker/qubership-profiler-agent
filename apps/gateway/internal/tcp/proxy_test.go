@@ -30,9 +30,9 @@ func randomBytes(t testing.TB, n int) []byte {
 	return b
 }
 
-// TestPassthroughIntoRealCollector is the G3 acceptance test: a synthetic
-// agent talks through the gateway to a real libs/wire server, and the data
-// arrives intact.
+// TestPassthroughIntoRealCollector checks that a synthetic agent talks
+// through the gateway to a real libs/wire server, and the data arrives
+// intact.
 func TestPassthroughIntoRealCollector(t *testing.T) {
 	l := newRecordingListener()
 	p := startProxy(t, baseConfig(startCollector(t, l)), nil)

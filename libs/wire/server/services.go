@@ -78,9 +78,9 @@ func (ss *Service) Start(ctx context.Context) (err error) {
 }
 
 // ServeConn handles one agent connection that was accepted elsewhere, and
-// returns when it ends. The diagnostic gateway uses it after reading the
-// handshake itself, so c must replay any bytes already consumed. Stop closes
-// c like the connections Start accepts. After Stop, ServeConn closes c and
+// returns when it ends. c must deliver the agent's stream from its first
+// byte: a caller that has already read the handshake replays those bytes
+// first. Stop closes c like the connections Start accepts. After Stop, ServeConn closes c and
 // returns at once.
 func (ss *Service) ServeConn(ctx context.Context, c net.Conn) {
 	sc := ss.prepareConnectionHandler(ctx, c)

@@ -20,7 +20,8 @@ type WatchOptions struct {
 	// Zero means 200ms.
 	Debounce time.Duration
 	// OnLoad receives every successfully parsed rule set, the first one
-	// included. skipped counts rules that belong to the other surface.
+	// included. skipped counts rules that set a key Surface cannot
+	// evaluate.
 	OnLoad func(set Set, skipped int)
 	// OnError receives every load failure. The previous rules stay active.
 	OnError func(err error)

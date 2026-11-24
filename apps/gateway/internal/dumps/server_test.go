@@ -196,7 +196,8 @@ func TestPassthroughForwardsChunkedPutVerbatim(t *testing.T) {
 	assert.True(t, bytes.Equal(data, got[0].body), "body differs")
 }
 
-// Trap 1: the multipart body must be forwarded as raw bytes, not parsed.
+// The multipart body is forwarded as raw bytes. Parsing it with
+// ParseMultipartForm would buffer the parts in memory and in temp files.
 func TestPassthroughForwardsMultipartUnparsed(t *testing.T) {
 	up := newUpstream(t)
 	cfg := baseConfig()
@@ -259,8 +260,8 @@ func TestDiscardWorksWithoutUpstream(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 }
 
-// Traps 2 and 3: a body that takes longer than every configured timeout
-// still goes through. Only headers have deadlines; the body has an idle
+// A body that takes longer than every configured timeout still goes
+// through. Only headers have deadlines; the body has an idle
 // bound, and each pause here is shorter than it.
 func TestSlowBodyOutlastsTimeouts(t *testing.T) {
 	up := newUpstream(t)
@@ -283,7 +284,7 @@ func TestSlowBodyOutlastsTimeouts(t *testing.T) {
 	assert.True(t, bytes.Equal(data, got[0].body))
 }
 
-// Trap 4: without Content-Length the cap is enforced while streaming. The
+// Without Content-Length the cap is enforced while streaming. The
 // upstream request is aborted, the rest is drained, and the client gets 204.
 func TestChunkedUploadOverCapIsAbortedAndDiscarded(t *testing.T) {
 	up := newUpstream(t)
@@ -409,6 +410,16 @@ func TestParsePath(t *testing.T) {
 	assert.Equal(t, rules.Attrs{Namespace: "ns-1", Pod: "app-1-7d9f", DumpType: rules.DumpTypeHeap}, a)
 	assert.Equal(t, rules.DumpTypeThread, parsePath(threadPath, "/diagnostic/").DumpType)
 	assert.Equal(t, rules.Attrs{}, parsePath("/diagnostic/ns-1/file", "/diagnostic"))
+
+	// A glob that matches "" matches a path outside the layout; a dump_type
+	// key does not.
+	stray := parsePath("/diagnostic/not/the/layout", "/diagnostic")
+	_, ok := rules.Set{{Match: rules.Match{Namespace: "*"}, Mode: rules.Discard}}.Eval(stray)
+	assert.True(t, ok)
+	_, ok = rules.Set{{Match: rules.Match{Namespace: "ns-*"}, Mode: rules.Discard}}.Eval(stray)
+	assert.False(t, ok)
+	_, ok = rules.Set{{Match: rules.Match{DumpType: []string{rules.DumpTypeOther}}, Mode: rules.Discard}}.Eval(stray)
+	assert.False(t, ok)
 
 	assert.Equal(t, rules.DumpTypeHeap, dumpType("20261029T100000.hprof"))
 	assert.Equal(t, rules.DumpTypeGC, dumpType("gc.log"))

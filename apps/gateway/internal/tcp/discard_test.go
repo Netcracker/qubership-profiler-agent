@@ -21,10 +21,9 @@ import (
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
 )
 
-// TestDiscardSessionCompletesWithoutTheUpstream is the G4 acceptance test:
-// a discarded agent completes the handshake, opens streams, sends data, and
-// flushes with every ack drained and no ACK_ERROR_MAGIC, while nothing
-// reaches the upstream.
+// TestDiscardSessionCompletesWithoutTheUpstream checks that a discarded agent
+// completes the handshake, opens streams, sends data, and flushes with every
+// ack drained and no ACK_ERROR_MAGIC, while nothing reaches the upstream.
 func TestDiscardSessionCompletesWithoutTheUpstream(t *testing.T) {
 	l := newRecordingListener()
 	cfg := baseConfig(startCollector(t, l))

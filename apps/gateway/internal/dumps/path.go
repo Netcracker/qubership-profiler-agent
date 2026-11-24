@@ -17,8 +17,9 @@ func underPrefix(p, prefix string) bool {
 }
 
 // parsePath extracts the rule attributes from an upload path. A path that
-// does not have the diagtools layout yields empty attributes, which match
-// only rules without keys.
+// does not have the diagtools layout yields empty attributes: a rule matches
+// them only if it sets no dump_type and each of its globs matches "", as "*"
+// does.
 func parsePath(p, prefix string) rules.Attrs {
 	rest := strings.Trim(strings.TrimPrefix(p, strings.TrimSuffix(prefix, "/")), "/")
 	parts := strings.Split(rest, "/")

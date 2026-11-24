@@ -21,7 +21,8 @@ type Shared struct {
 }
 
 // NewShared creates the shared instruments on m for surface, "dumps" or "tcp".
-// The names are the ones in plan §12. The Collector's Prometheus endpoint
+// The names are the ones in the "Metrics" section of
+// docs/plans/2026-10-09-otel-gateway.md. The Collector's Prometheus endpoint
 // adds no type or unit suffix, so counters carry `_total` themselves.
 func NewShared(m metric.Meter, surface string) (*Shared, error) {
 	var errs [4]error

@@ -40,8 +40,8 @@ func dial(t *testing.T, col *emutest.Collector) *emulator.AgentConnection {
 
 // TestRcvDataAckAccounting: each RCV_DATA counts exactly one pending ack and
 // triggers no flush; the flush cycle sends exactly one REQUEST_ACK_FLUSH and
-// drains everything (G6 — the old emulator appended REQUEST_ACK_FLUSH to every
-// payload and counted two acks for it).
+// drains everything. The old emulator appended REQUEST_ACK_FLUSH to every
+// payload and counted two acks for it.
 func TestRcvDataAckAccounting(t *testing.T) {
 	col := emutest.Start(t)
 	col.BufferAcks = true // mirror a collector that only force-flushes acks
@@ -100,7 +100,7 @@ func TestOpportunisticDrain(t *testing.T) {
 }
 
 // TestAckErrorIsTyped: ACK_ERROR_MAGIC surfaces as ErrAckRefused, so the
-// virtual dumper can tell collector backpressure from a broken connection (G3).
+// virtual dumper can tell collector backpressure from a broken connection.
 func TestAckErrorIsTyped(t *testing.T) {
 	col := emutest.Start(t)
 	col.AckOf = func(conn, ackSeq int) emutest.Ack {
@@ -200,7 +200,7 @@ func TestInitStreamNullHandle(t *testing.T) {
 
 // TestInitStreamCarriesResetFlag: the resetRequired flag and the requested
 // sequence id cross the wire as sent — the dictionary resend after a reconnect
-// depends on them (G5).
+// depends on them.
 func TestInitStreamCarriesResetFlag(t *testing.T) {
 	col := emutest.Start(t)
 	ac := dial(t, col)

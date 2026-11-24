@@ -161,9 +161,9 @@ func waitClosed(t *testing.T, ac *emulator.AgentConnection) {
 	}
 }
 
-// TestRulesFileMovesAConnectedAgent is the G4 reload acceptance test: rules
-// file edits move a connected agent passthrough -> discard -> passthrough,
-// with one reconnect per step and no restart of the extension.
+// TestRulesFileMovesAConnectedAgent checks that rules file edits move a
+// connected agent passthrough -> discard -> passthrough, with one reconnect
+// per step and no restart of the extension.
 func TestRulesFileMovesAConnectedAgent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

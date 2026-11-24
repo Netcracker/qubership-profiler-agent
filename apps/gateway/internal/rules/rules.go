@@ -137,8 +137,9 @@ func (s Set) Eval(a Attrs) (Mode, bool) {
 	return "", false
 }
 
-// Validate checks the rules against a surface. hasUpstream is false when the
-// extension has no upstream, so a passthrough rule could not be honored.
+// Validate returns an error for each rule with an unknown mode, a key the
+// surface cannot evaluate, an invalid glob, or an unknown dump type, and,
+// when hasUpstream is false, for each passthrough rule.
 func (s Set) Validate(surface Surface, hasUpstream bool) error {
 	var errs []error
 	for i, r := range s {

@@ -21,9 +21,10 @@ const (
 	outcomeUpstreamRejected = "upstream_rejected"
 )
 
-// The names are the ones in plan §12. The Collector's Prometheus endpoint
-// adds no type or unit suffix, so counters carry `_total` themselves and
-// the instruments set no unit.
+// metrics holds the dump-upload instruments, named as in the "Metrics"
+// section of docs/plans/2026-10-09-otel-gateway.md. The Collector's
+// Prometheus endpoint adds no type or unit suffix, so counters carry `_total`
+// themselves and the instruments set no unit.
 type metrics struct {
 	*telemetry.Shared
 	inFlight    metric.Int64UpDownCounter

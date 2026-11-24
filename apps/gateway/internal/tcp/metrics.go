@@ -10,8 +10,10 @@ import (
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/telemetry"
 )
 
-// The names are the ones in plan §12. The Collector's Prometheus endpoint
-// adds no type or unit suffix, so counters carry `_total` themselves.
+// metrics holds the agent-connection instruments, named as in the "Metrics"
+// section of docs/plans/2026-10-09-otel-gateway.md. The Collector's
+// Prometheus endpoint adds no type or unit suffix, so counters carry `_total`
+// themselves.
 type metrics struct {
 	*telemetry.Shared
 	active         metric.Int64UpDownCounter
