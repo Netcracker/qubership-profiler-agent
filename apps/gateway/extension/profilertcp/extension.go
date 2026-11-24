@@ -7,7 +7,6 @@ package profilertcp
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componentstatus"
@@ -15,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
+	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/ruleswatch"
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/tcp"
 )
 
@@ -42,9 +42,6 @@ type tcpExtension struct {
 	set     extension.Settings
 	proxy   *tcp.Proxy
 	watcher *rules.Watcher
-	// rulesFailed is set while the rules file is broken, so the next good
-	// load reports recovery.
-	rulesFailed atomic.Bool
 }
 
 func (e *tcpExtension) Start(_ context.Context, host component.Host) error {
@@ -68,29 +65,17 @@ func (e *tcpExtension) Start(_ context.Context, host component.Host) error {
 	e.proxy = proxy
 
 	if cfg.RulesFile != "" {
-		w, err := rules.Watch(rules.WatchOptions{
+		w, err := ruleswatch.Start(host, logger, rules.WatchOptions{
 			Path:        cfg.RulesFile,
 			Surface:     rules.TCP,
 			HasUpstream: cfg.Upstream != "",
-			OnLoad: func(set rules.Set, skipped int) {
+			OnLoad: func(set rules.Set, _ int) {
 				policy.SetFileRules(set)
 				// A profiler connection lives as long as its pod, so new
 				// rules must reach the open ones too.
 				proxy.Reevaluate()
-				proxy.RecordRulesReload(true)
-				logger.Info("Loaded the rules file",
-					zap.String("path", cfg.RulesFile), zap.Int("rules", len(set)), zap.Int("skipped", skipped))
-				if e.rulesFailed.Swap(false) {
-					componentstatus.ReportStatus(host, componentstatus.NewEvent(componentstatus.StatusOK))
-				}
 			},
-			OnError: func(err error) {
-				proxy.RecordRulesReload(false)
-				logger.Warn("Rejected the rules file; the previous rules stay active", zap.Error(err))
-				e.rulesFailed.Store(true)
-				componentstatus.ReportStatus(host, componentstatus.NewRecoverableErrorEvent(err))
-			},
-		})
+		}, proxy.RecordRulesReload)
 		if err != nil {
 			return err
 		}

@@ -7,7 +7,6 @@ package profilerdumps
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componentstatus"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/dumps"
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
+	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/ruleswatch"
 )
 
 const scopeName = "github.com/Netcracker/qubership-profiler-agent/apps/gateway/extension/profilerdumps"
@@ -42,9 +42,6 @@ type dumpsExtension struct {
 	set     extension.Settings
 	srv     *dumps.Server
 	watcher *rules.Watcher
-	// rulesFailed is set while the rules file is broken, so the next good
-	// load reports recovery.
-	rulesFailed atomic.Bool
 }
 
 func (e *dumpsExtension) Start(_ context.Context, host component.Host) error {
@@ -84,26 +81,12 @@ func (e *dumpsExtension) Start(_ context.Context, host component.Host) error {
 	e.srv = srv
 
 	if cfg.RulesFile != "" {
-		w, err := rules.Watch(rules.WatchOptions{
+		w, err := ruleswatch.Start(host, logger, rules.WatchOptions{
 			Path:        cfg.RulesFile,
 			Surface:     rules.Dumps,
 			HasUpstream: cfg.Upstream != "",
-			OnLoad: func(set rules.Set, skipped int) {
-				policy.SetFileRules(set)
-				srv.RecordRulesReload(true)
-				logger.Info("Loaded the rules file",
-					zap.String("path", cfg.RulesFile), zap.Int("rules", len(set)), zap.Int("skipped", skipped))
-				if e.rulesFailed.Swap(false) {
-					componentstatus.ReportStatus(host, componentstatus.NewEvent(componentstatus.StatusOK))
-				}
-			},
-			OnError: func(err error) {
-				srv.RecordRulesReload(false)
-				logger.Warn("Rejected the rules file; the previous rules stay active", zap.Error(err))
-				e.rulesFailed.Store(true)
-				componentstatus.ReportStatus(host, componentstatus.NewRecoverableErrorEvent(err))
-			},
-		})
+			OnLoad:      func(set rules.Set, _ int) { policy.SetFileRules(set) },
+		}, srv.RecordRulesReload)
 		if err != nil {
 			return err
 		}
