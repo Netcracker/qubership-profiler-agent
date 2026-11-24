@@ -28,7 +28,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
-	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	wirelog "github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
 
@@ -52,15 +51,6 @@ type Config struct {
 	// fields a discarding connection sends the agent.
 	RotationPeriod       time.Duration
 	RequiredRotationSize uint64
-}
-
-// discardTimeout matches the collector's agent socket timeouts
-// (apps/profiler-backend/cmd/collect.go), so a discarded agent sees the same
-// peer behavior as a real one.
-var discardTimeout = profio.TcpTimeout{
-	SessionTimeout: 60 * time.Second,
-	ReadTimeout:    40 * time.Second,
-	WriteTimeout:   2 * time.Second,
 }
 
 // Proxy is the agent connection listener.
@@ -140,7 +130,9 @@ func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Mete
 	}
 	p.sinkCtx = wirelog.WithSink(context.Background(), zapSink(logger))
 	p.sink = server.PrepareServer(context.Background(), server.ConnectionOpts{
-		Timeout:              discardTimeout,
+		// The collector's own deadlines, so a discarded agent sees the same
+		// peer behavior as a real one.
+		Timeout:              server.DefaultAgentTimeout,
 		RotationPeriod:       uint64(cfg.RotationPeriod.Milliseconds()),
 		RequiredRotationSize: cfg.RequiredRotationSize,
 	}, discardListener{metrics: m})

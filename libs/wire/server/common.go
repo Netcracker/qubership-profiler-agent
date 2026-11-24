@@ -30,6 +30,16 @@ const (
 	FlushCheckInterval = 500 * time.Millisecond
 )
 
+// DefaultAgentTimeout holds the collector's agent socket deadlines. The read
+// timeout must exceed the agent's keep-alive cadence, so an idle but healthy
+// connection is not dropped. The values mirror the integration suite's.
+var DefaultAgentTimeout = io.TcpTimeout{
+	ConnectTimeout: 10 * time.Second,
+	SessionTimeout: 60 * time.Second,
+	ReadTimeout:    40 * time.Second,
+	WriteTimeout:   2 * time.Second,
+}
+
 // errAgentClosed is returned when the agent sends COMMAND_CLOSE, so the
 // handler loop stops without logging it as a failure.
 var errAgentClosed = errors.New("agent requested close")

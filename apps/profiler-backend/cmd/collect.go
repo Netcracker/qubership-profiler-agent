@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	profio "github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
 	appenv "github.com/Netcracker/qubership-profiler-backend/apps/profiler-backend/pkg/envconfig"
@@ -23,16 +22,6 @@ import (
 	pkgerrors "github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
-
-// Agent-socket deadlines. The read timeout must exceed the agent's keep-alive
-// cadence so an idle-but-healthy connection is not dropped; the values mirror
-// the integration suite's.
-var agentTimeouts = profio.TcpTimeout{
-	ConnectTimeout: 10 * time.Second,
-	SessionTimeout: 60 * time.Second,
-	ReadTimeout:    40 * time.Second,
-	WriteTimeout:   2 * time.Second,
-}
 
 var collectCmd = &cobra.Command{
 	Use:          "collect",
@@ -126,7 +115,7 @@ func runCollect(cmd *cobra.Command, _ []string) error {
 		},
 		Server: server.ConnectionOpts{
 			ProtocolPort:         cfg.AgentPort,
-			Timeout:              agentTimeouts,
+			Timeout:              server.DefaultAgentTimeout,
 			RequiredRotationSize: uint64(cfg.SegmentRotationSize),
 		},
 		ObjectStore: collector.NewS3ObjectStore(mc, cfg.S3.PathPrefix),

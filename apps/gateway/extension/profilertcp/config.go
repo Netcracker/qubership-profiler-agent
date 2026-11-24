@@ -6,6 +6,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/server"
+
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/units"
 )
@@ -66,7 +68,7 @@ func createDefaultConfig() *Config {
 		MaxConnections:   256,
 		CopyBufferSize:   32 << 10,
 		HandshakeTimeout: 10 * time.Second,
-		Discard:          DiscardConfig{RequiredRotationSize: 4 << 20},
+		Discard:          DiscardConfig{RequiredRotationSize: units.ByteSize(server.DefaultRequiredRotationSize)},
 	}
 }
 
