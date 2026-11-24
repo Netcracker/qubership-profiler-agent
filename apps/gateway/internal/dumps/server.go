@@ -212,10 +212,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.discard(w, r, attrs.DumpType, outcomeDiscarded)
 		return
 	}
-	limit := s.limit(attrs.DumpType)
+	limit, _ := s.limit(attrs.DumpType)
 	if r.ContentLength > limit {
 		// A declared length is the one case where the cap can be enforced
 		// before the bytes cross the network to the upstream.
+		s.logOverCap(r, attrs.DumpType)
 		s.discard(w, r, attrs.DumpType, outcomeOverCap)
 		return
 	}
@@ -225,11 +226,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.proxy.ServeHTTP(w, r.WithContext(context.WithValue(ctx, ctxKey{}, st)))
 }
 
-func (s *Server) limit(dumpType string) int64 {
+// limit returns the size cap for dumpType and the config key that sets it.
+func (s *Server) limit(dumpType string) (int64, string) {
 	if l, ok := s.cfg.MaxBodySizePerType[dumpType]; ok {
-		return l
+		return l, "max_body_size_per_type." + dumpType
 	}
-	return s.cfg.MaxBodySize
+	return s.cfg.MaxBodySize, "max_body_size"
+}
+
+// logOverCap logs an upload discarded over its size cap, with the key that
+// set the cap.
+func (s *Server) logOverCap(r *http.Request, dumpType string) {
+	limit, key := s.limit(dumpType)
+	s.logger.Info("Discarded an upload over the size cap", zap.String("path", r.URL.Path),
+		zap.String("dump_type", dumpType), zap.String("setting", key), zap.Int64("limit", limit))
 }
 
 // discard reads the body to the end and answers 204, so the client marks
@@ -291,8 +301,7 @@ func (s *Server) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 			abortClient()
 		}
 		s.metrics.upload(ctx, st.dumpType, outcomeOverCap, st.body.state().total)
-		s.logger.Info("Discarded an upload over the size cap",
-			zap.String("path", r.URL.Path), zap.Int64("limit", s.limit(st.dumpType)))
+		s.logOverCap(r, st.dumpType)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
