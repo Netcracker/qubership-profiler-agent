@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
@@ -341,20 +342,24 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 	defer p.metrics.active.Add(ctx, -1, mode)
 
 	toUpstream := countingWriter{w: up, metrics: p.metrics}
-	errc := make(chan error, 2)
+	// agentEOF is set before the half-close, so an upstream that closes in
+	// answer to it always finds the flag set.
+	var agentEOF atomic.Bool
+	agentDone := make(chan error, 1)
 	go func() {
 		if len(prefix) > 0 {
 			if _, err := toUpstream.Write(prefix); err != nil {
-				errc <- err
+				agentDone <- err
 				return
 			}
 		}
 		err := p.copy(toUpstream, s.client)
 		if err == nil {
+			agentEOF.Store(true)
 			// Half-close, so the upstream sees the end of the stream.
 			err = up.(*net.TCPConn).CloseWrite()
 		}
-		errc <- err
+		agentDone <- err
 	}()
 	upDone := make(chan error, 1)
 	go func() { upDone <- p.copy(s.client, up) }()
@@ -364,9 +369,12 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 	// more, and the agent may leave its old socket open after a read timeout,
 	// which would keep this session tracked forever. An error ends both.
 	select {
-	case err := <-errc:
+	case err := <-agentDone:
 		fin = err == nil && <-upDone == nil
-	case <-upDone:
+	case err := <-upDone:
+		// The upstream can answer the half-close before agentDone is sent,
+		// and select picks at random when both are ready.
+		fin = err == nil && agentEOF.Load() && <-agentDone == nil
 	}
 }
 
