@@ -57,6 +57,8 @@ so `helm upgrade` rolls the pods.
 
 `discard` hides an outage: clients report success and the upstream receives nothing. Watch the receivers' accepted-span
 metrics against the exporter's sent-span metrics on port 8889.
+With prometheus-operator installed, `metrics.serviceMonitor.enabled: true` adds a ServiceMonitor that scrapes that
+port.
 
 ## Dump uploads
 

@@ -121,6 +121,14 @@ ports:
   # is 8888, which the probes take.
   metrics: 8889
 
+metrics:
+  serviceMonitor:
+    # Scrapes the `metrics` port. Requires the monitoring.coreos.com CRDs
+    # (prometheus-operator).
+    enabled: false
+    interval: 30s
+    additionalLabels: {}
+
 # Placeholders until the idle and loaded footprint is measured (plan stage
 # G1). diag-proxy requested 20Mi; the qubership-otec chart requests 100Mi.
 resources:
