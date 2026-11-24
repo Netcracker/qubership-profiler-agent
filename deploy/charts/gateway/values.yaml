@@ -129,6 +129,11 @@ metrics:
     interval: 30s
     additionalLabels: {}
 
+# The kubelet kills the pod this long after SIGTERM. The Collector shuts its
+# pipelines down first, and then profiler_dumps waits up to its drain_timeout
+# of 30 s for in-flight uploads, so the value must stay above 30.
+terminationGracePeriodSeconds: 60
+
 # Placeholders until the idle and loaded footprint is measured (plan stage
 # G1). diag-proxy requested 20Mi; the qubership-otec chart requests 100Mi.
 resources:

@@ -72,6 +72,13 @@ tests:
           path: spec.template.spec.containers[0].args
           value: [--config=/conf/otel.yaml]
 
+  - it: gives the pod more time than drain_timeout to stop
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 60
+
   # The default render's checksum is pinned: a rules edit must keep it, so the
   # pods are not rolled, and a Collector config change must change it.
   - it: annotates the pods with a config checksum
