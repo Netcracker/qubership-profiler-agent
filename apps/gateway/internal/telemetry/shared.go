@@ -18,6 +18,9 @@ type Shared struct {
 	bytesDiscarded metric.Int64Counter
 	upstreamErrors metric.Int64Counter
 	rulesReloads   metric.Int64Counter
+	// surfaceOpt is built once: metric.WithAttributes builds and sorts an
+	// attribute set on every call, and Forwarded and Discarded run per write.
+	surfaceOpt metric.MeasurementOption
 }
 
 // NewShared creates the shared instruments on m for surface, "dumps" or "tcp".
@@ -27,6 +30,7 @@ type Shared struct {
 func NewShared(m metric.Meter, surface string) (*Shared, error) {
 	var errs [4]error
 	s := &Shared{surface: attribute.String("surface", surface)}
+	s.surfaceOpt = metric.WithAttributeSet(attribute.NewSet(s.surface))
 	s.bytesForwarded, errs[0] = m.Int64Counter("profiler_gateway_bytes_forwarded_total",
 		metric.WithDescription("Bytes relayed to the upstream."))
 	s.bytesDiscarded, errs[1] = m.Int64Counter("profiler_gateway_bytes_discarded_total",
@@ -40,17 +44,17 @@ func NewShared(m metric.Meter, surface string) (*Shared, error) {
 
 // Forwarded counts n bytes relayed to the upstream.
 func (s *Shared) Forwarded(ctx context.Context, n int64) {
-	s.bytesForwarded.Add(ctx, n, metric.WithAttributes(s.surface))
+	s.bytesForwarded.Add(ctx, n, s.surfaceOpt)
 }
 
 // Discarded counts n bytes accepted and thrown away.
 func (s *Shared) Discarded(ctx context.Context, n int64) {
-	s.bytesDiscarded.Add(ctx, n, metric.WithAttributes(s.surface))
+	s.bytesDiscarded.Add(ctx, n, s.surfaceOpt)
 }
 
 // UpstreamError counts one upstream dial or transport failure.
 func (s *Shared) UpstreamError(ctx context.Context) {
-	s.upstreamErrors.Add(ctx, 1, metric.WithAttributes(s.surface))
+	s.upstreamErrors.Add(ctx, 1, s.surfaceOpt)
 }
 
 // RulesReloaded counts a rules file load, with result "success" or "failure".
