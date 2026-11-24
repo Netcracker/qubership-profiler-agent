@@ -38,7 +38,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           # go.mod pins the newest toolchain of the Go modules, so it
           # builds diagtools, libs/wire, and apps/gateway as well.
@@ -136,7 +136,7 @@ jobs:
           java-version: 21
           server-id: central
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: apps/agent/diagtools/go.mod
       - name: Setup Node.js
@@ -222,7 +222,7 @@ jobs:
           distribution: zulu
           java-version: 21
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: apps/agent/diagtools/go.mod
       - name: Setup Node.js
