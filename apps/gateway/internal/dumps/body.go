@@ -124,7 +124,7 @@ type writeIdleConn struct {
 }
 
 func (c *writeIdleConn) Write(p []byte) (int, error) {
-	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
+	if err := c.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
 		return 0, err
 	}
 	return c.Conn.Write(p)
