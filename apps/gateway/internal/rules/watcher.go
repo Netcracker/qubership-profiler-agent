@@ -85,6 +85,9 @@ func (w *Watcher) loop() {
 				return
 			}
 			w.fail(fmt.Errorf("watch rules file %s: %w", w.opts.Path, err))
+			// An error such as ErrEventOverflow means events were lost, so
+			// re-read the file instead of waiting for the next event.
+			timer.Reset(w.opts.Debounce)
 		case <-timer.C:
 			w.reload()
 		}

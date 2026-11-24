@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -210,6 +211,18 @@ func TestWatcherFollowsConfigMapSwap(t *testing.T) {
 
 	require.Eventually(t, func() bool { l, _ := rec.counts(); return l == 2 }, 5*time.Second, 10*time.Millisecond)
 	assert.Equal(t, Discard, rec.lastLoad()[0].Mode)
+}
+
+func TestWatcherReloadsAfterWatchError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rules.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("rules: []\n"), 0o600))
+	rec := &recorder{}
+	w := startWatch(t, path, rec)
+
+	w.fsw.Errors <- fsnotify.ErrEventOverflow
+	require.Eventually(t, func() bool { l, _ := rec.counts(); return l == 2 }, 5*time.Second, 10*time.Millisecond)
+	_, errs := rec.counts()
+	assert.Equal(t, 1, errs)
 }
 
 func TestWatcherMissingFileIsAnErrorNotAFailure(t *testing.T) {
