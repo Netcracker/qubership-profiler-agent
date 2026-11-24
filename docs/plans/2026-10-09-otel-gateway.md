@@ -659,7 +659,7 @@ Exposed on the Collector's Prometheus endpoint, labeled by surface, mode, and `s
 | `profiler_gateway_bytes_discarded_total` | counter | Bytes thrown away. The alarm for a forgotten switch. |
 | `profiler_gateway_uploads_in_flight` | gauge | Concurrent uploads, against `max_concurrent_uploads`. |
 | `profiler_gateway_upload_bytes_total` | counter | By dump type and outcome: forwarded, discarded, over cap. |
-| `profiler_gateway_upstream_errors_total` | counter | Dial and transport failures, by surface. |
+| `profiler_gateway_upstream_errors_total` | counter | Dial and transport failures, by surface. On `tcp`, an upstream that ends an agent session counts as one. |
 | `profiler_gateway_rules_reload_total` | counter | Reloads, by success or parse failure. |
 
 ## 13. Risks and open items

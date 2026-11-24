@@ -368,14 +368,44 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 	// The upstream ending ends the session: nothing can answer the agent any
 	// more, and the agent may leave its old socket open after a read timeout,
 	// which would keep this session tracked forever. An error ends both.
+	var upstreamEnded bool
 	select {
-	case err := <-agentDone:
-		fin = err == nil && <-upDone == nil
-	case err := <-upDone:
+	case err = <-agentDone:
+		if err == nil {
+			err = <-upDone
+			fin = err == nil
+			upstreamEnded = failedOn(err, "read")
+		} else {
+			// This copy writes only to the upstream.
+			upstreamEnded = failedOn(err, "write")
+		}
+	case err = <-upDone:
 		// The upstream can answer the half-close before agentDone is sent,
 		// and select picks at random when both are ready.
-		fin = err == nil && agentEOF.Load() && <-agentDone == nil
+		if err == nil && agentEOF.Load() {
+			fin = <-agentDone == nil
+		} else {
+			// This copy reads only from the upstream.
+			upstreamEnded = err == nil || failedOn(err, "read")
+		}
 	}
+	if upstreamEnded {
+		p.metrics.UpstreamError(ctx)
+		s.mu.Lock()
+		attrs := s.attrs
+		s.mu.Unlock()
+		p.logger.Debug("The upstream ended a passthrough session; resetting the agent connection",
+			zap.String("namespace", attrs.Namespace), zap.String("service", attrs.Service),
+			zap.String("pod", attrs.Pod), zap.Error(err))
+	}
+}
+
+// failedOn reports whether err is a socket failure of op, "read" or "write".
+// A socket the gateway closed itself, on a rules change or shutdown, is not a
+// failure.
+func failedOn(err error, op string) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == op && !errors.Is(err, net.ErrClosed)
 }
 
 // copy moves bytes until src ends. It returns nil on a clean end of src.

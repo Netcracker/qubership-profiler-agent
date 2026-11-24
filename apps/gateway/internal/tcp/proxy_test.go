@@ -157,7 +157,8 @@ func TestAgentCopyErrorResetsTheAgent(t *testing.T) {
 		close(upReset)
 	}()
 
-	p := startProxy(t, baseConfig(ln.Addr().String()), nil)
+	reader := sdkmetric.NewManualReader()
+	p := startProxy(t, baseConfig(ln.Addr().String()), nil, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 	c, err := net.Dial("tcp", p.Addr().String())
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
@@ -167,6 +168,9 @@ func TestAgentCopyErrorResetsTheAgent(t *testing.T) {
 	_, err = c.Write([]byte("after the upstream reset"))
 	require.NoError(t, err)
 	assert.ErrorIs(t, readEnd(c), syscall.ECONNRESET, "the agent sees a reset, not a FIN")
+	require.Eventually(t, func() bool {
+		return sum(t, reader, "profiler_gateway_upstream_errors_total") == 1
+	}, 5*time.Second, 10*time.Millisecond, "the failed write to the upstream is counted")
 }
 
 func TestMaxConnectionsRefuses(t *testing.T) {
@@ -385,12 +389,18 @@ func TestUpstreamCloseEndsTheSession(t *testing.T) {
 		return sum(t, reader, "profiler_gateway_connections_active") == 0
 	}, 5*time.Second, 10*time.Millisecond, "the session ends with its upstream")
 	assert.ErrorIs(t, readEnd(stale), syscall.ECONNRESET, "the agent sees a reset, not a FIN")
+	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_upstream_errors_total"), "the upstream close is counted")
 
 	live := dialEcho(t, p.Addr().String())
 	defer func() { _ = live.Close() }()
 	policy.SetFileRules(rules.Set{{Match: rules.Match{Service: "svc"}, Mode: rules.Discard}})
 	p.Reevaluate()
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_connections_closed_by_reload_total"))
+	require.Eventually(t, func() bool {
+		return sum(t, reader, "profiler_gateway_connections_active") == 0
+	}, 5*time.Second, 10*time.Millisecond, "the reload ends the live session")
+	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_upstream_errors_total"),
+		"a session the gateway closes is not an upstream error")
 }
 
 // emfileListener fails its first n accepts with EMFILE, as a process out of

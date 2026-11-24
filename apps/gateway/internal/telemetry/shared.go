@@ -36,7 +36,7 @@ func NewShared(m metric.Meter, surface string) (*Shared, error) {
 	s.bytesDiscarded, errs[1] = m.Int64Counter("profiler_gateway_bytes_discarded_total",
 		metric.WithDescription("Bytes accepted and thrown away: by discard mode or a rule, or over the size or concurrency cap."))
 	s.upstreamErrors, errs[2] = m.Int64Counter("profiler_gateway_upstream_errors_total",
-		metric.WithDescription("Upstream dial and transport failures."))
+		metric.WithDescription("Upstream dial and transport failures. An upstream that ends an agent session counts as one."))
 	s.rulesReloads, errs[3] = m.Int64Counter("profiler_gateway_rules_reload_total",
 		metric.WithDescription("Rules file loads, by result."))
 	return s, errors.Join(errs[:]...)
@@ -52,7 +52,8 @@ func (s *Shared) Discarded(ctx context.Context, n int64) {
 	s.bytesDiscarded.Add(ctx, n, s.surfaceOpt)
 }
 
-// UpstreamError counts one upstream dial or transport failure.
+// UpstreamError counts one upstream dial or transport failure, or an upstream
+// that ended an agent session.
 func (s *Shared) UpstreamError(ctx context.Context) {
 	s.upstreamErrors.Add(ctx, 1, s.surfaceOpt)
 }
