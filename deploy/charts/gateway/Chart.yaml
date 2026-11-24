@@ -6,9 +6,11 @@ description: >-
   trace protocol. See docs/plans/2026-10-09-otel-gateway.md.
 type: application
 version: 0.1.0
-# The qubership-otec release the chart is tested against. image.tag selects
+# No qubership-otec release includes the `nop` exporter and the
+# `memory_limiter` processor yet, so appVersion matches the default image.tag,
+# `main`. Set both to the first release that includes them. image.tag selects
 # the image actually deployed.
-appVersion: "1.4.1"
+appVersion: "main"
 
 home: https://github.com/Netcracker/qubership-profiler-agent/
 maintainers:
