@@ -315,9 +315,10 @@ diag-proxy today, the gateway's streaming path is a behavior fix, and the cutove
 
 ### 5.2 Modes
 
-**`passthrough`** splices the socket to the upstream with `io.Copy` in both directions. No parsing; byte-identical
-to nginx. With rules configured, the gateway reads the handshake first, decides, dials, and replays the bytes. The
-dial and the upstream's reply must both fit inside the agent's 30 s read timeout; `connect_timeout: 1s` leaves room.
+**`passthrough`** copies between the agent socket and the upstream with `io.Copy` in both directions. No parsing;
+byte-identical to nginx. With rules configured, the gateway reads the handshake first, decides, dials, and replays the
+bytes. The dial and the upstream's reply must both fit inside the agent's 30 s read timeout; `connect_timeout: 1s`
+leaves room.
 
 **`discard`** terminates the protocol with `libs/wire/server` and a `Listener` that stores nothing. The handshake reply
 is whatever `libs/wire/server` answers, not a hard-coded V2. `Listener` has nine methods (`RegisterPod`, `AppendData`,
@@ -360,7 +361,7 @@ restart to undo defeats the purpose of the gateway. Revisit only with a named co
 | `upstream_tls` | not in v1 | mTLS to the upstream. §7 drops it from v1. |
 | `handshake_timeout` | `10s` | Deadline to read the handshake before closing an unidentified connection. |
 | `max_connections` | `256` | Admission cap. Over the cap the connection is refused. |
-| `copy_buffer_size` | `32KiB` | Splice buffer per direction in `passthrough`. |
+| `copy_buffer_size` | `32KiB` | Copy buffer per direction in `passthrough`. |
 | `discard.rotation_period` | `0` | `INIT_STREAM_V2` reply field in `discard`. |
 | `discard.required_rotation_size` | `4MiB` | `INIT_STREAM_V2` reply field; the `libs/wire/server` default. |
 | `rules`, `rules_file` | none | Per-source overrides (§8). |
@@ -608,7 +609,7 @@ No code. Each answer closes an assumption in this plan.
 ### Stage G3: `profiler_tcp` passthrough
 
 - The agent emulator moves to `libs/wire/emulator` (§3.2), so the tests can drive a synthetic agent.
-- `internal/tcp` with the bidirectional splice; the `profilertcp` extension; `max_connections` with refusal;
+- `internal/tcp` with the bidirectional copy; the `profilertcp` extension; `max_connections` with refusal;
   `connect_timeout`; `componentstatus`.
 - **Acceptance:** `libs/wire/emulator` drives a synthetic agent through the gateway into a real `libs/wire/server`, and
   the data arrives intact. With the upstream down, the agent side sees a close and retries. A benchmark records added

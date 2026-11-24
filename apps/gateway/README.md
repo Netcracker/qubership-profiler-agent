@@ -100,7 +100,7 @@ service:
 | `mode`                           | `passthrough`  | `passthrough` or `discard`, when no rule matches.                  |
 | `connect_timeout`                | `1s`           | Upstream dial deadline.                                            |
 | `max_connections`                | `256`          | Over it, a connection is closed on arrival.                        |
-| `copy_buffer_size`               | `32KiB`        | Splice buffer per direction in `passthrough`.                      |
+| `copy_buffer_size`               | `32KiB`        | Copy buffer per direction in `passthrough`.                        |
 | `handshake_timeout`              | `10s`          | Wait for the agent's handshake.                                    |
 | `discard.rotation_period`        | `0`            | Stream rotation period a discarding connection asks the agent for. |
 | `discard.required_rotation_size` | `4MiB`         | Stream rotation size a discarding connection asks the agent for.   |
@@ -109,9 +109,9 @@ service:
 Every connection opens with the agent's `GET_PROTOCOL_VERSION_V2` handshake, which names its namespace, service,
 and pod. The extension reads it with the collector's own reader, picks the mode, and then:
 
-- in `passthrough`, dials the upstream, replays the handshake bytes unchanged, and splices the two sockets. The
-  collector answers the handshake and every ack, and the ack byte's command channel (heap and thread dump requests
-  from the UI) keeps working.
+- in `passthrough`, dials the upstream, replays the handshake bytes unchanged, and copies bytes between the two
+  sockets in both directions. The collector answers the handshake and every ack, and the ack byte's command channel
+  (heap and thread dump requests from the UI) keeps working.
 - in `discard`, runs the collector protocol itself through `libs/wire/server` with a listener that stores nothing.
   The agent gets real stream handles and acks, logs nothing, and keeps its dumper alive. It still instruments and
   sends, and it cannot receive dump requests from the UI.
@@ -156,8 +156,8 @@ rules:
 - The first matching rule wins. Rules from `rules_file` go before inline `rules`; no match falls back to `mode`.
 - For dumps, the pod is the URL's pod segment up to the first `_`. diagtools appends `_<start timestamp>` to it.
 - `rules_file` is watched. An edit applies to the next upload with no restart. A file that fails to parse is rejected,
-  the previous rules stay active, and the extension reports a recoverable error until the file is fixed. Profiler
-  surfaces may share one file; each skips rules that use keys only the other one knows.
+  the previous rules stay active, and the extension reports a recoverable error until the file is fixed. Both
+  extensions may share one file; each skips rules that use keys only the other one knows.
 
 ## Metrics
 

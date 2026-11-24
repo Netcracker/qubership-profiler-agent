@@ -100,11 +100,11 @@ func echoUpstream(t testing.TB) string {
 	return ln.Addr().String()
 }
 
-// TestReplayAndSpliceAreByteIdentical sends a handshake and a large random
+// TestReplayAndCopyAreByteIdentical sends a handshake and a large random
 // payload, half-closes, and expects the echo back in full. The handshake the
 // gateway read must reach the upstream unchanged, both directions are
-// spliced, and an end of stream is passed on, not turned into a reset.
-func TestReplayAndSpliceAreByteIdentical(t *testing.T) {
+// copied, and an end of stream is passed on, not turned into a reset.
+func TestReplayAndCopyAreByteIdentical(t *testing.T) {
 	p := startProxy(t, baseConfig(echoUpstream(t)), nil)
 	c, err := net.Dial("tcp", p.Addr().String())
 	require.NoError(t, err)
@@ -175,8 +175,8 @@ func TestMaxConnectionsRefuses(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	p := startProxy(t, cfg, nil, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 
-	// The handshake echo proves the first connection is spliced and so
-	// holds the slot.
+	// The handshake echo proves the first connection is in passthrough and
+	// so holds the slot.
 	first := dialEcho(t, p.Addr().String())
 	defer func() { _ = first.Close() }()
 

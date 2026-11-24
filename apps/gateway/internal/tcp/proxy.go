@@ -3,16 +3,17 @@
 //
 // Every connection opens with the agent's handshake, which names its
 // namespace, service, and pod. The proxy reads it, picks the mode from the
-// rules, and then either replays it to the upstream and splices the
-// sockets, or hands the connection to a libs/wire server that runs the
-// protocol and stores nothing.
+// rules, and then either replays it to the upstream and copies bytes between
+// the two sockets in both directions, or hands the connection to a libs/wire
+// server that runs the protocol and stores nothing.
 //
 // The agent's own retry shapes the design. A connection it cannot
 // establish, or one that drops, makes the agent mark its dumper dead, log
 // one warning, drop its buffers, and retry every 10 seconds
-// (DUMPER_RESTART_INTERVAL). So the proxy refuses over its connection cap
-// and on an unreachable upstream by resetting the socket: the agent copes
-// with that on its own.
+// (DUMPER_RESTART_INTERVAL). So the proxy resets the agent socket on every
+// end the agent did not start, such as the connection cap, an unreachable
+// upstream, or the upstream ending a passthrough session. The agent recovers
+// from a reset on its own.
 package tcp
 
 import (
@@ -43,7 +44,7 @@ type Config struct {
 	Upstream       string
 	ConnectTimeout time.Duration
 	MaxConnections int
-	// CopyBufferSize is the splice buffer per direction.
+	// CopyBufferSize is the copy buffer per direction.
 	CopyBufferSize int
 	// HandshakeTimeout bounds the wait for the agent's handshake.
 	HandshakeTimeout time.Duration
@@ -315,8 +316,9 @@ func (p *Proxy) Reevaluate() {
 	}
 }
 
-// passthrough dials the upstream and splices the two sockets. prefix holds
-// bytes already read from the agent, sent upstream before the rest.
+// passthrough dials the upstream and copies bytes between the two sockets in
+// both directions. prefix holds bytes already read from the agent, sent
+// upstream before the rest.
 func (p *Proxy) passthrough(s *session, prefix []byte) {
 	// The agent leg gets a FIN only when the agent finished first and both
 	// copies ended cleanly; every other end resets it.

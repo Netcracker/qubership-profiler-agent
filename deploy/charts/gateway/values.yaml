@@ -83,7 +83,7 @@ tcp:
   # host:port of the collector's agent Service. Required unless mode is
   # discard.
   upstream: profiler-collector-agent.profiler.svc:1715
-  # passthrough splices agent connections to the upstream; discard runs the
+  # passthrough copies agent connections to the upstream; discard runs the
   # collector protocol and drops the data, so agents stay quiet and alive.
   # A discarded agent cannot receive heap or thread dump requests from the UI.
   mode: passthrough

@@ -28,7 +28,7 @@ type Config struct {
 	// half the pod's open-file limit: each passthrough connection takes two
 	// descriptors.
 	MaxConnections int `mapstructure:"max_connections"`
-	// CopyBufferSize is the splice buffer per direction in passthrough.
+	// CopyBufferSize is the copy buffer per direction in passthrough.
 	CopyBufferSize units.ByteSize `mapstructure:"copy_buffer_size"`
 	// HandshakeTimeout bounds the wait for the agent's handshake, which
 	// names the source the rules match on.

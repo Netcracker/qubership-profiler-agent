@@ -27,6 +27,8 @@ build of `qubership-open-telemetry-collector` that adds them, and pin its tag in
 | 14250 | `jaeger-grpc`     | Jaeger gRPC                          | `traces.jaeger` |
 | 14268 | `jaeger-thrift`   | Jaeger Thrift over HTTP              | `traces.jaeger` |
 | 9411  | `zipkin`          | Zipkin HTTP                          | `traces.zipkin` |
+| 8080  | `cdt-http`        | diagtools dump uploads, HTTP         | `dumps.enabled` |
+| 1715  | `cdt-tcp`         | profiler agent connections, TCP      | `tcp.enabled`   |
 | 8888  | `agent-probes`    | health check, `/probes/ready`        | `ports.probes`  |
 | 8889  | `metrics`         | Collector metrics, Prometheus format | `ports.metrics` |
 
