@@ -24,9 +24,10 @@ extension/profilerdumps/  Collector wiring for dumps: factory, config, status re
 extension/profilertcp/    Collector wiring for agent connections
 ```
 
-The `internal/` packages import nothing from the Collector. The extension packages import only `component`,
-`componentstatus`, and `extension`, plus `confmap` and the Collector test helpers in tests. A small Collector surface
-keeps upgrades of the distribution from breaking on this module.
+The forwarding, discard, and rule-matching packages under `internal/` import nothing from the Collector.
+`internal/ruleswatch` imports `component` and `componentstatus` to report rules reloads as component status. The
+extension packages import only `component`, `componentstatus`, and `extension`, plus `confmap` and the Collector test
+helpers in tests. A small Collector surface keeps upgrades of the distribution from breaking on this module.
 
 ## `profiler_dumps`
 
