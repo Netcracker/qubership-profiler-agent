@@ -29,7 +29,9 @@ func newMetrics(m metric.Meter) (*metrics, error) {
 	out.active, errs[1] = m.Int64UpDownCounter("profiler_gateway_connections_active",
 		metric.WithDescription("Live agent connections, by mode."))
 	out.total, errs[2] = m.Int64Counter("profiler_gateway_connections_total",
-		metric.WithDescription("Accepted agent connections, by mode."))
+		metric.WithDescription("Agent sessions started, by mode. A discard session starts after a valid handshake, "+
+			"a passthrough session after the upstream dial succeeds; refused connections, bad handshakes, "+
+			"and failed dials are not counted."))
 	out.refused, errs[3] = m.Int64Counter("profiler_gateway_connections_refused_total",
 		metric.WithDescription("Agent connections closed on arrival because max_connections was reached."))
 	out.closedByReload, errs[4] = m.Int64Counter("profiler_gateway_connections_closed_by_reload_total",

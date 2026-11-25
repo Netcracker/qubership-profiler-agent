@@ -26,9 +26,9 @@ type Config struct {
 	// handshake reply must fit in the agent's 30-second read timeout.
 	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
 	// MaxConnections caps agent connections. Over the cap a connection is
-	// closed on arrival, and the agent retries in 10 seconds. Keep it below
-	// half the pod's open-file limit: each passthrough connection takes two
-	// descriptors.
+	// closed on arrival, and the agent retries after its restart interval,
+	// 10 seconds by default. Keep it below half the pod's open-file limit:
+	// each passthrough connection takes two descriptors.
 	MaxConnections int `mapstructure:"max_connections"`
 	// CopyBufferSize is the copy buffer per direction in passthrough.
 	CopyBufferSize units.ByteSize `mapstructure:"copy_buffer_size"`

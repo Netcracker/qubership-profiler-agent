@@ -218,7 +218,7 @@ func TestShutdownClosesAgentConnections(t *testing.T) {
 	cfg := baseConfig(startCollector(t, l))
 	p, err := New(cfg, defaultPolicy(), nopLogger(), noopMeter())
 	require.NoError(t, err)
-	require.NoError(t, p.Start(func(err error) { t.Errorf("accept failed: %v", err) }))
+	require.NoError(t, p.Start())
 
 	ac := agent(t, p.Addr().String(), "ns-1", "svc", "pod-1")
 	sendStream(t, ac, model.StreamTrace, []byte("data"))
@@ -288,7 +288,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 		{"gateway", func() string {
 			p, err := New(baseConfig(upstream), defaultPolicy(), nopLogger(), noopMeter())
 			require.NoError(b, err)
-			require.NoError(b, p.Start(func(error) {}))
+			require.NoError(b, p.Start())
 			b.Cleanup(func() { _ = p.Shutdown(context.Background()) })
 			return p.Addr().String()
 		}},
@@ -320,7 +320,7 @@ func BenchmarkIdleConnectionMemory(b *testing.B) {
 	require.NoError(b, err)
 	p.cfg.MaxConnections = n
 	p.sem = make(chan struct{}, n)
-	require.NoError(b, p.Start(func(error) {}))
+	require.NoError(b, p.Start())
 	b.Cleanup(func() { _ = p.Shutdown(context.Background()) })
 
 	for i := 0; i < b.N; i++ {
@@ -385,9 +385,15 @@ func TestUpstreamCloseEndsTheSession(t *testing.T) {
 	_, err = stale.Write(hs)
 	require.NoError(t, err)
 	<-upClosed
+	// Wait for the untrack, not the active gauge: the gauge drops inside
+	// passthrough, before the session leaves p.conns, and a reload in that
+	// window would also close the ending session.
 	require.Eventually(t, func() bool {
-		return sum(t, reader, "profiler_gateway_connections_active") == 0
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.conns) == 0
 	}, 5*time.Second, 10*time.Millisecond, "the session ends with its upstream")
+	assert.Equal(t, int64(0), sum(t, reader, "profiler_gateway_connections_active"))
 	assert.ErrorIs(t, readEnd(stale), syscall.ECONNRESET, "the agent sees a reset, not a FIN")
 	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_upstream_errors_total"), "the upstream close is counted")
 
@@ -427,16 +433,78 @@ func TestAcceptRetriesOutOfDescriptors(t *testing.T) {
 	p, err := New(baseConfig(echoUpstream(t)), defaultPolicy(), nopLogger(), noopMeter())
 	require.NoError(t, err)
 	p.ln = ln
-	done := make(chan error, 1)
-	go func() { done <- p.acceptLoop() }()
+	done := make(chan struct{})
+	go func() { p.acceptLoop(); close(done) }()
 
 	c := dialEcho(t, inner.Addr().String())
 	_ = c.Close()
 	select {
-	case err := <-done:
-		t.Fatalf("the accept loop stopped: %v", err)
+	case <-done:
+		t.Fatal("the accept loop stopped")
 	default:
 	}
 	require.NoError(t, p.Shutdown(context.Background()))
-	assert.NoError(t, <-done)
+	<-done
+}
+
+// TestUpstreamSilentAfterAgentEOFEndsTheSession: the agent finishes and
+// the upstream reads everything but never closes. The session must end
+// after finalAnswer and free its slot, not wait forever.
+func TestUpstreamSilentAfterAgentEOFEndsTheSession(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- c
+		_, _ = io.Copy(io.Discard, c) // reads to EOF, then keeps the socket open
+	}()
+	t.Cleanup(func() {
+		select {
+		case c := <-accepted:
+			_ = c.Close()
+		default:
+		}
+	})
+
+	reader := sdkmetric.NewManualReader()
+	p, err := New(baseConfig(ln.Addr().String()), defaultPolicy(), nopLogger(),
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	require.NoError(t, err)
+	p.finalAnswer = 200 * time.Millisecond
+	require.NoError(t, p.Start())
+	t.Cleanup(func() { assert.NoError(t, p.Shutdown(context.Background())) })
+
+	c, err := net.Dial("tcp", p.Addr().String())
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	_, err = c.Write(handshakeBytes(t, "ns-1", "svc", "pod-1"))
+	require.NoError(t, err)
+	require.NoError(t, c.(*net.TCPConn).CloseWrite())
+
+	assert.ErrorIs(t, readEnd(c), syscall.ECONNRESET, "the session ends with a reset")
+	require.Eventually(t, func() bool {
+		return sum(t, reader, "profiler_gateway_connections_active") == 0
+	}, 5*time.Second, 10*time.Millisecond, "the session frees its slot")
+	assert.Equal(t, int64(1), sum(t, reader, "profiler_gateway_upstream_errors_total"))
+}
+
+// TestSetUpstreamAfterCloseClosesTheDial: a dial that completes after a
+// rules change or shutdown closed the session must not become its upstream
+// leg, so the handshake is not replayed.
+func TestSetUpstreamAfterCloseClosesTheDial(t *testing.T) {
+	client, peer := net.Pipe()
+	defer peer.Close()
+	up, upPeer := net.Pipe()
+	defer upPeer.Close()
+	s := &session{client: client}
+	s.abort()
+
+	assert.False(t, s.setUpstream(up))
+	_, err := upPeer.Read(make([]byte, 1))
+	assert.ErrorIs(t, err, io.EOF, "the late upstream connection is closed")
 }

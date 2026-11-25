@@ -9,11 +9,18 @@
 //
 // The agent's own retry shapes the design. A connection it cannot
 // establish, or one that drops, makes the agent mark its dumper dead, log
-// one warning, drop its buffers, and retry every 10 seconds
-// (DUMPER_RESTART_INTERVAL). So the proxy resets the agent socket on every
-// end the agent did not start, such as the connection cap, an unreachable
-// upstream, or the upstream ending a passthrough session. The agent recovers
-// from a reset on its own.
+// one warning, drop its buffers, and retry after DUMPER_RESTART_INTERVAL,
+// 10 seconds by default (com.netcracker.profiler.Dumper.RESTART_INTERVAL).
+// So the proxy resets the agent socket on every end the agent did not start,
+// except in an established discard session: the connection cap, a bad
+// handshake, an unreachable upstream, the upstream ending a passthrough
+// session, a rules change, and shutdown. The agent recovers from a reset on
+// its own.
+//
+// An established discard session that ends on its own ends the way a
+// session with the collector does: the libs/wire server closes the socket
+// with a FIN after its read timeout, a protocol error, or the agent's
+// COMMAND_CLOSE.
 package tcp
 
 import (
@@ -34,6 +41,11 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
 )
+
+// finalAnswerTimeout bounds the wait for the upstream to close its side after
+// the agent finished sending. It matches the agent's own 30-second read
+// timeout.
+const finalAnswerTimeout = 30 * time.Second
 
 // Config is the validated configuration of a Proxy.
 type Config struct {
@@ -73,30 +85,48 @@ type Proxy struct {
 	conns  map[*session]struct{}
 	closed bool
 	wg     sync.WaitGroup
+	// finalAnswer is finalAnswerTimeout; tests shorten it.
+	finalAnswer time.Duration
 }
 
 // session is one agent connection and, in passthrough, its upstream leg.
 type session struct {
 	client net.Conn
 	mu     sync.Mutex
-	// upstream, mode, attrs, and decided are guarded by mu. decided turns
-	// true once the mode is chosen; Reevaluate skips sessions still reading
-	// their handshake, which will see the new rules when they decide.
+	// upstream, mode, attrs, decided, and closed are guarded by mu. decided
+	// turns true once the mode is chosen; Reevaluate skips sessions still
+	// reading their handshake, which will see the new rules when they decide.
 	upstream net.Conn
 	mode     rules.Mode
 	attrs    rules.Attrs
 	decided  bool
+	closed   bool
 }
 
 // close closes both legs. It is safe to call more than once.
 func (s *session) close() {
 	_ = s.client.Close()
 	s.mu.Lock()
+	s.closed = true
 	up := s.upstream
 	s.mu.Unlock()
 	if up != nil {
 		_ = up.Close()
 	}
+}
+
+// setUpstream records up as the upstream leg. When the session was closed
+// during the dial, by a rules change or shutdown, it closes up and returns
+// false, so the handshake is never replayed to the upstream.
+func (s *session) setUpstream(up net.Conn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		_ = up.Close()
+		return false
+	}
+	s.upstream = up
+	return true
 }
 
 // abort closes the agent leg with a reset and the upstream leg normally.
@@ -107,7 +137,8 @@ func (s *session) abort() {
 
 // abort closes c with a TCP RST instead of a FIN. The agent treats EOF as
 // "no data yet" (EndlessSocketInputStream) and spins until its 30 s read
-// timeout; a reset fails its read at once, so it retries in 10 s.
+// timeout; a reset fails its read at once, so it retries after its restart
+// interval.
 func abort(c net.Conn) {
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.SetLinger(0)
@@ -128,6 +159,8 @@ func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Mete
 		metrics: m,
 		sem:     make(chan struct{}, cfg.MaxConnections),
 		conns:   map[*session]struct{}{},
+
+		finalAnswer: finalAnswerTimeout,
 	}
 	p.sinkCtx = wirelog.WithSink(context.Background(), zapSink(logger))
 	p.sink = server.PrepareServer(context.Background(), server.ConnectionOpts{
@@ -144,9 +177,9 @@ func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Mete
 	return p, nil
 }
 
-// Start listens on the endpoint and accepts in the background. An accept
-// failure after a successful bind is passed to onFatal.
-func (p *Proxy) Start(onFatal func(error)) error {
+// Start listens on the endpoint and accepts in the background until
+// Shutdown. An accept failure after a successful bind is logged and retried.
+func (p *Proxy) Start() error {
 	ln, err := net.Listen("tcp", p.cfg.Endpoint)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", p.cfg.Endpoint, err)
@@ -155,9 +188,7 @@ func (p *Proxy) Start(onFatal func(error)) error {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		if err := p.acceptLoop(); err != nil {
-			onFatal(fmt.Errorf("accept agent connections on %s: %w", p.cfg.Endpoint, err))
-		}
+		p.acceptLoop()
 	}()
 	return nil
 }
@@ -170,13 +201,13 @@ func (p *Proxy) Addr() net.Addr {
 	return p.ln.Addr()
 }
 
-func (p *Proxy) acceptLoop() error {
+func (p *Proxy) acceptLoop() {
 	var backoff time.Duration
 	for {
 		c, err := p.ln.Accept()
 		if err != nil {
 			if p.isClosed() {
-				return nil
+				return
 			}
 			// Only Shutdown ends the loop. Any other failure, such as running
 			// out of descriptors, is retried, as net/http.Server.Serve does.
@@ -190,7 +221,8 @@ func (p *Proxy) acceptLoop() error {
 		case p.sem <- struct{}{}:
 		default:
 			// Refused by closing: the agent marks its dumper dead and
-			// retries in 10 s, which is the behavior wanted over the cap.
+			// retries after its restart interval, which is the behavior
+			// wanted over the cap.
 			p.metrics.refused.Add(context.Background(), 1)
 			p.logger.Debug("Refused an agent connection over max_connections",
 				zap.Stringer("remote", c.RemoteAddr()), zap.Int("max_connections", p.cfg.MaxConnections))
@@ -201,7 +233,7 @@ func (p *Proxy) acceptLoop() error {
 		if !p.track(s) {
 			<-p.sem
 			abort(c)
-			return nil
+			return
 		}
 		p.wg.Add(1)
 		go func() {
@@ -278,9 +310,10 @@ func (p *Proxy) discard(s *session, prefix []byte) {
 }
 
 // Reevaluate applies changed rules to open connections. A connection whose
-// mode changed is closed; the agent reconnects within 10 s into the new
-// mode. It is the only way to move an agent from discard to passthrough:
-// the upstream never saw that connection's handshake.
+// mode changed is reset, and the agent reconnects into the new mode after
+// its restart interval, 10 seconds by default. It is the only way to move an
+// agent from discard to passthrough: the upstream never saw that
+// connection's handshake.
 func (p *Proxy) Reevaluate() {
 	p.mu.Lock()
 	sessions := make([]*session, 0, len(p.conns))
@@ -325,14 +358,11 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 	up, err := net.DialTimeout("tcp", p.cfg.Upstream, p.cfg.ConnectTimeout)
 	if err != nil {
 		p.metrics.UpstreamError(ctx)
-		p.logger.Warn("Upstream unreachable; closing the agent connection, the agent retries in 10 s",
+		p.logger.Warn("Upstream unreachable; closing the agent connection, the agent retries after its restart interval",
 			zap.String("upstream", p.cfg.Upstream), zap.Stringer("remote", s.client.RemoteAddr()), zap.Error(err))
 		return
 	}
-	s.mu.Lock()
-	s.upstream = up
-	s.mu.Unlock()
-	if p.isClosed() {
+	if !s.setUpstream(up) {
 		return
 	}
 
@@ -356,7 +386,10 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 		err := p.copy(toUpstream, s.client)
 		if err == nil {
 			agentEOF.Store(true)
-			// Half-close, so the upstream sees the end of the stream.
+			// Half-close, so the upstream sees the end of the stream. If the
+			// upstream keeps its side open past finalAnswer, the reverse copy
+			// fails with a timeout and the session ends with a reset.
+			_ = up.SetReadDeadline(time.Now().Add(p.finalAnswer))
 			err = up.(*net.TCPConn).CloseWrite()
 		}
 		agentDone <- err
@@ -364,7 +397,8 @@ func (p *Proxy) passthrough(s *session, prefix []byte) {
 	upDone := make(chan error, 1)
 	go func() { upDone <- p.copy(s.client, up) }()
 
-	// The agent finishing cleanly waits for the upstream to finish answering.
+	// The agent finishing cleanly waits up to finalAnswer for the upstream to
+	// finish its reply.
 	// The upstream ending ends the session: nothing can answer the agent any
 	// more, and the agent may leave its old socket open after a read timeout,
 	// which would keep this session tracked forever. An error ends both.

@@ -9,7 +9,6 @@ import (
 	"errors"
 
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/component/componentstatus"
 	"go.opentelemetry.io/collector/extension"
 	"go.uber.org/zap"
 
@@ -82,10 +81,7 @@ func (e *tcpExtension) Start(_ context.Context, host component.Host) error {
 		e.watcher = w
 	}
 
-	if err := proxy.Start(func(err error) {
-		logger.Error("Agent connection listener failed", zap.Error(err))
-		componentstatus.ReportStatus(host, componentstatus.NewFatalErrorEvent(err))
-	}); err != nil {
+	if err := proxy.Start(); err != nil {
 		if e.watcher != nil {
 			_ = e.watcher.Close()
 		}

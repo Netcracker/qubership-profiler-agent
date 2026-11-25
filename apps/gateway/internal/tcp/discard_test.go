@@ -64,12 +64,15 @@ func TestRulesSelectModeFromTheHandshake(t *testing.T) {
 		Inline: rules.Set{
 			{Match: rules.Match{Service: "chatty-*"}, Mode: rules.Discard},
 			{Match: rules.Match{Namespace: "load-*"}, Mode: rules.Discard},
+			{Match: rules.Match{Pod: "billing-canary-*"}, Mode: rules.Discard},
 		},
 	})
 
+	// The last two agents differ only in the pod name.
 	for _, a := range []struct{ ns, svc, pod string }{
 		{"ns-1", "chatty-api", "chatty-api-1"},
 		{"load-7", "billing", "billing-load"},
+		{"ns-1", "billing", "billing-canary-1"},
 		{"ns-1", "billing", "billing-1"},
 	} {
 		sendStream(t, agent(t, p.Addr().String(), a.ns, a.svc, a.pod), model.StreamTrace, []byte(a.pod))

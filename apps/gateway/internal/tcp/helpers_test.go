@@ -140,7 +140,7 @@ func startProxy(t *testing.T, cfg Config, policy *rules.Policy, provider ...*sdk
 	}
 	p, err := New(cfg, policy, zap.NewNop(), meter)
 	require.NoError(t, err)
-	require.NoError(t, p.Start(func(err error) { t.Errorf("accept failed: %v", err) }))
+	require.NoError(t, p.Start())
 	t.Cleanup(func() { assert.NoError(t, p.Shutdown(context.Background())) })
 	return p
 }
