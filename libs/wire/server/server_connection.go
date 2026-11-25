@@ -178,6 +178,14 @@ func (sc *ConnectionHandler) CommandReportResult(ctx context.Context) (err error
 
 func (sc *ConnectionHandler) CommandGetProtocolVersion(ctx context.Context) (err error) {
 	log.Debug(sc.ctx, "Receiving GET_PROTOCOL_VERSION_V2")
+	// The agent sends one handshake per socket. A second one would replace
+	// the identity the listener ingests under, after a gateway chose the
+	// connection's mode by the first, and would register a pod-restart the
+	// first never finalizes. Close the connection instead.
+	if sc.pod != nil {
+		return fmt.Errorf("a second GET_PROTOCOL_VERSION_V2 handshake from %v/%v [%v]",
+			sc.pod.Namespace, sc.pod.Service, sc.pod.PodName)
+	}
 	var clProtocol uint64
 	clProtocol, err = sc.socketReader.ReadFixedLong(ctx)
 	if err != nil {

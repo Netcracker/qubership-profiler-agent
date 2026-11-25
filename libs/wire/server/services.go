@@ -78,10 +78,14 @@ func (ss *Service) Start(ctx context.Context) (err error) {
 }
 
 // ServeConn handles one agent connection that was accepted elsewhere, and
-// returns when it ends. c must deliver the agent's stream from its first
-// byte: a caller that has already read the handshake replays those bytes
-// first. Stop closes c like the connections Start accepts. After Stop, ServeConn closes c and
-// returns at once.
+// returns when it ends. It needs only PrepareServer, not Start. c must
+// deliver the agent's stream from its first byte: a caller that has already
+// read the handshake replays those bytes first.
+//
+// ServeConn owns c and closes it before it returns. To end a connection
+// blocked in a read, the caller closes c or calls Stop, which closes every
+// connection ServeConn and Start are serving. After Stop, ServeConn closes c
+// and returns at once.
 func (ss *Service) ServeConn(ctx context.Context, c net.Conn) {
 	sc := ss.prepareConnectionHandler(ctx, c)
 	ss.mu.Lock()

@@ -127,6 +127,37 @@ func TestServeConnHandlesAConnectionAcceptedElsewhere(t *testing.T) {
 	}
 }
 
+// TestSecondHandshakeClosesTheConnection: a second GET_PROTOCOL_VERSION_V2
+// on one socket must not replace the identity the first one registered.
+func TestSecondHandshakeClosesTheConnection(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := recordingPods{pods: make(chan ConnectedPod, 2)}
+	ss := PrepareServer(ctx, ConnectionOpts{Timeout: profio.TcpTimeout{
+		ReadTimeout: 5 * time.Second, WriteTimeout: time.Second,
+	}}, l)
+	defer ss.Stop()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	go func() {
+		if c, err := ln.Accept(); err == nil {
+			ss.ServeConn(ctx, c)
+		}
+	}()
+
+	ac := emulator.PrepareAgent(ctx, nil, nil, "pod-1")
+	require.NoError(t, ac.Prepare(emulator.ConnectionOpts{
+		ProtocolAddress: ln.Addr().String(),
+		Timeout:         profio.TcpTimeout{ConnectTimeout: time.Second, SessionTimeout: time.Minute, ReadTimeout: 5 * time.Second, WriteTimeout: time.Second},
+	}).Connect())
+	defer ac.Close()
+	require.NoError(t, ac.InitializeConnection(model.PROTOCOL_VERSION_V3, "ns", "svc", "pod-1"))
+	assert.Error(t, ac.InitializeConnection(model.PROTOCOL_VERSION_V3, "ns", "svc", "pod-2"))
+	assert.Equal(t, "pod-1", (<-l.pods).PodName)
+	assert.Empty(t, l.pods, "the second handshake registers no pod")
+}
+
 func TestServeConnAfterStopClosesTheConnection(t *testing.T) {
 	ss := PrepareServer(context.Background(), ConnectionOpts{}, stubListener{})
 	ss.Stop()

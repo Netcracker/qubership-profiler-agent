@@ -45,7 +45,9 @@ func GetContextName(ctx context.Context) string {
 type sinkKey struct{}
 
 // Sink receives a log record in place of stdout: the level name, such as
-// "INFO", and the formatted message without the header.
+// "INFO", and the formatted message without the header. It runs
+// synchronously on the goroutine that logs, and one context can be shared by
+// many goroutines, so a Sink must be safe for concurrent calls.
 type Sink func(level, msg string)
 
 // WithSink returns a context whose log records go to sink instead of stdout.
