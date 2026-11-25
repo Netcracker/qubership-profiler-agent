@@ -36,18 +36,20 @@ func newMetrics(m metric.Meter) (*metrics, error) {
 	out := &metrics{}
 	out.Shared, errs[0] = telemetry.NewShared(m, "dumps")
 	out.inFlight, errs[1] = m.Int64UpDownCounter("profiler_gateway_uploads_in_flight",
-		metric.WithDescription("Dump uploads being forwarded or discarded now."))
+		metric.WithDescription("Requests that hold one of the max_concurrent_uploads slots now, uploads and DELETEs "+
+			"alike, forwarded or discarded. A request discarded over the cap holds no slot."))
 	out.uploadBytes, errs[2] = m.Int64Counter("profiler_gateway_upload_bytes_total",
 		metric.WithDescription("Bytes of dump uploads received, by dump type and outcome."))
 	return out, errors.Join(errs[:]...)
 }
 
+// upload counts n received bytes under outcome. The forwarded outcome does
+// not add to profiler_gateway_bytes_forwarded_total: the caller adds the bytes
+// that reached the upstream, which can be fewer than the bytes received.
 func (m *metrics) upload(ctx context.Context, dumpType, outcome string, n int64) {
 	m.uploadBytes.Add(ctx, n, metric.WithAttributes(
 		attribute.String("dump_type", dumpType), attribute.String("outcome", outcome)))
 	switch outcome {
-	case outcomeForwarded:
-		m.Forwarded(ctx, n)
 	case outcomeDiscarded, outcomeOverCap, outcomeOverConcurrency:
 		m.Discarded(ctx, n)
 	}

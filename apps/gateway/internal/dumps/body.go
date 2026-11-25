@@ -16,8 +16,9 @@ var (
 
 // capBody wraps the client's request body on its way to the upstream.
 //
-// It counts bytes and fails with errOverCap once the count passes the
-// limit, which aborts the upstream request. Close is a no-op, so the body
+// It counts the bytes it receives and the bytes it passes to the transport,
+// and fails with errOverCap once the received count passes the limit, which
+// aborts the upstream request. Close is a no-op, so the body
 // can still be drained after the transport gives up on it. A mutex makes
 // drain safe while the transport's writer goroutine is still reading.
 type capBody struct {
@@ -25,6 +26,7 @@ type capBody struct {
 	r         io.Reader
 	limit     int64
 	n         int64
+	sent      int64
 	eof       bool
 	overCap   bool
 	detached  bool
@@ -58,6 +60,7 @@ func (b *capBody) Read(p []byte) (int, error) {
 	case err != nil:
 		b.clientErr = err
 	}
+	b.sent += int64(n)
 	return n, err
 }
 
@@ -65,7 +68,9 @@ func (b *capBody) Read(p []byte) (int, error) {
 func (b *capBody) Close() error { return nil }
 
 // drain reads whatever the client has not sent yet and discards it. Later
-// reads by the transport fail. It returns the number of bytes drained.
+// reads by the transport fail. A body whose full size passes the limit is
+// marked over the cap, also when the upstream answered before the
+// transport read that far. It returns the number of bytes drained.
 func (b *capBody) drain() (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -75,6 +80,9 @@ func (b *capBody) drain() (int64, error) {
 	}
 	n, err := io.Copy(io.Discard, b.r)
 	b.n += n
+	if b.n > b.limit {
+		b.overCap = true
+	}
 	if err != nil {
 		b.clientErr = err
 	} else {
@@ -85,6 +93,7 @@ func (b *capBody) drain() (int64, error) {
 
 type bodyState struct {
 	total     int64
+	sent      int64
 	overCap   bool
 	clientErr error
 }
@@ -92,7 +101,7 @@ type bodyState struct {
 func (b *capBody) state() bodyState {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return bodyState{total: b.n, overCap: b.overCap, clientErr: b.clientErr}
+	return bodyState{total: b.n, sent: b.sent, overCap: b.overCap, clientErr: b.clientErr}
 }
 
 // idleBody renews a read deadline on the client connection before each

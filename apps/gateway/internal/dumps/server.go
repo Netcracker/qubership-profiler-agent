@@ -2,11 +2,13 @@
 // accepts and discards them. It has no Collector imports.
 //
 // The client's retry behavior shapes every decision here. diagtools keeps a
-// file and resends it from byte zero on any answer other than 200, 201, or
-// 204, for up to 48 hours. So the gateway never sheds load with an error
-// status: an upload it will not forward is read to the end and answered 204,
-// and the client deletes its copy. An upstream outage in passthrough answers
-// 502, so the client keeps the file and retries.
+// queued dump file and resends it from byte zero on any answer other than
+// 200, 201, or 204, until DIAGNOSTIC_UPLOAD_MAX_AGE passes (48 hours by
+// default). So the gateway never sheds load with an error status: an upload
+// it will not forward is read to the end and answered 204, and the client
+// deletes its copy. An upstream outage in passthrough answers 502, so the
+// client keeps a queued file and retries. A thread dump that diagtools sends
+// from memory has no file, and a 502 loses it.
 package dumps
 
 import (
@@ -94,7 +96,11 @@ func New(cfg Config, policy *rules.Policy, logger *zap.Logger, meter metric.Mete
 		// Only the header has a deadline. http.Server.ReadTimeout would
 		// also cover the body and cut off a large dump mid-transfer.
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		ErrorLog:          zap.NewStdLog(logger.Named("http")),
+		// Without it a keep-alive connection waits for its next request
+		// forever: ReadTimeout is zero, so net/http has no fallback.
+		// diagtools builds a new transport per file and never reuses one.
+		IdleTimeout: cfg.IdleTimeout,
+		ErrorLog:    zap.NewStdLog(logger.Named("http")),
 	}
 	return s, nil
 }
@@ -116,6 +122,9 @@ func (s *Server) newProxy() *httputil.ReverseProxy {
 		// environment proxy.
 		Proxy:       nil,
 		DialContext: s.dial,
+		// An https upstream that accepts TCP and stalls the handshake would
+		// otherwise hold the slot: no body or response deadline runs yet.
+		TLSHandshakeTimeout: s.cfg.ConnectTimeout,
 		// Counted from the end of the request body, so a long upload does
 		// not run into it. There is no whole-request timeout: the client
 		// already has one.
@@ -183,6 +192,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !underPrefix(r.URL.Path, s.cfg.PathPrefix) {
 		http.NotFound(w, r)
+		return
+	}
+	if !canonicalPath(r.URL) {
+		// The upstream would resolve such a path to another source, or to a
+		// location outside the prefix, than the rules evaluated. diagtools
+		// never builds one.
+		http.Error(w, "non-canonical path", http.StatusBadRequest)
 		return
 	}
 	if !slices.Contains(s.cfg.AllowedMethods, r.Method) {
@@ -266,11 +282,20 @@ func (s *Server) modifyResponse(resp *http.Response) error {
 		// proxyError counts it and drops the connection.
 		return err
 	}
-	outcome := outcomeForwarded
-	if !clientAccepts(resp.Request.Method, resp.StatusCode) {
-		outcome = outcomeUpstreamRejected
+	state := st.body.state()
+	if state.overCap {
+		// The upstream answered before the body passed the cap. proxyError
+		// answers 204, so the client stops resending an oversized file.
+		return errOverCap
 	}
-	s.metrics.upload(resp.Request.Context(), st.dumpType, outcome, st.body.state().total)
+	ctx := resp.Request.Context()
+	if !clientAccepts(resp.Request.Method, resp.StatusCode) {
+		s.metrics.upload(ctx, st.dumpType, outcomeUpstreamRejected, state.total)
+		return nil
+	}
+	s.metrics.upload(ctx, st.dumpType, outcomeForwarded, state.total)
+	// Bytes drained after an early answer never reached the upstream.
+	s.metrics.Forwarded(ctx, state.sent)
 	return nil
 }
 
@@ -290,34 +315,39 @@ func clientAccepts(method string, status int) bool {
 }
 
 // proxyError handles a failed upstream exchange: an upload over the size
-// cap, a client that went away, or an upstream that failed.
+// cap, a client that went away, or an upstream that failed. The body is
+// drained first, so the cap applies to the full size, also when the
+// upstream failed before the body reached the cap.
 func (s *Server) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 	st := r.Context().Value(ctxKey{}).(*requestState)
 	ctx := r.Context()
-	before := st.body.state()
-	if before.overCap {
-		if _, derr := st.body.drain(); derr != nil {
-			s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, st.body.state().total)
-			abortClient()
-		}
-		s.metrics.upload(ctx, st.dumpType, outcomeOverCap, st.body.state().total)
-		s.logOverCap(r, st.dumpType)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if before.clientErr != nil {
+	if before := st.body.state(); before.clientErr != nil {
 		s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, before.total)
 		s.logger.Debug("Client aborted an upload", zap.String("path", r.URL.Path), zap.Error(before.clientErr))
 		abortClient()
 	}
-	s.metrics.UpstreamError(ctx)
 	if _, derr := st.body.drain(); derr != nil {
 		s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, st.body.state().total)
 		abortClient()
 	}
-	s.metrics.upload(ctx, st.dumpType, outcomeUpstreamError, st.body.state().total)
-	s.logger.Warn("Upstream failed; answering 502 so the client keeps the file and retries",
-		zap.String("path", r.URL.Path), zap.Error(err))
+	after := st.body.state()
+	if ctx.Err() != nil {
+		// The client closed its connection after sending the body, and
+		// net/http canceled the upstream request.
+		s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, after.total)
+		s.logger.Debug("Client went away before the upstream answered", zap.String("path", r.URL.Path), zap.Error(err))
+		abortClient()
+	}
+	if after.overCap {
+		s.metrics.upload(ctx, st.dumpType, outcomeOverCap, after.total)
+		s.logOverCap(r, st.dumpType)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.metrics.UpstreamError(ctx)
+	s.metrics.upload(ctx, st.dumpType, outcomeUpstreamError, after.total)
+	s.logger.Warn("Upstream failed; answering 502. diagtools keeps a queued dump file and retries it, "+
+		"but loses a thread dump it sent from memory", zap.String("path", r.URL.Path), zap.Error(err))
 	w.WriteHeader(http.StatusBadGateway)
 }
 

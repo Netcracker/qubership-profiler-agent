@@ -1,6 +1,7 @@
 package dumps
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -164,6 +165,10 @@ func (s *slowReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// testClient has a deadline, so a request that queues behind another fails
+// the test instead of hanging until the package timeout.
+var testClient = &http.Client{Timeout: 30 * time.Second}
+
 func do(t *testing.T, method, target string, body io.Reader, contentType string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, target, body)
@@ -171,9 +176,12 @@ func do(t *testing.T, method, target string, body io.Reader, contentType string)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testClient.Do(req)
 	require.NoError(t, err)
-	_, _ = io.Copy(io.Discard, resp.Body)
+	// A gateway that aborts after sending the status line fails here, and
+	// not only when the status is missing.
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err, "the response body is complete")
 	_ = resp.Body.Close()
 	return resp
 }
@@ -196,12 +204,30 @@ func TestPassthroughForwardsChunkedPutVerbatim(t *testing.T) {
 	assert.True(t, bytes.Equal(data, got[0].body), "body differs")
 }
 
-// The multipart body is forwarded as raw bytes. Parsing it with
-// ParseMultipartForm would buffer the parts in memory and in temp files.
-func TestPassthroughForwardsMultipartUnparsed(t *testing.T) {
-	up := newUpstream(t)
+// The multipart body is forwarded as raw bytes while it arrives. Parsing it
+// with ParseMultipartForm, or buffering it, would hold the parts in memory
+// and in temp files. The upstream reports its first bytes before the client
+// sends the rest, so a gateway that waits for the whole body fails the test.
+func TestPassthroughStreamsMultipartUnparsed(t *testing.T) {
+	firstBytes := make(chan struct{})
+	got := make(chan received, 1)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		head := make([]byte, 1024)
+		if _, err := io.ReadFull(r.Body, head); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		close(firstBytes)
+		rest, err := io.ReadAll(r.Body)
+		if err != nil {
+			return
+		}
+		got <- received{contentType: r.Header.Get("Content-Type"), body: append(head, rest...)}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(up.Close)
 	cfg := baseConfig()
-	cfg.Upstream = up.url(t)
+	cfg.Upstream, _ = url.Parse(up.URL)
 	gw := startServer(t, cfg, nil)
 
 	var buf bytes.Buffer
@@ -211,14 +237,27 @@ func TestPassthroughForwardsMultipartUnparsed(t *testing.T) {
 	_, err = part.Write(randomBytes(t, 2<<20))
 	require.NoError(t, err)
 	require.NoError(t, mw.Close())
-	sent := bytes.Clone(buf.Bytes())
+	sent := buf.Bytes()
 
-	resp := do(t, http.MethodPost, gw+heapPath, chunked{&buf}, mw.FormDataContentType())
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	got := up.got()
-	require.Len(t, got, 1)
-	assert.Equal(t, mw.FormDataContentType(), got[0].contentType)
-	assert.True(t, bytes.Equal(sent, got[0].body), "multipart body differs")
+	pr, pw := io.Pipe()
+	done := make(chan *http.Response, 1)
+	go func() { done <- do(t, http.MethodPost, gw+heapPath, pr, mw.FormDataContentType()) }()
+	_, err = pw.Write(sent[:64<<10])
+	require.NoError(t, err)
+	select {
+	case <-firstBytes:
+	case <-time.After(5 * time.Second):
+		_ = pw.CloseWithError(errors.New("test timed out"))
+		t.Fatal("the upstream got no bytes before the upload finished")
+	}
+	_, err = pw.Write(sent[64<<10:])
+	require.NoError(t, err)
+	require.NoError(t, pw.Close())
+
+	assert.Equal(t, http.StatusCreated, awaitResponse(t, done).StatusCode)
+	r := <-got
+	assert.Equal(t, mw.FormDataContentType(), r.contentType)
+	assert.True(t, bytes.Equal(sent, r.body), "multipart body differs")
 }
 
 func TestPassthroughKeepsUpstreamStatus(t *testing.T) {
@@ -331,7 +370,7 @@ func TestPerTypeCap(t *testing.T) {
 
 func TestConcurrencyCapDiscards(t *testing.T) {
 	up := newUpstream(t)
-	up.hold = make(chan struct{})
+	release := holdUpstream(t, up)
 	cfg := baseConfig()
 	cfg.Upstream = up.url(t)
 	cfg.MaxConcurrentUploads = 1
@@ -343,12 +382,66 @@ func TestConcurrencyCapDiscards(t *testing.T) {
 	}()
 	<-up.seen
 
-	resp := do(t, http.MethodPut, gw+heapPath, bytes.NewReader([]byte("second")), "application/octet-stream")
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Post(gw+heapPath, "application/octet-stream", bytes.NewReader([]byte("second")))
+	require.NoError(t, err, "over the cap the upload is discarded, not queued")
+	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode, "over the cap the upload is discarded, not queued")
 
-	close(up.hold)
-	assert.Equal(t, http.StatusCreated, (<-first).StatusCode)
+	release()
+	assert.Equal(t, http.StatusCreated, awaitResponse(t, first).StatusCode)
 	assert.Len(t, up.got(), 1)
+}
+
+// awaitResponse waits for a response that a goroutine sends on ch.
+func awaitResponse(t *testing.T, ch <-chan *http.Response) *http.Response {
+	t.Helper()
+	select {
+	case resp := <-ch:
+		return resp
+	case <-time.After(35 * time.Second):
+		t.Fatal("the request did not finish")
+		return nil
+	}
+}
+
+// holdUpstream makes up block every request until the returned release runs.
+// Cleanup releases it too, before the upstream closes.
+func holdUpstream(t *testing.T, up *upstream) (release func()) {
+	up.hold = make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(up.hold) }) }
+	t.Cleanup(release)
+	return release
+}
+
+// TestUploadsInFlightGauge checks that the gauge reports a held slot while an
+// upload is forwarded, and drops back to zero after it.
+func TestUploadsInFlightGauge(t *testing.T) {
+	up := newUpstream(t)
+	release := holdUpstream(t, up)
+	cfg := baseConfig()
+	cfg.Upstream = up.url(t)
+	reader := sdkmetric.NewManualReader()
+	gw := startServer(t, cfg, nil, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	done := make(chan *http.Response, 1)
+	go func() {
+		done <- do(t, http.MethodPut, gw+heapPath, bytes.NewReader([]byte("x")), "application/octet-stream")
+	}()
+	<-up.seen
+	const gauge = "profiler_gateway_uploads_in_flight"
+	v, ok := collectSums(t, reader)[gauge]
+	require.True(t, ok, "the gauge is reported")
+	assert.Equal(t, int64(1), v)
+
+	release()
+	assert.Equal(t, http.StatusCreated, awaitResponse(t, done).StatusCode)
+	// The handler releases the slot after the client has its answer.
+	require.Eventually(t, func() bool {
+		v, ok := collectSums(t, reader)[gauge]
+		return ok && v == 0
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestUpstreamDownAnswers502(t *testing.T) {
@@ -403,6 +496,41 @@ func TestPrefixAndMethods(t *testing.T) {
 	resp = do(t, http.MethodPut, gw+"/diagnosticx/a", bytes.NewReader([]byte("x")), "")
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assert.Empty(t, up.got())
+}
+
+// A path that nginx would normalize to another one is rejected before the
+// rules run, so the rules and the upstream cannot read different sources.
+// The requests go over a raw connection, so the client sends each URI as
+// written.
+func TestNonCanonicalPathIsRejected(t *testing.T) {
+	up := newUpstream(t)
+	cfg := baseConfig()
+	cfg.Upstream = up.url(t)
+	gw := startServer(t, cfg, &rules.Policy{Default: rules.Passthrough})
+
+	status := func(uri string) string {
+		conn, err := net.Dial("tcp", strings.TrimPrefix(gw, "http://"))
+		require.NoError(t, err)
+		defer conn.Close()
+		require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+		_, err = io.WriteString(conn, "PUT "+uri+" HTTP/1.1\r\nHost: gw\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx")
+		require.NoError(t, err)
+		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.Status[:3]
+	}
+	for _, uri := range []string{
+		"/diagnostic/ns-1/../ns-off/2026/10/29/10/00/00/app-1/20261029T100000.hprof.zip",
+		"/diagnostic/./ns-1/2026/10/29/10/00/00/app-1/20261029T100000.hprof.zip",
+		"/diagnostic/../other/x",
+		"/diagnostic/ns-1//2026/10/29/10/00/00/app-1/20261029T100000.hprof.zip",
+		"/diagnostic/ns-1%2F2026/10/29/10/00/00/app-1/20261029T100000.hprof.zip",
+	} {
+		assert.Equal(t, "400", status(uri), uri)
+	}
+	assert.Empty(t, up.got(), "nothing reaches the upstream")
+	assert.Equal(t, "201", status(heapPath))
 }
 
 func TestParsePath(t *testing.T) {
@@ -520,6 +648,53 @@ func TestStalledClientIsDroppedAndFreesSlot(t *testing.T) {
 // F4: an upstream that accepts and then stops reading fails the upload
 // with 502 within the idle timeout, and frees the slot.
 func TestStalledUpstreamAnswers502AndFreesSlot(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Upstream = &url.URL{Scheme: "http", Host: silentListener(t)}
+	cfg.MaxConcurrentUploads = 1
+	cfg.IdleTimeout = 200 * time.Millisecond
+	gw := startServer(t, cfg, nil)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	// The second upload would get 204 over concurrency if the first one
+	// still held the slot.
+	for i := range 2 {
+		req, err := http.NewRequest(http.MethodPut, gw+heapPath, chunked{io.LimitReader(zeros{}, 64<<20)})
+		require.NoError(t, err)
+		start := time.Now()
+		resp, err := client.Do(req)
+		require.NoError(t, err, "upload %d", i)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusBadGateway, resp.StatusCode, "upload %d", i)
+		assert.Less(t, time.Since(start), 5*time.Second, "upload %d", i)
+	}
+}
+
+// An https upstream that accepts TCP and never answers the TLS handshake
+// fails the upload with 502 within connect_timeout, and frees the slot. The
+// client gets no success status, so it keeps the file.
+func TestStalledTLSHandshakeAnswers502AndFreesSlot(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Upstream = &url.URL{Scheme: "https", Host: silentListener(t)}
+	cfg.MaxConcurrentUploads = 1
+	cfg.ConnectTimeout = 200 * time.Millisecond
+	gw := startServer(t, cfg, nil)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	// The second upload would get 204 over concurrency if the first one
+	// still held the slot.
+	for i := range 2 {
+		start := time.Now()
+		resp, err := client.Post(gw+heapPath, "application/octet-stream", bytes.NewReader([]byte("dump")))
+		require.NoError(t, err, "upload %d", i)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusBadGateway, resp.StatusCode, "upload %d", i)
+		assert.Less(t, time.Since(start), 5*time.Second, "upload %d", i)
+	}
+}
+
+// silentListener accepts connections and never reads or writes on them. It
+// returns the listen address.
+func silentListener(t *testing.T) string {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	var mu sync.Mutex
@@ -543,25 +718,154 @@ func TestStalledUpstreamAnswers502AndFreesSlot(t *testing.T) {
 			_ = c.Close()
 		}
 	})
+	return ln.Addr().String()
+}
 
+// earlyAnswerUpstream answers status as soon as the request arrives, then
+// stops reading, so the gateway gets the answer while the client is still
+// sending. The handler returns at cleanup.
+//
+// The answer is complete, with Content-Length: 0, as a real upstream sends
+// it. Without the length the response body would stay open until the handler
+// returns. The gateway's transport closes the upstream connection once the
+// drain fails the request body, so ReverseProxy would then abort the client
+// connection mid-response.
+func earlyAnswerUpstream(t *testing.T, status int) *url.URL {
+	stop := make(chan struct{})
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(status)
+		http.NewResponseController(w).Flush()
+		select {
+		case <-stop:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(up.Close)
+	t.Cleanup(func() { close(stop) })
+	u, err := url.Parse(up.URL)
+	require.NoError(t, err)
+	return u
+}
+
+// An upstream that answers before a chunked upload passes the cap does not
+// decide the outcome: the drained body is over the cap, so the client gets
+// 204 and stops resending the file. The upstream's 500 would make it resend.
+func TestEarlyAnswerThenOverCapAnswers204(t *testing.T) {
 	cfg := baseConfig()
-	cfg.Upstream = &url.URL{Scheme: "http", Host: ln.Addr().String()}
-	cfg.MaxConcurrentUploads = 1
-	cfg.IdleTimeout = 200 * time.Millisecond
-	gw := startServer(t, cfg, nil)
+	cfg.Upstream = earlyAnswerUpstream(t, http.StatusInternalServerError)
+	cfg.MaxBodySize = 32 << 20
+	reader := sdkmetric.NewManualReader()
+	gw := startServer(t, cfg, nil, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	// The second upload would get 204 over concurrency if the first one
-	// still held the slot.
-	for i := range 2 {
-		req, err := http.NewRequest(http.MethodPut, gw+heapPath, chunked{io.LimitReader(zeros{}, 64<<20)})
-		require.NoError(t, err)
-		start := time.Now()
-		resp, err := client.Do(req)
-		require.NoError(t, err, "upload %d", i)
-		_ = resp.Body.Close()
-		assert.Equal(t, http.StatusBadGateway, resp.StatusCode, "upload %d", i)
-		assert.Less(t, time.Since(start), 5*time.Second, "upload %d", i)
+	resp := do(t, http.MethodPut, gw+heapPath, chunked{io.LimitReader(zeros{}, 64<<20)}, "application/octet-stream")
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	require.Eventually(t, func() bool {
+		return collectSums(t, reader)["profiler_gateway_upload_bytes_total/"+outcomeOverCap] == 64<<20
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// After an early success the gateway drains the rest of the body itself.
+// Those bytes count as received, but not as forwarded.
+func TestEarlyAnswerCountsOnlySentBytesAsForwarded(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Upstream = earlyAnswerUpstream(t, http.StatusCreated)
+	reader := sdkmetric.NewManualReader()
+	gw := startServer(t, cfg, nil, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	resp := do(t, http.MethodPut, gw+heapPath, chunked{io.LimitReader(zeros{}, 48<<20)}, "application/octet-stream")
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	var sums map[string]int64
+	require.Eventually(t, func() bool {
+		sums = collectSums(t, reader)
+		return sums["profiler_gateway_upload_bytes_total/"+outcomeForwarded] == 48<<20
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Less(t, sums["profiler_gateway_bytes_forwarded_total"], int64(48<<20))
+}
+
+// A client that sends the whole body and then disconnects before the
+// upstream answers counts as client_aborted, not as an upstream error.
+func TestClientGoneBeforeUpstreamAnswersIsClientAborted(t *testing.T) {
+	up := newUpstream(t)
+	holdUpstream(t, up)
+	cfg := baseConfig()
+	cfg.Upstream = up.url(t)
+	reader := sdkmetric.NewManualReader()
+	gw := startServer(t, cfg, nil, sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	client := &http.Client{Timeout: 300 * time.Millisecond}
+	req, err := http.NewRequest(http.MethodPut, gw+heapPath, chunked{bytes.NewReader(make([]byte, 1000))})
+	require.NoError(t, err)
+	_, err = client.Do(req)
+	require.Error(t, err, "the upstream holds the answer past the client timeout")
+
+	key := "profiler_gateway_upload_bytes_total/" + outcomeClientAborted
+	require.Eventually(t, func() bool { return collectSums(t, reader)[key] == 1000 },
+		5*time.Second, 10*time.Millisecond)
+	sums := collectSums(t, reader)
+	assert.Equal(t, int64(0), sums["profiler_gateway_upstream_errors_total"])
+	_, ok := sums["profiler_gateway_upload_bytes_total/"+outcomeUpstreamError]
+	assert.False(t, ok)
+}
+
+// startOwnedServer starts a Server the test shuts down itself.
+func startOwnedServer(t *testing.T, cfg Config) (*Server, string) {
+	s, err := New(cfg, &rules.Policy{Default: rules.Passthrough}, zap.NewNop(), noop.NewMeterProvider().Meter("test"))
+	require.NoError(t, err)
+	require.NoError(t, s.Start(func(err error) { t.Errorf("serve failed: %v", err) }))
+	return s, "http://" + s.Addr().String()
+}
+
+// An upload in flight when Shutdown starts finishes if it ends within
+// drain_timeout.
+func TestShutdownWaitsForActiveUpload(t *testing.T) {
+	up := newUpstream(t)
+	release := holdUpstream(t, up)
+	cfg := baseConfig()
+	cfg.Upstream = up.url(t)
+	s, gw := startOwnedServer(t, cfg)
+
+	done := make(chan *http.Response, 1)
+	go func() {
+		done <- do(t, http.MethodPut, gw+heapPath, bytes.NewReader([]byte("x")), "application/octet-stream")
+	}()
+	<-up.seen
+	shut := make(chan error, 1)
+	go func() { shut <- s.Shutdown(context.Background()) }()
+	time.Sleep(100 * time.Millisecond)
+	release()
+
+	assert.Equal(t, http.StatusCreated, awaitResponse(t, done).StatusCode)
+	assert.NoError(t, <-shut)
+}
+
+// An upload still in flight at drain_timeout is closed: the client gets no
+// status, so it keeps the file, and Shutdown returns.
+func TestShutdownClosesUploadAtDrainTimeout(t *testing.T) {
+	up := newUpstream(t)
+	holdUpstream(t, up)
+	cfg := baseConfig()
+	cfg.Upstream = up.url(t)
+	cfg.DrainTimeout = 200 * time.Millisecond
+	s, gw := startOwnedServer(t, cfg)
+
+	failed := make(chan error, 1)
+	go func() {
+		resp, err := testClient.Post(gw+heapPath, "application/octet-stream", bytes.NewReader([]byte("x")))
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		failed <- err
+	}()
+	<-up.seen
+	start := time.Now()
+	assert.Error(t, s.Shutdown(context.Background()), "the drain deadline passes")
+	assert.Less(t, time.Since(start), 5*time.Second)
+	select {
+	case err := <-failed:
+		assert.Error(t, err, "the client gets no status")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client was not disconnected")
 	}
 }
 

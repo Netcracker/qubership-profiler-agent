@@ -1,10 +1,25 @@
 package dumps
 
 import (
+	"net/url"
+	"path"
 	"strings"
 
 	"github.com/Netcracker/qubership-profiler-agent/apps/gateway/internal/rules"
 )
+
+// canonicalPath reports whether u's path is already in the form an upstream
+// such as nginx normalizes it to. Such a path has no empty, ".", or ".."
+// segment, and no percent-encoding that differs from the default one, such
+// as %2F. The proxy forwards the request URI unchanged, so for a canonical
+// path the rules and the upstream read the same namespace, pod, and file.
+func canonicalPath(u *url.URL) bool {
+	if u.RawPath != "" {
+		return false
+	}
+	c := path.Clean(u.Path)
+	return u.Path == c || u.Path == c+"/"
+}
 
 // pathSegments is the number of segments after the prefix in a diagtools
 // upload URL: {namespace}/{yyyy}/{MM}/{dd}/{HH}/{mm}/{ss}/{pod}/{file}.
