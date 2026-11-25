@@ -11,15 +11,16 @@ Traces are on by default. Dump uploads (8080) and profiler agent connections (17
 
 ```bash
 helm install gateway deploy/charts/gateway \
-  --set serviceName=nc-diagnostic-agent \
   --set traces.upstream.endpoint=jaeger-collector.tracing.svc:4317
 ```
 
 The image must include the `nop` exporter and the `memory_limiter` processor. qubership-otec 1.4.0 has neither; use a
 build of `qubership-open-telemetry-collector` that adds them, and pin its tag in `image.tag`.
 
-Reusing the `nc-diagnostic-agent` name replaces that Service for every pod that uses it. With `NC_DIAGNOSTIC_MODE=dev`,
-`diag-bootstrap.sh` downloads the agent from `GET /api/v1/diagnostic/agent/updates` on port 8080 of that host. The
+The Service is named after the release, `gateway` here, unless `serviceName` sets another name. Taking over
+`nc-diagnostic-agent` from diag-proxy is the G6 cutover step: Helm cannot adopt a Service that another release owns.
+Reusing that name replaces the Service for every pod that uses it. With `NC_DIAGNOSTIC_MODE=dev`, `diag-bootstrap.sh`
+downloads the agent from `GET /api/v1/diagnostic/agent/updates` on port 8080 of that host. The
 gateway serves only dump uploads on 8080, so the download fails, and the bootstrap falls back to `prod` mode with the
 agent bundled in the image. If your pods rely on that download, keep the existing Service and install the gateway under
 another `serviceName`.
