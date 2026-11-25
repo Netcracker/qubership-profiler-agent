@@ -117,7 +117,7 @@ Both extensions read the one `rules` list. Each skips the rules that use a key o
 ## Custom config
 
 `config` is merged over the rendered Collector config, last. Maps merge key by key; lists are replaced whole. For
-example, to drop the spans of one service:
+example, to drop the OTLP spans of one service:
 
 ```yaml
 config:
@@ -132,6 +132,9 @@ config:
       traces/otlp:
         processors: [memory_limiter, filter/drop_sources, batch]
 ```
+
+To drop that service's spans on every protocol, add `filter/drop_sources` to the processors of `traces/jaeger` and
+`traces/zipkin` too.
 
 ## Resources
 
