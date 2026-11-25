@@ -100,6 +100,8 @@ func TestParseFileErrors(t *testing.T) {
 		"bad mode":     "rules:\n  - mode: drop\n",
 		"not yaml":     "rules: [",
 		"bad dumptype": "rules:\n  - match: { dump_type: [core] }\n    mode: discard\n",
+		"two docs":     "rules: []\n---\nrules:\n  - mode: discard\n",
+		"bad 2nd doc":  "rules: []\n---\nrules: [\n",
 	} {
 		_, _, err := ParseFile([]byte(data), Dumps, true)
 		assert.Error(t, err, name)
@@ -217,9 +219,19 @@ func TestWatcherReloadsAfterWatchError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rules.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("rules: []\n"), 0o600))
 	rec := &recorder{}
-	w := startWatch(t, path, rec)
+	w, err := newWatcher(WatchOptions{
+		Path: path, Surface: Dumps, HasUpstream: true, Debounce: 20 * time.Millisecond,
+		OnLoad: rec.onLoad, OnError: rec.onError,
+	})
+	require.NoError(t, err)
+	// fsnotify owns fsw.Errors and closes it on Close, so a send there races
+	// with the backend's shutdown. The test sends on a channel of its own.
+	watchErrs := make(chan error)
+	w.errs = watchErrs
+	w.start()
+	t.Cleanup(func() { _ = w.Close() })
 
-	w.fsw.Errors <- fsnotify.ErrEventOverflow
+	watchErrs <- fsnotify.ErrEventOverflow
 	require.Eventually(t, func() bool { l, _ := rec.counts(); return l == 2 }, 5*time.Second, 10*time.Millisecond)
 	_, errs := rec.counts()
 	assert.Equal(t, 1, errs)

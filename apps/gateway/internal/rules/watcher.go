@@ -24,6 +24,11 @@ type WatchOptions struct {
 	// evaluate.
 	OnLoad func(set Set, skipped int)
 	// OnError receives every load failure. The previous rules stay active.
+	//
+	// The callbacks for the first load run inside Watch, before it returns.
+	// Later ones run on the watcher goroutine, one at a time. Close waits for
+	// that goroutine, so a callback that calls Close never returns: call
+	// Close from outside the callbacks.
 	OnError func(err error)
 }
 
@@ -36,6 +41,7 @@ type WatchOptions struct {
 type Watcher struct {
 	opts    WatchOptions
 	fsw     *fsnotify.Watcher
+	errs    <-chan error
 	done    chan struct{}
 	closed  sync.Once
 	wg      sync.WaitGroup
@@ -47,6 +53,17 @@ type Watcher struct {
 // reported through OnError and does not stop the watch, so a fixed file
 // takes effect without a restart.
 func Watch(opts WatchOptions) (*Watcher, error) {
+	w, err := newWatcher(opts)
+	if err != nil {
+		return nil, err
+	}
+	w.start()
+	return w, nil
+}
+
+// newWatcher adds the directory watch but does not load the file or start
+// the loop, so a test can replace errs before start.
+func newWatcher(opts WatchOptions) (*Watcher, error) {
 	if opts.Debounce == 0 {
 		opts.Debounce = 200 * time.Millisecond
 	}
@@ -59,11 +76,13 @@ func Watch(opts WatchOptions) (*Watcher, error) {
 		_ = fsw.Close()
 		return nil, fmt.Errorf("watch rules directory %s: %w", dir, err)
 	}
-	w := &Watcher{opts: opts, fsw: fsw, done: make(chan struct{})}
+	return &Watcher{opts: opts, fsw: fsw, errs: fsw.Errors, done: make(chan struct{})}, nil
+}
+
+func (w *Watcher) start() {
 	w.reload()
 	w.wg.Add(1)
 	go w.loop()
-	return w, nil
 }
 
 func (w *Watcher) loop() {
@@ -80,7 +99,7 @@ func (w *Watcher) loop() {
 				return
 			}
 			timer.Reset(w.opts.Debounce)
-		case err, ok := <-w.fsw.Errors:
+		case err, ok := <-w.errs:
 			if !ok {
 				return
 			}

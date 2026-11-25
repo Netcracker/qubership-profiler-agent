@@ -191,13 +191,23 @@ type fileDoc struct {
 
 // ParseFile parses a rules file for one surface. Both extensions may share a
 // file, so a rule that uses a key the surface cannot evaluate is skipped and
-// counted in skipped. A key no surface knows is an error.
+// counted in skipped. A key no surface knows is an error, and so is a second
+// YAML document in the file.
 func ParseFile(data []byte, surface Surface, hasUpstream bool) (set Set, skipped int, err error) {
 	var doc fileDoc
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	// An empty file decodes as io.EOF and means no rules.
-	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
+	if err := dec.Decode(&doc); err != nil {
+		if !errors.Is(err, io.EOF) {
+			return nil, 0, fmt.Errorf("parse rules file: %w", err)
+		}
+	} else if err := dec.Decode(new(yaml.Node)); !errors.Is(err, io.EOF) {
+		// The decoder reads one document at a time, so a second one would
+		// be ignored without this check.
+		if err == nil {
+			err = errors.New("the file holds more than one YAML document")
+		}
 		return nil, 0, fmt.Errorf("parse rules file: %w", err)
 	}
 	for _, r := range doc.Rules {
@@ -215,14 +225,17 @@ func ParseFile(data []byte, surface Surface, hasUpstream bool) (set Set, skipped
 
 // Policy evaluates file rules, then inline rules, then the default mode. It
 // is safe for concurrent use; the file rules are swapped atomically on
-// reload.
+// reload. Set Default and Inline before the first concurrent Eval and do not
+// change them afterward.
 type Policy struct {
 	Default Mode
 	Inline  Set
 	file    atomic.Pointer[Set]
 }
 
-// SetFileRules replaces the file rules.
+// SetFileRules replaces the file rules. The policy keeps s itself, not a
+// copy, so the caller must not modify s or the DumpType slices of its rules
+// after the call.
 func (p *Policy) SetFileRules(s Set) { p.file.Store(&s) }
 
 // Eval returns the effective mode for a source.
