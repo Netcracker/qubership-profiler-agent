@@ -18,6 +18,12 @@ helm install gateway deploy/charts/gateway \
 The image must include the `nop` exporter and the `memory_limiter` processor. qubership-otec 1.4.0 has neither; use a
 build of `qubership-open-telemetry-collector` that adds them, and pin its tag in `image.tag`.
 
+Reusing the `nc-diagnostic-agent` name replaces that Service for every pod that uses it. With `NC_DIAGNOSTIC_MODE=dev`,
+`diag-bootstrap.sh` downloads the agent from `GET /api/v1/diagnostic/agent/updates` on port 8080 of that host. The
+gateway serves only dump uploads on 8080, so the download fails, and the bootstrap falls back to `prod` mode with the
+agent bundled in the image. If your pods rely on that download, keep the existing Service and install the gateway under
+another `serviceName`.
+
 ## Traffic
 
 | Port  | Service port name | Protocol                             | Values switch   |
@@ -54,6 +60,10 @@ traces:
 | `mode: discard`     | Spans are accepted, answered with success, and dropped. Clients stop retrying and logging failures. |
 | `enabled: false`    | The receiver, the pipeline, and the Service ports are removed. Clients get connection refused.      |
 
+At least one protocol must stay enabled: with all three at `enabled: false` the chart fails to render, even when
+`dumps` or `tcp` is on. To stop forwarding every protocol, set each to `mode: discard`; its receiver keeps listening,
+and the spans are dropped.
+
 A mode change is a config change, and the Collector restarts on it. The pod template carries a checksum of the config,
 so `helm upgrade` rolls the pods.
 
@@ -87,7 +97,7 @@ Collector config, so changing it restarts the pods.
 ```yaml
 tcp:
   enabled: true
-  upstream: profiler-collector-agent.profiler.svc:1715
+  upstream: profiler-profiler-backend-collector-agent.profiler.svc:1715
   mode: passthrough
 rules:
   - match: { service: "chatty-*" }

@@ -32,6 +32,20 @@ tests:
           path: data["otel.yaml"]
           pattern: "otlp_grpc/upstream"
 
+  - it: discards one protocol and forwards the others in the same render
+    set:
+      traces.otlp.mode: discard
+    asserts:
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/otlp:\\n\\s+exporters:\\n\\s+- nop\\n\\s+processors:\\n\\s+- memory_limiter\\n\\s+receivers:\\n\\s+- otlp\\n"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/jaeger:\\n\\s+exporters:\\n\\s+- otlp_grpc/upstream\\n\\s+processors:\\n\\s+- memory_limiter\\n\\s+- batch\\n\\s+receivers:\\n\\s+- jaeger\\n"
+      - matchRegex:
+          path: data["otel.yaml"]
+          pattern: "traces/zipkin:\\n\\s+exporters:\\n\\s+- otlp_grpc/upstream\\n\\s+processors:\\n\\s+- memory_limiter\\n\\s+- batch\\n\\s+receivers:\\n\\s+- zipkin\\n"
+
   - it: removes the receiver and pipeline of a disabled protocol
     set:
       traces.jaeger.enabled: false

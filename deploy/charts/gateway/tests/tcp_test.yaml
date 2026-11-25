@@ -26,7 +26,7 @@ tests:
       - template: templates/configmap.yaml
         matchRegex:
           path: data["otel.yaml"]
-          pattern: "profiler_tcp:\\n\\s+endpoint: 0.0.0.0:1715\\n\\s+max_connections: 256\\n\\s+mode: passthrough\\n\\s+rules_file: /etc/gateway/rules/rules.yaml\\n\\s+upstream: profiler-collector-agent.profiler.svc:1715"
+          pattern: "profiler_tcp:\\n\\s+endpoint: 0.0.0.0:1715\\n\\s+max_connections: 256\\n\\s+mode: passthrough\\n\\s+rules_file: /etc/gateway/rules/rules.yaml\\n\\s+upstream: profiler-profiler-backend-collector-agent.profiler.svc:1715"
       - template: templates/configmap.yaml
         matchRegex:
           path: data["otel.yaml"]

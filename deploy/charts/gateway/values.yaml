@@ -6,8 +6,10 @@
 
 image:
   repository: ghcr.io/netcracker/qubership-open-telemetry-collector
-  # `main` is mutable. Pin a qubership-otec release, or a @sha256 digest, for
-  # any shared deployment. The image must include the `nop` exporter and the
+  # `main` is mutable. Pin a qubership-otec release, or a tag with its digest
+  # such as `1.5.0@sha256:<digest>`, for any shared deployment. The chart
+  # renders `repository:tag`, so a bare digest is not a valid tag here. The
+  # image must include the `nop` exporter and the
   # `memory_limiter` processor, which qubership-otec 1.4.0 does not.
   tag: main
   pullPolicy: IfNotPresent
@@ -81,8 +83,9 @@ dumps:
 tcp:
   enabled: false
   # host:port of the collector's agent Service. Required unless mode is
-  # discard.
-  upstream: profiler-collector-agent.profiler.svc:1715
+  # discard. The default is the agent Service that the profiler-backend
+  # chart renders for release `profiler` in namespace `profiler`.
+  upstream: profiler-profiler-backend-collector-agent.profiler.svc:1715
   # passthrough copies agent connections to the upstream; discard runs the
   # collector protocol and drops the data, so agents stay quiet and alive.
   # A discarded agent cannot receive heap or thread dump requests from the UI.
