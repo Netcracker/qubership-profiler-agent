@@ -14,6 +14,7 @@ import (
 	"io"
 	"path"
 	"slices"
+	"strings"
 	"sync/atomic"
 
 	"go.yaml.in/yaml/v3"
@@ -52,6 +53,17 @@ const (
 
 // DumpTypes lists every value the dump_type key accepts.
 var DumpTypes = []string{DumpTypeHeap, DumpTypeThread, DumpTypeGC, DumpTypeOther}
+
+// PodName returns the pod name that pod selectors match. The Java agent and
+// diagtools send the pod name with a `_<start timestamp>` suffix. Kubernetes
+// pod names cannot contain an underscore, so everything before the first one
+// is the pod name.
+func PodName(s string) string {
+	if i := strings.IndexByte(s, '_'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
 
 // Surface is one kind of traffic and the match keys it can evaluate.
 type Surface struct {

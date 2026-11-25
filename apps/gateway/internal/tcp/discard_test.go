@@ -82,6 +82,22 @@ func TestRulesSelectModeFromTheHandshake(t *testing.T) {
 	assert.Equal(t, []byte("billing-1"), l.received("billing-1/"+model.StreamTrace))
 }
 
+// The Java agent sends `<pod>_<start millis>` as the pod name. An exact pod
+// selector matches it, and the upstream still receives the full name.
+func TestExactPodSelectorMatchesAgentPodName(t *testing.T) {
+	l := newRecordingListener()
+	p := startProxy(t, baseConfig(startCollector(t, l)), &rules.Policy{
+		Default: rules.Passthrough,
+		Inline:  rules.Set{{Match: rules.Match{Pod: "billing-1"}, Mode: rules.Discard}},
+	})
+
+	for _, pod := range []string{"billing-1_1732540000000", "billing-2_1732540000000"} {
+		sendStream(t, agent(t, p.Addr().String(), "ns-1", "billing", pod), model.StreamTrace, []byte(pod))
+	}
+	require.Eventually(t, func() bool { return l.podCount() == 1 }, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "billing-2_1732540000000", l.pods[0].PodName)
+}
+
 // TestReloadMovesAConnectedAgent: a rules change closes the connections
 // whose mode it changes, and the reconnecting agent lands in the new mode.
 // It moves an agent passthrough → discard → passthrough, one reconnect per

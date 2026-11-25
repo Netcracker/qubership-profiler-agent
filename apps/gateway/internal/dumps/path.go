@@ -41,16 +41,9 @@ func parsePath(p, prefix string) rules.Attrs {
 	if len(parts) != pathSegments {
 		return rules.Attrs{}
 	}
-	pod := parts[7]
-	// diagtools reads the pod name from a file that can carry a
-	// `_<start timestamp>` suffix. Kubernetes pod names cannot contain an
-	// underscore, so everything before the first one is the pod name.
-	if i := strings.IndexByte(pod, '_'); i >= 0 {
-		pod = pod[:i]
-	}
 	return rules.Attrs{
 		Namespace: parts[0],
-		Pod:       pod,
+		Pod:       rules.PodName(parts[7]),
 		DumpType:  dumpType(parts[8]),
 	}
 }

@@ -278,7 +278,7 @@ func (p *Proxy) serve(s *session) {
 		return
 	}
 	s.mu.Lock()
-	s.attrs = rules.Attrs{Namespace: hs.namespace, Service: hs.service, Pod: hs.pod}
+	s.attrs = rules.Attrs{Namespace: hs.namespace, Service: hs.service, Pod: rules.PodName(hs.pod)}
 	// Evaluated under s.mu, so a reload either sees this session decided or
 	// has already swapped the rules this evaluation reads.
 	s.mode = p.policy.Eval(s.attrs)

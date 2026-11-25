@@ -173,7 +173,8 @@ rules:
 - A `passthrough` rule needs an `upstream`, also when `mode` is `discard`. Without one, inline `rules` with a
   `passthrough` rule fail validation, and the extension rejects a rules file update that has a `passthrough` rule it
   evaluates.
-- For dumps, the pod is the URL's pod segment up to the first `_`. diagtools appends `_<start timestamp>` to it.
+- The pod that rules match ends before the first `_`: diagtools and the Java agent append `_<start timestamp>` to it.
+  A profiler connection reaches the upstream with the full name.
 - `rules_file` is watched. An edit applies to the next upload with no restart. A file that fails to parse is rejected,
   the previous rules stay active, and the extension reports a recoverable error until the file is fixed. Both
   extensions may share one file; each skips rules that use keys only the other one knows.
