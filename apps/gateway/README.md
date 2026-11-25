@@ -177,8 +177,9 @@ rules:
 - The pod that rules match ends before the first `_`: diagtools and the Java agent append `_<start timestamp>` to it.
   A profiler connection reaches the upstream with the full name.
 - `rules_file` is watched. An edit applies to the next upload with no restart. A file that fails to parse is rejected,
-  the previous rules stay active, and the extension reports a recoverable error until the file is fixed. Both
-  extensions may share one file; each skips rules that use keys only the other one knows.
+  and the extension reports a recoverable error until the file is fixed. Meanwhile the rules from the file's last
+  successful load stay active, or, if none has loaded yet, only the inline `rules` and `mode` apply. Both extensions
+  may share one file; each skips rules that use keys only the other one knows.
 
 ## Metrics
 

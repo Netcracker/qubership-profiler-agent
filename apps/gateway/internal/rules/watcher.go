@@ -23,7 +23,8 @@ type WatchOptions struct {
 	// included. skipped counts rules that set a key Surface cannot
 	// evaluate.
 	OnLoad func(set Set, skipped int)
-	// OnError receives every load failure. The previous rules stay active.
+	// OnError receives every load failure. The rules from the last successful
+	// load stay active; before the first one, there are none.
 	//
 	// The callbacks for the first load run inside Watch, before it returns.
 	// Later ones run on the watcher goroutine, one at a time. Close waits for

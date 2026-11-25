@@ -31,7 +31,7 @@ func Start(host component.Host, logger *zap.Logger, opts rules.WatchOptions, rec
 	}
 	opts.OnError = func(err error) {
 		record(false)
-		logger.Warn("Rejected the rules file; the previous rules stay active", zap.Error(err))
+		logger.Warn("Rejected the rules file; the rules from its last successful load stay active, or only the inline rules and mode before the first one", zap.Error(err))
 		failed.Store(true)
 		componentstatus.ReportStatus(host, componentstatus.NewRecoverableErrorEvent(err))
 	}
