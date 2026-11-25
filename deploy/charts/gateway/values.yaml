@@ -90,8 +90,9 @@ tcp:
   # collector protocol and drops the data, so agents stay quiet and alive.
   # A discarded agent cannot receive heap or thread dump requests from the UI.
   mode: passthrough
-  # Over the cap a connection is closed on arrival; the agent retries in
-  # 10 s. Each passthrough connection takes two file descriptors.
+  # Over the cap a connection is closed on arrival; the agent retries after
+  # its restart interval, 10 seconds by default. Each passthrough connection
+  # takes two file descriptors.
   maxConnections: 256
 
 # Per-source rules, rendered into a ConfigMap that the extensions watch.
@@ -101,7 +102,9 @@ tcp:
 # for dumps: namespace, pod (globs), dump_type (a list). For agent
 # connections: namespace, service, pod (globs). Each extension skips the
 # rules that use a key only the other one knows. A rule change closes the
-# agent connections whose mode it changes; the agents reconnect within 10 s.
+# agent connections whose mode it changes. Each agent reconnects after its
+# restart interval, 10 seconds by default, and the new mode applies once it
+# reconnects.
 #   rules:
 #     - match: { namespace: "load-test-*", dump_type: [hprof] }
 #       mode: discard

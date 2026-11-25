@@ -106,8 +106,9 @@ rules:
 
 This adds the `cdt-tcp` port (1715) and the `profiler_tcp` extension. In `discard` the gateway answers the agent
 protocol itself and drops the data, so agents stay quiet and alive; they cannot receive heap or thread dump requests
-from the UI meanwhile. A `rules` change closes the connections whose mode it changes, and those agents reconnect
-within 10 seconds into the new mode. Each passthrough connection takes two file descriptors; keep
+from the UI meanwhile. A `rules` change closes the connections whose mode it changes. Each of those agents reconnects
+after its restart interval, 10 seconds by default, and the new mode applies once it reconnects. Each passthrough
+connection takes two file descriptors; keep
 `tcp.maxConnections` below half the pod's open-file limit.
 
 Both extensions read the one `rules` list. Each skips the rules that use a key only the other one knows.
