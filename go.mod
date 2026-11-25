@@ -14,7 +14,7 @@ require (
 	github.com/minio/minio-go/v7 v7.4.1
 	github.com/oklog/run v1.2.0
 	github.com/otiai10/copy v1.14.1
-	github.com/parquet-go/parquet-go v0.32.0
+	github.com/parquet-go/parquet-go v0.32.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/common v0.74.0
@@ -41,7 +41,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/PuerkitoBio/goquery v1.13.0 // indirect
-	github.com/andybalholm/brotli v1.2.8 // indirect
+	github.com/andybalholm/brotli v1.3.0 // indirect
 	github.com/andybalholm/cascadia v1.3.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bufbuild/protocompile v0.14.1 // indirect
@@ -105,7 +105,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.20.3 // indirect
+	github.com/klauspost/compress v1.20.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/labstack/gommon v0.5.0 // indirect
@@ -133,10 +133,10 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/otiai10/mint v1.6.3 // indirect
 	github.com/pandatix/go-abnf v0.5.5 // indirect
-	github.com/parquet-go/bitpack v1.0.0 // indirect
-	github.com/parquet-go/jsonlite v1.0.0 // indirect
+	github.com/parquet-go/bitpack v1.0.3 // indirect
+	github.com/parquet-go/jsonlite v1.5.5 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
-	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
