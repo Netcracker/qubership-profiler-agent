@@ -154,8 +154,8 @@ How the gateway ends the agent's side of a connection:
 Outside an established `discard` session, every end the agent did not start is a reset, because a FIN would make the
 agent wait out its 30-second read timeout first.
 
-Measured on a laptop: a gateway hop adds about 21 µs to a 1 KB request and its answer, and an idle passthrough
-connection costs about 40 KB.
+Measured on a laptop, a gateway hop adds about 21 µs to a 1 KB request and its answer. An idle passthrough connection
+holds two `copy_buffer_size` buffers for its lifetime, 64 KiB by default, plus a few KiB of goroutine stacks.
 
 ## Rules
 
