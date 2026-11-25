@@ -16,7 +16,7 @@
 | Components | Two extension types, `profiler_dumps` and `profiler_tcp`, sharing one rules package. |
 | Topology | Per-namespace drop-in for diag-proxy first. Central mode is designed for and deferred (§10). |
 | TCP modes | `passthrough` and `discard`. `reject` is out of v1. |
-| Over a TCP cap | Refuse the connection. The agent retries every 10 s on its own. |
+| Over a TCP cap | Refuse the connection. The agent retries on its own after its restart interval, 10 s by default. |
 | Policy changes | Hot-reloaded rules file. A mode change closes the affected TCP connections. |
 | Stage order | Traces and dumps first, TCP after. |
 
@@ -51,7 +51,7 @@ attempt. A receiver that accepts and drops is silent.
   until the next successful connect.
 - While `dumperDead` is set, the agent drops its buffers itself, so its memory stays bounded.
 - When the backend is scaled to zero today, nginx accepts, fails the upstream dial after 1 s, and closes. That
-  already is a quiet drop, at the cost of one connect per pod every 10 s and one log line.
+  already is a quiet drop, at the cost of one connect per pod per restart interval (10 s by default) and one log line.
 
 For TCP, `discard` buys two things only: no warning in the agent log, and a dumper that reports itself alive. It also
 costs something (§5.2). The plan keeps it, late, and does not present it as the safe default.
@@ -163,7 +163,7 @@ extensions:
 
   profiler_tcp:
     endpoint: 0.0.0.0:1715
-    upstream: profiler-collector-agent.profiler.svc:1715
+    upstream: profiler-profiler-backend-collector-agent.profiler.svc:1715
     mode: passthrough                  # passthrough | discard
     max_connections: 256
     rules_file: /etc/gateway/rules.yaml
@@ -341,7 +341,7 @@ restart to undo defeats the purpose of the gateway. Revisit only with a named co
 |---|---|---|---|---|---|
 | `passthrough` | full | quiet | alive | work | n/a |
 | `discard` | none | quiet | alive | lost | yes, on reconnect (§8.2) |
-| refused (cap, or upstream down) | none | one warning | dead, retry every 10 s | lost | yes, within 10 s |
+| refused (cap, or upstream down) | none | one warning | dead, retry after the restart interval | lost | yes, after the restart interval |
 
 ### 5.3 What is deliberately absent
 
@@ -508,8 +508,8 @@ parse is rejected, the previous rules stay active, and a recoverable `components
 **A mode change closes the affected TCP connections.** A profiler connection lives as long as the application pod,
 so a rule that applied only to new connections would never take effect during an incident. On reload, the
 extension re-evaluates every open connection against the new rules and closes those whose effective mode changed.
-Each agent reconnects within 10 s into the new mode and resends its dictionary. `discard → passthrough` is
-impossible any other way, because the upstream never saw that connection's handshake.
+Each agent reconnects into the new mode after its restart interval, 10 s by default, and resends its dictionary.
+`discard → passthrough` is impossible any other way, because the upstream never saw that connection's handshake.
 
 Dumps need nothing: every request is evaluated on arrival.
 
@@ -652,7 +652,7 @@ Exposed on the Collector's Prometheus endpoint, labeled by surface, mode, and `s
 | Metric | Type | Purpose |
 |---|---|---|
 | `profiler_gateway_connections_active` | gauge | Live agent connections, by mode. |
-| `profiler_gateway_connections_total` | counter | Accepted connections, by mode. |
+| `profiler_gateway_connections_total` | counter | Agent sessions started, by mode. Refused connections, bad handshakes, and failed dials are not counted. |
 | `profiler_gateway_connections_refused_total` | counter | Refused by `max_connections`. |
 | `profiler_gateway_connections_closed_by_reload_total` | counter | Closed because a rule change altered the mode. |
 | `profiler_gateway_bytes_forwarded_total` | counter | Bytes relayed upstream. |

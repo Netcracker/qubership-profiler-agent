@@ -51,18 +51,26 @@ service:
 | `mode`                    | `passthrough`         | `passthrough` or `discard`, when no rule matches.               |
 | `path_prefix`             | `/diagnostic`         | Other paths get 404.                                            |
 | `allowed_methods`         | `[PUT, POST, DELETE]` | Other methods get 405.                                          |
-| `connect_timeout`         | `1s`                  | Upstream dial deadline.                                         |
+| `connect_timeout`         | `1s`                  | Upstream dial deadline, and TLS handshake deadline for `https`. |
 | `response_header_timeout` | `10m`                 | Wait for the upstream's answer after the body is sent.          |
 | `read_header_timeout`     | `10s`                 | Wait for the client's request header.                           |
-| `idle_timeout`            | `60s`                 | Longest pause in body progress. See below.                      |
+| `idle_timeout`            | `60s`                 | Longest pause in body progress, and keep-alive idle limit.      |
 | `max_body_size`           | `10GiB`               | Size cap. Over it: abort upstream, drain, answer 204.           |
 | `max_body_size_per_type`  | none                  | Cap per dump type: `hprof`, `td`, `gc`, `other`.                |
 | `max_concurrent_uploads`  | `16`                  | Over it, an upload is discarded with 204, never queued.         |
 | `rules`, `rules_file`     | none                  | Per-source overrides; see below.                                |
 | `drain_timeout`           | `30s`                 | Shutdown grace for uploads in flight.                           |
 
-Behavior that follows from the diagtools client, which resends a file from byte zero on any answer other than 200,
-201, or 204:
+Sizes are a plain number of bytes, such as `4096`, optionally followed by `B` or by one of the IEC suffixes `KiB`,
+`MiB`, `GiB`, and `TiB`. Every size must be positive. `KB`, `MB`, `GB`, `TB`, and the one-letter `K`, `M`, `G`, `T`
+are rejected, so a profiler-backend value such as `64MB` fails validation; write `64MiB`. A `max_body_size_per_type`
+entry replaces `max_body_size` for its dump type, and it can be larger than `max_body_size`.
+
+Keep `response_header_timeout` longer than the client's upload deadline, `DIAGNOSTIC_UPLOAD_TIMEOUT` in diagtools (5
+minutes by default), so the client gives up first.
+
+Behavior that follows from the diagtools client, which resends a queued dump file from byte zero on any answer other
+than 200, 201, or 204, until `DIAGNOSTIC_UPLOAD_MAX_AGE` passes (48 hours by default):
 
 - `discard`, the caps, and the concurrency limit all read the body to the end and answer 204, so the client deletes
   its copy. The gateway never sheds load with 413, 429, or 503.
@@ -70,11 +78,15 @@ Behavior that follows from the diagtools client, which resends a file from byte 
   client that stops sending is dropped without an answer, so it keeps the file, and an upstream that stops reading
   answers 502. Either way the upload slot is freed.
 - In `passthrough` the upstream's status reaches the client unchanged, including 405 on `DELETE`. An unreachable
-  upstream answers 502, so the client keeps the file and retries.
+  upstream answers 502. diagtools keeps a queued dump file and retries it, but a thread dump that it sends straight
+  from memory has no file, and a 502 loses that dump.
 - Uploads stream: memory per upload is bounded by buffers, about 90 KB measured, not by file size. The multipart body
   is forwarded as raw bytes.
 - A body over the cap is detected while it streams, because most uploads have no `Content-Length`. The cap saves
   storage, not network.
+- A path that nginx would normalize to a different one gets 400 before any rule runs: an empty, `.`, or `..`
+  segment, or percent-encoding such as `%2F`. The rules and the upstream then read the same source. diagtools never
+  builds such a path.
 
 The dump type comes from the file name: `*.hprof*` is `hprof`, `*.td.txt` is `td`, `gc.log` and `gc.log.N` are `gc`,
 and anything else (core files, `hs_err` logs) is `other`.
@@ -85,7 +97,7 @@ and anything else (core files, `hs_err` logs) is `other`.
 extensions:
   profiler_tcp:
     endpoint: 0.0.0.0:1715
-    upstream: profiler-collector-agent.profiler.svc:1715
+    upstream: profiler-profiler-backend-collector-agent.profiler.svc:1715
     mode: passthrough
     max_connections: 256
     rules_file: /etc/gateway/rules/rules.yaml
@@ -118,24 +130,28 @@ and pod. The extension reads it with the collector's own reader, picks the mode,
 
 A connection with no valid handshake within `handshake_timeout` is reset; the legacy `0x08` handshake is not
 supported. An unreachable upstream and a full `max_connections` also reset the connection: the agent marks its
-dumper dead, logs one warning, and retries every 10 seconds. The gateway sends a reset, not a FIN, because the agent
-reads an EOF as "no data yet" and waits out its 30-second read timeout before it retries.
+dumper dead, logs one warning, and retries after its restart interval, 10 seconds by default
+(`-Dcom.netcracker.profiler.Dumper.RESTART_INTERVAL`, in seconds). The gateway sends a reset, not a FIN, because the
+agent reads an EOF as "no data yet" and waits out its 30-second read timeout before it retries.
 
 A rules file change is applied to open connections too: each one whose mode changes is reset, and the agent
-reconnects within 10 seconds into the new mode. That is the only way to move an agent out of `discard`, because the
-upstream never saw that connection's handshake. Shutdown resets every connection at once.
+reconnects into the new mode after its restart interval. That is the only way to move an agent out of `discard`,
+because the upstream never saw that connection's handshake. Shutdown resets every connection at once.
 
 How the gateway ends the agent's side of a connection:
 
-| End                                                    | Agent sees | Why                                          |
-| ------------------------------------------------------ | ---------- | -------------------------------------------- |
-| The agent finished sending first, then upstream closed | FIN        | A clean end the agent asked for.             |
-| The upstream closed first                              | Reset      | Nothing can answer the agent any more.       |
-| A read or write error in either direction              | Reset      | The stream is broken.                        |
-| Mode changed by a rules reload, or shutdown            | Reset      | The agent reconnects within 10 seconds.      |
-| Upstream unreachable, `max_connections`, bad handshake | Reset      | The agent retries in 10 seconds, no waiting. |
+| End                                                       | Agent sees | Why                                               |
+| --------------------------------------------------------- | ---------- | ------------------------------------------------- |
+| The agent finished sending first, then upstream closed    | FIN        | A clean end the agent asked for.                  |
+| The agent finished first, upstream still open after 30 s  | Reset      | The session must not hold its slot forever.       |
+| The upstream closed first                                 | Reset      | Nothing can answer the agent any more.            |
+| A read or write error in either direction                 | Reset      | The stream is broken.                             |
+| Mode changed by a rules reload, or shutdown               | Reset      | The agent reconnects after its restart interval.  |
+| Upstream unreachable, `max_connections`, bad handshake    | Reset      | The agent retries after its restart interval.     |
+| `discard`: read timeout, protocol error, `COMMAND_CLOSE`  | FIN        | The same end the collector gives such a session.  |
 
-A FIN would make the agent wait out its 30-second read timeout first, so every end the agent did not start is a reset.
+Outside an established `discard` session, every end the agent did not start is a reset, because a FIN would make the
+agent wait out its 30-second read timeout first.
 
 Measured on a laptop: a gateway hop adds about 21 µs to a 1 KB request and its answer, and an idle passthrough
 connection costs about 40 KB.
@@ -154,6 +170,9 @@ rules:
   anything. `service` is a key for `profiler_tcp` only, because the upload URL carries no service. `dump_type` is
   for `profiler_dumps` only.
 - The first matching rule wins. Rules from `rules_file` go before inline `rules`; no match falls back to `mode`.
+- A `passthrough` rule needs an `upstream`, also when `mode` is `discard`. Without one, inline `rules` with a
+  `passthrough` rule fail validation, and the extension rejects a rules file update that has a `passthrough` rule it
+  evaluates.
 - For dumps, the pod is the URL's pod segment up to the first `_`. diagtools appends `_<start timestamp>` to it.
 - `rules_file` is watched. An edit applies to the next upload with no restart. A file that fails to parse is rejected,
   the previous rules stay active, and the extension reports a recoverable error until the file is fixed. Both
