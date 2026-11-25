@@ -832,7 +832,20 @@ func TestShutdownWaitsForActiveUpload(t *testing.T) {
 	<-up.seen
 	shut := make(chan error, 1)
 	go func() { shut <- s.Shutdown(context.Background()) }()
-	time.Sleep(100 * time.Millisecond)
+	// A refused dial means Shutdown has closed the listener.
+	require.Eventually(t, func() bool {
+		c, err := net.Dial("tcp", strings.TrimPrefix(gw, "http://"))
+		if err != nil {
+			return true
+		}
+		_ = c.Close()
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+	select {
+	case err := <-shut:
+		t.Fatalf("Shutdown returned %v while an upload was in flight", err)
+	default:
+	}
 	release()
 
 	assert.Equal(t, http.StatusCreated, awaitResponse(t, done).StatusCode)
