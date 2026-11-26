@@ -188,22 +188,32 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return err
 }
 
+// reject answers a request the handler does not serve and closes the
+// connection. net/http reads an unread request body after the handler
+// returns, and the server has no body deadline, so a client that stalls its
+// body would hold the connection without the read deadline set here.
+func (s *Server) reject(w http.ResponseWriter, msg string, code int) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(s.cfg.ReadHeaderTimeout))
+	w.Header().Set("Connection", "close")
+	http.Error(w, msg, code)
+}
+
 // ServeHTTP handles one upload, delete, or stray request.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !underPrefix(r.URL.Path, s.cfg.PathPrefix) {
-		http.NotFound(w, r)
+		s.reject(w, "404 page not found", http.StatusNotFound)
 		return
 	}
 	if !canonicalPath(r.URL) {
 		// The upstream would resolve such a path to another source, or to a
 		// location outside the prefix, than the rules evaluated. diagtools
 		// never builds one.
-		http.Error(w, "non-canonical path", http.StatusBadRequest)
+		s.reject(w, "non-canonical path", http.StatusBadRequest)
 		return
 	}
 	if !slices.Contains(s.cfg.AllowedMethods, r.Method) {
 		w.Header().Set("Allow", strings.Join(s.cfg.AllowedMethods, ", "))
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.reject(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	attrs := parsePath(r.URL.Path, s.cfg.PathPrefix)

@@ -323,6 +323,32 @@ func TestSlowBodyOutlastsTimeouts(t *testing.T) {
 	assert.True(t, bytes.Equal(data, got[0].body))
 }
 
+// A rejected request whose client stalls mid-body still gets its answer and
+// a closed connection: net/http reads the unread body before replying, and
+// that read has a deadline.
+func TestRejectedRequestWithStalledBodyIsClosed(t *testing.T) {
+	cfg := baseConfig()
+	cfg.ReadHeaderTimeout = 200 * time.Millisecond
+	gw := startServer(t, cfg, nil)
+
+	c, err := net.Dial("tcp", strings.TrimPrefix(gw, "http://"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	_, err = io.WriteString(c, "PATCH "+heapPath+" HTTP/1.1\r\nHost: gw\r\nContent-Length: 100000\r\n\r\n"+
+		strings.Repeat("x", 1000))
+	require.NoError(t, err)
+
+	require.NoError(t, c.SetReadDeadline(time.Now().Add(5*time.Second)))
+	resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+	require.NoError(t, err, "the answer arrives although the body stalls")
+	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	assert.True(t, resp.Close, "the connection is not kept alive")
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+	_, err = c.Read(make([]byte, 1))
+	assert.ErrorIs(t, err, io.EOF, "the gateway closes the connection")
+}
+
 // Without Content-Length the cap is enforced while streaming. The
 // upstream request is aborted, the rest is drained, and the client gets 204.
 func TestChunkedUploadOverCapIsAbortedAndDiscarded(t *testing.T) {
