@@ -57,9 +57,10 @@ test-all:
 	@echo "==> All tests completed!"
 
 # apps/gateway is its own Go module and has no Makefile, so test it directly.
+# -race needs cgo, so it is left to CI, which runs it.
 gateway-test:
 	@echo "==> Testing gateway..."
-	cd gateway && go test -race ./...
+	cd gateway && go test ./...
 
 # Build Docker images for all applications
 docker-build-all:
