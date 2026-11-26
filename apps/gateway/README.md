@@ -170,6 +170,8 @@ rules:
 - `namespace`, `service`, and `pod` are globs in `path.Match` syntax; `dump_type` is a list. An omitted key matches
   anything. `service` is a key for `profiler_tcp` only, because the upload URL carries no service. `dump_type` is
   for `profiler_dumps` only.
+- `service` is the name the Java agent reports: `MICROSERVICE_NAME`, else `SERVICE_NAME`, else a name derived from the
+  server name, else `unknown`. It is not necessarily the Kubernetes Service name.
 - The first matching rule wins. Rules from `rules_file` go before inline `rules`; no match falls back to `mode`.
 - A `passthrough` rule needs an `upstream`, also when `mode` is `discard`. Without one, inline `rules` with a
   `passthrough` rule fail validation, and the extension rejects a rules file update that has a `passthrough` rule it

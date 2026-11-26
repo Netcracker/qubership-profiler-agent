@@ -17,10 +17,11 @@ helm install gateway deploy/charts/gateway \
 The image must include the `nop` exporter and the `memory_limiter` processor. qubership-otec 1.4.0 has neither; use a
 build of `qubership-open-telemetry-collector` that adds them, and pin its tag in `image.tag`.
 
-The Service is named after the release, `gateway` here, unless `serviceName` sets another name. Taking over
-`nc-diagnostic-agent` from diag-proxy is the G6 cutover step: Helm cannot adopt a Service that another release owns.
-Reusing that name replaces the Service for every pod that uses it. With `NC_DIAGNOSTIC_MODE=dev`, `diag-bootstrap.sh`
-downloads the agent from `GET /api/v1/diagnostic/agent/updates` on port 8080 of that host. The
+The Service is named `<release>-gateway`, or after the release alone when its name already contains `gateway`, as
+`gateway` does here. Set `serviceName` to give clients a fixed hostname that does not depend on the release name.
+Taking over `nc-diagnostic-agent` from diag-proxy is the G6 cutover step: Helm cannot adopt a Service that another
+release owns. Reusing that name replaces the Service for every pod that uses it. With `NC_DIAGNOSTIC_MODE=dev`,
+`diag-bootstrap.sh` downloads the agent from `GET /api/v1/diagnostic/agent/updates` on port 8080 of that host. The
 gateway serves only dump uploads on 8080, so the download fails, and the bootstrap falls back to `prod` mode with the
 agent bundled in the image. If your pods rely on that download, keep the existing Service and install the gateway under
 another `serviceName`.
@@ -41,9 +42,10 @@ another `serviceName`.
 
 The port names and numbers are diag-proxy's. Port 14267 (Jaeger TChannel) is gone: the Collector has no receiver for it.
 
-Every protocol is decoded and sent on as OTLP gRPC to `traces.upstream.endpoint`. diag-proxy forwarded raw bytes
-instead, so a client now gets its answer from the gateway, not from Jaeger, and a payload the receiver rejects fails at
-the gateway.
+Every trace protocol, OTLP, Jaeger, and Zipkin, is decoded and sent on as OTLP gRPC to `traces.upstream.endpoint`.
+diag-proxy forwarded raw bytes instead, so a client now gets its answer from the gateway, not from Jaeger, and a payload
+the receiver rejects fails at the gateway. Dump uploads and profiler connections go to `dumps.upstream` and
+`tcp.upstream`.
 
 ## Switching a protocol off
 
