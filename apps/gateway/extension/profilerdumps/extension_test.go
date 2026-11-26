@@ -183,7 +183,11 @@ func TestLifecycleAndHotReload(t *testing.T) {
 	// Fixing it reports recovery.
 	require.NoError(t, os.WriteFile(rulesFile, []byte("rules: []\n"), 0o600))
 	require.Eventually(t, func() bool { return put(t, base) == http.StatusCreated }, 5*time.Second, 20*time.Millisecond)
-	assert.Equal(t, componentstatus.StatusOK, host.statuses()[len(host.statuses())-1])
+	// The watcher reports StatusOK after it applies the rules.
+	require.Eventually(t, func() bool {
+		s := host.statuses()
+		return s[len(s)-1] == componentstatus.StatusOK
+	}, 5*time.Second, 20*time.Millisecond)
 }
 
 func TestStartFailsWhenThePortIsTaken(t *testing.T) {

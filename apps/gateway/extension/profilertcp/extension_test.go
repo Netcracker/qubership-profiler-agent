@@ -293,6 +293,10 @@ func TestBrokenRulesFileIsReported(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(rulesFile, []byte("rules: []\n"), 0o600))
 	require.Eventually(t, func() bool { return reloads(t, reader, "success") == 2 }, 5*time.Second, 20*time.Millisecond)
-	assert.Equal(t, componentstatus.StatusOK, host.statuses()[len(host.statuses())-1])
+	// The watcher reports StatusOK after it records the reload.
+	require.Eventually(t, func() bool {
+		s := host.statuses()
+		return s[len(s)-1] == componentstatus.StatusOK
+	}, 5*time.Second, 20*time.Millisecond)
 	assert.Equal(t, int64(1), reloads(t, reader, "failure"))
 }
