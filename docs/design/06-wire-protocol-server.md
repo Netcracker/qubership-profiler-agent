@@ -95,6 +95,7 @@ The collector signals an unrecoverable condition with `ACK_ERROR_MAGIC` = `-1` a
 | `INIT_STREAM_V2` for an unknown `streamName` | null-UUID reply, close | `ProfilerAgentReader.java:104-110` |
 | `INIT_STREAM_V2` handler throws | null-UUID reply, close | `ProfilerAgentReader.java:127-132` |
 | Unknown command byte | `ACK_ERROR_MAGIC`, close | new — the reference Java throws (`ProfilerAgentReader.java:211-212`); the collector should signal before closing so the agent reconnects rather than stalling |
+| A second `GET_PROTOCOL_VERSION_V2` on the same socket | close, no reply | new — the agent sends one handshake per socket; a second would replace the identity the connection was routed and ingested under |
 | EOF (`read()` returns `-1`) | close | `ProfilerAgentReader.java:89-90` |
 | `CLOSE` (`0x04`) | close, no reply | `ProfilerAgentReader.java:165-167` |
 
