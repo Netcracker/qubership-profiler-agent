@@ -15,7 +15,6 @@ import (
 // handshake is the agent's COMMAND_GET_PROTOCOL_VERSION_V2 and every byte
 // read from the socket while parsing it.
 type handshake struct {
-	clientVersion           uint64
 	pod, service, namespace string
 	raw                     []byte
 }
@@ -41,7 +40,8 @@ func readHandshake(c net.Conn, timeout time.Duration) (*handshake, error) {
 			cmd, byte(model.COMMAND_GET_PROTOCOL_VERSION_V2))
 	}
 	h := &handshake{}
-	if h.clientVersion, err = r.ReadFixedLong(ctx); err != nil {
+	// Only the identity fields after the version decide the mode.
+	if _, err = r.ReadFixedLong(ctx); err != nil {
 		return nil, fmt.Errorf("read the client version: %w", err)
 	}
 	// The field order is pod, service, namespace, as the agent writes it.
