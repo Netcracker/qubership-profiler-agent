@@ -63,6 +63,12 @@ func TestCustomConfig(t *testing.T) {
 	}, cfg.Rules[0])
 }
 
+func TestEmptyDumpTypeIsRejected(t *testing.T) {
+	cfg, err := loadConfig(t, "profiler_dumps/empty_dump_type")
+	require.NoError(t, err)
+	assert.ErrorContains(t, cfg.Validate(), "dump_type is empty")
+}
+
 func TestUnknownKeyIsRejected(t *testing.T) {
 	_, err := loadConfig(t, "profiler_dumps/unknown_key")
 	assert.ErrorContains(t, err, "upstreams")

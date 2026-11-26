@@ -17,5 +17,10 @@ profiler_dumps/custom:
     - match: { namespace: "prod-*", dump_type: [hprof] }
       mode: passthrough
   drain_timeout: 1m
+profiler_dumps/empty_dump_type:
+  mode: discard
+  rules:
+    - match: { namespace: "prod-*", dump_type: [] }
+      mode: discard
 profiler_dumps/unknown_key:
   upstreams: http://x

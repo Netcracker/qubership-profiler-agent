@@ -115,7 +115,9 @@ func (m Match) keys() []Key {
 	if m.Pod != "" {
 		keys = append(keys, KeyPod)
 	}
-	if len(m.DumpType) > 0 {
+	// An empty list still sets the key, so a surface without dump types
+	// skips the rule, and validate rejects it on the one that has them.
+	if m.DumpType != nil {
 		keys = append(keys, KeyDumpType)
 	}
 	return keys
@@ -150,7 +152,7 @@ func (s Set) Eval(a Attrs) (Mode, bool) {
 }
 
 // Validate returns an error for each rule with an unknown mode, a key the
-// surface cannot evaluate, an invalid glob, or an unknown dump type, and,
+// surface cannot evaluate, an invalid glob, or an empty or unknown dump type, and,
 // when hasUpstream is false, for each passthrough rule.
 func (s Set) Validate(surface Surface, hasUpstream bool) error {
 	var errs []error
@@ -178,6 +180,9 @@ func (r Rule) validate(surface Surface, hasUpstream bool) error {
 		if _, err := path.Match(p, ""); err != nil {
 			return fmt.Errorf("invalid glob %q: %w", p, err)
 		}
+	}
+	if r.Match.DumpType != nil && len(r.Match.DumpType) == 0 {
+		return errors.New("dump_type is empty; remove the key to match every dump type")
 	}
 	for _, t := range r.Match.DumpType {
 		if !slices.Contains(DumpTypes, t) {

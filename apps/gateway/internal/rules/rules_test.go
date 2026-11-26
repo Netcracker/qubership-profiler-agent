@@ -93,6 +93,18 @@ func TestParseFileSkipsTheOtherSurface(t *testing.T) {
 	assert.Equal(t, "chatty-*", set[0].Match.Service)
 }
 
+func TestParseFileRejectsEmptyDumpType(t *testing.T) {
+	data := []byte("rules:\n  - match: { namespace: ns-1, dump_type: [] }\n    mode: discard\n")
+
+	_, _, err := ParseFile(data, Dumps, true)
+	assert.ErrorContains(t, err, "dump_type is empty")
+
+	set, skipped, err := ParseFile(data, TCP, true)
+	require.NoError(t, err)
+	assert.Equal(t, 1, skipped)
+	assert.Empty(t, set)
+}
+
 func TestParseFileErrors(t *testing.T) {
 	for name, data := range map[string]string{
 		"unknown key":  "rules:\n  - match: { host: x }\n    mode: discard\n",
