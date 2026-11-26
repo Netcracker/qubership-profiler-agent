@@ -288,7 +288,7 @@ func (s *Server) discard(w http.ResponseWriter, r *http.Request, dumpType, outco
 // The upstream's status goes to the client unchanged, 405 on DELETE included.
 func (s *Server) modifyResponse(resp *http.Response) error {
 	st := resp.Request.Context().Value(ctxKey{}).(*requestState)
-	if _, err := st.body.drain(); err != nil {
+	if err := st.body.drain(); err != nil {
 		// proxyError counts it and drops the connection.
 		return err
 	}
@@ -336,7 +336,7 @@ func (s *Server) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 		s.logger.Debug("Client aborted an upload", zap.String("path", r.URL.Path), zap.Error(before.clientErr))
 		abortClient()
 	}
-	if _, derr := st.body.drain(); derr != nil {
+	if derr := st.body.drain(); derr != nil {
 		s.metrics.upload(ctx, st.dumpType, outcomeClientAborted, st.body.state().total)
 		abortClient()
 	}

@@ -70,13 +70,13 @@ func (b *capBody) Close() error { return nil }
 // drain reads whatever the client has not sent yet and discards it. Later
 // reads by the transport fail. A body whose full size passes the limit is
 // marked over the cap, also when the upstream answered before the
-// transport read that far. It returns the number of bytes drained.
-func (b *capBody) drain() (int64, error) {
+// transport read that far.
+func (b *capBody) drain() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.detached = true
 	if b.eof || b.clientErr != nil {
-		return 0, b.clientErr
+		return b.clientErr
 	}
 	n, err := io.Copy(io.Discard, b.r)
 	b.n += n
@@ -88,7 +88,7 @@ func (b *capBody) drain() (int64, error) {
 	} else {
 		b.eof = true
 	}
-	return n, err
+	return err
 }
 
 type bodyState struct {
