@@ -53,7 +53,7 @@ service:
 | `path_prefix`             | `/diagnostic`         | Other paths get 404.                                            |
 | `allowed_methods`         | `[PUT, POST, DELETE]` | Other methods get 405.                                          |
 | `connect_timeout`         | `1s`                  | Upstream dial deadline, and TLS handshake deadline for `https`. |
-| `response_header_timeout` | `10m`                 | Wait for the upstream's answer after the body is sent.          |
+| `response_header_timeout` | `10m`                 | Wait for upstream response headers after the body is sent.      |
 | `read_header_timeout`     | `10s`                 | Wait for the client's request header.                           |
 | `idle_timeout`            | `60s`                 | Longest pause in body progress, and keep-alive idle limit.      |
 | `max_body_size`           | `10GiB`               | Size cap. Over it: abort upstream, drain, answer 204.           |

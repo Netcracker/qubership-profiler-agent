@@ -31,10 +31,10 @@ type Config struct {
 	// ConnectTimeout bounds the upstream dial, and the TLS handshake for an
 	// https upstream.
 	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
-	// ResponseHeaderTimeout bounds the wait for the upstream's answer after
-	// the body is sent. Keep it longer than the client's upload deadline,
-	// DIAGNOSTIC_UPLOAD_TIMEOUT in diagtools (5 minutes by default), so the
-	// client gives up first.
+	// ResponseHeaderTimeout bounds the wait for the upstream's response
+	// headers after the body is sent. Keep it longer than the client's upload
+	// deadline, DIAGNOSTIC_UPLOAD_TIMEOUT in diagtools (5 minutes by
+	// default), so the client gives up first.
 	ResponseHeaderTimeout time.Duration `mapstructure:"response_header_timeout"`
 	// ReadHeaderTimeout bounds the wait for the client's request header.
 	ReadHeaderTimeout time.Duration `mapstructure:"read_header_timeout"`

@@ -22,8 +22,8 @@ const scopeName = "github.com/Netcracker/qubership-profiler-agent/apps/gateway/e
 
 var componentType = component.MustNewType("profiler_dumps")
 
-// NewFactory returns the profiler_dumps extension factory. Creating the
-// factory and the extension allocates nothing; the listener opens in Start.
+// NewFactory returns the profiler_dumps extension factory. The listener
+// opens in Start, not when the factory or the extension is created.
 func NewFactory() extension.Factory {
 	return extension.NewFactory(
 		componentType,
