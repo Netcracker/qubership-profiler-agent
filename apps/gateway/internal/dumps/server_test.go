@@ -537,7 +537,7 @@ func TestNonCanonicalPathIsRejected(t *testing.T) {
 	status := func(uri string) string {
 		conn, err := net.Dial("tcp", strings.TrimPrefix(gw, "http://"))
 		require.NoError(t, err)
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
 		_, err = io.WriteString(conn, "PUT "+uri+" HTTP/1.1\r\nHost: gw\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx")
 		require.NoError(t, err)
@@ -651,7 +651,7 @@ func TestStalledClientIsDroppedAndFreesSlot(t *testing.T) {
 
 			conn, err := net.Dial("tcp", strings.TrimPrefix(gw, "http://"))
 			require.NoError(t, err)
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			_, err = io.WriteString(conn, "PUT "+heapPath+" HTTP/1.1\r\nHost: gw\r\n"+
 				"Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n")
 			require.NoError(t, err)
@@ -761,7 +761,7 @@ func earlyAnswerUpstream(t *testing.T, status int) *url.URL {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(status)
-		http.NewResponseController(w).Flush()
+		_ = http.NewResponseController(w).Flush()
 		select {
 		case <-stop:
 		case <-r.Context().Done():

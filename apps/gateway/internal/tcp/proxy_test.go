@@ -92,7 +92,7 @@ func echoUpstream(t testing.TB) string {
 				return
 			}
 			go func() {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				_, _ = io.Copy(c, c)
 			}()
 		}
@@ -202,7 +202,7 @@ func TestMaxConnectionsRefuses(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(time.Second))
 		hs := handshakeBytes(t, "ns-1", "svc", "pod-2")
 		if _, err := c.Write(hs); err != nil {
@@ -295,7 +295,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			c := dialEcho(b, tc.addr())
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			msg := make([]byte, 1024)
 			reply := make([]byte, 1024)
 			b.ResetTimer()
@@ -371,7 +371,7 @@ func TestUpstreamCloseEndsTheSession(t *testing.T) {
 				close(upClosed)
 				continue
 			}
-			go func() { defer c.Close(); _, _ = io.Copy(c, c) }()
+			go func() { defer func() { _ = c.Close() }(); _, _ = io.Copy(c, c) }()
 		}
 	}()
 
@@ -498,9 +498,9 @@ func TestUpstreamSilentAfterAgentEOFEndsTheSession(t *testing.T) {
 // leg, so the handshake is not replayed.
 func TestSetUpstreamAfterCloseClosesTheDial(t *testing.T) {
 	client, peer := net.Pipe()
-	defer peer.Close()
+	defer func() { _ = peer.Close() }()
 	up, upPeer := net.Pipe()
-	defer upPeer.Close()
+	defer func() { _ = upPeer.Close() }()
 	s := &session{client: client}
 	s.abort()
 
