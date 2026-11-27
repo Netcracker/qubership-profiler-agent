@@ -3,6 +3,11 @@
 Status: **draft**, from the brainstorm of October 9, 2026. Implements item C3 "MCP for profiler data" of
 [`profiler-plan.md`](../design/profiler-plan.md).
 
+Where this plan differs from [`02-read-contract.md`](../design/02-read-contract.md) §2.3 and §2.9, the contract
+supersedes it. [Issue #1300](https://github.com/Netcracker/qubership-profiler-agent/issues/1300) lists the differences.
+The filter sections of §2.3 arrive with [PR #1092](https://github.com/Netcracker/qubership-profiler-agent/pull/1092),
+and §2.9 with [PR #1182](https://github.com/Netcracker/qubership-profiler-agent/pull/1182).
+
 ## 1. Goal
 
 Let coding agents and agent harnesses connect to the profiler backend, analyze calls, and help a user investigate
