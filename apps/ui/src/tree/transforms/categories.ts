@@ -24,15 +24,23 @@ function wildcardToRegExp(ref: string): RegExp {
   return new RegExp(escaped.join('.*'));
 }
 
-/** How many category colors theme.css defines, as `--pf-color-cat-1` and on. */
-export const CATEGORY_COLOR_COUNT = 6;
+/** How many category colors theme.css defines; the palette repeats after that. */
+export const CATEGORY_COLORS = 6;
 
 /**
- * The row color of the index-th category: a theme.css variable, so it follows
- * the light and dark themes. Past the last color the palette starts over.
+ * The fill of a category's badge. A theme variable, so the same category reads
+ * in the light and the dark theme; the old fixed pastel only suited a light page.
  */
 export function categoryColor(index: number): string {
-  return `var(--pf-color-cat-${(index % CATEGORY_COLOR_COUNT) + 1})`;
+  return `var(--pf-color-cat-${(index % CATEGORY_COLORS) + 1})`;
+}
+
+/**
+ * The fill of a category's flame graph frame: the hue of its badge, stronger,
+ * because a frame is the whole picture and a badge sits on a row.
+ */
+export function categoryBlockColor(category: CategoryDef): string {
+  return category.color.replace('--pf-color-cat-', '--pf-color-flame-');
 }
 
 function parseCategoryLines(text: string): {

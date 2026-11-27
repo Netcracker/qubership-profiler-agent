@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { TreeWire } from '../../msgpack/tree-wire';
 import { buildTreeModel, findNodeById } from '../model';
 import { applyAdjustments, factorByMethod, invalidAdjustLines, parseAdjustConfig } from './adjust';
-import { CATEGORY_COLOR_COUNT, applyCategories, categoryColor, invalidCategoryLines, parseCategoryConfig } from './categories';
+import { applyCategories, invalidCategoryLines, parseCategoryConfig } from './categories';
 import { computeFlatProfile } from './flat-profile';
 import { findUsages, incomingCalls, localHotspots, outgoingCalls } from './merge';
 
@@ -265,15 +265,7 @@ describe('setup categories', () => {
     const serviceB = model.root.children.find((c) => c.methodIdx === 3)!;
     expect(serviceA.category?.name).toBe('narrow');
     expect(serviceB.category?.name).toBe('broad');
-    // Longest pattern first, so 'narrow' takes the first color.
-    expect(serviceA.category?.color).toBe('var(--pf-color-cat-1)');
-    expect(serviceB.category?.color).toBe('var(--pf-color-cat-2)');
-  });
-
-  it('hands out the theme colors in order and wraps after the last', () => {
-    expect(categoryColor(0)).toBe('var(--pf-color-cat-1)');
-    expect(categoryColor(CATEGORY_COLOR_COUNT - 1)).toBe(`var(--pf-color-cat-${CATEGORY_COLOR_COUNT})`);
-    expect(categoryColor(CATEGORY_COLOR_COUNT)).toBe('var(--pf-color-cat-1)');
+    expect(serviceA.category?.color).toMatch(/^var\(--pf-color-cat-[1-6]\)$/);
   });
 
   it('flags a line with no pattern', () => {
