@@ -5,8 +5,9 @@
 
 .PHONY: help install dev dev-mock test typecheck build clean
 
-# Where `make dev` proxies /api/v1 (vite.config.ts).
-VITE_QUERY_URL ?= http://localhost:8080
+# Where the query binary serves the UI, as in the Dockerfile. `make build
+# UI_BASE_PATH=/` builds for the root instead.
+UI_BASE_PATH ?= /ui/
 
 help:
 	@echo "Profiler UI"
@@ -14,10 +15,11 @@ help:
 	@echo ""
 	@echo "  dev-mock   - Dev server at http://localhost:5173/ui/ with the MSW mock, no backend needed"
 	@echo "  dev        - Dev server at http://localhost:5173/ui/, /api/v1 proxied to VITE_QUERY_URL"
-	@echo "               (default $(VITE_QUERY_URL))"
+	@echo "               (default http://localhost:8080, set in vite.config.ts)"
 	@echo "  test       - Run the vitest suite once"
 	@echo "  typecheck  - Run tsc without emitting"
 	@echo "  build      - Build the bundle into dist/ for the query binary to embed"
+	@echo "               (base path UI_BASE_PATH, default $(UI_BASE_PATH))"
 	@echo "  install    - Install npm dependencies from package-lock.json"
 	@echo "  clean      - Remove node_modules"
 
@@ -31,8 +33,10 @@ install: node_modules/.package-lock.json
 dev-mock: install
 	npm run dev:mock
 
+# make exports VITE_QUERY_URL to npm when it is set on the command line or in
+# the environment; vite.config.ts holds the default.
 dev: install
-	VITE_QUERY_URL=$(VITE_QUERY_URL) npm run dev
+	npm run dev
 
 test: install
 	npm run test
@@ -40,11 +44,10 @@ test: install
 typecheck: install
 	npm run typecheck
 
-# The base path must match where the query binary serves the UI (README, Deployment).
 # vite empties dist/, including the tracked placeholder that keeps go:embed
 # compiling without a bundle, so put it back.
 build: install
-	UI_BASE_PATH=/ui/ npm run build
+	UI_BASE_PATH=$(UI_BASE_PATH) npm run build
 	touch dist/.gitkeep
 
 clean:

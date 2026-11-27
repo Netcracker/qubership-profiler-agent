@@ -24,7 +24,7 @@ npm run build      # tsc + vite build into dist/
 
 `make dev-mock`, `make dev`, `make test`, `make typecheck`, and `make build` run the same scripts and install
 dependencies first when `package-lock.json` changed. From the repository root, use `make ui-dev-mock`, `make ui-dev`,
-`make ui-test`, or `make ui-build`.
+`make ui-test`, `make ui-typecheck`, or `make ui-build`.
 
 ## Deployment
 

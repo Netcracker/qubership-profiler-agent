@@ -9,7 +9,7 @@
 	charts-build charts-clean \
 	examples-build examples-clean \
 	delivery-build delivery-clean \
-	ui-dev ui-dev-mock ui-test ui-build
+	ui-dev ui-dev-mock ui-test ui-typecheck ui-build
 
 # Variables
 APPS_DIR := apps
@@ -72,6 +72,7 @@ help:
 	@echo "  ui-dev-mock      - Run the UI locally against the MSW mock, no backend needed"
 	@echo "  ui-dev           - Run the UI locally against a query at VITE_QUERY_URL (default :8080)"
 	@echo "  ui-test          - Run the UI tests"
+	@echo "  ui-typecheck     - Type-check the UI"
 	@echo "  ui-build         - Build the UI bundle the query binary embeds"
 	@echo ""
 	@echo "Utility targets:"
@@ -264,7 +265,7 @@ profiler-backend-archive:
 # UI TARGETS
 # =============================================================================
 
-UI_DIR := apps/ui
+UI_DIR := $(APPS_DIR)/ui
 
 ui-dev-mock:
 	$(MAKE) -C $(UI_DIR) dev-mock
@@ -274,6 +275,9 @@ ui-dev:
 
 ui-test:
 	$(MAKE) -C $(UI_DIR) test
+
+ui-typecheck:
+	$(MAKE) -C $(UI_DIR) typecheck
 
 ui-build:
 	$(MAKE) -C $(UI_DIR) build
