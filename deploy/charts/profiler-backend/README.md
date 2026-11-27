@@ -67,6 +67,7 @@ curl "localhost:8080/api/v1/calls?from=...&to=..."
 | `collector.terminationGracePeriodSeconds` | `100` | ≥ the 03 §5.4 shutdown budget. |
 | `collector.env`, `query.env`, `maintain.env` | `{}` | Extra env (name → value) for the remaining `PROFILER_*` knobs. |
 | `query.replicas` / `query.port` | `2` / `8080` | Stateless; scale horizontally. |
+| `query.links` | `[]` | Trace and logs link buttons of the call tree page: a list of `{label, kind, url_template}` entries, passed as `PROFILER_LINKS` (02 §2.8). A malformed entry stops the query pod at startup. |
 | `maintain.mode` | `cronjob` | `deployment` runs the singleton loop — the only mode with `/metrics`. |
 | `maintain.schedule` | `0 * * * *` | CronJob mode. |
 | `retention.*TTL` | contract defaults | Per-class TTLs (01 §6.4) passed to maintain. |

@@ -32,8 +32,9 @@ Base path: `/api/v1`. JSON request and response. Error bodies follow RFC 7807 (P
 | GET | `/calls/{pk}/trace` | Fetch the per-call trace blob (raw wire bytes; advanced consumers — see §2.5). |
 | GET | `/calls/{pk}/tree` | Server-decoded call tree, MessagePack-encoded (canonical for UI / MCP / CLI — see §2.5). |
 | GET | `/stats` | Aggregates: top methods by duration, p50/p95/p99, counts per bucket. (Sketch only; details deferred — §10.) |
+| GET | `/config` | Deployment-specific values the UI cannot derive on its own (§2.8). |
 
-> **Not yet implemented.** `/pods/{pod-restart}/dictionary` and `/calls/{pk}` are specified here for advanced and raw-trace consumers, but the query service does not register them today; the MVP serves `/pods`, `/calls`, `/calls/{pk}/trace`, and `/calls/{pk}/tree`. `/stats` is a deferred sketch (§10).
+> **Not yet implemented.** `/pods/{pod-restart}/dictionary` and `/calls/{pk}` are specified here for advanced and raw-trace consumers, but the query service does not register them today; the MVP serves `/pods`, `/calls`, `/calls/{pk}/trace`, `/calls/{pk}/tree`, and `/config`. `/stats` is a deferred sketch (§10).
 
 ### 2.2 Primary key
 
@@ -390,6 +391,96 @@ Response:
 
 `GET /api/v1/stats` is a sketch — full schema deferred to Stage 4. Initial shape: `top_methods_by_duration`, latency percentiles per `(method, retention_class)`, counts per `(retention_class, hour_bucket)`. Implemented over the same hot/cold model as `/calls`.
 
+### 2.8 Deployment configuration
+
+`GET /api/v1/config` returns the values that differ between deployments and that the UI cannot derive on its own.
+The operator sets them through the query environment (§9). The response is static for the life of the process, and
+the UI fetches it once per session.
+
+```json
+{
+  "dumps_collector_url": "https://dumps-collector-prod.example",
+  "links": [
+    {
+      "label": "Open trace · Tempo",
+      "kind": "trace",
+      "url_template": "https://grafana.example/explore?trace={trace_id}"
+    },
+    {
+      "label": "Logs · Grafana",
+      "kind": "logs",
+      "url_template": "https://grafana.example/logs?pod={pod}&from={from_ms}&to={to_ms}"
+    }
+  ]
+}
+```
+
+An empty or absent member means that the feature it backs is unavailable in this deployment. It is not an error.
+
+| Member | Type | Meaning |
+|---|---|---|
+| `dumps_collector_url` | string | Base URL of the `dumps-collector` deployment, for the dump link-out of the Pods Info screen. Empty when unset, or when the configured value is not an absolute `http` or `https` URL. |
+| `links` | array, optional | Link-outs from one call to an external tracing or logging system, in the order the operator listed them. Absent or empty means no links. |
+
+Each `links` entry has three members, all required:
+
+| Member | Meaning |
+|---|---|
+| `label` | The button text. Not empty. |
+| `kind` | `trace` for a link to the call's distributed trace, `logs` for a link to the logs of its pod and time window. No other value is valid. |
+| `url_template` | An absolute `http` or `https` URL with placeholders in braces. |
+
+A template may use the placeholders below, each any number of times. A placeholder is one of these names in braces,
+such as `{pod}`. Every other brace is a literal character of the URL, so the braces of a LogQL or LogsQL stream
+selector (`{app="x"}`), of a regexp escape (`\x{a0}`), or of a Grafana Explore JSON state need no escaping of their
+own. The rest of such a query is URL-encoded as in any URL: `&` in a filter value is written `%26`.
+
+| Placeholder | Value |
+|---|---|
+| `{trace_id}` | The call's trace ID (see below). |
+| `{from_ms}` | Start of the call minus 1000 ms, Unix time in milliseconds. |
+| `{to_ms}` | End of the call (start plus duration) plus 1000 ms, Unix time in milliseconds. |
+| `{namespace}` | `pk.pod_namespace` of the call (§2.2). |
+| `{service}` | `pk.pod_service` of the call. |
+| `{pod}` | `pk.pod_name` of the call: the pod name alone, not the colon-separated key of §2.2. |
+
+**The time window has a margin.** `{from_ms}` and `{to_ms}` widen the call by 1000 ms on each side, because a log
+pipeline timestamps a line apart from the clock the agent reads, and a short call would otherwise open a window that
+misses its own log lines. The placeholders exist only in milliseconds. A system that takes microseconds, such as
+Jaeger, gets them from `{from_ms}000`; a system that takes seconds cannot be linked with a time window.
+
+**The trace ID comes from the call's params.** It is the first non-empty value of the params `trace.id`,
+`brave.trace_id`, and `X-B3-TraceId`, tried in that order. The `::other` overflow bucket of a tree node (§2.5.3) is
+not a value and is skipped. A client that holds the call tree looks through its
+nodes depth first from the root, visiting children in the order of the `/tree` response whatever order it displays
+them in, and takes the first node that carries one. A W3C `traceparent` value is not parsed,
+and `x-request-id` is not a trace ID. A client treats a trace ID that has a character outside `[0-9A-Za-z_-]` as
+missing, because the value comes from a request header of the profiled application, and the system the link opens
+decodes it again: in a template such as `?query=trace_id:"{trace_id}"`, a `"` in the value would change the query.
+The set admits hexadecimal trace IDs and UUIDs.
+
+**The client expands the templates.** It replaces each placeholder with the URL-encoded value (percent-encoding, as
+`encodeURIComponent` does) and opens the result. The server never sees the expanded URL.
+
+**A link without a value stays visible.** A client that has no value for a placeholder of a template, such as
+`{trace_id}` on a call that carries no trace ID, shows that link disabled and states the reason, for example in a
+tooltip. It does not hide the link: the reader then sees that the deployment has a trace link and that this call is
+the exception. A link is absent only when the deployment configures no entry for it.
+
+**The server validates at startup.** `query` refuses to start when an entry has an empty `label`, a `kind` other
+than `trace` or `logs`, or a `url_template` that is not an absolute `http` or `https` URL once the placeholders are
+filled in. The error names the entry by its position and label. The scheme rule keeps a `javascript:` URL out of a
+response that the UI renders as a link. A name in braces that resembles a placeholder, such as `{pod_name}`, `{traceId}`, or
+`{from}`, is valid URL text, so `query` starts and logs a warning that names the entry, the text, and the placeholder
+it resembles. A template that means such text literally writes its opening brace as `%7B` (`%7Bpod_name}`), which
+also drops the warning.
+
+**Every UI user sees the templates.** `/config` returns each `url_template` as written, so a credential in it, such
+as an API token in the query string, reaches everyone who opens the UI. Leave the sign-in to the system the link
+opens.
+
+A response from a build that predates the member carries no `links`; the client treats that as an empty list.
+
 ## 3. Internal hot-read API on collector
 
 Base path: `/internal/v1`. Same JSON shapes as `/api/v1`. Aggregation is done in `query`, not in collector.
@@ -712,6 +803,8 @@ Stage 5 UI renders these as a "narrow your query" affordance (`profiler-plan.md`
 | `PROFILER_MAX_SCAN_BYTES` | `2GB` | Estimated-scan-byte ceiling for a `/calls` scan; over it, `400`. Counts compressed object bytes, per request; size it for the widest single query the deployment allows — the pod is sized from the §7.5 budget, not from this guard. |
 | `PROFILER_READ_MEMORY_BUDGET` | `512MB` | Process-wide read memory budget (§7.5): every reader charges materialized bytes against it. Size ≤ (pod limit − baseline) / overhead factor (≈2). |
 | `PROFILER_READ_BUDGET_WAIT` | `5s` | Bounded queue wait on a budget charge (§7.5); past it the request answers `503` + `Retry-After`. A negative value is rejected at startup. |
+| `DUMPS_COLLECTOR_URL` | — | Base URL of the `dumps-collector` deployment, reported by `/config` (§2.8). |
+| `PROFILER_LINKS` | — | Trace and logs link templates reported by `/config`: a JSON array of `{label, kind, url_template}` objects (§2.8). A malformed entry is rejected at startup. |
 | `PROFILER_EXTERNAL_API_PORT` | `8080` | Bind for `/api/v1/*` and the UI. |
 | `PROFILER_METRICS_PORT` | `8081` | Bind for `/metrics` and `/debug/pprof`, on a listener the ingress does not publish (`04-storage-layout.md` §12). |
 | `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Same as in `01-write-contract.md` §9. |

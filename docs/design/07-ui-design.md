@@ -93,7 +93,7 @@ path just does not project it. The full requirement set, classified by effort, i
 | Rich calls query (`$param=value`, `+must`, `-exclude`) | `/calls` `method` is a substring match only. | v1 does method-substring plus typed filters; richer query needs a param index (doc 08 R3). |
 | Per-node suspension / self-time / execution counts in the tree | The `Node` wire is raw: `durationMs` only. | Required, not dropped: `/tree` must return a merged tree with self/total duration and suspension and execution counts (doc 08 R5–R7). Per-node CPU is not needed (the old tree never showed it). |
 
-### 3.4 Correlation and external links (provisioned, deferred)
+### 3.4 Correlation and external links
 
 **Correlation model.** A profiling tree is one call, so it has at most one *incoming* trace context — a
 `trace_id` and a `parent_span_id` from the request that triggered it. That belongs at the call level and may
@@ -101,18 +101,19 @@ be absent (the call was not triggered by a traced request). Its *outgoing* calls
 across the tree — and even several `trace_id`s if the service does not propagate one — so those cannot
 collapse to a single value.
 
-- **Incoming (call-level, at most one, nullable):** one `trace_id` + `parent_span_id` on the call. Drives
-  inbound navigation (trace → profile via the R3 filter) and the call's `Open trace` link.
-- **Outgoing (node-level, many):** trace/span ids stay as tree-node params; each deep-links out on its own.
+- **Incoming (call-level, at most one, nullable):** one `trace_id` + `parent_span_id` on the call, the key for
+  inbound navigation (trace → profile via the R3 filter).
+- **Outgoing (node-level, many):** trace/span ids stay as tree-node params.
 
-The old UI read these from params (`brave.trace_id`, `brave.span_id`; `apps/agent/profiler-ui/src/dataFormat.mjs`);
-whether the new pipeline preserves them is **unverified** — `CallV2` has no trace/span columns. Resolve before
-wiring: verify the params survive into `CallV2.Params`, or promote the incoming pair to dedicated columns
-(doc 08). Either way the UI provisions a **link-template seam** now and defers the wiring: a configurable map from a param to an
-external URL, interpolating the id plus pod, namespace, and time window, so a call or tree node deep-links out
-to a trace in Tempo or VictoriaTraces and to logs in VictoriaLogs / Grafana. Inbound navigation
-(trace / log → profile) needs the param-filter query (doc 08 R3) to find calls by `trace_id`. Building the
-Grafana/Tempo integration is out of v1; the seam keeps it from forcing a rework later.
+The old UI read these from params (`brave.trace_id`, `brave.span_id`; `apps/agent/profiler-ui/src/dataFormat.mjs`).
+The new pipeline keeps them as params on calls and tree nodes, with no dedicated columns (doc 08 §7). The
+**link-template seam** is specified in `02-read-contract.md` §2.8: `/config` serves labeled URL templates with
+placeholders for the trace ID, the pod identity, and the call's time window, so a call deep-links out to a trace in
+Tempo or VictoriaTraces and to logs in VictoriaLogs / Grafana. The call-level `Open trace` link opens the trace ID
+that §2.8 selects from the call and its tree. The selection does not check where the ID came from, so it may name an
+outgoing trace rather than the incoming one. Node-level outgoing
+links are deferred: the contract has no `{span_id}` placeholder, and adding one is an additive change to §2.8.
+Inbound navigation (trace / log → profile) needs the param-filter query (doc 08 R3) to find calls by `trace_id`.
 
 ## 4. Information architecture
 
@@ -316,7 +317,7 @@ Testing follows the project's synthetic-input, semantics-assertion style — no 
 | Rich calls query language (`$param=`, `+/-`) | v1 uses substring plus typed filters. |
 | Heap-dumps screen | Separate concern; the draft's stub is not on the v1 path. |
 | Authentication | Deferred to a thin bearer/Keycloak layer in front of `/api/v1` (read contract §"Auth"). |
-| Tracing/logs integration (Tempo, VictoriaTraces, VictoriaLogs, Grafana) | Provisioned via the §3.4 link-template seam; wiring is out of v1. |
+| Tracing/logs integration beyond call-level links (node-level links, inbound navigation) | Call-level links are in `02-read-contract.md` §2.8 (§3.4); node-level links need a `{span_id}` placeholder, and inbound navigation needs R3. |
 | Analyze dump (thread dump, stackcollapse, DBMS_HPROF, JFR, stored-dump reference) | Deferred; when built it lands on the same tree view via upload / CLI / stored-ref — no arbitrary path or URL. Disposition in doc 08 §10. |
 | Per-node CPU in the tree | The old tree never showed it; only per-call `cpu_time_ms` exists. |
 

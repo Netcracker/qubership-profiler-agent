@@ -42,12 +42,15 @@ type podsResponse struct {
 	PartialReasons []string         `json:"partial_reasons"`
 }
 
-// configResponse is the /config body: deployment-specific values the UI has
-// no other way to learn, currently just the dumps-collector link-out base
-// (PR 708 review #18). Empty fields mean the feature they back is
-// unavailable in this deployment, not an error.
+// configResponse is the /config body (02 §2.8): deployment-specific values
+// the UI has no other way to learn — the dumps-collector link-out base
+// (PR 708 review #18) and the trace and logs link templates. Empty fields
+// mean the feature they back is unavailable in this deployment, not an error.
 type configResponse struct {
 	DumpsCollectorURL string `json:"dumps_collector_url"`
+	// Links is always an array on the wire, so a client iterates it without
+	// a null check.
+	Links []Link `json:"links"`
 }
 
 func (s *Service) routes(e *echo.Echo) {
@@ -83,7 +86,11 @@ func (s *Service) routes(e *echo.Echo) {
 // handleConfig serves GET /api/v1/config: static, deployment-specific values
 // the UI cannot derive on its own.
 func (s *Service) handleConfig(c echo.Context) error {
-	return c.JSON(http.StatusOK, configResponse{DumpsCollectorURL: s.cfg.DumpsCollectorURL})
+	links := s.cfg.Links
+	if links == nil {
+		links = []Link{}
+	}
+	return c.JSON(http.StatusOK, configResponse{DumpsCollectorURL: s.cfg.DumpsCollectorURL, Links: links})
 }
 
 func sendProblem(c echo.Context, p problem) error {

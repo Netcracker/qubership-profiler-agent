@@ -131,13 +131,14 @@ pass-through chain so a match inside one stays reachable (`tree/search.ts`).
   transforms it.
 - **Per-node suspension (R7): backend-computed** by intersecting each node's work interval with the global
   suspend timeline at tree build — not per-method agent deltas.
-- **Correlation and external links (provisioned, deferred).** The profiler captures tracing context as
-  params, so `trace_id` / `span_id` are already on calls and tree nodes (`brave.trace_id`, `brave.span_id`,
-  `x-request-id`). Provision a UI link-template seam — a configurable map from a param to an external URL,
-  interpolating the id plus pod, namespace, and time window — so a call or node deep-links out to a trace in
-  Tempo or VictoriaTraces and to logs in VictoriaLogs / Grafana. Implementing the wiring is deferred;
-  surfacing the params and the link seam now avoids a later rework. Inbound navigation (trace/log → profile)
-  needs the param-filter query (R3) to find calls by `trace_id`.
+- **Correlation and external links.** The profiler captures tracing context as params, so trace and span IDs
+  are already on calls and tree nodes (`02-read-contract.md` §2.8 names the params that fill the trace ID).
+  `/api/v1/config` carries operator-configured link templates as an optional `links` list
+  (`02-read-contract.md` §2.8): labeled templates with fixed placeholders for the trace ID, the pod identity, and
+  the call's time window, so a call deep-links out to a trace in Tempo or VictoriaTraces and to logs in
+  VictoriaLogs / Grafana, and one deployment can link to several systems. Still deferred: node-level links,
+  which need a `{span_id}` placeholder, and inbound navigation (trace/log → profile), which needs the
+  param-filter query (R3) to find calls by `trace_id`.
 
 ## 10. Deferred: dump analysis and the `apps/agent/parsers/` module
 
