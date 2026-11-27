@@ -160,8 +160,8 @@ buttons disabled. The tree search belongs to the Call Tree tab, not to the toolb
 
 **Link buttons** follow `Download HTML`, after a divider: one per entry of `links` in `/api/v1/config`, in the
 operator's order, with the entry's label (02 §2.8). The UI fills the template with the call's trace ID, its pod
-identity, and its window: `from_ms` is the call's start and `to_ms` is the start plus the recorded duration. Adjust
-duration is a what-if view and leaves the window as recorded. Each value is encoded as `encodeURIComponent` does. A
+identity, and its window: `from_ms` is the call's start minus 1000 ms and `to_ms` is the start plus the recorded
+duration plus 1000 ms. Adjust duration is a what-if view and leaves the window as recorded. Each value is encoded as `encodeURIComponent` does. A
 button opens its link in a new tab.
 
 | Case | Button |
@@ -169,6 +169,7 @@ button opens its link in a new tab.
 | The deployment configures no links | Absent, along with the divider. |
 | The call has a value for every placeholder of the template | Enabled. |
 | The template uses a placeholder the call has no value for, typically `{trace_id}` on an untraced call | Shown disabled, with the reason in a tooltip. |
+| The template uses `{trace_id}` and the call's trace ID has a character outside `[0-9A-Za-z_-]` | Shown disabled, with the reason in a tooltip. |
 
 An exported copy has no backend to ask for the templates and shows no link buttons.
 

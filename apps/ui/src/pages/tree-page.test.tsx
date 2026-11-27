@@ -379,8 +379,9 @@ describe('TreePage', () => {
     const url = new URL(logs.getAttribute('href')!);
     expect(url.searchParams.get('namespace')).toBe(call.pk.pod_namespace);
     expect(url.searchParams.get('pod')).toBe(call.pk.pod_name);
-    expect(url.searchParams.get('from')).toBe(String(call.ts_ms));
-    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms));
+    // The window reaches 1000 ms past each end of the call (02 §2.8).
+    expect(url.searchParams.get('from')).toBe(String(call.ts_ms - 1000));
+    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms + 1000));
 
     // The links come after the page's own actions.
     const download = screen.getByRole('button', { name: /Download HTML/ });
@@ -402,8 +403,8 @@ describe('TreePage', () => {
     // Adjust duration is a what-if view: the logs still cover the whole recorded call.
     const logs = await screen.findByRole('link', { name: /Logs · Grafana/ });
     const url = new URL(logs.getAttribute('href')!);
-    expect(url.searchParams.get('from')).toBe(String(call.ts_ms));
-    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms));
+    expect(url.searchParams.get('from')).toBe(String(call.ts_ms - 1000));
+    expect(url.searchParams.get('to')).toBe(String(call.ts_ms + call.duration_ms + 1000));
   });
 
   it('disables a link that needs a trace ID on an untraced call and says why', async () => {

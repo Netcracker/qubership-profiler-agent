@@ -33,7 +33,7 @@ import { getThemeMode } from '../ui/theme-mode';
 import { useZone } from '../ui/timezone';
 import { FlameView } from '../tree/flame-view';
 import { HotspotsView } from '../tree/hotspots-view';
-import { callLinks, findTraceId } from '../tree/links';
+import { callLinks, findTraceId, linkWindow } from '../tree/links';
 import { parseMethod } from '../tree/method-info';
 import { buildTreeModel, findNodeById } from '../tree/model';
 import type { TreeModel, TreeNode } from '../tree/model';
@@ -246,11 +246,11 @@ export function TreePage({ restore }: { restore?: TreeRestore } = {}) {
     if (model === null || pk === null || configured.length === 0) return [];
     return callLinks(configured, {
       trace_id: traceId,
-      // The call's window: its start, which travels as the ts_ms hint, plus its
-      // recorded duration. Adjust duration is a what-if view, so the window
-      // ignores it: a shortened model must not cut the call's logs short.
-      from_ms: tsMs === null ? null : String(tsMs),
-      to_ms: tsMs === null || wire === null ? null : String(tsMs + wire.root.durationMs),
+      // The call's window, widened by linkWindow: its start, which travels as
+      // the ts_ms hint, plus its recorded duration. Adjust duration is a what-if
+      // view, so the window ignores it: a shortened model must not cut the
+      // call's logs short.
+      ...linkWindow(tsMs, wire === null ? null : wire.root.durationMs),
       namespace: pk.pod_namespace,
       service: pk.pod_service,
       pod: pk.pod_name,

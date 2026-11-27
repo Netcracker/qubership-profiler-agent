@@ -25,9 +25,9 @@ function isPlaceholder(name: string): name is LinkPlaceholder {
 /**
  * Fills a URL template. Each value is percent-encoded the way
  * `encodeURIComponent` does, so a pod name or a trace ID cannot add a query
- * parameter or change the path. Braces that name no known placeholder are left
- * as they are: the server rejects such a template at startup, so one that gets
- * here comes from a newer server, and guessing at it would be worse.
+ * parameter or change the path. Braces that name no known placeholder are part
+ * of the URL and are left as they are, as 02 §2.8 requires: a LogQL stream
+ * selector such as `{app="x"}` or a regexp escape such as `\x{a0}` keeps them.
  */
 export function expandLink(template: string, values: LinkValues): ExpandedLink {
   const missing = new Set<LinkPlaceholder>();
@@ -42,6 +42,32 @@ export function expandLink(template: string, values: LinkValues): ExpandedLink {
   });
   return missing.size > 0 ? { kind: 'missing', placeholders: [...missing] } : { kind: 'ready', url };
 }
+
+/**
+ * How far the link window reaches past each end of the call (02 §2.8). A log
+ * pipeline timestamps a line apart from the clock the agent reads, so a window
+ * of the call's exact bounds can miss the call's own log lines.
+ */
+export const LINK_WINDOW_MARGIN_MS = 1000;
+
+/**
+ * The `{from_ms}` and `{to_ms}` values of a call that starts at `startMs` and
+ * runs for `durationMs`, or nulls where the start is unknown.
+ */
+export function linkWindow(startMs: number | null, durationMs: number | null): Pick<LinkValues, 'from_ms' | 'to_ms'> {
+  return {
+    from_ms: startMs === null ? null : String(startMs - LINK_WINDOW_MARGIN_MS),
+    to_ms: startMs === null || durationMs === null ? null : String(startMs + durationMs + LINK_WINDOW_MARGIN_MS),
+  };
+}
+
+/**
+ * The characters a trace ID may have to fill `{trace_id}` (02 §2.8). The value
+ * comes from a request header of the profiled application, and the system a
+ * link opens decodes it again, so a `"` in it could change a query such as
+ * `trace_id:"{trace_id}"`. The set admits hexadecimal trace IDs and UUIDs.
+ */
+const LINKABLE_TRACE_ID = /^[0-9A-Za-z_-]+$/;
 
 /** Why a link is unavailable, for the tooltip of its disabled button. */
 export function missingReason(placeholders: readonly LinkPlaceholder[]): string {
@@ -73,19 +99,27 @@ function traceIdOf(node: TreeNode, keyIdxs: readonly number[]): string | null {
  * The call's trace ID, or null for a call that was not traced. The root's
  * params come first. A tracer that starts its span a few frames down records
  * the ID on that frame, so the search then goes on through the tree, depth
- * first, and takes the first ID it meets.
+ * first in the order of the `/tree` response, and takes the first ID it meets
+ * (02 §2.8). The model sorts children by duration for display, so the search
+ * follows the node ids instead: buildTreeModel numbers the nodes in pre-order
+ * of the response, and the first node in that order has the smallest id.
  */
 export function findTraceId(model: TreeModel): string | null {
   const keyIdxs = TRACE_ID_PARAMS.map((name) => model.paramKeys.indexOf(name)).filter((idx) => idx >= 0);
   if (keyIdxs.length === 0) return null;
+  let first: { id: number; traceId: string } | null = null;
   const stack: TreeNode[] = [model.root];
   while (stack.length > 0) {
     const node = stack.pop()!;
+    if (first !== null && node.id > first.id) continue;
     const found = traceIdOf(node, keyIdxs);
-    if (found !== null) return found;
-    for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]!);
+    if (found !== null) {
+      first = { id: node.id, traceId: found };
+      continue;
+    }
+    stack.push(...node.children);
   }
-  return null;
+  return first === null ? null : first.traceId;
 }
 
 /** A link button of the tree toolbar: where it goes, or why it cannot. */
@@ -97,12 +131,22 @@ export interface CallLink {
   reason: string | null;
 }
 
-/** Expands every configured link for one call, in the operator's order. */
+/**
+ * Expands every configured link for one call, in the operator's order. A trace
+ * ID with a character outside `[0-9A-Za-z_-]` counts as missing (02 §2.8), so
+ * a link that uses it is disabled.
+ */
 export function callLinks(links: readonly ConfigLink[], values: LinkValues): CallLink[] {
+  const unlinkableTraceId = values.trace_id !== null && !LINKABLE_TRACE_ID.test(values.trace_id);
+  const usable = unlinkableTraceId ? { ...values, trace_id: null } : values;
   return links.map((link) => {
-    const expanded = expandLink(link.url_template, values);
+    const expanded = expandLink(link.url_template, usable);
     if (expanded.kind === 'missing') {
-      return { label: link.label, kind: link.kind, url: null, reason: missingReason(expanded.placeholders) };
+      const reason =
+        unlinkableTraceId && expanded.placeholders.includes('trace_id')
+          ? 'Unavailable: the trace ID of this call has characters other than A-Z, a-z, 0-9, _ and -'
+          : missingReason(expanded.placeholders);
+      return { label: link.label, kind: link.kind, url: null, reason };
     }
     // The server rejects any other scheme at startup (02 §2.8). The check is
     // repeated here because the result becomes an href: a `javascript:` URL
