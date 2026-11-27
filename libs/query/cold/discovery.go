@@ -59,21 +59,23 @@ type (
 )
 
 // ClassesFor prunes the retention classes a query has to list (02 §2.3.2,
-// §5.5): an explicit retention_class filter selects key prefixes verbatim,
-// error_only keeps only the error classes, and duration_min_ms drops every
-// clean class whose duration range sits entirely below the threshold.
+// §5.5): a retention_class condition selects key prefixes verbatim,
+// error=true keeps only the error classes, and a lower duration bound drops
+// every clean class whose duration range sits entirely below it.
 func (s *Source) ClassesFor(q model.CallsQuery) []string {
 	cleanUpperMs := s.cleanClassUpperMs()
-	classes := q.RetentionClasses
-	if len(classes) == 0 {
+	classes, ok := q.RetentionClassSet()
+	if !ok {
 		classes = model.RetentionClasses
 	}
+	minMs, _ := q.DurationBounds()
+	errorOnly := q.ErrorRequired()
 	var out []string
 	for _, c := range classes {
-		if q.ErrorOnly && c != model.RetentionAnyError && c != model.RetentionCorrupted {
+		if errorOnly && c != model.RetentionAnyError && c != model.RetentionCorrupted {
 			continue
 		}
-		if upper, clean := cleanUpperMs[c]; clean && int64(q.DurationMinMs) >= upper {
+		if upper, clean := cleanUpperMs[c]; clean && minMs >= upper {
 			continue
 		}
 		out = append(out, c)

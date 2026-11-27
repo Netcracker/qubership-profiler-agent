@@ -1,0 +1,4 @@
+name: qubership-profiler-cli-usage
+version: 1.0.0
+description: Investigate slow requests and services with the Qubership profiler CLI.
+author: Netcracker

@@ -1,0 +1,4 @@
+{"type": "about:blank", "title": "query too wide", "status": 400, "code": "query_too_wide",
+ "detail": "time span 48h0m0s exceeds PROFILER_WIDE_RANGE_LIMIT 6h0m0s and no file-pruning filter is present",
+ "suggested_filters": ["pod", "namespace", "service", "retention_class", "duration_min_ms", "error_only"],
+ "by_class": {"short_clean": 3221225472, "long_clean": 104857600}}

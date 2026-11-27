@@ -4,7 +4,7 @@
 .PHONY: help build-all clean-all test-all docker-build-all archive-all
 
 # Variables
-TOOLS := load-generator migration
+TOOLS := load-generator migration profiler-cli
 
 # Default target
 help:
@@ -81,6 +81,10 @@ migration-build:
 	@echo "==> Building migration..."
 	$(MAKE) -C migration build
 
+profiler-cli-build:
+	@echo "==> Building profiler-cli..."
+	$(MAKE) -C profiler-cli build
+
 load-generator-clean:
 	@echo "==> Cleaning load-generator..."
 	$(MAKE) -C load-generator clean
@@ -88,6 +92,10 @@ load-generator-clean:
 migration-clean:
 	@echo "==> Cleaning migration..."
 	$(MAKE) -C migration clean
+
+profiler-cli-clean:
+	@echo "==> Cleaning profiler-cli..."
+	$(MAKE) -C profiler-cli clean
 
 load-generator-test:
 	@echo "==> Testing load-generator..."
@@ -97,6 +105,10 @@ migration-test:
 	@echo "==> Testing migration..."
 	$(MAKE) -C migration test
 
+profiler-cli-test:
+	@echo "==> Testing profiler-cli..."
+	$(MAKE) -C profiler-cli test
+
 load-generator-docker:
 	@echo "==> Building Docker image for load-generator..."
 	$(MAKE) -C load-generator docker-build
@@ -104,6 +116,10 @@ load-generator-docker:
 migration-docker:
 	@echo "==> Building Docker image for migration..."
 	$(MAKE) -C migration docker-build
+
+profiler-cli-docker:
+	@echo "==> Building Docker image for profiler-cli..."
+	$(MAKE) -C profiler-cli docker-build
 
 load-generator-archive:
 	@echo "==> Creating archive for load-generator..."
@@ -113,6 +129,10 @@ migration-archive:
 	@echo "==> Creating archive for migration..."
 	$(MAKE) -C migration archive
 
+profiler-cli-archive:
+	@echo "==> Creating archive for profiler-cli..."
+	$(MAKE) -C profiler-cli archive
+
 # Help targets for individual tools
 help-load-generator:
 	@echo "Help for load-generator tool:"
@@ -121,4 +141,8 @@ help-load-generator:
 help-migration:
 	@echo "Help for migration tool:"
 	$(MAKE) -C migration help
+
+help-profiler-cli:
+	@echo "Help for profiler-cli tool:"
+	$(MAKE) -C profiler-cli help
 

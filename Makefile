@@ -23,7 +23,7 @@ GRADLEW ?= ./gradlew
 APPS := dumps-collector profiler-backend
 
 # Tool names (development/support tools)
-TOOLS := load-generator migration
+TOOLS := load-generator migration profiler-cli
 
 # Default target
 help:
@@ -192,6 +192,10 @@ migration-build:
 	@echo "==> Building migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration build
 
+profiler-cli-build:
+	@echo "==> Building profiler-cli..."
+	$(MAKE) -C $(TOOLS_DIR)/profiler-cli build
+
 profiler-backend-build:
 	@echo "==> Building profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend build
@@ -207,6 +211,10 @@ load-generator-clean:
 migration-clean:
 	@echo "==> Cleaning migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration clean
+
+profiler-cli-clean:
+	@echo "==> Cleaning profiler-cli..."
+	$(MAKE) -C $(TOOLS_DIR)/profiler-cli clean
 
 profiler-backend-clean:
 	@echo "==> Cleaning profiler-backend..."
@@ -224,6 +232,10 @@ migration-test:
 	@echo "==> Testing migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration test
 
+profiler-cli-test:
+	@echo "==> Testing profiler-cli..."
+	$(MAKE) -C $(TOOLS_DIR)/profiler-cli test
+
 profiler-backend-test:
 	@echo "==> Testing profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend test
@@ -240,6 +252,10 @@ migration-docker:
 	@echo "==> Building Docker image for migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration docker-build
 
+profiler-cli-docker:
+	@echo "==> Building Docker image for profiler-cli..."
+	$(MAKE) -C $(TOOLS_DIR)/profiler-cli docker-build
+
 profiler-backend-docker:
 	@echo "==> Building Docker image for profiler-backend..."
 	$(MAKE) -C $(APPS_DIR)/profiler-backend docker-build
@@ -255,6 +271,10 @@ load-generator-archive:
 migration-archive:
 	@echo "==> Creating archive for migration..."
 	$(MAKE) -C $(TOOLS_DIR)/migration archive
+
+profiler-cli-archive:
+	@echo "==> Creating archive for profiler-cli..."
+	$(MAKE) -C $(TOOLS_DIR)/profiler-cli archive
 
 profiler-backend-archive:
 	@echo "==> Creating archive for profiler-backend..."
@@ -491,6 +511,10 @@ help-load-generator:
 help-migration:
 	@echo "Help for migration tool:"
 	$(MAKE) -C $(TOOLS_DIR)/migration help
+
+help-profiler-cli:
+	@echo "Help for profiler-cli tool:"
+	$(MAKE) -C $(TOOLS_DIR)/profiler-cli help
 
 help-profiler-backend:
 	@echo "Help for profiler-backend application:"

@@ -307,11 +307,7 @@ func TestMaintainMinio(t *testing.T) {
 	coldSource := &cold.Source{Store: coldStore}
 	target := maintainRow("pod-a", 1000, base+90_000, 300, class) // only in the compacted object now
 	targetPK := maintainRowPK(&target)
-	pointQuery := model.CallsQuery{
-		FromMs:           target.TsMs,
-		ToMs:             target.TsMs + 1,
-		RetentionClasses: []string{class},
-	}
+	pointQuery := model.CallsQuery{FromMs: target.TsMs, ToMs: target.TsMs + 1, Filters: []model.Condition{model.RetentionClassCondition(class)}}
 	disc, err := coldSource.Discover(ctx, pointQuery)
 	require.NoError(t, err)
 	require.Zero(t, disc.FailedPrefixes)

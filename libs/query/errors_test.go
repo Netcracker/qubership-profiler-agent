@@ -121,7 +121,8 @@ func TestCursorRejectionCarriesItsOwnCode(t *testing.T) {
 	window := func() url.Values {
 		return url.Values{"from": {"1700000000000"}, "to": {"1700000060000"}}
 	}
-	frozen := model.CallsQuery{FromMs: fromMs, ToMs: toMs, Method: "com.example.Service.handle"}
+	frozen := window()
+	frozen.Set("method", "com.example.Service.handle")
 	pos := model.Position{TsMs: fromMs + 10, PK: model.PK{
 		PodNamespace: "ns", PodService: "svc", PodName: "pod", RestartTimeMs: fromMs,
 	}}

@@ -1,0 +1,23 @@
+Call: prod:billing:billing-7f8c:1760420000000:5:12340:0@1760433000123@any_error
+  2026-10-14T11:50:00.000Z prod/billing/billing-7f8c com.example.Billing.charge(long)
+  request_id=abc123 trace_id=4bf92f3577b34da6a3ce929d0e0e4736 POST http://billing:8080/charges
+  duration 2470 ms, cpu 310 ms, wait 1900 ms, queue 15 ms, gc suspension 120 ms, failed
+Focus: #0 com.example.Billing.charge(long)
+
+Hot path (#node method  total ms, self ms, executions):
+#3 com.example.Billing.charge(long)  2470, 20, x1, gc 120  [3 pass-through frames above]
+  #4 com.example.Repo.load(long)  2000, 50, x1
+    #5 a.Jdbc.execute  1950, 1950, x90
+  #12 com.example.Http.call()  410, 410, x2
+  (2 more, 40 ms)
+
+Top methods by self time:
+    1950 ms  x90     a.Jdbc.execute
+     410 ms  x2      com.example.Http.call()
+
+Top SQL:
+    1800 ms  x88     select * from orders where id = ?
+     150 ms  x2      (other statements)
+
+Notes:
+- 2 nodes under 5% of 2470 ms are hidden; a lower threshold shows them

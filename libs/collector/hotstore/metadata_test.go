@@ -6,6 +6,7 @@ package hotstore
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"sync"
 	"testing"
@@ -218,21 +219,21 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 	assert.EqualValues(t, base+98, next[1].TsMs)
 
 	filtered, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, DurationMinMs: 100},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.DurationCondition(model.OpGe, 100)}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	require.Len(t, filtered, 1, "the duration filter runs in SQL")
 	assert.Equal(t, 2, filtered[0].TraceFileIndex)
 
 	errored, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, ErrorOnly: true},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.ErrorCondition(true)}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	require.Len(t, errored, 1)
 	assert.Equal(t, 6, errored[0].TraceFileIndex)
 
 	byPod, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, Pods: []string{"ns/svc/pod-b"}},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.PodTuplesCondition("ns/svc/pod-b")}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	require.Len(t, byPod, 2, "the pod filter matches by pod_restart prefix")
@@ -241,8 +242,67 @@ func TestCallsPageFiltersAndLimit(t *testing.T) {
 	}
 	// A pod id that PREFIXES another must not leak the longer pod's rows.
 	prefixPod, err := store.CallsPage(bucket,
-		model.CallsQuery{FromMs: base, ToMs: base + 1000, Pods: []string{"ns/svc/pod"}},
+		model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{model.PodTuplesCondition("ns/svc/pod")}},
 		base, base+1000, 10)
 	require.NoError(t, err)
 	assert.Empty(t, prefixPod, "prefix matching stops at the '/' separator")
+
+	// Namespace, service, and pod conditions push down as pod_restart prefixes.
+	for name, tc := range map[string]struct {
+		filters []model.Condition
+		want    int
+	}{
+		"namespace":                  {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"ns"}}}, 6},
+		"another namespace":          {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"other"}}}, 0},
+		"namespace, service, pod in": {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"ns"}}, {Field: "service", Op: model.OpEq, Values: []string{"svc"}}, {Field: "pod", Op: model.OpIn, Values: []string{"pod-b", "pod-c"}}}, 2},
+		"two disjoint namespaces":    {[]model.Condition{{Field: "namespace", Op: model.OpEq, Values: []string{"ns"}}, {Field: "namespace", Op: model.OpEq, Values: []string{"other"}}}, 0},
+	} {
+		rows, err := store.CallsPage(bucket, model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: tc.filters},
+			base, base+1000, 10)
+		require.NoError(t, err, name)
+		assert.Len(t, rows, tc.want, name)
+	}
+
+	// Conditions that contradict each other select nothing rather than
+	// rendering an empty IN list.
+	for name, filters := range map[string][]model.Condition{
+		"two disjoint class sets": {
+			model.RetentionClassCondition(model.RetentionAnyError), model.RetentionClassCondition(model.RetentionShortClean),
+		},
+		"two disjoint pod sets": {model.PodTuplesCondition("ns/svc/pod-a"), model.PodTuplesCondition("ns/svc/pod-b")},
+	} {
+		none, err := store.CallsPage(bucket, model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: filters},
+			base, base+1000, 10)
+		require.NoError(t, err, name)
+		assert.Empty(t, none, name)
+	}
+}
+
+// TestCallsPageDurationAboveTheInt32Maximum checks the SQL bounds for a
+// threshold past the largest duration a call can have: each one keeps the
+// meaning of its comparison.
+func TestCallsPageDurationAboveTheInt32Maximum(t *testing.T) {
+	store, err := Open(Config{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	bucket := store.cfg.Bucket(janitorCallTs)
+	base := store.cfg.BucketStartMs(bucket)
+	require.NoError(t, store.db.InsertCall(bucket, indexRow("pod-a", base+100, 1, math.MaxInt32, false)))
+
+	for text, want := range map[string]int{
+		"duration<2147483648ms":                       1,
+		"duration<=2147483647ms":                      1,
+		"duration>=2147483648ms":                      0,
+		"duration>=2147483647ms":                      1,
+		"duration between 2147483648ms..2147483649ms": 0,
+		"duration between 1ms..99999999999s":          1,
+	} {
+		c, err := model.ParseCondition(text)
+		require.NoError(t, err, text)
+		page, err := store.CallsPage(bucket,
+			model.CallsQuery{FromMs: base, ToMs: base + 1000, Filters: []model.Condition{c}},
+			base, base+1000, 10)
+		require.NoError(t, err, text)
+		assert.Len(t, page, want, text)
+	}
 }

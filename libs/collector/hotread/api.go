@@ -180,6 +180,10 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 	if err != nil {
 		return nil, err
 	}
+	matcher, err := q.Matcher()
+	if err != nil {
+		return nil, err
+	}
 	toMs := q.ToMs
 	if after != nil && after.TsMs+1 < toMs {
 		toMs = after.TsMs + 1 // the seek admits no row above the cursor ts
@@ -208,7 +212,7 @@ func (a *API) queryCalls(q model.CallsQuery, after *model.Position, limit int) (
 				if err != nil {
 					return nil, err
 				}
-				if !q.Match(row) {
+				if !matcher.Match(&row) {
 					continue
 				}
 				if after != nil && !row.Position().After(*after) {
