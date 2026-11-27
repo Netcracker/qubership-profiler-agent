@@ -111,6 +111,12 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		log.Warning(ctx, "collector service %q does not resolve yet: %s", cfg.CollectorService, err)
 	}
 
+	// A misspelled placeholder is valid URL text, so it does not stop the
+	// pod; the warning names it before a user clicks a broken link.
+	for _, w := range query.LinkWarnings(cfg.Links) {
+		log.Warning(ctx, "%s", w)
+	}
+
 	// The embedded UI (07 §6) is optional: a binary built without the npm
 	// step still serves /api/v1 and only warns.
 	uiAssets, uiErr := ui.Dist()

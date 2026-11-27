@@ -51,7 +51,7 @@ function dumpDownloadUrl(dumpsCollectorUrl: string, type: 'td' | 'top', row: Pod
 // this screen directly must not require a detour through Calls first — it
 // carries the same period picker + discovery rail (09 §2.1-2.2), sharing the
 // URL scheme with Calls (09 §6). Dumps stay in dumps-collector; the per-row
-// link-out lands with the link-template seam (07 §3.4).
+// link-out goes to the dumps_collector_url that /config reports (02 §2.8).
 
 interface PodRow {
   key: string;

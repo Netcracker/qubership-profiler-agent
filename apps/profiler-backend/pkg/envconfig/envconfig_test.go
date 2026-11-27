@@ -136,12 +136,12 @@ func TestQueryLinks(t *testing.T) {
 	// error names both the env var and the entry.
 	t.Run("rejects a malformed entry", func(t *testing.T) {
 		t.Setenv("PROFILER_LINKS",
-			`[{"label": "Pod logs", "kind": "logs", "url_template": "https://logs.example/?pod={pod_name}"}]`)
+			`[{"label": "Pod logs", "kind": "logs", "url_template": "/logs?pod={pod}"}]`)
 		_, err := ParseQuery()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "PROFILER_LINKS")
 		assert.Contains(t, err.Error(), `entry 1 (label "Pod logs")`)
-		assert.Contains(t, err.Error(), "unknown placeholder {pod_name}")
+		assert.Contains(t, err.Error(), "not an absolute http(s) URL")
 	})
 }
 

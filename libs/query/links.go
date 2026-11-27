@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Link is one operator-configured link-out of the /config body (02 §2.8): a
@@ -30,7 +31,16 @@ const (
 // linkPlaceholders are the names a url_template may put in braces (02 §2.8).
 var linkPlaceholders = []string{"trace_id", "from_ms", "to_ms", "namespace", "service", "pod"}
 
-var linkPlaceholderPattern = regexp.MustCompile(`\{([^{}]*)\}`)
+// linkPlaceholderPattern matches a name of lowercase letters and underscores
+// in braces, as the UI matches it. Only a name in linkPlaceholders is a
+// placeholder; the UI and the server leave any other brace in the URL as
+// written, so a LogQL stream selector such as {app="x"}, a regexp escape such
+// as \x{a0} or \p{Greek}, and a Grafana Explore JSON state need no escaping.
+var linkPlaceholderPattern = regexp.MustCompile(`\{([a-z_]+)\}`)
+
+// linkNamePattern matches a bare name in braces, the text LinkWarnings
+// compares with the placeholder names.
+var linkNamePattern = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.-]*)\}`)
 
 // ParseLinks decodes the PROFILER_LINKS value, a JSON array of Link objects,
 // and validates every entry. An empty value yields no links. The error names
@@ -42,6 +52,8 @@ func ParseLinks(raw string) ([]Link, error) {
 	}
 	dec := json.NewDecoder(strings.NewReader(raw))
 	// A misspelled key (urlTemplate) must not pass as an empty template.
+	// encoding/json matches keys case-insensitively, so a key is rejected
+	// only when it differs from a known one by more than letter case.
 	dec.DisallowUnknownFields()
 	var links []Link
 	if err := dec.Decode(&links); err != nil {
@@ -57,8 +69,10 @@ func ParseLinks(raw string) ([]Link, error) {
 }
 
 // ValidateLinks checks every entry against 02 §2.8: a non-empty label, a
-// known kind, known placeholders only, and a template that is an absolute
-// http(s) URL once the placeholders are filled in.
+// known kind, and a template that is an absolute http(s) URL once the
+// placeholders are filled in. A brace that does not form a placeholder is
+// accepted as a literal character of the URL; LinkWarnings reports the ones
+// that look like a misspelled placeholder.
 func ValidateLinks(links []Link) error {
 	for i, l := range links {
 		if err := l.validate(); err != nil {
@@ -78,18 +92,14 @@ func (l Link) validate() error {
 	if l.URLTemplate == "" {
 		return errors.New("url_template is empty")
 	}
-	for _, m := range linkPlaceholderPattern.FindAllStringSubmatch(l.URLTemplate, -1) {
-		if !slices.Contains(linkPlaceholders, m[1]) {
-			return fmt.Errorf("url_template %q uses unknown placeholder %s, want one of {%s}",
-				l.URLTemplate, m[0], strings.Join(linkPlaceholders, "}, {"))
-		}
-	}
 	// Fill the placeholders the way the UI does, with an encoded value, and
 	// judge what is left: the URL a click would open.
-	filled := linkPlaceholderPattern.ReplaceAllString(l.URLTemplate, "x")
-	if strings.ContainsAny(filled, "{}") {
-		return fmt.Errorf("url_template %q has an unmatched brace", l.URLTemplate)
-	}
+	filled := linkPlaceholderPattern.ReplaceAllStringFunc(l.URLTemplate, func(m string) string {
+		if slices.Contains(linkPlaceholders, m[1:len(m)-1]) {
+			return "x"
+		}
+		return m
+	})
 	u, err := url.Parse(filled)
 	if err != nil {
 		// url.Error quotes the filled-in string; the operator wrote the template.
@@ -105,4 +115,55 @@ func (l Link) validate() error {
 		return fmt.Errorf("url_template %q is not an absolute http(s) URL", l.URLTemplate)
 	}
 	return nil
+}
+
+// LinkWarnings returns one message per distinct name in braces, in each
+// entry, that looks like a misspelled placeholder: {pod_name} or {POD} for
+// {pod}, {traceId} or {trace.id} for {trace_id}, {from} for {from_ms}. Such
+// text is valid in a URL and stays in the link as written, so query starts
+// and logs the messages. A name unrelated to every placeholder, such as {a0}
+// in the regexp escape \x{a0} or {Greek} in \p{Greek}, gets no message.
+func LinkWarnings(links []Link) []string {
+	var warnings []string
+	for i, l := range links {
+		var seen []string
+		for _, m := range linkNamePattern.FindAllStringSubmatch(l.URLTemplate, -1) {
+			name := m[1]
+			if slices.Contains(linkPlaceholders, name) || slices.Contains(seen, name) {
+				continue
+			}
+			seen = append(seen, name)
+			if p, ok := resemblingPlaceholder(name); ok {
+				warnings = append(warnings, fmt.Sprintf(
+					"PROFILER_LINKS (Helm query.links) entry %d (label %q): url_template %q keeps %s as literal text; if it is meant to be the placeholder {%s}, write that, and if the text is meant literally, write its opening brace as %%7B",
+					i+1, l.Label, l.URLTemplate, m[0], p))
+			}
+		}
+	}
+	return warnings
+}
+
+// resemblingPlaceholder returns the placeholder that name resembles once
+// case, '_', '-', and '.' are ignored: name contains the placeholder, as
+// podname contains pod, or name of at least three characters starts the
+// placeholder, as from starts fromms.
+func resemblingPlaceholder(name string) (string, bool) {
+	n := normalizeLinkName(name)
+	for _, p := range linkPlaceholders {
+		np := normalizeLinkName(p)
+		if strings.Contains(n, np) || (len(n) >= 3 && strings.HasPrefix(np, n)) {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func normalizeLinkName(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '_', '-', '.':
+			return -1
+		}
+		return unicode.ToLower(r)
+	}, s)
 }

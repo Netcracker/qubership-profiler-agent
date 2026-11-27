@@ -150,10 +150,15 @@ query:
   # logging system (02-read-contract.md §2.8). Each entry needs a label, a
   # kind ("trace" or "logs"), and a url_template: an absolute http(s) URL
   # that may use {trace_id}, {from_ms}, {to_ms}, {namespace}, {service}, and
-  # {pod}. The UI URL-encodes the values. The keys are the ones of the
-  # /api/v1/config response, so the list reaches the query pod unchanged as
-  # PROFILER_LINKS; a malformed entry stops the pod at startup with an error
-  # that names it. Empty (the default) shows no link buttons. Example:
+  # {pod}. Any other brace is part of the URL, so the braces of a LogQL
+  # selector such as {app="x"} need no escaping. A name in braces that looks
+  # like a misspelled placeholder, such as {pod_name}, stays in the URL as
+  # written, and the query pod logs a warning for it. To keep such text on
+  # purpose, write its opening brace as %7B. The UI URL-encodes the values. Every UI user sees the templates as written, so keep API tokens
+  # out of them. The keys are the ones of the /api/v1/config response, so
+  # the list reaches the query pod unchanged as PROFILER_LINKS; a malformed
+  # entry stops the pod at startup with an error that names it. Empty (the
+  # default) shows no link buttons. Example:
   #   links:
   #     - label: Open trace · Tempo
   #       kind: trace

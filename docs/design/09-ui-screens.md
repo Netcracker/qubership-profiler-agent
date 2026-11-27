@@ -108,8 +108,8 @@ not lose the list.
 ### 3.1 Context header
 
 Replaces the top bar. Shows the breadcrumb (`service / pod`), the call identity chip (`time · duration`), the
-`trace_id` chip, and the deep-link-out buttons (`Open trace · Tempo`, `Logs · Grafana`). The links are the
-correlation seam — provisioned, wiring deferred (07 §3.4).
+`trace_id` chip, and the deep-link-out buttons (`Open trace · Tempo`, `Logs · Grafana`). The links come from
+the `/config` link templates (`02-read-contract.md` §2.8, 07 §3.4).
 
 ### 3.2 Tabs and toolbar
 
