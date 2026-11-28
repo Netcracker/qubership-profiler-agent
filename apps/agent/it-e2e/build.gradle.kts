@@ -80,14 +80,14 @@ val generateTestDump by tasks.registering(Exec::class) {
         listOf(
             "run",
             "--rm",
-            "--volume", "${dumpDir.get().asFile.absolutePath}:/app/diag/localdump",
+            "--volume", "${dumpDir.get().asFile.absolutePath}:/app/ncdiag/localdump",
             "--volume", "${testAppJar.get().singleFile.absolutePath}:/app/testapp.jar:ro",
             "--volume", "${profilerConfigFile.asFile.absolutePath}:/app/diag/config/default/50main/testapp.xml:ro",
             "--env", "NC_DIAGNOSTIC_MODE=prod",
             coreBaseImageTag,
             "java",
             // explicitly add podname otherwise bootstrap scripts miss it
-            "-Dprofiler.dump=/app/diag/localdump/podname",
+            "-Dprofiler.dump=/app/ncdiag/localdump/podname",
             "-Dcom.netcracker.profiler.Dumper.REMOTE_DUMP_DISABLED=true",
             "-jar",
             "/app/testapp.jar",
