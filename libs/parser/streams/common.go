@@ -3,8 +3,8 @@ package streams
 import (
 	"fmt"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/io"
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/io"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 )
 
 type Histogram struct {

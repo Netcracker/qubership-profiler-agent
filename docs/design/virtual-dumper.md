@@ -5,8 +5,8 @@ Status: contract for load-testing phase 2 (`load-testing-plan.md` §9.2). Owner:
 The virtual dumper is a Go behavioral layer that reproduces the Java agent's remote-dump pipeline — the
 `DumperThread` + `Dumper` + `DefaultCollectorClient` state machine — well enough that load numbers taken with it
 can be trusted. It lives in `libs/emulator/vdumper`, drives the wire through the existing
-`libs/emulator.AgentConnection` transport, and is consumed by the `tools/load-generator/feeder` CLI in phase 2 and by
-the k6 xk6 module (`tools/load-generator/pkg/cdt`) when phase 3 revives it.
+`libs/wire/emulator.AgentConnection` transport, and is consumed by the `tools/load-generator/feeder` CLI in phase 2 and
+by the k6 xk6 module (`tools/load-generator/pkg/cdt`) when phase 3 revives it.
 
 Non-goals: run orchestration (ramp steps, artifact collection), k6 wiring, and any change to `pkg/cdt` — those are
 phase 3+. The generator is synthetic and parameterized; no captured dumps or other binary fixtures enter the repo.
@@ -98,7 +98,7 @@ Two corrections to the `load-testing-plan.md` §3 gap table follow from the Java
 
 - **G7.** The four `calls[100ms-500ms]`/… range streams and `callsDictionary` exist only when `localDumpEnabled`
   (`Dumper.java`: `writeCallRanges`, `writeCallsDictionary`); they are absent from `remoteStreams`. The collector
-  refuses unknown streams (`libs/protocol/streams.go`), so a faithful generator sends the flat `calls` stream and
+  refuses unknown streams (`libs/wire/protocol/streams.go`), so a faithful generator sends the flat `calls` stream and
   shapes the *duration distribution* instead. The collector bins calls itself via `model.ClassifyDuration`
   (default thresholds 100 ms / 1 s / 10 s) plus the `call.red` error marker (`libs/collector/hotstore/store.go`).
 - **G8.** `posDictionary` is opened only when the server answers V3 (`Dumper.initializeCollectorClient`); the Go
@@ -140,7 +140,7 @@ words-sent counter is zero — i.e. on the first open of a connection.
   stats can distinguish backpressure from breakage.
 - A read timeout while waiting for acks (30 s) is a protocol error → reconnect.
 
-The Go transport (`libs/emulator/connection.go`) currently deviates and must be fixed to match this table: it
+The Go transport (`libs/wire/emulator/connection.go`) currently deviates and must be fixed to match this table: it
 appends `REQUEST_ACK_FLUSH` after every `RCV_DATA` (counting +2 acks), requires every ack byte to be exactly 0x00,
 and treats `ACK_ERROR_MAGIC` as a generic failure.
 
@@ -170,7 +170,7 @@ Package `libs/emulator/vdumper`:
 
 ```go
 // Transport is the protocol-level connection the virtual dumper drives.
-// libs/emulator.AgentConnection implements it; phase 3 reuses it for the k6 module.
+// libs/wire/emulator.AgentConnection implements it; phase 3 reuses it for the k6 module.
 type Transport interface {
     Connect(ctx context.Context) error
     Handshake(protocolVersion uint64, namespace, service, pod string) (serverVersion uint64, err error)
@@ -196,7 +196,7 @@ func (d *VirtualDumper) Run(ctx context.Context) error
 - Producers → bounded chunk queue → dumper loop. Queue overflow during a drop window increments a drop counter;
   producers never block on a down dumper.
 - Encoding primitives (`putVarString` with UTF-16 code-unit lengths, varints, zig-zag, fixed ints) move from
-  `libs/tests/helpers/wire` into `libs/emulator/wire` so production code does not import test helpers;
+  `libs/tests/helpers/wire` into `libs/wire/emulator/wire` so production code does not import test helpers;
   `tests/helpers/wire` re-exports them. The virtual dumper adds the stateful wrappers (thread-name table, sql dedup
   cache, phrase buffers, dictionary counter, trace file offsets).
 

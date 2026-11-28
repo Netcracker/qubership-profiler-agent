@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 func ReadStringStream(ctx context.Context, stream model.StreamType, c *model.Chunk) string {

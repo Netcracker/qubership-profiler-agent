@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/emutest"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/emutest"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

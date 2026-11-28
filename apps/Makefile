@@ -1,7 +1,7 @@
 # Cloud Profiler Apps Root Makefile
 # Builds all applications in the apps directory
 
-.PHONY: help build-all clean-all test-all docker-build-all archive-all
+.PHONY: help build-all clean-all test-all docker-build-all archive-all gateway-test
 
 # Variables
 APPS := dumps-collector profiler-backend
@@ -26,6 +26,7 @@ help:
 		echo "  $$app-docker       - Build $$app Docker image"; \
 		echo "  $$app-archive      - Create $$app deployment archive"; \
 	done
+	@echo "  gateway-test       - Run gateway tests"
 
 # Build all applications
 build-all:
@@ -52,7 +53,14 @@ test-all:
 		echo "Testing $$app..."; \
 		$(MAKE) -C $$app test || exit 1; \
 	done
+	$(MAKE) gateway-test
 	@echo "==> All tests completed!"
+
+# apps/gateway is its own Go module and has no Makefile, so test it directly.
+# -race needs cgo, so it is left to CI, which runs it.
+gateway-test:
+	@echo "==> Testing gateway..."
+	cd gateway && go test ./...
 
 # Build Docker images for all applications
 docker-build-all:

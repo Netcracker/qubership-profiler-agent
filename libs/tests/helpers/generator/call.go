@@ -5,7 +5,7 @@ import (
 
 	"github.com/Netcracker/qubership-profiler-backend/libs/storage"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 )
 
 func Convert(c data.Call) model.Call {

@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/maintain"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/cold"

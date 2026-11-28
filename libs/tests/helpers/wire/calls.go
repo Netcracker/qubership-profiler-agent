@@ -9,7 +9,7 @@ package wire
 import (
 	"bytes"
 
-	emwire "github.com/Netcracker/qubership-profiler-backend/libs/emulator/wire"
+	emwire "github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/wire"
 )
 
 // callsHeaderMagic marks a versioned calls file. The agent writes
@@ -78,7 +78,7 @@ func CallsStream(baseMs int64, deltasMs []int64) []byte {
 
 // CallsStreamRecords encodes a version-4 calls stream from explicit records.
 // The record encoding — the per-file thread-name table, the zig-zag time
-// deltas — lives in libs/emulator/wire.CallsFileState; this builder maps its
+// deltas — lives in libs/wire/emulator/wire.CallsFileState; this builder maps its
 // delta-based records onto that encoder's absolute start times.
 func CallsStreamRecords(baseMs int64, records []CallRecord) []byte {
 	buf := &bytes.Buffer{}
@@ -115,7 +115,7 @@ func CallsStreamRecords(baseMs int64, records []CallRecord) []byte {
 	return buf.Bytes()
 }
 
-// The low-level encoders live in libs/emulator/wire so the virtual dumper
+// The low-level encoders live in libs/wire/emulator/wire so the virtual dumper
 // (production generator) and these test builders share one source of truth;
 // the aliases below keep this package's call sites unchanged.
 
@@ -128,6 +128,6 @@ func putVarInt(buf *bytes.Buffer, v uint64) { emwire.PutVarInt(buf, v) }
 func putZigZag(buf *bytes.Buffer, v int64) { emwire.PutZigZag(buf, v) }
 
 // putVarString writes the agent's var-string encoding; see
-// libs/emulator/wire.PutVarString for the UTF-16 code-unit semantics and why
+// libs/wire/emulator/wire.PutVarString for the UTF-16 code-unit semantics and why
 // they matter for non-BMP characters.
 func putVarString(buf *bytes.Buffer, s string) { emwire.PutVarString(buf, s) }

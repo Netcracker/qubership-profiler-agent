@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	db "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client/sqlite"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	cp "github.com/otiai10/copy"
 )

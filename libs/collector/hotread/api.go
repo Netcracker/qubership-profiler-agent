@@ -19,10 +19,10 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/clock"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
 	"github.com/Netcracker/qubership-profiler-backend/libs/httpproblem"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	"github.com/labstack/echo/v4"
 )

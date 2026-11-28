@@ -23,8 +23,8 @@ you should start with the libraries, because services use these libraries.
 
 Moreover, some libraries use other libraries, so you need to follow the update order:
 
-1. [profiler-common](https://github.com/Netcracker/qubership-profiler-backend/libs/common)
-2. [profiler-protocol](https://github.com/Netcracker/qubership-profiler-backend/libs/protocol)
+1. [profiler-common](../../libs/wire/common)
+2. [profiler-protocol](../../libs/wire/protocol)
 3. [cloud-storage](https://github.com/Netcracker/qubership-profiler-backend/libs/storage)
 
 After that, you can update the services in any order:

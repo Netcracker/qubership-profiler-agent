@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/parser/pipe"
 	"github.com/Netcracker/qubership-profiler-backend/libs/query/model"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/envconfig"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/spf13/cobra"
 )

@@ -1,0 +1,31 @@
+suite: gateway ServiceMonitor
+templates:
+  - templates/servicemonitor.yaml
+release:
+  name: test
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: scrapes the metrics port of the gateway Service
+    set:
+      metrics.serviceMonitor.enabled: true
+      metrics.serviceMonitor.additionalLabels: { release: prometheus }
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: metadata.labels.release
+          value: prometheus
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: gateway
+            app.kubernetes.io/instance: test
+            app.kubernetes.io/component: gateway
+      - equal:
+          path: spec.endpoints
+          value:
+            - { port: metrics, path: /metrics, interval: 30s }

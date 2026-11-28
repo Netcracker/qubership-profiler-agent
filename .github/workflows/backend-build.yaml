@@ -86,6 +86,9 @@ jobs:
       - name: Run dumps-collector Helm unit tests
         run: helm unittest deploy/charts/dumps-collector
 
+      - name: Run gateway Helm unit tests
+        run: helm unittest deploy/charts/gateway
+
 # TODO: fix Helm violations like "name is required", "apiVersion is required", ...
 #      - name: charts-build
 #        # language=bash

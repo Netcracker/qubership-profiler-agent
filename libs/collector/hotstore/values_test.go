@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

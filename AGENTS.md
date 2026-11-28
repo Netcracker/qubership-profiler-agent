@@ -2,7 +2,7 @@
 
 Two builds share this root: the Gradle build for the Java agent and its plugins, and the Go module for
 the backend. Everything below concerns the backend — the Go apps (`apps/dumps-collector`,
-`apps/profiler-backend`), the React UI (`apps/ui`), `libs/`, and `tools/`.
+`apps/profiler-backend`, `apps/gateway`), the React UI (`apps/ui`), `libs/`, and `tools/`.
 
 ## Mandatory reading before any backend work
 
@@ -10,8 +10,8 @@ the backend. Everything below concerns the backend — the Go apps (`apps/dumps-
 - `docs/design/profiler-plan.md` — the overall project plan.
 - `docs/design/deferred.md` — ideas explicitly out of scope.
 
-For implementation work (any change under `apps/dumps-collector`, `apps/profiler-backend`, `apps/ui`,
-or `libs/`), also read `docs/design/WORKFLOW.md` — branches, commits, PRs, tests, when to update which doc.
+For implementation work (any change under `apps/dumps-collector`, `apps/profiler-backend`, `apps/gateway`,
+`apps/ui`, or `libs/`), also read `docs/design/WORKFLOW.md` — branches, commits, PRs, tests, when to update which doc.
 
 ## Gotchas
 
@@ -25,8 +25,11 @@ algorithm in the first Stage 0 draft:
 - **Logical trace chunk** — `[threadId, startTime]` (16 bytes) + events + `EVENT_FINISH_RECORD`, `LocalBuffer`-sized
   (tens of KB). One logical chunk spans many `RCV_DATA` payloads. It has no length prefix, so its boundary is found only
   by parsing events to `EVENT_FINISH_RECORD` (see `libs/parser/pipe/traces.go`).
-- **Go `Chunk` type** (`libs/protocol`) — a rolling-stream handle, unrelated to either of the above.
+- **Go `Chunk` type** (`libs/wire/protocol`) — a rolling-stream handle, unrelated to either of the above.
 
 **Channel gzip is optional and off by default.** `ProtocolConst.ZIPPING_ENABLED = false`. When on, the *whole*
 multiplexed channel is one GZIP stream, so the collector must gunzip before it can demux `RCV_DATA`. The existing Go
 parser has no gunzip layer — it assumes an uncompressed dump.
+
+**`libs/wire` and `apps/gateway` are nested Go modules.** A `go test ./...` in the root does not run their tests. Test
+them from their own directories: `cd libs/wire && go test ./...` and `cd apps/gateway && go test -race ./...`.

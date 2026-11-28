@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 )
 
 // Corruption ceilings for one calls record's params. The wire defines no

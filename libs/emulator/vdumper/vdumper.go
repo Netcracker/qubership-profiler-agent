@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator/wire"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator/wire"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/pkg/errors"
 )
 

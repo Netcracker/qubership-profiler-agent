@@ -3,7 +3,7 @@ package vdumper
 import (
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/emulator"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/emulator"
 )
 
 // ParamDef is one record of the params stream: the agent's parameter metadata

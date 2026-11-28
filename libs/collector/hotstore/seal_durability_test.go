@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol/data"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol/data"
 	storageparquet "github.com/Netcracker/qubership-profiler-backend/libs/storage/parquet"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/parquet-go/parquet-go"

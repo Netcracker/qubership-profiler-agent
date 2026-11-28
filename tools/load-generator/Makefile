@@ -19,5 +19,6 @@ build:
 
 test:
 	go test ./... ../../libs/emulator/...
+	cd ../../libs/wire && go test ./emulator/...
 
 .PHONY: image build test

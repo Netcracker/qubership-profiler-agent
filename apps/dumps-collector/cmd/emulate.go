@@ -7,12 +7,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 	db "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/client/sqlite"
 	model "github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/server"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/task"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
 
 	"github.com/google/uuid"
 	"github.com/oklog/run"

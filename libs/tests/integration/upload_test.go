@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/collector/hotstore"
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"

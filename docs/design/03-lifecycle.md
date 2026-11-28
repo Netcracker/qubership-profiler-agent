@@ -174,7 +174,7 @@ Triggered by SIGTERM (kubelet drain) or SIGINT (operator).
 ### 5.2 Stop new connections (`DRAINING` → `TERMINATING`)
 
 4. After the drain grace, close the TCP listener (no new agent connections accepted).
-5. For each active agent TCP connection, send `COMMAND_CLOSE` (`libs/protocol/commands.go`); wait for the agent's acknowledgement up to `PROFILER_AGENT_CLOSE_TIMEOUT` (default 5 s). If timeout → close from collector side.
+5. For each active agent TCP connection, send `COMMAND_CLOSE` (`libs/wire/protocol/commands.go`); wait for the agent's acknowledgement up to `PROFILER_AGENT_CLOSE_TIMEOUT` (default 5 s). If timeout → close from collector side.
 6. The affected agents will reconnect — to a different collector replica (this one is not in DNS anymore) — and start a fresh pod-restart there. The current pod-restart on this replica is now closed.
 
 > **Known gap.** Step 5's `COMMAND_CLOSE` drain is not implemented. On shutdown `server.Service.Stop()` force-closes each live agent connection instead of sending `COMMAND_CLOSE`, so an agent sees a dropped socket rather than a graceful close (it reconnects either way, `06-wire-protocol-server.md` §6). The force-close is deliberate — a drain would otherwise hold `Stop()` until each idle connection hit its ~40 s read deadline — but the polite `COMMAND_CLOSE` handshake with the 5 s per-connection timeout is still owed.

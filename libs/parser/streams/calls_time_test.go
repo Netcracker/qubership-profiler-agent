@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	model "github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	model "github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 	"github.com/Netcracker/qubership-profiler-backend/libs/tests/helpers/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/protocol"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/protocol"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/common"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/common"
 	"github.com/stretchr/testify/require"
 )
 

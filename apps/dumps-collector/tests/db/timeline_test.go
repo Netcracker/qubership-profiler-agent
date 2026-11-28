@@ -11,7 +11,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/model"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/tests/helpers"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -144,4 +144,3 @@ func (suite *TimelineTestSuite) TestRemoveTimeline() {
 func TestTimelineTestSuite(t *testing.T) {
 	suite.Run(t, new(TimelineTestSuite))
 }
-

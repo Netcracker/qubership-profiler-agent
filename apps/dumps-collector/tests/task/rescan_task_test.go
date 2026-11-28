@@ -14,7 +14,7 @@ import (
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/pkg/utils"
 	"github.com/Netcracker/qubership-profiler-backend/apps/dumps-collector/tests/helpers"
 
-	"github.com/Netcracker/qubership-profiler-backend/libs/log"
+	"github.com/Netcracker/qubership-profiler-agent/libs/wire/log"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"

@@ -1,0 +1,109 @@
+suite: gateway Deployment and Service
+templates:
+  - templates/deployment.yaml
+  - templates/service.yaml
+release:
+  name: test
+tests:
+  - it: exposes the diag-proxy port names, without 14267
+    template: templates/service.yaml
+    asserts:
+      - equal:
+          path: spec.ports
+          value:
+            - { name: otel-grpc, port: 4317, targetPort: otel-grpc, protocol: TCP }
+            - { name: otel-http, port: 4318, targetPort: otel-http, protocol: TCP }
+            - { name: jaeger-grpc, port: 14250, targetPort: jaeger-grpc, protocol: TCP }
+            - { name: jaeger-thrift, port: 14268, targetPort: jaeger-thrift, protocol: TCP }
+            - { name: zipkin, port: 9411, targetPort: zipkin, protocol: TCP }
+            - { name: agent-probes, port: 8888, targetPort: probes, protocol: TCP }
+            - { name: metrics, port: 8889, targetPort: metrics, protocol: TCP }
+
+  - it: drops the Service and container ports of a disabled protocol
+    set:
+      traces.otlp.enabled: false
+    asserts:
+      - template: templates/service.yaml
+        lengthEqual:
+          path: spec.ports
+          count: 5
+      - template: templates/service.yaml
+        notContains:
+          path: spec.ports
+          content: { name: otel-grpc }
+          any: true
+      - template: templates/deployment.yaml
+        lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 5
+      - template: templates/deployment.yaml
+        notContains:
+          path: spec.template.spec.containers[0].ports
+          content: { name: otel-http }
+          any: true
+
+  - it: names the Service after serviceName
+    template: templates/service.yaml
+    set:
+      serviceName: nc-diagnostic-agent
+    asserts:
+      - equal:
+          path: metadata.name
+          value: nc-diagnostic-agent
+
+  - it: rejects a Service name the agents would rewrite
+    template: templates/service.yaml
+    set:
+      serviceName: esc-static-service
+    asserts:
+      - failedTemplate:
+          errorPattern: 'contains "esc-static-service"'
+
+  - it: points both probes at the health_check path
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /probes/ready
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /probes/ready
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [--config=/conf/otel.yaml]
+
+  - it: gives the pod more time than drain_timeout to stop
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 60
+
+  # The default render's checksum is pinned: a rules edit must keep it, so the
+  # pods are not rolled, and a Collector config change must change it.
+  - it: annotates the pods with a config checksum
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: 60d764d01c9ce0792af5d2deae01c2c4266c51be9618cf60c38efe8bc32f3015
+
+  - it: keeps the config checksum when only the rules change
+    template: templates/deployment.yaml
+    set:
+      rules:
+        - match: { service: "chatty-*" }
+          mode: discard
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: 60d764d01c9ce0792af5d2deae01c2c4266c51be9618cf60c38efe8bc32f3015
+
+  - it: changes the config checksum when a trace protocol switches to discard
+    template: templates/deployment.yaml
+    set:
+      traces.zipkin.mode: discard
+    asserts:
+      - notEqual:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: 60d764d01c9ce0792af5d2deae01c2c4266c51be9618cf60c38efe8bc32f3015

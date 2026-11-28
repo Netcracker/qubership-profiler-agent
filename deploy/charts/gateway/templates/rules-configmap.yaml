@@ -1,0 +1,14 @@
+{{- if include "gateway.profilerEnabled" . }}
+# The extensions watch this file and apply a change without a restart. It is
+# kept out of the main config on purpose: a change there restarts the
+# Collector, which drops every agent connection.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gateway.fullname" . }}-rules
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+data:
+  rules.yaml: |
+    {{- dict "rules" .Values.rules | toYaml | nindent 4 }}
+{{- end }}
