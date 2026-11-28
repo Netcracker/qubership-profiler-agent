@@ -44,6 +44,8 @@ jobs:
       # reads Dependabot alerts
       vulnerability-alerts: read
     steps:
+      # The script reads .qubership/docker-build-config.cfg through the API at the main commit it checks the scans
+      # against, so the checkout, which can be another commit, supplies only the code
       - name: Checkout the decision script
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,6 +53,7 @@ jobs:
           sparse-checkout: .github/scripts
 
       - name: Decide and start the Release workflow
+        id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           DRY_RUN: ${{ inputs.dry-run == true }}
@@ -58,7 +61,7 @@ jobs:
           # language=javascript
           script: |
             const autoRelease = require('./.github/scripts/auto-release.cjs');
-            await autoRelease({
+            return await autoRelease({
               github, context, core,
               now: new Date(),
               branch: 'main',
