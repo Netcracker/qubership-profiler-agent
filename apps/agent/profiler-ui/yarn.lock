@@ -363,14 +363,12 @@ rolldown@~1.2.18:
     "@rolldown/binding-win32-arm64-msvc" "1.2.19"
     "@rolldown/binding-win32-x64-msvc" "1.2.19"
 
-slickgrid@^5.15.2:
-  version "5.20.2"
-  resolved "https://registry.yarnpkg.com/slickgrid/-/slickgrid-5.20.2.tgz#aa943a97d3bc4f1bffa43cce35f61a6c57dc17e4"
-  integrity sha512-WexXtvKkXkaQWkLEszgs+3tjKweAULYW0ZMGT1JRFfrUis9IBGET6dQ7eS1wfFBao2go7U7Uj6uNrhhA9RiVMQ==
-  dependencies:
-    sortablejs "^1.15.7"
+slickgrid@^6.0.0:
+  version "6.0.0"
+  resolved "https://registry.yarnpkg.com/slickgrid/-/slickgrid-6.0.0.tgz#e3f3de04b74f84ac4345658d0c339c37d3ed25bf"
+  integrity sha512-zWzHmUR+kQDyicsIRGPR5IdZoBhPwuccX7gCtm76LtGNoU34omRb35/8VWEglEaDTphpeUNRM3zFOrPz7Ccvig==
 
-sortablejs@^1.15.6, sortablejs@^1.15.7:
+sortablejs@^1.15.6:
   version "1.15.7"
   resolved "https://registry.yarnpkg.com/sortablejs/-/sortablejs-1.15.7.tgz#83a0bddc472117ee328dea20b2e6f490fed20f86"
   integrity sha512-Kk8wLQPlS+yi1ZEf48a4+fzHa4yxjC30M/Sr2AnQu+f/MPwvvX9XjZ6OWejiz8crBsLwSq8GHqaxaET7u6ux0A==
