@@ -104,6 +104,21 @@ val buildBaseImage by tasks.registering(Exec::class) {
     args(".")
 }
 
+val buildBaseImageJdk25 by tasks.registering(Exec::class) {
+    group = LifecycleBasePlugin.BUILD_GROUP
+    description = "Builds the JDK 25 java-base image with the latest profiler agent"
+    dependsOn(cloneBaseImageRepoIfNeeded, copyInstallerZipToDockerArtifacts)
+    executable = "docker"
+    workingDir(baseImageRepo)
+    args("build")
+    args("--file", "images/java-25-alpine-prof/Dockerfile")
+    args("-t", "qubership/qubership-core-base-image:profiler-jdk25-latest")
+    // This Dockerfile defaults to the Alpine JDK 25 image, so no BASE_IMAGE is passed
+    args("--build-arg", "QUBERSHIP_PROFILER_ARTIFACT_SOURCE=local")
+    args("--build-arg", "QUBERSHIP_PROFILER_VERSION=$version")
+    args(".")
+}
+
 val testAppJarElements = configurations.dependencyScope("testAppJarElements") {
     description = "Declares a dependency for test application"
 }

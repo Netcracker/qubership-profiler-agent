@@ -17,6 +17,7 @@ This repository contains simple examples of services that can:
 | spring-boot-3-jetty      | openjdk17:17.0.11.9.04   | 3.1.2         | 17       |             |
 | spring-boot-3-tomcat     | openjdk17:17.0.11.9.04   | 3.2.4         | 17       |             |
 | spring-boot-3-undertow   | openjdk21:21.0.3.9.04    | 3.1.2         | 21       |             |
+| spring-boot-4-tomcat     | openjdk21:21.0.3.9.04    | 4.1.2         | 21       |             |
 
 Base images:
 
@@ -29,17 +30,20 @@ and [Quarkus](https://endoflife.date/quarkus-framework) frameworks.
 
 ## Endpoints
 
-| Endpoint                      | Parameter             | Framework | Slow? | Description                    |
-|-------------------------------|-----------------------|-----------|-------|--------------------------------|
-| GET `/custom/err`             |                       | Both      | Yes   | Update `response.size` metrics | 
-| GET `/custom/health`          |                       | Both      | Yes   |                                |
-| POST `/custom/health?status=` | string (`UP`, `DOWN`) | Both      | No    |                                | 
-| GET `/custom/gauge/{number}`  | long                  | Quarkus   | No    |                                |
-| GET `/custom/prime/{number}`  | long (should be >0)   | Quarkus   | Yes   | Check if number is prime       |
-| GET `/memory/{mb}`            | int                   | Quarkus   | Yes   | Generate n-th Mb of data       |
-| GET `/memory/oom`             |                       | Quarkus   | Yes   | OutOfMemory                    |
-| GET `/q/metrics`              |                       | Quarkus   | No    | Prometheus endpoint            |
-| GET `/metrics`                |                       | Spring    | No    | Prometheus endpoint            |
+| Endpoint                      | Parameter             | Framework     | Slow? | Description                               |
+|-------------------------------|-----------------------|---------------|-------|-------------------------------------------|
+| GET `/custom/err`             |                       | Both          | Yes   | Update `response.size` metrics            |
+| GET `/custom/health`          |                       | Both          | Yes   |                                           |
+| POST `/custom/health?status=` | string (`UP`, `DOWN`) | Both          | No    |                                           |
+| GET `/custom/gauge/{number}`  | long                  | Quarkus       | No    |                                           |
+| GET `/custom/prime/{number}`  | long (should be >0)   | Quarkus       | Yes   | Check if number is prime                  |
+| GET `/memory/{mb}`            | int                   | Quarkus       | Yes   | Generate n-th Mb of data                  |
+| GET `/memory/oom`             |                       | Quarkus       | Yes   | OutOfMemory                               |
+| GET `/q/metrics`              |                       | Quarkus       | No    | Prometheus endpoint                       |
+| GET `/metrics`                |                       | Spring        | No    | Prometheus endpoint                       |
+| GET `/demo/ping`              |                       | Spring Boot 4 | No    | Returns `pong`                            |
+| GET `/demo/db`                |                       | Spring Boot 4 | No    | Runs a query in PostgreSQL                |
+| GET `/demo/outgoing`          |                       | Spring Boot 4 | No    | Calls `/demo/ping` through `RestTemplate` |
 
 Also, a cron job (each `10s`) randomly calls one of these endpoints.
 
