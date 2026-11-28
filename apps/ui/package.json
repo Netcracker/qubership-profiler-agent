@@ -29,7 +29,7 @@
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.13",
     "@types/node": "26.6.5",
-    "@types/react": "19.3.0",
+    "@types/react": "19.3.1",
     "@types/react-dom": "19.3.0",
     "@types/vkbeautify": "0.99.4",
     "@vitejs/plugin-react": "6.3.0",
