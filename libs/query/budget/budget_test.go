@@ -201,7 +201,7 @@ func TestCancelNonHeadWaiter(t *testing.T) {
 	go func() {
 		l, err := b.Acquire(context.Background(), 50)
 		if err == nil {
-			defer l.Release()
+			l.Release()
 		}
 		headDone <- err
 	}()
