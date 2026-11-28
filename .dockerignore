@@ -10,3 +10,7 @@ apps/ui/tsconfig.tsbuildinfo
 /feeder
 /runner
 /ui-seed
+
+# Subchart archives that `helm dependency update` leaves in a checkout. The
+# transfer image fetches its own at the version Chart.lock pins.
+deploy/charts/*/charts

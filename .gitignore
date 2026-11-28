@@ -37,6 +37,9 @@ buildNumber.properties
 # Ignore folders used to build binaries for old Java
 /eclipsebin/
 
+# Helm subchart archives fetched by `helm dependency update`; Chart.lock pins them.
+/deploy/charts/*/charts/
+
 # APM dependencies
 apm_modules/
 
