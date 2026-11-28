@@ -10,11 +10,6 @@ import java.util.List;
 public class WebappMountListener implements LifecycleListener {
 
     private static final List<String> WEB_RESOURCES =Arrays.asList(
-            "/WEB-INF/web.xml",
-            "/index.html",
-            "/login.html",
-            "/tree.html",
-            "/single-page/tree.html",
             "/css",
             "/js"
     );
@@ -29,6 +24,8 @@ public class WebappMountListener implements LifecycleListener {
                 context.setResources(resources);
             }
 
+            resources.addJarResources(new JarResourceSet(resources, "/", WARLauncher.PATH_TO_WAR_FILE,
+                    "/WEB-INF/embedded-webapp"));
             for(String webResource : WEB_RESOURCES) {
                 JarResourceSet jrs = new JarResourceSet(resources, webResource, WARLauncher.PATH_TO_WAR_FILE, webResource);
                 resources.addJarResources(jrs);

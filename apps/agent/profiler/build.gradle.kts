@@ -82,6 +82,19 @@ tasks.war {
         exclude("**/*.RSA")
         exclude("**/*.DSA")
     }
+    into("WEB-INF/embedded-webapp") {
+        from(jsResources) {
+            include("index.html", "login.html", "tree.html")
+        }
+        into("single-page") {
+            from(jsSinglePageResources) {
+                include("tree.html")
+            }
+        }
+        into("WEB-INF") {
+            from("src/main/webapp/WEB-INF/web.xml")
+        }
+    }
     from(jsResources)
     into("single-page") {
         from(jsSinglePageResources)
