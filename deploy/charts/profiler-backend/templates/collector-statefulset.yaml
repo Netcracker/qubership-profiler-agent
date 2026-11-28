@@ -97,6 +97,10 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: data
+        {{- with ((.Values.pvc).metadata).annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
       spec:
         accessModes: [ReadWriteOnce]
         {{- with .Values.collector.storage.storageClassName }}
